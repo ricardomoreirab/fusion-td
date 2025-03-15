@@ -1,4 +1,4 @@
-import { Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, Color4, Scene, ParticleSystem, Texture } from '@babylonjs/core';
+import { Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, Color4, Scene, ParticleSystem, Texture, Animation } from '@babylonjs/core';
 import { Game } from '../../Game';
 import { Enemy } from '../enemies/Enemy';
 
@@ -62,6 +62,7 @@ export abstract class Tower {
     protected targetEnemy: Enemy | null = null;
     protected rangeIndicator: Mesh | null = null;
     protected showingRange: boolean = false;
+    protected isInitialized: boolean = false;
     
     // Elemental properties
     protected elementType: ElementType = ElementType.NONE;
@@ -88,6 +89,11 @@ export abstract class Tower {
         
         // Create the tower mesh
         this.createMesh();
+        
+        // Add a small delay before the tower can target and fire
+        setTimeout(() => {
+            this.isInitialized = true;
+        }, 500);
     }
 
     /**
@@ -159,7 +165,10 @@ export abstract class Tower {
      * @param enemy The enemy to target
      */
     public setTarget(enemy: Enemy | null): void {
-        this.targetEnemy = enemy;
+        // Only set target if tower is initialized
+        if (this.isInitialized) {
+            this.targetEnemy = enemy;
+        }
     }
 
     /**
@@ -174,7 +183,7 @@ export abstract class Tower {
      * Fire at the current target
      */
     protected fire(): void {
-        if (!this.targetEnemy) return;
+        if (!this.targetEnemy || !this.isInitialized) return;
         
         // Calculate damage based on elemental strengths/weaknesses
         let finalDamage = this.calculateDamage(this.targetEnemy);
@@ -256,52 +265,206 @@ export abstract class Tower {
     protected createProjectileEffect(targetPosition: Vector3): void {
         if (!this.mesh) return;
         
-        // Create a particle system for the projectile
-        const particleSystem = new ParticleSystem('projectileParticles', 20, this.scene);
+        // Calculate direction and distance to target
+        const direction = targetPosition.subtract(this.position);
+        const distance = direction.length();
+        direction.normalize();
+        
+        // Create a projectile mesh
+        const projectileMesh = MeshBuilder.CreateSphere('projectile', {
+            diameter: 0.3,
+            segments: 8
+        }, this.scene);
+        
+        // Position the projectile at the top of the tower
+        const startPosition = new Vector3(
+            this.position.x,
+            this.position.y + 1.5, // Adjust based on tower height
+            this.position.z
+        );
+        projectileMesh.position = startPosition;
+        
+        // Create material for the projectile
+        const projectileMaterial = new StandardMaterial('projectileMaterial', this.scene);
+        
+        // Set material properties based on element type
+        switch (this.elementType) {
+            case ElementType.FIRE:
+                projectileMaterial.diffuseColor = new Color3(1, 0.3, 0);
+                projectileMaterial.emissiveColor = new Color3(0.8, 0.2, 0);
+                break;
+            case ElementType.WATER:
+                projectileMaterial.diffuseColor = new Color3(0, 0.5, 1);
+                projectileMaterial.emissiveColor = new Color3(0, 0.3, 0.8);
+                break;
+            case ElementType.WIND:
+                projectileMaterial.diffuseColor = new Color3(0.7, 1, 0.7);
+                projectileMaterial.emissiveColor = new Color3(0.4, 0.7, 0.4);
+                break;
+            case ElementType.EARTH:
+                projectileMaterial.diffuseColor = new Color3(0.6, 0.3, 0);
+                projectileMaterial.emissiveColor = new Color3(0.4, 0.2, 0);
+                break;
+            default:
+                projectileMaterial.diffuseColor = new Color3(0.8, 0.8, 0.8);
+                projectileMaterial.emissiveColor = new Color3(0.5, 0.5, 0.5);
+                break;
+        }
+        
+        // Add glow effect
+        projectileMaterial.specularPower = 64;
+        projectileMaterial.specularColor = projectileMaterial.diffuseColor;
+        
+        // Apply material to projectile
+        projectileMesh.material = projectileMaterial;
+        
+        // Create a particle trail for the projectile
+        const particleSystem = new ParticleSystem('projectileTrail', 20, this.scene);
         
         // Set particle texture
         particleSystem.particleTexture = new Texture('assets/textures/particle.png', this.scene);
         
         // Set emission properties
-        particleSystem.emitter = this.mesh;
-        particleSystem.minEmitBox = new Vector3(0, 1, 0); // Emit from top of tower
-        particleSystem.maxEmitBox = new Vector3(0, 1, 0);
-        
-        // Calculate direction to target
-        const direction = targetPosition.subtract(this.position);
-        direction.normalize();
+        particleSystem.emitter = projectileMesh;
+        particleSystem.minEmitBox = new Vector3(0, 0, 0);
+        particleSystem.maxEmitBox = new Vector3(0, 0, 0);
         
         // Set particle properties
-        particleSystem.direction1 = direction;
-        particleSystem.direction2 = direction;
-        
-        // Set colors based on element type
         this.setProjectileColors(particleSystem);
         
         particleSystem.minSize = 0.1;
-        particleSystem.maxSize = 0.3;
+        particleSystem.maxSize = 0.2;
         
         particleSystem.minLifeTime = 0.1;
-        particleSystem.maxLifeTime = 0.2;
+        particleSystem.maxLifeTime = 0.3;
         
-        particleSystem.emitRate = 100;
+        particleSystem.emitRate = 60;
         
         particleSystem.blendMode = ParticleSystem.BLENDMODE_ONEONE;
         
-        particleSystem.minEmitPower = 20;
-        particleSystem.maxEmitPower = 30;
+        particleSystem.minEmitPower = 0.1;
+        particleSystem.maxEmitPower = 0.3;
         
         particleSystem.updateSpeed = 0.01;
         
         // Start the particle system
         particleSystem.start();
         
+        // Animate the projectile to the target
+        const animationSpeed = 15; // Units per second
+        const travelTime = distance / animationSpeed;
+        
+        // Create animation
+        const frameRate = 30;
+        const projectileAnimation = new Animation(
+            'projectileAnimation',
+            'position',
+            frameRate,
+            Animation.ANIMATIONTYPE_VECTOR3,
+            Animation.ANIMATIONLOOPMODE_CONSTANT
+        );
+        
+        // Animation keys
+        const keyFrames = [];
+        keyFrames.push({
+            frame: 0,
+            value: startPosition
+        });
+        keyFrames.push({
+            frame: frameRate * travelTime,
+            value: targetPosition
+        });
+        
+        projectileAnimation.setKeys(keyFrames);
+        
+        // Attach animation to projectile
+        projectileMesh.animations = [projectileAnimation];
+        
+        // Run animation
+        this.scene.beginAnimation(projectileMesh, 0, frameRate * travelTime, false, 1, () => {
+            // Create impact effect at target
+            this.createImpactEffect(targetPosition);
+            
+            // Dispose projectile and particles
+            projectileMesh.dispose();
+            particleSystem.dispose();
+        });
+    }
+    
+    /**
+     * Create an impact effect at the target position
+     * @param position The position to create the impact effect
+     */
+    protected createImpactEffect(position: Vector3): void {
+        // Create a particle system for the impact
+        const impactSystem = new ParticleSystem('impactParticles', 50, this.scene);
+        
+        // Set particle texture
+        impactSystem.particleTexture = new Texture('assets/textures/particle.png', this.scene);
+        
+        // Set emission properties
+        impactSystem.emitter = position;
+        impactSystem.minEmitBox = new Vector3(-0.1, 0, -0.1);
+        impactSystem.maxEmitBox = new Vector3(0.1, 0, 0.1);
+        
+        // Set particle colors based on element type
+        switch (this.elementType) {
+            case ElementType.FIRE:
+                impactSystem.color1 = new Color4(1, 0.5, 0, 1.0);
+                impactSystem.color2 = new Color4(1, 0, 0, 1.0);
+                impactSystem.colorDead = new Color4(0.3, 0, 0, 0.0);
+                break;
+            case ElementType.WATER:
+                impactSystem.color1 = new Color4(0, 0.5, 1, 1.0);
+                impactSystem.color2 = new Color4(0, 0, 1, 1.0);
+                impactSystem.colorDead = new Color4(0, 0, 0.3, 0.0);
+                break;
+            case ElementType.WIND:
+                impactSystem.color1 = new Color4(0.7, 1, 0.7, 1.0);
+                impactSystem.color2 = new Color4(0.5, 0.8, 0.5, 1.0);
+                impactSystem.colorDead = new Color4(0.2, 0.3, 0.2, 0.0);
+                break;
+            case ElementType.EARTH:
+                impactSystem.color1 = new Color4(0.6, 0.3, 0, 1.0);
+                impactSystem.color2 = new Color4(0.4, 0.2, 0, 1.0);
+                impactSystem.colorDead = new Color4(0.2, 0.1, 0, 0.0);
+                break;
+            default:
+                impactSystem.color1 = new Color4(1, 1, 1, 1.0);
+                impactSystem.color2 = new Color4(0.5, 0.5, 0.5, 1.0);
+                impactSystem.colorDead = new Color4(0, 0, 0, 0.0);
+                break;
+        }
+        
+        // Set particle properties
+        impactSystem.minSize = 0.1;
+        impactSystem.maxSize = 0.4;
+        
+        impactSystem.minLifeTime = 0.2;
+        impactSystem.maxLifeTime = 0.5;
+        
+        impactSystem.emitRate = 100;
+        
+        impactSystem.blendMode = ParticleSystem.BLENDMODE_ONEONE;
+        
+        // Emit in all directions
+        impactSystem.direction1 = new Vector3(-1, -1, -1);
+        impactSystem.direction2 = new Vector3(1, 1, 1);
+        
+        impactSystem.minEmitPower = 1;
+        impactSystem.maxEmitPower = 3;
+        
+        impactSystem.updateSpeed = 0.01;
+        
+        // Start the particle system
+        impactSystem.start();
+        
         // Stop and dispose after a short time
         setTimeout(() => {
-            particleSystem.stop();
+            impactSystem.stop();
             setTimeout(() => {
-                particleSystem.dispose();
-            }, 1000);
+                impactSystem.dispose();
+            }, 500);
         }, 200);
     }
     
