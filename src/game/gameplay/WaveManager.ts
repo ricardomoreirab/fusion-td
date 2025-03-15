@@ -1,5 +1,6 @@
 import { EnemyManager } from './EnemyManager';
 import { PlayerStats } from './PlayerStats';
+import { Enemy } from './enemies/Enemy';
 
 // Define a wave of enemies
 interface Wave {
@@ -19,12 +20,14 @@ class ParallelWave {
     private completed: boolean = false;
     private waveNumber: number;
     private reward: number;
+    private difficultyMultiplier: number;
 
-    constructor(enemyManager: EnemyManager, enemies: { type: string, delay: number }[], waveNumber: number, reward: number) {
+    constructor(enemyManager: EnemyManager, enemies: { type: string, delay: number }[], waveNumber: number, reward: number, difficultyMultiplier: number) {
         this.enemyManager = enemyManager;
         this.enemiesLeftToSpawn = [...enemies]; // Clone the array
         this.waveNumber = waveNumber;
         this.reward = reward;
+        this.difficultyMultiplier = difficultyMultiplier;
         this.timeSinceLastSpawn = Number.MAX_VALUE; // Force immediate spawn
     }
 
@@ -55,7 +58,10 @@ class ParallelWave {
         if (this.timeSinceLastSpawn >= this.enemiesLeftToSpawn[0].delay) {
             // Spawn the enemy
             const enemyType = this.enemiesLeftToSpawn[0].type;
-            this.enemyManager.createEnemy(enemyType);
+            const enemy = this.enemyManager.createEnemy(enemyType);
+            
+            // Apply difficulty multiplier
+            enemy.applyDifficultyMultiplier(this.difficultyMultiplier);
 
             // Remove from queue
             this.enemiesLeftToSpawn.shift();
@@ -228,12 +234,6 @@ export class WaveManager {
      * @returns The generated wave
      */
     private generateNextWave(): Wave {
-        // Every 5 waves, increase difficulty
-        if (this.currentWave % 5 === 0 && this.currentWave > 0) {
-            this.difficultyMultiplier += 0.5;
-            console.log(`Difficulty increased to ${this.difficultyMultiplier}x at wave ${this.currentWave + 1}`);
-        }
-        
         // Base counts that increase with wave number
         const basicCount = Math.floor(10 + this.currentWave * 2);
         const fastCount = Math.floor(Math.max(0, 5 + (this.currentWave - 2) * 3));
@@ -302,12 +302,7 @@ export class WaveManager {
         if (this.timeSinceLastSpawn >= this.enemiesLeftToSpawn[0].delay) {
             // Spawn the enemy
             const enemyType = this.enemiesLeftToSpawn[0].type;
-            const enemy = this.enemyManager.createEnemy(enemyType);
-            
-            // Apply difficulty multiplier to enemy stats
-            if (this.difficultyMultiplier > 1.0) {
-                enemy.applyDifficultyMultiplier(this.difficultyMultiplier);
-            }
+            const enemy = this.createEnemyWithDifficulty(enemyType);
             
             // Remove from queue
             this.enemiesLeftToSpawn.shift();
@@ -352,52 +347,134 @@ export class WaveManager {
     }
 
     /**
-     * Start the next wave
-     * @returns True if wave was started, false if all waves are complete
+     * Create a parallel wave with the specified enemies
+     * This is a public method that can be called from outside to create additional parallel waves
+     * @param enemies The enemies to spawn in this wave
+     * @param reward The reward for completing this wave
+     * @returns True if the wave was created successfully
      */
-    public startNextWave(): boolean {
-        // Reset auto-wave timer
-        this.autoWaveTimer = 0;
-        
-        // Get the next wave to spawn
-        let wave: Wave;
-        if (this.currentWave < this.waves.length) {
-            wave = this.waves[this.currentWave];
-        } else {
-            wave = this.generateNextWave();
+    public createParallelWave(enemies: { type: string, count: number, delay: number }[], reward: number): boolean {
+        // If no wave is in progress, start a regular wave instead
+        if (!this.waveInProgress) {
+            console.log("No wave in progress. Start a regular wave first.");
+            return false;
         }
         
-        // Prepare enemies to spawn
-        const newEnemies: { type: string, delay: number }[] = [];
-        for (const enemyGroup of wave.enemies) {
+        // Convert the wave format to a flat list of enemies with delays
+        const enemiesFlat: { type: string, delay: number }[] = [];
+        for (const enemyGroup of enemies) {
             for (let i = 0; i < enemyGroup.count; i++) {
-                newEnemies.push({
+                enemiesFlat.push({
                     type: enemyGroup.type,
                     delay: enemyGroup.delay
                 });
             }
         }
         
-        // Create a new parallel wave
+        // Create a new parallel wave using the private helper method
+        this._createParallelWave(
+            enemiesFlat,
+            this.currentWave,
+            reward
+        );
+        
+        console.log(`Created additional parallel wave with ${enemiesFlat.length} enemies`);
+        
+        return true;
+    }
+
+    /**
+     * Create a parallel wave (private implementation)
+     * @param enemies The enemies to spawn in this wave
+     * @param waveNumber The wave number
+     * @param reward The reward for completing this wave
+     * @returns The created parallel wave
+     */
+    private _createParallelWave(enemies: { type: string, delay: number }[], waveNumber: number, reward: number): ParallelWave {
+        // Create a new parallel wave with the current difficulty multiplier
         const parallelWave = new ParallelWave(
             this.enemyManager,
-            newEnemies,
-            this.currentWave + 1,
-            wave.reward
+            enemies,
+            waveNumber,
+            reward,
+            this.difficultyMultiplier
         );
         
         // Add to parallel waves array
         this.parallelWaves.push(parallelWave);
         
-        console.log(`Starting parallel wave ${this.currentWave + 1} with ${newEnemies.length} enemies`);
+        console.log(`Created parallel wave ${waveNumber} with ${enemies.length} enemies at difficulty ${this.difficultyMultiplier.toFixed(2)}x`);
         
-        // Set wave in progress flag if this is the first wave
-        if (!this.waveInProgress) {
-            this.waveInProgress = true;
+        return parallelWave;
+    }
+
+    /**
+     * Start the next wave
+     * @returns True if the wave was started, false if all waves are completed
+     */
+    public startNextWave(): boolean {
+        // Reset auto-wave timer
+        this.autoWaveTimer = 0;
+        
+        // If all waves are completed, return false
+        if (this.currentWave >= this.totalWaves) {
+            return false;
         }
         
-        // Increment the current wave counter
+        // If a wave is already in progress, return false
+        if (this.waveInProgress) {
+            return false;
+        }
+        
+        // Increment wave counter
         this.currentWave++;
+        
+        // Update difficulty multiplier every 3 waves (20% increase)
+        if (this.currentWave % 3 === 0) {
+            this.difficultyMultiplier *= 1.2;
+            console.log(`Wave ${this.currentWave}: Difficulty increased to ${this.difficultyMultiplier.toFixed(2)}x`);
+        }
+        
+        // Get the current wave
+        let wave: Wave;
+        if (this.currentWave <= this.waves.length) {
+            wave = this.waves[this.currentWave - 1];
+        } else {
+            // Generate a new wave if we've run out of predefined waves
+            wave = this.generateNextWave();
+            this.waves.push(wave);
+        }
+        
+        // Set up the enemies to spawn
+        this.enemiesLeftToSpawn = [];
+        
+        // Convert the wave format to a flat list of enemies with delays
+        for (const enemyGroup of wave.enemies) {
+            for (let i = 0; i < enemyGroup.count; i++) {
+                this.enemiesLeftToSpawn.push({
+                    type: enemyGroup.type,
+                    delay: enemyGroup.delay
+                });
+            }
+        }
+        
+        // Set wave in progress
+        this.waveInProgress = true;
+        
+        // Reset spawn timer
+        this.timeSinceLastSpawn = 0;
+        
+        // Clear any existing parallel waves
+        this.parallelWaves = [];
+        
+        // Create a new parallel wave using the helper method
+        this._createParallelWave(
+            this.enemiesLeftToSpawn,
+            this.currentWave,
+            wave.reward
+        );
+        
+        console.log(`Starting wave ${this.currentWave} with ${this.enemiesLeftToSpawn.length} enemies`);
         
         return true;
     }
@@ -488,5 +565,37 @@ export class WaveManager {
             return 0;
         }
         return Math.max(0, this.autoWaveDelay - this.autoWaveTimer);
+    }
+
+    /**
+     * Create an enemy with the current difficulty multiplier applied
+     * @param type The type of enemy to create
+     * @returns The created enemy
+     */
+    private createEnemyWithDifficulty(type: string): Enemy {
+        // Create the enemy
+        const enemy = this.enemyManager.createEnemy(type);
+        
+        // Apply difficulty multiplier
+        enemy.applyDifficultyMultiplier(this.difficultyMultiplier);
+        
+        return enemy;
+    }
+
+    /**
+     * Increment the wave counter and apply difficulty changes
+     * This is used when creating parallel waves to count them as new waves
+     */
+    public incrementWaveCounter(): void {
+        // Increment wave counter
+        this.currentWave++;
+        
+        // Update difficulty multiplier every 3 waves (20% increase)
+        if (this.currentWave % 3 === 0) {
+            this.difficultyMultiplier *= 1.2;
+            console.log(`Wave ${this.currentWave}: Difficulty increased to ${this.difficultyMultiplier.toFixed(2)}x`);
+        }
+        
+        console.log(`Wave counter incremented to ${this.currentWave}`);
     }
 } 

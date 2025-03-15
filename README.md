@@ -48,6 +48,34 @@ npm run build
 
 The built files will be in the `dist` directory.
 
+## Deployment
+
+### Deploying to Vercel
+
+This project is configured for easy deployment to Vercel:
+
+1. Install the Vercel CLI:
+   ```
+   npm install -g vercel
+   ```
+
+2. Login to Vercel:
+   ```
+   vercel login
+   ```
+
+3. Deploy the project:
+   ```
+   vercel
+   ```
+
+4. For production deployment:
+   ```
+   vercel --prod
+   ```
+
+Alternatively, you can connect your GitHub repository to Vercel for automatic deployments.
+
 ## Game Controls
 
 - **Left Click**: Place selected tower / Interact with UI

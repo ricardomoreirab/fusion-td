@@ -6,6 +6,8 @@ export class Enemy {
     protected game: Game;
     protected scene: Scene;
     protected mesh: Mesh | null = null;
+    protected healthBarMesh: Mesh | null = null;
+    protected healthBarBackgroundMesh: Mesh | null = null;
     protected position: Vector3;
     protected speed: number;
     protected originalSpeed: number; // Store original speed for status effects
@@ -16,8 +18,7 @@ export class Enemy {
     protected alive: boolean = true;
     protected path: Vector3[] = [];
     protected currentPathIndex: number = 0;
-    protected healthBar: Mesh | null = null;
-    protected healthBarBackground: Mesh | null = null;
+    protected originalScale: number = 1.0; // Store original scale for health-based scaling
     
     // Elemental properties
     protected enemyType: EnemyType = EnemyType.NORMAL;
@@ -73,82 +74,71 @@ export class Enemy {
     }
 
     /**
-     * Create a health bar above the enemy
+     * Create health bar for the enemy
      */
     protected createHealthBar(): void {
         if (!this.mesh) return;
         
         // Create background bar (gray)
-        this.healthBarBackground = MeshBuilder.CreateBox('healthBarBg', {
-            width: 1,
-            height: 0.1,
-            depth: 0.1
+        this.healthBarBackgroundMesh = MeshBuilder.CreateBox('healthBarBg', {
+            width: 1.0,
+            height: 0.15,
+            depth: 0.05
         }, this.scene);
         
-        // Position above enemy
-        this.healthBarBackground.position = new Vector3(
+        // Position above the enemy
+        this.healthBarBackgroundMesh.position = new Vector3(
             this.position.x,
-            this.position.y + 1.2, // Increased height above enemy
+            this.position.y + 1.0,
             this.position.z
         );
         
-        // Create material
+        // Create material for background
         const bgMaterial = new StandardMaterial('healthBarBgMaterial', this.scene);
         bgMaterial.diffuseColor = new Color3(0.3, 0.3, 0.3);
-        bgMaterial.alpha = 0.8; // Slightly transparent
-        this.healthBarBackground.material = bgMaterial;
+        this.healthBarBackgroundMesh.material = bgMaterial;
         
         // Create health bar (green)
-        this.healthBar = MeshBuilder.CreateBox('healthBar', {
-            width: 1,
-            height: 0.1,
-            depth: 0.1
+        this.healthBarMesh = MeshBuilder.CreateBox('healthBar', {
+            width: 1.0,
+            height: 0.15,
+            depth: 0.06 // Slightly in front of background
         }, this.scene);
         
-        // Position at same place as background
-        this.healthBar.position = this.healthBarBackground.position.clone();
+        // Position at the same place as background
+        this.healthBarMesh.position = new Vector3(
+            this.position.x,
+            this.position.y + 1.0,
+            this.position.z
+        );
         
-        // Create material
-        const material = new StandardMaterial('healthBarMaterial', this.scene);
-        material.diffuseColor = new Color3(0.2, 0.8, 0.2);
-        material.alpha = 0.8; // Slightly transparent
-        this.healthBar.material = material;
+        // Create material for health bar
+        const healthMaterial = new StandardMaterial('healthBarMaterial', this.scene);
+        healthMaterial.diffuseColor = new Color3(0.2, 0.8, 0.2); // Green
+        this.healthBarMesh.material = healthMaterial;
         
-        // Set billboard mode to always face camera
-        this.healthBar.billboardMode = Mesh.BILLBOARDMODE_Y;
-        this.healthBarBackground.billboardMode = Mesh.BILLBOARDMODE_Y;
-        
-        // Update health bar to match current health
+        // Update health bar to match initial health
         this.updateHealthBar();
     }
 
     /**
-     * Update the health bar to reflect current health
+     * Update the health bar based on current health
      */
     protected updateHealthBar(): void {
-        if (!this.healthBar || !this.healthBarBackground) return;
+        if (!this.mesh || !this.healthBarMesh || !this.healthBarBackgroundMesh) return;
         
-        // Update health bar background position to be above the enemy
-        this.healthBarBackground.position = new Vector3(
-            this.position.x,
-            this.position.y + 1.2, // Increased height above enemy
-            this.position.z
-        );
+        // Calculate health percentage
+        const healthPercent = Math.max(0, this.health / this.maxHealth);
         
-        // Scale width based on health percentage
-        const healthPercent = this.health / this.maxHealth;
-        this.healthBar.scaling.x = healthPercent;
+        // Update health bar width based on health percentage
+        this.healthBarMesh.scaling.x = healthPercent;
         
-        // Adjust position to align left edge
-        const offset = (1 - healthPercent) / 2;
-        this.healthBar.position = new Vector3(
-            this.position.x - offset,
-            this.position.y + 1.2, // Increased height above enemy
-            this.position.z
-        );
+        // Adjust position to align left side
+        const offset = (1 - healthPercent) * 0.5;
+        this.healthBarMesh.position.x = this.position.x - offset;
         
-        // Update color based on health
-        const material = this.healthBar.material as StandardMaterial;
+        // Update health bar color based on health percentage
+        const material = this.healthBarMesh.material as StandardMaterial;
         if (healthPercent > 0.6) {
             material.diffuseColor = new Color3(0.2, 0.8, 0.2); // Green
         } else if (healthPercent > 0.3) {
@@ -157,11 +147,22 @@ export class Enemy {
             material.diffuseColor = new Color3(0.8, 0.2, 0.2); // Red
         }
         
-        // Make sure health bars always face the camera
-        if (this.scene.activeCamera) {
-            this.healthBar.billboardMode = Mesh.BILLBOARDMODE_Y;
-            this.healthBarBackground.billboardMode = Mesh.BILLBOARDMODE_Y;
-        }
+        // Position health bars above the enemy
+        this.healthBarBackgroundMesh.position.x = this.position.x;
+        this.healthBarBackgroundMesh.position.y = this.position.y + 1.0;
+        this.healthBarBackgroundMesh.position.z = this.position.z;
+        
+        this.healthBarMesh.position.y = this.position.y + 1.0;
+        this.healthBarMesh.position.z = this.position.z;
+    }
+
+    /**
+     * Update the enemy's scale based on current health
+     * This method is replaced by updateHealthBar
+     */
+    protected updateHealthScale(): void {
+        // This method is now deprecated - using health bars instead
+        // Keeping it for compatibility with child classes that might override it
     }
 
     /**
@@ -228,7 +229,7 @@ export class Enemy {
         // Update mesh position
         this.mesh.position = this.position.clone();
         
-        // Update health bar position
+        // Update health bar instead of scaling
         this.updateHealthBar();
         
         return false;
@@ -490,8 +491,8 @@ export class Enemy {
     }
 
     /**
-     * Take damage
-     * @param amount Amount of damage to take
+     * Apply damage to the enemy
+     * @param amount The amount of damage to apply
      * @returns True if the enemy died from this damage
      */
     public takeDamage(amount: number): boolean {
@@ -499,11 +500,11 @@ export class Enemy {
         
         this.health -= amount;
         
-        // Update health bar
+        // Update health bar instead of scaling
         this.updateHealthBar();
         
-        // Check if dead
         if (this.health <= 0) {
+            this.health = 0;
             this.die();
             return true;
         }
@@ -512,21 +513,42 @@ export class Enemy {
     }
 
     /**
-     * Kill the enemy
+     * Handle enemy death
      */
     protected die(): void {
         if (!this.alive) return;
         
         this.alive = false;
         
-        // Play death effect
+        // Create death effect
         this.createDeathEffect();
         
-        // Play sound
-        this.game.getAssetManager().playSound('enemyDeath');
+        // Remove from scene
+        if (this.mesh) {
+            this.mesh.dispose();
+            this.mesh = null;
+        }
         
-        // Dispose meshes
-        this.dispose();
+        // Remove health bar
+        if (this.healthBarMesh) {
+            this.healthBarMesh.dispose();
+            this.healthBarMesh = null;
+        }
+        
+        if (this.healthBarBackgroundMesh) {
+            this.healthBarBackgroundMesh.dispose();
+            this.healthBarBackgroundMesh = null;
+        }
+        
+        // Remove status effect particles
+        this.statusEffectParticles.forEach(particleSystem => {
+            particleSystem.stop();
+            particleSystem.dispose();
+        });
+        this.statusEffectParticles.clear();
+        
+        // Note: Money reward is handled by the EnemyManager which has access to PlayerStats
+        // We don't need to award money here as it's done in EnemyManager.update()
     }
 
     /**
@@ -579,16 +601,6 @@ export class Enemy {
             this.mesh = null;
         }
         
-        if (this.healthBar) {
-            this.healthBar.dispose();
-            this.healthBar = null;
-        }
-        
-        if (this.healthBarBackground) {
-            this.healthBarBackground.dispose();
-            this.healthBarBackground = null;
-        }
-        
         // Dispose all particle systems
         this.statusEffectParticles.forEach(particleSystem => {
             particleSystem.dispose();
@@ -598,18 +610,20 @@ export class Enemy {
 
     /**
      * Apply a difficulty multiplier to the enemy's stats
-     * @param multiplier The difficulty multiplier to apply
+     * @param multiplier The multiplier to apply
      */
     public applyDifficultyMultiplier(multiplier: number): void {
-        // Increase health and damage based on the multiplier
-        this.health *= multiplier;
-        this.maxHealth *= multiplier;
+        // Apply multiplier to health
+        this.maxHealth = Math.floor(this.maxHealth * multiplier);
+        this.health = this.maxHealth;
+        
+        // Apply multiplier to damage
         this.damage = Math.floor(this.damage * multiplier);
         
-        // Also increase the reward slightly
-        this.reward = Math.floor(this.reward * (1 + (multiplier - 1) * 0.5));
+        // Apply multiplier to reward
+        this.reward = Math.floor(this.reward * multiplier);
         
-        // Update the health bar to reflect the new max health
+        // Update health bar
         this.updateHealthBar();
     }
 

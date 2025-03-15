@@ -263,7 +263,44 @@ export class GameplayState implements GameState {
         });
         waveButton.onPointerUpObservable.add(() => {
             if (this.waveManager) {
-                this.waveManager.startNextWave();
+                // If a wave is already in progress, create a parallel wave
+                if (this.waveManager.isWaveInProgress()) {
+                    // Create a parallel wave with similar enemies to the current wave
+                    const currentWave = this.waveManager.getCurrentWave();
+                    const enemies = [];
+                    
+                    // Add basic enemies
+                    enemies.push({ type: 'basic', count: 5 + Math.floor(currentWave / 2), delay: 1.0 });
+                    
+                    // Add fast enemies after wave 2
+                    if (currentWave > 2) {
+                        enemies.push({ type: 'fast', count: 3 + Math.floor((currentWave - 2) / 2), delay: 0.8 });
+                    }
+                    
+                    // Add tank enemies after wave 4
+                    if (currentWave > 4) {
+                        enemies.push({ type: 'tank', count: 1 + Math.floor((currentWave - 4) / 3), delay: 2.0 });
+                    }
+                    
+                    // Add boss enemy for every 10 waves
+                    if (currentWave % 10 === 0 && currentWave > 0) {
+                        enemies.push({ type: 'boss', count: 1, delay: 0 });
+                    }
+                    
+                    // Create the parallel wave with a reward based on the current wave
+                    const reward = 25 + currentWave * 10;
+                    
+                    // Increment the wave counter manually to count this as a new wave
+                    this.waveManager.incrementWaveCounter();
+                    
+                    // Create the parallel wave
+                    this.waveManager.createParallelWave(enemies, reward);
+                    
+                    console.log(`Created parallel wave with ${enemies.length} enemy types as wave ${this.waveManager.getCurrentWave()}`);
+                } else {
+                    // Start a new wave if none is in progress
+                    this.waveManager.startNextWave();
+                }
             }
         });
         this.ui.addControl(waveButton);
@@ -494,8 +531,8 @@ export class GameplayState implements GameState {
                         // Check if the position is valid for tower placement
                         const gridPosition = this.map.worldToGrid(position);
                         if (this.map.canPlaceTower(gridPosition.x, gridPosition.y)) {
-                            // Show confirmation buttons
-                            this.showConfirmationButtons(position);
+                            // Place tower immediately instead of showing confirmation buttons
+                            this.placeTowerAtPosition(position);
                         }
                     }
                 }
@@ -570,12 +607,8 @@ export class GameplayState implements GameState {
     }
 
     private selectTowerType(type: string): void {
-        // Clear any existing confirmation state
-        this.hideConfirmationButtons();
-        
         // Set the selected tower type
         this.selectedTowerType = type;
-        this.placementState = 'selecting';
         console.log(`Selected tower type: ${type}`);
         
         // Create tower preview if it doesn't exist
@@ -887,12 +920,8 @@ export class GameplayState implements GameState {
     }
 
     private cancelTowerPlacement(): void {
-        // Hide confirmation buttons
-        this.hideConfirmationButtons();
-        
         // Reset tower selection completely
         this.selectedTowerType = null;
-        this.placementState = 'selecting';
         
         // Hide the preview
         if (this.towerPreview) {
@@ -1738,5 +1767,36 @@ export class GameplayState implements GameState {
         setTimeout(() => { button.left = `${parseInt(originalLeft as string) - shakeAmount}px`; }, shakeSpeed * 2);
         setTimeout(() => { button.left = `${parseInt(originalLeft as string) + shakeAmount}px`; }, shakeSpeed * 3);
         setTimeout(() => { button.left = originalLeft; }, shakeSpeed * 4);
+    }
+
+    /**
+     * Place a tower at the specified position
+     * @param position The world position to place the tower
+     */
+    private placeTowerAtPosition(position: Vector3): void {
+        if (!this.map || !this.towerManager || !this.playerStats || !this.selectedTowerType) {
+            return;
+        }
+        
+        const gridPosition = this.map.worldToGrid(position);
+        const worldPosition = this.map.gridToWorld(gridPosition.x, gridPosition.y);
+        
+        // Check if we can afford the tower
+        const towerCost = this.getTowerCost(this.selectedTowerType);
+        if (this.playerStats.getMoney() >= towerCost) {
+            // Place the tower at the grid center position
+            this.towerManager.createTower(this.selectedTowerType, new Vector3(worldPosition.x, position.y, worldPosition.z));
+            this.playerStats.spendMoney(towerCost);
+            
+            // Mark the grid cell as occupied
+            this.map.setTowerPlaced(gridPosition.x, gridPosition.y, true);
+            
+            // Play sound effect
+            this.game.getAssetManager().playSound('towerShoot');
+            
+            console.log(`Tower placed at grid position (${gridPosition.x}, ${gridPosition.y})`);
+        } else {
+            console.log(`Not enough money to place tower. Need ${towerCost}, have ${this.playerStats.getMoney()}`);
+        }
     }
 } 
