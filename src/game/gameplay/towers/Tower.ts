@@ -63,6 +63,8 @@ export abstract class Tower {
     protected rangeIndicator: Mesh | null = null;
     protected showingRange: boolean = false;
     protected isInitialized: boolean = false;
+    protected isSelected: boolean = false;
+    protected selectionIndicator: Mesh | null = null;
     
     // Elemental properties
     protected elementType: ElementType = ElementType.NONE;
@@ -85,7 +87,7 @@ export abstract class Tower {
         this.fireRate = fireRate;
         this.cost = cost;
         this.upgradeCost = Math.floor(cost * 0.75);
-        this.sellValue = Math.floor(cost * 0.5);
+        this.sellValue = Math.floor(cost * 0.6);
         
         // Create the tower mesh
         this.createMesh();
@@ -535,10 +537,18 @@ export abstract class Tower {
         
         // Update costs
         this.upgradeCost = Math.floor(this.upgradeCost * this.upgradeMultiplier);
-        this.sellValue = Math.floor((this.cost + (this.upgradeCost / this.upgradeMultiplier)) * 0.5);
+        
+        // Update sell value to 60% of total cost
+        this.updateSellValue();
         
         // Update visuals
         this.updateVisuals();
+        
+        // Update range indicator if it's showing
+        if (this.showingRange && this.rangeIndicator) {
+            this.hideRangeIndicator();
+            this.showRangeIndicator();
+        }
         
         return true;
     }
@@ -667,6 +677,9 @@ export abstract class Tower {
         }
         
         this.hideRangeIndicator();
+        
+        // Remove selection indicator if it exists
+        this.removeSelectionIndicator();
     }
 
     /**
@@ -696,5 +709,115 @@ export abstract class Tower {
         return this.elementType !== ElementType.NONE && 
                other.elementType !== ElementType.NONE && 
                this.elementType !== other.elementType;
+    }
+
+    /**
+     * Select this tower
+     */
+    public select(): void {
+        if (this.isSelected) return;
+        
+        this.isSelected = true;
+        this.showRangeIndicator();
+        this.createSelectionIndicator();
+    }
+    
+    /**
+     * Deselect this tower
+     */
+    public deselect(): void {
+        if (!this.isSelected) return;
+        
+        this.isSelected = false;
+        this.hideRangeIndicator();
+        this.removeSelectionIndicator();
+    }
+    
+    /**
+     * Check if this tower is selected
+     */
+    public getIsSelected(): boolean {
+        return this.isSelected;
+    }
+    
+    /**
+     * Create a visual indicator that this tower is selected
+     */
+    protected createSelectionIndicator(): void {
+        if (this.selectionIndicator) return;
+        
+        // Create a ring around the tower to indicate selection
+        this.selectionIndicator = MeshBuilder.CreateTorus('selectionIndicator', {
+            diameter: 2.2,
+            thickness: 0.2,
+            tessellation: 32
+        }, this.scene);
+        
+        // Position it at the base of the tower
+        this.selectionIndicator.position = new Vector3(
+            this.position.x,
+            0.1, // Slightly above ground
+            this.position.z
+        );
+        
+        // Create a glowing material
+        const material = new StandardMaterial('selectionMaterial', this.scene);
+        material.diffuseColor = new Color3(0.3, 0.8, 1.0);
+        material.emissiveColor = new Color3(0.3, 0.8, 1.0);
+        material.alpha = 0.7;
+        this.selectionIndicator.material = material;
+        
+        // Add a simple rotation animation
+        const rotationAnimation = new Animation(
+            'selectionRotation',
+            'rotation.y',
+            30,
+            Animation.ANIMATIONTYPE_FLOAT,
+            Animation.ANIMATIONLOOPMODE_CYCLE
+        );
+        
+        const keyFrames = [];
+        keyFrames.push({ frame: 0, value: 0 });
+        keyFrames.push({ frame: 100, value: Math.PI * 2 });
+        rotationAnimation.setKeys(keyFrames);
+        
+        this.selectionIndicator.animations = [rotationAnimation];
+        this.scene.beginAnimation(this.selectionIndicator, 0, 100, true);
+    }
+    
+    /**
+     * Remove the selection indicator
+     */
+    protected removeSelectionIndicator(): void {
+        if (this.selectionIndicator) {
+            this.selectionIndicator.dispose();
+            this.selectionIndicator = null;
+        }
+    }
+    
+    /**
+     * Update the sell value to be 60% of the total cost spent on the tower
+     */
+    public updateSellValue(): void {
+        // Calculate total spent (base cost + upgrades)
+        const baseCost = this.cost;
+        let upgradeCost = 0;
+        
+        // Calculate cost of all upgrades
+        for (let i = 1; i < this.level; i++) {
+            upgradeCost += Math.floor(this.cost * this.upgradeMultiplier * i);
+        }
+        
+        // Set sell value to 60% of total cost
+        const totalCost = baseCost + upgradeCost;
+        this.sellValue = Math.floor(totalCost * 0.6);
+    }
+
+    /**
+     * Get the tower's mesh
+     * @returns The tower's mesh
+     */
+    public getMesh(): Mesh | null {
+        return this.mesh;
     }
 } 

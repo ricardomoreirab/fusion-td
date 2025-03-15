@@ -1,4 +1,4 @@
-import { Engine, Scene, Vector3, Color3, Color4, ArcRotateCamera, HemisphericLight, DirectionalLight, PointLight, ShadowGenerator, MeshBuilder, StandardMaterial, Texture, KeyboardEventTypes, Mesh, LinesMesh, Matrix, PointerEventTypes, PointerInfo } from '@babylonjs/core';
+import { Engine, Scene, Vector3, Color3, Color4, ArcRotateCamera, HemisphericLight, DirectionalLight, PointLight, ShadowGenerator, MeshBuilder, StandardMaterial, Texture, KeyboardEventTypes, Mesh, LinesMesh, Matrix, PointerEventTypes, PointerInfo, AbstractMesh, ParticleSystem } from '@babylonjs/core';
 import { AdvancedDynamicTexture, Button, Control, Rectangle, TextBlock, Image, Grid, StackPanel } from '@babylonjs/gui';
 import { Game } from '../Game';
 import { GameState } from './GameState';
@@ -7,6 +7,7 @@ import { TowerManager } from '../gameplay/TowerManager';
 import { EnemyManager } from '../gameplay/EnemyManager';
 import { WaveManager } from '../gameplay/WaveManager';
 import { PlayerStats } from '../gameplay/PlayerStats';
+import { Tower } from '../gameplay/towers/Tower';
 
 export class GameplayState implements GameState {
     private game: Game;
@@ -23,6 +24,10 @@ export class GameplayState implements GameState {
     private confirmationButtons: { container: Rectangle | null, position: Vector3 | null } = { container: null, position: null };
     private placementState: 'selecting' | 'confirming' = 'selecting';
     private scene: Scene | null = null;
+    private selectedTower: Tower | null = null;
+    private sellButton: Rectangle | null = null;
+    private upgradeButton: Rectangle | null = null;
+    private towerInfoPanel: Rectangle | null = null;
 
     constructor(game: Game) {
         this.game = game;
@@ -459,21 +464,21 @@ export class GameplayState implements GameState {
         
         this.scene.onPointerDown = (evt) => {
             // Only handle left mouse button
-            if (evt.button !== 0) return;
+            if (evt.button !== 0 || !this.scene) return;
+            
+            // Check if we clicked on a UI element
+            const pickInfo = this.scene.pick(
+                this.scene.pointerX, 
+                this.scene.pointerY
+            );
+            
+            // Skip if we're clicking on a UI element
+            if (pickInfo.hit && pickInfo.pickedMesh && pickInfo.pickedMesh.name.includes('GUI')) {
+                return;
+            }
             
             // If we're in tower placement mode
             if (this.selectedTowerType && this.scene) {
-                // Check if we clicked on a UI element
-                const pickInfo = this.scene.pick(
-                    this.scene.pointerX, 
-                    this.scene.pointerY
-                );
-                
-                // Skip if we're clicking on a UI element
-                if (pickInfo.hit && pickInfo.pickedMesh && pickInfo.pickedMesh.name.includes('GUI')) {
-                    return;
-                }
-                
                 // Get the position from the ground
                 const pickResult = this.scene.pick(
                     this.scene.pointerX, 
@@ -493,6 +498,28 @@ export class GameplayState implements GameState {
                             this.showConfirmationButtons(position);
                         }
                     }
+                }
+            } else {
+                // We're not in tower placement mode, check if we clicked on a tower
+                const pickResult = this.scene.pick(
+                    this.scene.pointerX, 
+                    this.scene.pointerY
+                );
+                
+                if (pickResult.hit && pickResult.pickedMesh) {
+                    // Find the tower that owns this mesh
+                    const clickedTower = this.findTowerByMesh(pickResult.pickedMesh);
+                    
+                    if (clickedTower) {
+                        // Select the tower
+                        this.selectTower(clickedTower);
+                    } else {
+                        // Clicked on something else, deselect current tower
+                        this.deselectTower();
+                    }
+                } else {
+                    // Clicked on nothing, deselect current tower
+                    this.deselectTower();
                 }
             }
         };
@@ -1148,5 +1175,568 @@ export class GameplayState implements GameState {
         });
         
         parent.addControl(button);
+    }
+
+    /**
+     * Find a tower that owns the given mesh
+     * @param mesh The mesh to check
+     * @returns The tower that owns the mesh, or null if not found
+     */
+    private findTowerByMesh(mesh: AbstractMesh): Tower | null {
+        if (!this.towerManager) return null;
+        
+        // Get all towers
+        const towers = this.towerManager.getTowers();
+        
+        // Check if the mesh is part of any tower
+        for (const tower of towers) {
+            const towerMesh = tower.getMesh();
+            // Check if the mesh is the tower's mesh or a child of it
+            if (towerMesh && (towerMesh === mesh || this.isMeshChildOf(mesh, towerMesh))) {
+                return tower;
+            }
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Check if a mesh is a child of another mesh
+     * @param child The potential child mesh
+     * @param parent The potential parent mesh
+     * @returns True if the child is a descendant of the parent
+     */
+    private isMeshChildOf(child: AbstractMesh, parent: Mesh): boolean {
+        if (!parent) return false;
+        
+        let current = child.parent;
+        while (current) {
+            if (current === parent) {
+                return true;
+            }
+            current = current.parent;
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Select a tower
+     * @param tower The tower to select
+     */
+    private selectTower(tower: Tower): void {
+        // Deselect current tower if there is one
+        this.deselectTower();
+        
+        // Select the new tower
+        this.selectedTower = tower;
+        tower.select();
+        
+        // Show tower info and action buttons
+        this.showTowerActions();
+    }
+    
+    /**
+     * Deselect the current tower
+     */
+    private deselectTower(): void {
+        if (this.selectedTower) {
+            this.selectedTower.deselect();
+            this.selectedTower = null;
+        }
+        
+        // Hide tower actions
+        this.hideTowerActions();
+    }
+    
+    /**
+     * Show tower info and action buttons
+     */
+    private showTowerActions(): void {
+        if (!this.ui || !this.selectedTower) return;
+        
+        // Create container for tower actions if it doesn't exist
+        if (!this.towerInfoPanel) {
+            this.towerInfoPanel = new Rectangle('towerInfoPanel');
+            this.towerInfoPanel.width = "220px";
+            this.towerInfoPanel.height = "160px";
+            this.towerInfoPanel.cornerRadius = 10;
+            this.towerInfoPanel.color = "#333333";
+            this.towerInfoPanel.thickness = 2;
+            this.towerInfoPanel.background = "#222222";
+            this.towerInfoPanel.alpha = 0.9;
+            this.towerInfoPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+            this.towerInfoPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+            this.towerInfoPanel.top = "-80px";
+            this.towerInfoPanel.left = "-20px";
+            this.ui.addControl(this.towerInfoPanel);
+            
+            // Add title
+            const titleBlock = new TextBlock('towerInfoTitle', 'Tower Info');
+            titleBlock.color = "white";
+            titleBlock.fontSize = 16;
+            titleBlock.height = "30px";
+            titleBlock.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            titleBlock.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            titleBlock.top = "10px";
+            this.towerInfoPanel.addControl(titleBlock);
+            
+            // Create sell button
+            this.sellButton = new Rectangle('sellButton');
+            this.sellButton.width = "100px";
+            this.sellButton.height = "40px";
+            this.sellButton.cornerRadius = 5;
+            this.sellButton.color = "#FF4444";
+            this.sellButton.thickness = 2;
+            this.sellButton.background = "#AA2222";
+            this.sellButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            this.sellButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+            this.sellButton.top = "-20px";
+            this.sellButton.left = "0px";
+            this.sellButton.isPointerBlocker = true; // Ensure clicks are captured
+            
+            // Add text to sell button
+            const sellText = new TextBlock('sellText', 'SELL');
+            sellText.color = "white";
+            sellText.fontSize = 14;
+            this.sellButton.addControl(sellText);
+            
+            // Add sell value text
+            const sellValueText = new TextBlock('sellValueText', '');
+            sellValueText.color = "white";
+            sellValueText.fontSize = 12;
+            sellValueText.top = "15px";
+            this.sellButton.addControl(sellValueText);
+            
+            // Add hover effects for better feedback
+            this.sellButton.onPointerEnterObservable.add(() => {
+                if (this.sellButton) {
+                    this.sellButton.background = "#DD3333";
+                    this.sellButton.thickness = 3;
+                }
+            });
+            
+            this.sellButton.onPointerOutObservable.add(() => {
+                if (this.sellButton) {
+                    this.sellButton.background = "#AA2222";
+                    this.sellButton.thickness = 2;
+                }
+            });
+            
+            // Add click effect
+            this.sellButton.onPointerDownObservable.add(() => {
+                if (this.sellButton) {
+                    this.sellButton.background = "#991111";
+                    this.sellButton.alpha = 0.8;
+                }
+            });
+            
+            // Add multiple click handlers to ensure the click is captured
+            this.sellButton.onPointerClickObservable.add(() => {
+                console.log("Sell button clicked");
+                this.sellSelectedTower();
+            });
+            
+            // Add up handler as backup
+            this.sellButton.onPointerUpObservable.add(() => {
+                console.log("Sell button up");
+                if (this.sellButton) {
+                    this.sellButton.background = "#DD3333";
+                    this.sellButton.alpha = 1.0;
+                }
+                this.sellSelectedTower();
+            });
+            
+            this.towerInfoPanel.addControl(this.sellButton);
+            
+            // Create upgrade button
+            this.upgradeButton = new Rectangle('upgradeButton');
+            this.upgradeButton.width = "100px";
+            this.upgradeButton.height = "40px";
+            this.upgradeButton.cornerRadius = 5;
+            this.upgradeButton.color = "#44FF44";
+            this.upgradeButton.thickness = 2;
+            this.upgradeButton.background = "#22AA22";
+            this.upgradeButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            this.upgradeButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+            this.upgradeButton.top = "-70px";
+            this.upgradeButton.left = "0px";
+            this.upgradeButton.isPointerBlocker = true; // Ensure clicks are captured
+            
+            // Add text to upgrade button
+            const upgradeText = new TextBlock('upgradeText', 'UPGRADE');
+            upgradeText.color = "white";
+            upgradeText.fontSize = 14;
+            this.upgradeButton.addControl(upgradeText);
+            
+            // Add upgrade cost text
+            const upgradeCostText = new TextBlock('upgradeCostText', '');
+            upgradeCostText.color = "white";
+            upgradeCostText.fontSize = 12;
+            upgradeCostText.top = "15px";
+            this.upgradeButton.addControl(upgradeCostText);
+            
+            // Add hover effects for better feedback
+            this.upgradeButton.onPointerEnterObservable.add(() => {
+                if (this.upgradeButton && this.playerStats && this.selectedTower && 
+                    this.playerStats.getMoney() >= this.selectedTower.getUpgradeCost()) {
+                    this.upgradeButton.background = "#33CC33";
+                    this.upgradeButton.thickness = 3;
+                }
+            });
+            
+            this.upgradeButton.onPointerOutObservable.add(() => {
+                if (this.upgradeButton && this.playerStats && this.selectedTower) {
+                    if (this.playerStats.getMoney() >= this.selectedTower.getUpgradeCost()) {
+                        this.upgradeButton.background = "#22AA22";
+                        this.upgradeButton.thickness = 2;
+                    } else {
+                        this.upgradeButton.background = "#555555";
+                        this.upgradeButton.color = "#777777";
+                    }
+                }
+            });
+            
+            // Add click effect
+            this.upgradeButton.onPointerDownObservable.add(() => {
+                if (this.upgradeButton && this.playerStats && this.selectedTower && 
+                    this.playerStats.getMoney() >= this.selectedTower.getUpgradeCost()) {
+                    this.upgradeButton.background = "#119911";
+                    this.upgradeButton.alpha = 0.8;
+                }
+            });
+            
+            // Add multiple click handlers to ensure the click is captured
+            this.upgradeButton.onPointerClickObservable.add(() => {
+                console.log("Upgrade button clicked");
+                this.upgradeSelectedTower();
+            });
+            
+            // Add up handler as backup
+            this.upgradeButton.onPointerUpObservable.add(() => {
+                console.log("Upgrade button up");
+                if (this.upgradeButton && this.playerStats && this.selectedTower) {
+                    if (this.playerStats.getMoney() >= this.selectedTower.getUpgradeCost()) {
+                        this.upgradeButton.background = "#33CC33";
+                        this.upgradeButton.alpha = 1.0;
+                    }
+                }
+                this.upgradeSelectedTower();
+            });
+            
+            this.towerInfoPanel.addControl(this.upgradeButton);
+        } else {
+            this.towerInfoPanel.isVisible = true;
+        }
+        
+        // Update sell value text
+        if (this.sellButton) {
+            const sellValueTextBlock = this.sellButton.getChildByName('sellValueText') as TextBlock;
+            if (sellValueTextBlock) {
+                sellValueTextBlock.text = `$${this.selectedTower.getSellValue()}`;
+            }
+        }
+        
+        // Update upgrade cost text
+        if (this.upgradeButton) {
+            const upgradeCostTextBlock = this.upgradeButton.getChildByName('upgradeCostText') as TextBlock;
+            if (upgradeCostTextBlock) {
+                upgradeCostTextBlock.text = `$${this.selectedTower.getUpgradeCost()}`;
+            }
+            
+            // Disable upgrade button if player doesn't have enough money
+            if (this.playerStats && this.playerStats.getMoney() < this.selectedTower.getUpgradeCost()) {
+                this.upgradeButton.background = "#555555";
+                this.upgradeButton.color = "#777777";
+            } else {
+                this.upgradeButton.background = "#22AA22";
+                this.upgradeButton.color = "#44FF44";
+            }
+        }
+    }
+    
+    /**
+     * Hide tower info and action buttons
+     */
+    private hideTowerActions(): void {
+        if (this.towerInfoPanel) {
+            this.towerInfoPanel.isVisible = false;
+        }
+    }
+    
+    /**
+     * Sell the selected tower
+     */
+    private sellSelectedTower(): void {
+        if (!this.selectedTower || !this.towerManager || !this.playerStats) {
+            console.log("Cannot sell tower: missing tower, manager, or player stats");
+            return;
+        }
+        
+        console.log("Selling tower...");
+        
+        try {
+            // Get the tower position for grid update
+            const towerPosition = this.selectedTower.getPosition();
+            
+            // Get the sell value
+            const sellValue = this.selectedTower.getSellValue();
+            console.log(`Tower sell value: $${sellValue}`);
+            
+            // Sell the tower through the tower manager
+            this.towerManager.sellTower(this.selectedTower);
+            
+            // Add money to player
+            this.playerStats.addMoney(sellValue);
+            console.log(`Added $${sellValue} to player. New balance: $${this.playerStats.getMoney()}`);
+            
+            // Free up the grid cell if map exists
+            if (this.map && towerPosition) {
+                const gridPosition = this.map.worldToGrid(towerPosition);
+                this.map.setTowerPlaced(gridPosition.x, gridPosition.y, false);
+                console.log(`Freed up grid cell at (${gridPosition.x}, ${gridPosition.y})`);
+            }
+            
+            // Create a money particle effect at the tower's position
+            this.createMoneyEffect(towerPosition);
+            
+            // Play sound effect
+            this.game.getAssetManager().playSound('towerSell');
+            
+            // Clear selection
+            this.selectedTower = null;
+            
+            // Hide tower actions
+            this.hideTowerActions();
+        } catch (error) {
+            console.error("Error selling tower:", error);
+        }
+    }
+    
+    /**
+     * Create a money particle effect
+     * @param position The position to create the effect
+     */
+    private createMoneyEffect(position: Vector3): void {
+        if (!this.scene) return;
+        
+        // Create a particle system for the money effect
+        const particleSystem = new ParticleSystem('moneyParticles', 20, this.scene);
+        
+        // Set particle texture
+        particleSystem.particleTexture = new Texture('assets/textures/particle.png', this.scene);
+        
+        // Set emission properties
+        particleSystem.emitter = new Vector3(position.x, position.y + 1, position.z);
+        particleSystem.minEmitBox = new Vector3(-0.5, 0, -0.5);
+        particleSystem.maxEmitBox = new Vector3(0.5, 0.5, 0.5);
+        
+        // Set particle properties
+        particleSystem.color1 = new Color4(1.0, 0.8, 0.0, 1.0); // Gold
+        particleSystem.color2 = new Color4(0.8, 0.8, 0.0, 1.0); // Yellow
+        particleSystem.colorDead = new Color4(0.5, 0.5, 0.0, 0.0); // Faded gold
+        
+        particleSystem.minSize = 0.2;
+        particleSystem.maxSize = 0.5;
+        
+        particleSystem.minLifeTime = 0.5;
+        particleSystem.maxLifeTime = 1.5;
+        
+        particleSystem.emitRate = 50;
+        
+        particleSystem.blendMode = ParticleSystem.BLENDMODE_ONEONE;
+        
+        particleSystem.gravity = new Vector3(0, 5, 0); // Particles float upward
+        
+        particleSystem.direction1 = new Vector3(-1, 2, -1);
+        particleSystem.direction2 = new Vector3(1, 5, 1);
+        
+        particleSystem.minAngularSpeed = 0;
+        particleSystem.maxAngularSpeed = Math.PI;
+        
+        particleSystem.minEmitPower = 1;
+        particleSystem.maxEmitPower = 3;
+        particleSystem.updateSpeed = 0.01;
+        
+        // Start the particle system
+        particleSystem.start();
+        
+        // Stop and dispose after 1.5 seconds
+        setTimeout(() => {
+            particleSystem.stop();
+            setTimeout(() => {
+                particleSystem.dispose();
+            }, 1500);
+        }, 500);
+    }
+    
+    /**
+     * Upgrade the selected tower
+     */
+    private upgradeSelectedTower(): void {
+        if (!this.selectedTower || !this.towerManager || !this.playerStats) {
+            console.log("Cannot upgrade tower: missing tower, manager, or player stats");
+            return;
+        }
+        
+        // Check if player has enough money
+        const upgradeCost = this.selectedTower.getUpgradeCost();
+        if (this.playerStats.getMoney() < upgradeCost) {
+            console.log(`Not enough money to upgrade tower. Need $${upgradeCost}, have $${this.playerStats.getMoney()}`);
+            
+            // Play error sound
+            this.game.getAssetManager().playSound('error');
+            
+            // Shake the upgrade button to indicate error
+            this.shakeButton(this.upgradeButton);
+            
+            return;
+        }
+        
+        console.log(`Upgrading tower for $${upgradeCost}...`);
+        
+        try {
+            // Get the tower position for the upgrade effect
+            const towerPosition = this.selectedTower.getPosition();
+            
+            // Upgrade the tower
+            if (this.towerManager.upgradeTower(this.selectedTower)) {
+                // Deduct money from player
+                this.playerStats.spendMoney(upgradeCost);
+                console.log(`Spent $${upgradeCost}. New balance: $${this.playerStats.getMoney()}`);
+                
+                // Create upgrade effect at the tower's position
+                this.createUpgradeEffect(towerPosition);
+                
+                // Play sound effect
+                this.game.getAssetManager().playSound('towerUpgrade');
+                
+                // Update tower actions UI
+                this.showTowerActions();
+                
+                console.log(`Tower upgraded to level ${this.selectedTower.getLevel()}`);
+            } else {
+                console.log("Tower upgrade failed");
+            }
+        } catch (error) {
+            console.error("Error upgrading tower:", error);
+        }
+    }
+    
+    /**
+     * Create an upgrade particle effect
+     * @param position The position to create the effect
+     */
+    private createUpgradeEffect(position: Vector3): void {
+        if (!this.scene) return;
+        
+        // Create a particle system for the upgrade effect
+        const particleSystem = new ParticleSystem('upgradeParticles', 50, this.scene);
+        
+        // Set particle texture
+        particleSystem.particleTexture = new Texture('assets/textures/particle.png', this.scene);
+        
+        // Set emission properties
+        particleSystem.emitter = new Vector3(position.x, position.y, position.z);
+        particleSystem.minEmitBox = new Vector3(-1, 0, -1);
+        particleSystem.maxEmitBox = new Vector3(1, 0, 1);
+        
+        // Set particle properties
+        particleSystem.color1 = new Color4(0.0, 1.0, 0.0, 1.0); // Green
+        particleSystem.color2 = new Color4(0.5, 1.0, 0.5, 1.0); // Light green
+        particleSystem.colorDead = new Color4(0.0, 0.5, 0.0, 0.0); // Dark green
+        
+        particleSystem.minSize = 0.2;
+        particleSystem.maxSize = 0.5;
+        
+        particleSystem.minLifeTime = 0.5;
+        particleSystem.maxLifeTime = 1.5;
+        
+        particleSystem.emitRate = 100;
+        
+        particleSystem.blendMode = ParticleSystem.BLENDMODE_ONEONE;
+        
+        particleSystem.gravity = new Vector3(0, 8, 0); // Particles float upward
+        
+        particleSystem.direction1 = new Vector3(-2, 5, -2);
+        particleSystem.direction2 = new Vector3(2, 10, 2);
+        
+        particleSystem.minAngularSpeed = 0;
+        particleSystem.maxAngularSpeed = Math.PI;
+        
+        particleSystem.minEmitPower = 1;
+        particleSystem.maxEmitPower = 3;
+        particleSystem.updateSpeed = 0.01;
+        
+        // Start the particle system
+        particleSystem.start();
+        
+        // Stop and dispose after 1 second
+        setTimeout(() => {
+            particleSystem.stop();
+            setTimeout(() => {
+                particleSystem.dispose();
+            }, 1500);
+        }, 500);
+        
+        // Create a flash effect at the tower
+        this.createUpgradeFlash(position);
+    }
+    
+    /**
+     * Create a flash effect for tower upgrade
+     * @param position The position to create the effect
+     */
+    private createUpgradeFlash(position: Vector3): void {
+        if (!this.scene) return;
+        
+        // Create a sphere for the flash
+        const flash = MeshBuilder.CreateSphere('upgradeFlash', {
+            diameter: 3,
+            segments: 16
+        }, this.scene);
+        
+        flash.position = new Vector3(position.x, position.y + 1, position.z);
+        
+        // Create material for the flash
+        const flashMaterial = new StandardMaterial('upgradeFlashMaterial', this.scene);
+        flashMaterial.diffuseColor = new Color3(0.3, 1.0, 0.3);
+        flashMaterial.emissiveColor = new Color3(0.3, 1.0, 0.3);
+        flashMaterial.alpha = 0.7;
+        flash.material = flashMaterial;
+        
+        // Animate the flash to grow and fade
+        let alpha = 0.7;
+        let scale = 1.0;
+        const flashAnimation = this.scene.onBeforeRenderObservable.add(() => {
+            alpha -= 0.05;
+            scale += 0.1;
+            if (alpha <= 0) {
+                flash.dispose();
+                this.scene?.onBeforeRenderObservable.remove(flashAnimation);
+            } else {
+                (flash.material as StandardMaterial).alpha = alpha;
+                flash.scaling.setAll(scale);
+            }
+        });
+    }
+    
+    /**
+     * Shake a button to indicate an error
+     * @param button The button to shake
+     */
+    private shakeButton(button: Rectangle | null): void {
+        if (!button) return;
+        
+        const originalLeft = button.left;
+        const shakeAmount = 5;
+        const shakeSpeed = 50;
+        
+        // Shake the button
+        setTimeout(() => { button.left = `${parseInt(originalLeft as string) - shakeAmount}px`; }, shakeSpeed * 0);
+        setTimeout(() => { button.left = `${parseInt(originalLeft as string) + shakeAmount}px`; }, shakeSpeed * 1);
+        setTimeout(() => { button.left = `${parseInt(originalLeft as string) - shakeAmount}px`; }, shakeSpeed * 2);
+        setTimeout(() => { button.left = `${parseInt(originalLeft as string) + shakeAmount}px`; }, shakeSpeed * 3);
+        setTimeout(() => { button.left = originalLeft; }, shakeSpeed * 4);
     }
 } 
