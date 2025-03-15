@@ -279,18 +279,31 @@ export class GameplayState implements GameState {
         leftPanel.shadowOffsetX = 3;
         this.ui.addControl(leftPanel);
         
-        // Panel title
+        // Panel title - moved to the very top with a background
+        const titleBackground = new Rectangle('titleBackground');
+        titleBackground.width = '100%';
+        titleBackground.height = '30px';
+        titleBackground.background = 'rgba(0, 0, 0, 0.5)';
+        titleBackground.thickness = 0;
+        titleBackground.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        titleBackground.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        titleBackground.zIndex = 9;
+        leftPanel.addControl(titleBackground);
+        
         const towerPanelTitle = new TextBlock('towerPanelTitle');
         towerPanelTitle.text = "TOWERS";
         towerPanelTitle.color = 'white';
         towerPanelTitle.fontSize = 16;
         towerPanelTitle.fontFamily = 'Arial';
+        towerPanelTitle.fontWeight = 'bold';
         towerPanelTitle.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        towerPanelTitle.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        towerPanelTitle.top = '10px';
-        leftPanel.addControl(towerPanelTitle);
+        towerPanelTitle.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        towerPanelTitle.zIndex = 10; // Ensure it's on top of other elements
+        towerPanelTitle.outlineWidth = 1; // Add outline for better visibility
+        towerPanelTitle.outlineColor = 'black';
+        titleBackground.addControl(towerPanelTitle);
         
-        // Create tower category tabs for left panel
+        // Create tower category tabs for left panel - adjusted position
         this.createLeftPanelTabs(leftPanel);
         
         // Create tower selection container for left panel
@@ -301,7 +314,7 @@ export class GameplayState implements GameState {
         leftTowerPanel.thickness = 0;
         leftTowerPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         leftTowerPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        leftTowerPanel.top = '110px'; // Increased to prevent overlap with tabs
+        leftTowerPanel.top = '100px'; // Adjusted to be below the tabs
         leftTowerPanel.zIndex = 1; // Lower z-index than tabs
         leftPanel.addControl(leftTowerPanel);
         
@@ -904,8 +917,8 @@ export class GameplayState implements GameState {
         tabsContainer.thickness = 0;
         tabsContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         tabsContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        tabsContainer.top = '35px'; // Move up slightly
-        tabsContainer.zIndex = 10; // Ensure tabs are on top
+        tabsContainer.top = '35px'; // Position just below the title background
+        tabsContainer.zIndex = 5; // Lower than the title's zIndex
         parent.addControl(tabsContainer);
         
         // Create basic towers tab
