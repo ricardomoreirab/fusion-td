@@ -289,24 +289,24 @@ export class HeavyTower extends Tower {
         // Find the turret
         const turret = this.scene.getMeshByName('heavyTurret');
         if (turret) {
-            // Scale up the turret based on level
-            const scale = 1 + (this.level - 1) * 0.15;
+            // Scale up the turret based on level (reduced scaling)
+            const scale = 1 + (this.level - 1) * 0.08; // Reduced from 0.15 to 0.08
             turret.scaling.setAll(scale);
             
-            // Update color based on level
+            // Update color based on level (more subtle)
             const material = turret.material as StandardMaterial;
             if (material) {
-                // Make it more intense as it levels up
-                const redValue = Math.min(1.0, 0.6 + (this.level - 1) * 0.1);
+                // Make it more intense as it levels up (more subtle)
+                const redValue = Math.min(1.0, 0.6 + (this.level - 1) * 0.05); // Reduced from 0.1 to 0.05
                 material.diffuseColor = new Color3(redValue, 0.4, 0.2);
-                material.emissiveColor = new Color3(0.1 * this.level, 0, 0); // Add glow effect at higher levels
+                material.emissiveColor = new Color3(0.05 * this.level, 0, 0); // Reduced from 0.1 to 0.05
             }
             
-            // Update barrel color
+            // Update barrel color (more subtle)
             const barrel = this.scene.getMeshByName('heavyBarrel');
             if (barrel && barrel.material) {
                 const barrelMat = barrel.material as StandardMaterial;
-                barrelMat.diffuseColor = new Color3(0.2, 0.2 - (this.level - 1) * 0.05, 0.2 - (this.level - 1) * 0.05);
+                barrelMat.diffuseColor = new Color3(0.2, 0.2 - (this.level - 1) * 0.02, 0.2 - (this.level - 1) * 0.02); // Reduced from 0.05 to 0.02
             }
         }
     }

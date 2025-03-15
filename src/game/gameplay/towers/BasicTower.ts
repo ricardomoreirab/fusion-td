@@ -266,26 +266,26 @@ export class BasicTower extends Tower {
         // Find the turret
         const turret = this.scene.getMeshByName('towerTurret');
         if (turret) {
-            // Scale up the turret based on level
-            const scale = 1 + (this.level - 1) * 0.2;
+            // Scale up the turret based on level (reduced scaling)
+            const scale = 1 + (this.level - 1) * 0.1; // Reduced from 0.2 to 0.1
             turret.scaling.setAll(scale);
             
-            // Update color based on level
+            // Update color based on level (more subtle color changes)
             const material = turret.material as StandardMaterial;
             if (material) {
-                // Make it more red as it levels up
-                const greenValue = Math.max(0.1, 0.4 - (this.level - 1) * 0.1);
-                const blueValue = Math.max(0.1, 0.8 - (this.level - 1) * 0.2);
-                material.diffuseColor = new Color3(0.2 + (this.level - 1) * 0.2, greenValue, blueValue);
+                // Make it more red as it levels up (more subtle)
+                const greenValue = Math.max(0.2, 0.4 - (this.level - 1) * 0.05); // Reduced from 0.1 to 0.05
+                const blueValue = Math.max(0.2, 0.8 - (this.level - 1) * 0.1); // Reduced from 0.2 to 0.1
+                material.diffuseColor = new Color3(0.2 + (this.level - 1) * 0.1, greenValue, blueValue); // Reduced from 0.2 to 0.1
                 material.specularColor = new Color3(0.6, 0.6, blueValue);
             }
             
-            // Find and update the sensor color to show power level
+            // Find and update the sensor color to show power level (more subtle)
             const sensor = this.scene.getMeshByName('towerSensor');
             if (sensor && sensor.material) {
                 const sensorMat = sensor.material as StandardMaterial;
-                sensorMat.emissiveColor = new Color3(0.5 + (this.level - 1) * 0.1, 0.1, 0.1);
-                sensorMat.diffuseColor = new Color3(0.7 + (this.level - 1) * 0.1, 0.2, 0.2);
+                sensorMat.emissiveColor = new Color3(0.5 + (this.level - 1) * 0.05, 0.1, 0.1); // Reduced from 0.1 to 0.05
+                sensorMat.diffuseColor = new Color3(0.7 + (this.level - 1) * 0.05, 0.2, 0.2); // Reduced from 0.1 to 0.05
             }
         }
     }

@@ -55,7 +55,7 @@ export abstract class Tower {
     protected fireRate: number; // Shots per second
     protected level: number = 1;
     protected cost: number;
-    protected upgradeMultiplier: number = 1.5;
+    protected upgradeMultiplier: number = 2.0;
     protected upgradeCost: number;
     protected sellValue: number;
     protected lastFireTime: number = 0;
@@ -86,7 +86,7 @@ export abstract class Tower {
         this.damage = damage;
         this.fireRate = fireRate;
         this.cost = cost;
-        this.upgradeCost = Math.floor(cost * 0.75);
+        this.upgradeCost = Math.floor(cost * 1.0);
         this.sellValue = Math.floor(cost * 0.6);
         
         // Create the tower mesh
@@ -530,10 +530,10 @@ export abstract class Tower {
         // Increase level
         this.level++;
         
-        // Increase stats
-        this.range *= 1.2;
-        this.damage *= 1.5;
-        this.fireRate *= 1.2;
+        // Increase stats (reduced improvements)
+        this.range *= 1.1;  // Reduced from 1.2 to 1.1
+        this.damage *= 1.25; // Reduced from 1.5 to 1.25
+        this.fireRate *= 1.1; // Reduced from 1.2 to 1.1
         
         // Update costs
         this.upgradeCost = Math.floor(this.upgradeCost * this.upgradeMultiplier);
@@ -796,7 +796,7 @@ export abstract class Tower {
     }
     
     /**
-     * Update the sell value to be 60% of the total cost spent on the tower
+     * Update the sell value to be 50% of the total cost spent on the tower
      */
     public updateSellValue(): void {
         // Calculate total spent (base cost + upgrades)
@@ -805,12 +805,12 @@ export abstract class Tower {
         
         // Calculate cost of all upgrades
         for (let i = 1; i < this.level; i++) {
-            upgradeCost += Math.floor(this.cost * this.upgradeMultiplier * i);
+            upgradeCost += Math.floor(this.cost * Math.pow(this.upgradeMultiplier, i - 1));
         }
         
-        // Set sell value to 60% of total cost
+        // Set sell value to 50% of total cost (reduced from 60%)
         const totalCost = baseCost + upgradeCost;
-        this.sellValue = Math.floor(totalCost * 0.6);
+        this.sellValue = Math.floor(totalCost * 0.5);
     }
 
     /**
