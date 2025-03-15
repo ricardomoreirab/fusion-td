@@ -1,0 +1,32 @@
+{
+  "name": "fusion-td",
+  "version": "1.0.0",
+  "description": "Tower Defense game built with Babylon.js",
+  "main": "index.js",
+  "scripts": {
+    "start": "webpack serve --open",
+    "build": "webpack --mode production"
+  },
+  "keywords": [
+    "babylonjs",
+    "game",
+    "tower-defense"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@babylonjs/core": "^6.30.0",
+    "@babylonjs/gui": "^6.30.0",
+    "@babylonjs/loaders": "^6.30.0",
+    "@babylonjs/materials": "^6.30.0"
+  },
+  "devDependencies": {
+    "copy-webpack-plugin": "^11.0.0",
+    "html-webpack-plugin": "^5.5.3",
+    "ts-loader": "^9.5.0",
+    "typescript": "^5.2.2",
+    "webpack": "^5.89.0",
+    "webpack-cli": "^5.1.4",
+    "webpack-dev-server": "^4.15.1"
+  }
+} 
