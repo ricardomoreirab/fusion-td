@@ -48,11 +48,19 @@ export class Enemy {
         this.damage = damage;
         this.reward = reward;
         
-        // Create the enemy mesh
-        this.createMesh();
-        
-        // Create health bar
-        this.createHealthBar();
+        try {
+            // Create the enemy mesh
+            this.createMesh();
+            
+            if (!this.mesh) {
+                console.error('Enemy mesh creation failed');
+            }
+            
+            // Create health bar
+            this.createHealthBar();
+        } catch (error) {
+            console.error('Error creating enemy:', error);
+        }
     }
 
     /**
@@ -226,11 +234,12 @@ export class Enemy {
         const movement = direction.scale(this.speed * deltaTime);
         this.position.addInPlace(movement);
         
-        // Update mesh position
-        this.mesh.position = this.position.clone();
-        
-        // Update health bar instead of scaling
-        this.updateHealthBar();
+        // Update mesh position if it exists
+        if (this.mesh) {
+            this.mesh.position = this.position.clone();
+            // Update health bar
+            this.updateHealthBar();
+        }
         
         return false;
     }

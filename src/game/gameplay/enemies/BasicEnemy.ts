@@ -331,13 +331,11 @@ export class BasicEnemy extends Enemy {
         const result = super.update(deltaTime);
         
         // Update walking animation
-        if (!this.isFrozen && !this.isStunned && this.currentPathIndex < this.path.length) {
+        if (!this.isFrozen && !this.isStunned && this.currentPathIndex < this.path.length && this.mesh) {
             this.walkTime += deltaTime * 5; // Control animation speed
             
             // Bob up and down slightly
-            if (this.mesh) {
-                this.mesh.position.y = this.position.y + 0.7 + Math.abs(Math.sin(this.walkTime)) * 0.05;
-            }
+            this.mesh.position.y = this.position.y + 0.7 + Math.abs(Math.sin(this.walkTime)) * 0.05;
             
             // Move legs
             if (this.leftLeg && this.rightLeg) {
