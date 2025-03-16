@@ -707,8 +707,8 @@ export abstract class Tower {
     public canCombineWith(other: Tower): boolean {
         // Different element types can be combined
         return this.elementType !== ElementType.NONE && 
-               other.elementType !== ElementType.NONE && 
-               this.elementType !== other.elementType;
+               other.getElementType() !== ElementType.NONE && 
+               this.elementType !== other.getElementType();
     }
 
     /**

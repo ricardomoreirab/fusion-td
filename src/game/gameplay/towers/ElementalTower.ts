@@ -18,6 +18,11 @@ export abstract class ElementalTower extends Tower {
     protected projectileColor: Color3;
 
     /**
+     * The element type of this tower
+     */
+    protected elementType: ElementType;
+
+    /**
      * Constructor for the ElementalTower
      * @param game The game instance
      * @param scene The scene
@@ -113,5 +118,22 @@ export abstract class ElementalTower extends Tower {
                 particleSystem.colorDead = new Color3(0, 0, 0).toColor4(0.0);
                 break;
         }
+    }
+
+    /**
+     * Get the element type of this tower
+     */
+    public getElementType(): ElementType {
+        return this.elementType;
+    }
+
+    /**
+     * Check if this tower can be combined with another tower
+     */
+    public canCombineWith(other: Tower): boolean {
+        // Different element types can be combined
+        return this.elementType !== ElementType.NONE && 
+               other.getElementType() !== ElementType.NONE && 
+               this.elementType !== other.getElementType();
     }
 } 
