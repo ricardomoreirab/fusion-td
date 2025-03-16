@@ -257,10 +257,6 @@ export class TowerManager {
         if (index !== -1) {
             this.towers.splice(index, 1);
         }
-        
-        // Free up the grid cell
-        const gridPosition = this.map.worldToGrid(tower.getPosition());
-        this.map.setTowerPlaced(gridPosition.x, gridPosition.y, false);
     }
 
     /**
@@ -271,11 +267,17 @@ export class TowerManager {
     public sellTower(tower: Tower): number {
         const sellValue = tower.getSellValue();
         
+        // Get the grid position before removing the tower
+        const gridPosition = this.map.worldToGrid(tower.getPosition());
+        
         // Remove from towers list
         this.removeTower(tower);
         
         // Dispose the tower
         tower.dispose();
+        
+        // Update the grid after tower is disposed
+        this.map.setTowerPlaced(gridPosition.x, gridPosition.y, false);
         
         return sellValue;
     }

@@ -60,33 +60,45 @@ export class MenuState implements GameState {
         subtitleText.fontFamily = 'Arial';
         this.ui.addControl(subtitleText);
         
-        // Create start button
+        // Create start button with mobile-friendly dimensions
         const startButton = Button.CreateSimpleButton('startButton', 'START GAME');
-        startButton.width = '200px';
+        startButton.width = '220px';
         startButton.height = '60px';
         startButton.color = 'white';
         startButton.background = '#4CAF50';
-        startButton.cornerRadius = 10;
-        startButton.thickness = 0;
+        startButton.cornerRadius = 30;
+        startButton.thickness = 2;
         startButton.fontFamily = 'Arial';
-        startButton.fontSize = 20;
+        startButton.fontSize = 24;
+        startButton.fontWeight = 'bold';
         startButton.top = '0px';
+        startButton.paddingLeft = '20px';
+        startButton.paddingRight = '20px';
+        startButton.shadowColor = "rgba(0, 0, 0, 0.4)";
+        startButton.shadowBlur = 5;
+        startButton.shadowOffsetY = 2;
         startButton.onPointerUpObservable.add(() => {
             this.game.getStateManager().changeState('gameplay');
         });
         this.ui.addControl(startButton);
         
-        // Create instructions button
+        // Create instructions button with mobile-friendly dimensions
         const instructionsButton = Button.CreateSimpleButton('instructionsButton', 'INSTRUCTIONS');
-        instructionsButton.width = '200px';
+        instructionsButton.width = '220px';
         instructionsButton.height = '60px';
         instructionsButton.color = 'white';
         instructionsButton.background = '#2196F3';
-        instructionsButton.cornerRadius = 10;
-        instructionsButton.thickness = 0;
+        instructionsButton.cornerRadius = 30;
+        instructionsButton.thickness = 2;
         instructionsButton.fontFamily = 'Arial';
-        instructionsButton.fontSize = 20;
+        instructionsButton.fontSize = 24;
+        instructionsButton.fontWeight = 'bold';
         instructionsButton.top = '80px';
+        instructionsButton.paddingLeft = '20px';
+        instructionsButton.paddingRight = '20px';
+        instructionsButton.shadowColor = "rgba(0, 0, 0, 0.4)";
+        instructionsButton.shadowBlur = 5;
+        instructionsButton.shadowOffsetY = 2;
         instructionsButton.onPointerUpObservable.add(() => {
             this.showInstructions();
         });
@@ -135,15 +147,20 @@ export class MenuState implements GameState {
         
         // Create close button
         const closeButton = Button.CreateSimpleButton('closeButton', 'CLOSE');
-        closeButton.width = '120px';
-        closeButton.height = '40px';
+        closeButton.width = '160px';
+        closeButton.height = '50px';
         closeButton.color = 'white';
         closeButton.background = '#F44336';
-        closeButton.cornerRadius = 10;
-        closeButton.thickness = 0;
+        closeButton.cornerRadius = 25;
+        closeButton.thickness = 2;
         closeButton.fontFamily = 'Arial';
-        closeButton.fontSize = 16;
-        closeButton.top = '160px';
+        closeButton.fontSize = 20;
+        closeButton.fontWeight = 'bold';
+        closeButton.paddingLeft = '15px';
+        closeButton.paddingRight = '15px';
+        closeButton.shadowColor = "rgba(0, 0, 0, 0.4)";
+        closeButton.shadowBlur = 5;
+        closeButton.shadowOffsetY = 2;
         closeButton.onPointerUpObservable.add(() => {
             this.ui?.removeControl(panel);
         });

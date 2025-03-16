@@ -84,33 +84,45 @@ export class GameOverState implements GameState {
         messageText.fontFamily = 'Arial';
         this.ui.addControl(messageText);
         
-        // Create restart button
+        // Create restart button with mobile-friendly dimensions
         const restartButton = Button.CreateSimpleButton('restartButton', 'PLAY AGAIN');
-        restartButton.width = '200px';
+        restartButton.width = '220px';
         restartButton.height = '60px';
         restartButton.color = 'white';
         restartButton.background = '#4CAF50';
-        restartButton.cornerRadius = 10;
-        restartButton.thickness = 0;
+        restartButton.cornerRadius = 30;
+        restartButton.thickness = 2;
         restartButton.fontFamily = 'Arial';
-        restartButton.fontSize = 20;
+        restartButton.fontSize = 24;
+        restartButton.fontWeight = 'bold';
         restartButton.top = '50px';
+        restartButton.paddingLeft = '20px';
+        restartButton.paddingRight = '20px';
+        restartButton.shadowColor = "rgba(0, 0, 0, 0.4)";
+        restartButton.shadowBlur = 5;
+        restartButton.shadowOffsetY = 2;
         restartButton.onPointerUpObservable.add(() => {
             this.game.getStateManager().changeState('gameplay');
         });
         this.ui.addControl(restartButton);
         
-        // Create menu button
+        // Create menu button with mobile-friendly dimensions
         const menuButton = Button.CreateSimpleButton('menuButton', 'MAIN MENU');
-        menuButton.width = '200px';
+        menuButton.width = '220px';
         menuButton.height = '60px';
         menuButton.color = 'white';
         menuButton.background = '#2196F3';
-        menuButton.cornerRadius = 10;
-        menuButton.thickness = 0;
+        menuButton.cornerRadius = 30;
+        menuButton.thickness = 2;
         menuButton.fontFamily = 'Arial';
-        menuButton.fontSize = 20;
+        menuButton.fontSize = 24;
+        menuButton.fontWeight = 'bold';
         menuButton.top = '130px';
+        menuButton.paddingLeft = '20px';
+        menuButton.paddingRight = '20px';
+        menuButton.shadowColor = "rgba(0, 0, 0, 0.4)";
+        menuButton.shadowBlur = 5;
+        menuButton.shadowOffsetY = 2;
         menuButton.onPointerUpObservable.add(() => {
             this.game.getStateManager().changeState('menu');
         });
