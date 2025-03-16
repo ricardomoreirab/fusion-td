@@ -239,23 +239,22 @@ export class TowerManager {
     }
 
     /**
-     * Add an existing tower to the manager
+     * Add a tower to the manager
      * @param tower The tower to add
      */
     public addTower(tower: Tower): void {
-        if (!this.towers.includes(tower)) {
-            this.towers.push(tower);
-        }
+        this.towers.push(tower);
     }
 
     /**
-     * Remove a tower from the manager without disposing it
+     * Remove a tower from the manager
      * @param tower The tower to remove
      */
     public removeTower(tower: Tower): void {
         const index = this.towers.indexOf(tower);
         if (index !== -1) {
             this.towers.splice(index, 1);
+            tower.dispose(); // Clean up tower resources
         }
     }
 

@@ -78,23 +78,45 @@ export class TowerCombiner {
      * @returns True if a combination was created
      */
     public checkForCombinations(newTower: Tower): boolean {
+        // Skip if not an elemental tower
+        if (newTower.getElementType() === ElementType.NONE) {
+            console.log('Skipping combination check - not an elemental tower');
+            return false;
+        }
+
         // Get the position of the new tower
         const position = newTower.getPosition();
-        const tileX = Math.round(position.x);
-        const tileZ = Math.round(position.z);
+        // Convert world position to grid position
+        const tileX = Math.floor(position.x);
+        const tileZ = Math.floor(position.z);
+        
+        console.log(`Checking combinations for tower at world pos (${position.x}, ${position.z}), grid pos (${tileX}, ${tileZ}) with element ${newTower.getElementType()}`);
         
         // Get all adjacent towers
-        const adjacentTowers = this.getAdjacentTowers(tileX, tileZ);
+        const adjacentTowers = this.getAdjacentTowers(position.x, position.z);
+        
+        console.log(`Found ${adjacentTowers.length} adjacent towers`);
         
         // If there are no adjacent towers, no combinations are possible
         if (adjacentTowers.length === 0) {
+            console.log('No adjacent towers found');
             return false;
         }
         
         // Check each adjacent tower for possible combinations
         for (const adjacentTower of adjacentTowers) {
-            // Skip if the adjacent tower is not an elemental tower
+            const adjPos = adjacentTower.getPosition();
+            console.log(`Checking adjacent tower at (${adjPos.x}, ${adjPos.z}) with element ${adjacentTower.getElementType()}`);
+            
+            // Skip if not an elemental tower
             if (adjacentTower.getElementType() === ElementType.NONE) {
+                console.log('Skipping - adjacent tower is not elemental');
+                continue;
+            }
+            
+            // Skip if same element type
+            if (adjacentTower.getElementType() === newTower.getElementType()) {
+                console.log('Skipping - same element type');
                 continue;
             }
             
@@ -102,50 +124,57 @@ export class TowerCombiner {
             const combination = this.findCombination(newTower.getElementType(), adjacentTower.getElementType());
             
             if (combination) {
+                console.log(`Found valid combination: ${combination.name}`);
                 // Create the combined tower
                 this.createCombinedTower(combination, newTower, adjacentTower);
                 return true;
+            } else {
+                console.log('No valid combination found for these elements');
             }
         }
         
+        console.log('No valid combinations found with any adjacent towers');
         return false;
     }
     
     /**
-     * Get all towers adjacent to the specified tile
-     * @param tileX The x coordinate of the tile
-     * @param tileZ The z coordinate of the tile
+     * Get all towers adjacent to the specified position
+     * @param posX The x coordinate in world space
+     * @param posZ The z coordinate in world space
      * @returns Array of adjacent towers
      */
-    private getAdjacentTowers(tileX: number, tileZ: number): Tower[] {
+    private getAdjacentTowers(posX: number, posZ: number): Tower[] {
         const adjacentTowers: Tower[] = [];
+        const TOWER_SPACING = 2; // Towers are placed on a 2-unit grid
         
-        // Check all 4 adjacent tiles
-        const adjacentPositions = [
-            { x: tileX + 1, z: tileZ },
-            { x: tileX - 1, z: tileZ },
-            { x: tileX, z: tileZ + 1 },
-            { x: tileX, z: tileZ - 1 }
-        ];
+        console.log(`Looking for towers adjacent to world position (${posX}, ${posZ})`);
         
         // Get all towers from the tower manager
         const allTowers = this.towerManager.getTowers();
+        console.log(`Total towers in game: ${allTowers.length}`);
         
-        // Check each tower to see if it's in an adjacent position
+        // Check each tower to see if it's adjacent
         for (const tower of allTowers) {
-            const towerPosition = tower.getPosition();
-            const towerTileX = Math.round(towerPosition.x);
-            const towerTileZ = Math.round(towerPosition.z);
+            const towerPos = tower.getPosition();
             
-            // Check if this tower is in one of the adjacent positions
-            for (const pos of adjacentPositions) {
-                if (towerTileX === pos.x && towerTileZ === pos.z) {
-                    adjacentTowers.push(tower);
-                    break;
-                }
+            // Calculate distance between towers in world space
+            const dx = Math.abs(towerPos.x - posX);
+            const dz = Math.abs(towerPos.z - posZ);
+            
+            // Towers are adjacent if they are exactly TOWER_SPACING units apart in one direction
+            // and 0 units apart in the other direction
+            const isAdjacent = (Math.abs(dx - TOWER_SPACING) < 0.1 && dz < 0.1) || 
+                             (dx < 0.1 && Math.abs(dz - TOWER_SPACING) < 0.1);
+            
+            console.log(`Checking tower at (${towerPos.x}, ${towerPos.z}), dx=${dx}, dz=${dz}, isAdjacent=${isAdjacent}`);
+            
+            if (isAdjacent) {
+                console.log(`Found adjacent tower at (${towerPos.x}, ${towerPos.z})`);
+                adjacentTowers.push(tower);
             }
         }
         
+        console.log(`Found ${adjacentTowers.length} adjacent towers`);
         return adjacentTowers;
     }
     
