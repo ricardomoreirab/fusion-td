@@ -112,8 +112,7 @@ export class Map {
             { x: 15, y: 18 },
             { x: 18, y: 18 },
             { x: 18, y: 2 },
-            { x: 15, y: 2 },
-            { x: 15, y: Math.floor(this.gridSize / 2) },
+            { x: 19, y: 2 },
             this.endPosition
         ];
         

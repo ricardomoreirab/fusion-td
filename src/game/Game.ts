@@ -80,13 +80,13 @@ export class Game {
         light.intensity = 0.7;
         
         // Create a fixed camera with an isometric-like view
-        const camera = new ArcRotateCamera('camera', -Math.PI / 4, Math.PI / 3, 40, Vector3.Zero(), this.scene);
-        camera.lowerRadiusLimit = 40;
-        camera.upperRadiusLimit = 40;
-        camera.lowerBetaLimit = Math.PI / 3;
-        camera.upperBetaLimit = Math.PI / 3;
-        camera.lowerAlphaLimit = -Math.PI / 4;
-        camera.upperAlphaLimit = -Math.PI / 4;
+        const camera = new ArcRotateCamera('camera', 2.078, 1.012, 50.8, new Vector3(1.0, -6.4, 0.5), this.scene);
+        camera.lowerRadiusLimit = 50.8;
+        camera.upperRadiusLimit = 50.8;
+        camera.lowerBetaLimit = 1.012;
+        camera.upperBetaLimit = 1.012;
+        camera.lowerAlphaLimit = 2.078;
+        camera.upperAlphaLimit = 2.078;
         
         // Disable camera controls to keep the fixed view
         camera.inputs.clear();
