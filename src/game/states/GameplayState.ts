@@ -253,6 +253,73 @@ export class GameplayState implements GameState {
             cameraHelpContainer.isVisible = !cameraHelpContainer.isVisible;
         });
 
+        // Create wave button in top right
+        const waveButton = Button.CreateSimpleButton('waveButton', String.fromCharCode(0xf067));  // plus icon
+        waveButton.width = '40px';
+        waveButton.height = '40px';
+        waveButton.color = 'white';
+        waveButton.background = '#D32F2F';
+        waveButton.cornerRadius = 20;
+        waveButton.thickness = 2;
+        waveButton.fontFamily = 'FontAwesome';
+        waveButton.fontSize = 20;
+        waveButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        waveButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        waveButton.top = '110px';
+        waveButton.left = '-20px';
+        waveButton.shadowColor = "rgba(0, 0, 0, 0.4)";
+        waveButton.shadowBlur = 5;
+        waveButton.shadowOffsetY = 2;
+        waveButton.zIndex = 100;
+
+        // Add hover effect for wave button
+        waveButton.onPointerEnterObservable.add(() => {
+            waveButton.background = '#F44336';
+            waveButton.shadowOffsetY = 4;
+        });
+
+        waveButton.onPointerOutObservable.add(() => {
+            waveButton.background = '#D32F2F';
+            waveButton.shadowOffsetY = 2;
+        });
+
+        waveButton.onPointerUpObservable.add(() => {
+            if (this.waveManager) {
+                if (this.waveManager.isWaveInProgress()) {
+                    const currentWave = this.waveManager.getCurrentWave();
+                    const enemies = [];
+                    
+                    enemies.push({ type: 'basic', count: 5 + Math.floor(currentWave / 2), delay: 1.0 });
+                    
+                    if (currentWave > 2) {
+                        enemies.push({ type: 'fast', count: 3 + Math.floor((currentWave - 2) / 2), delay: 0.8 });
+                    }
+                    
+                    if (currentWave > 4) {
+                        enemies.push({ type: 'tank', count: 1 + Math.floor((currentWave - 4) / 3), delay: 2.0 });
+                    }
+                    
+                    if (currentWave % 10 === 0 && currentWave > 0) {
+                        enemies.push({ type: 'boss', count: 1, delay: 0 });
+                    }
+                    
+                    const reward = 25 + currentWave * 10;
+                    
+                    this.waveManager.incrementWaveCounter();
+                    
+                    this.waveManager.createParallelWave(enemies, reward);
+                    
+                    console.log(`Created parallel wave with ${enemies.length} enemy types as wave ${this.waveManager.getCurrentWave()}`);
+                } else {
+                    this.waveManager.startNextWave();
+                }
+            }
+        });
+        this.ui.addControl(waveButton);
+
+        // Register wave button to update its state
+        this.registerWaveButtonUpdate(waveButton);
+
         // Add pause/resume toggle button to the top right
         const pauseButton = Button.CreateSimpleButton('pauseButton', String.fromCharCode(0xf04c));
         pauseButton.width = '40px';
@@ -294,79 +361,6 @@ export class GameplayState implements GameState {
         // Register button to update its state when the game pauses/resumes
         this.registerPauseButtonUpdate(pauseButton);
 
-        // Create right panel for game controls - just the wave button
-        const waveButton = Button.CreateSimpleButton('waveButton', 'New Wave');
-        waveButton.width = '130px';
-        waveButton.height = '40px';
-        waveButton.color = 'white';
-        waveButton.background = '#D32F2F';
-        waveButton.cornerRadius = 4;
-        waveButton.thickness = 2;
-        waveButton.fontFamily = 'Arial';
-        waveButton.fontSize = 13;
-        waveButton.fontWeight = 'bold';
-        waveButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        waveButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        waveButton.top = '-5px';
-        waveButton.left = '-10px';
-        waveButton.paddingLeft = '10px';
-        waveButton.paddingRight = '10px';
-        waveButton.shadowColor = "rgba(0, 0, 0, 0.4)";
-        waveButton.shadowBlur = 5;
-        waveButton.shadowOffsetY = 2;
-        waveButton.zIndex = 10;
-
-        if (waveButton.textBlock) {
-            waveButton.textBlock.outlineWidth = 1;
-            waveButton.textBlock.outlineColor = "black";
-        }
-
-        waveButton.onPointerEnterObservable.add(() => {
-            waveButton.background = '#F44336';
-            waveButton.shadowOffsetY = 4;
-            waveButton.thickness = 3;
-        });
-
-        waveButton.onPointerOutObservable.add(() => {
-            waveButton.background = '#D32F2F';
-            waveButton.shadowOffsetY = 2;
-            waveButton.thickness = 2;
-        });
-
-        waveButton.onPointerUpObservable.add(() => {
-            if (this.waveManager) {
-                if (this.waveManager.isWaveInProgress()) {
-                    const currentWave = this.waveManager.getCurrentWave();
-                    const enemies = [];
-                    
-                    enemies.push({ type: 'basic', count: 5 + Math.floor(currentWave / 2), delay: 1.0 });
-                    
-                    if (currentWave > 2) {
-                        enemies.push({ type: 'fast', count: 3 + Math.floor((currentWave - 2) / 2), delay: 0.8 });
-                    }
-                    
-                    if (currentWave > 4) {
-                        enemies.push({ type: 'tank', count: 1 + Math.floor((currentWave - 4) / 3), delay: 2.0 });
-                    }
-                    
-                    if (currentWave % 10 === 0 && currentWave > 0) {
-                        enemies.push({ type: 'boss', count: 1, delay: 0 });
-                    }
-                    
-                    const reward = 25 + currentWave * 10;
-                    
-                    this.waveManager.incrementWaveCounter();
-                    
-                    this.waveManager.createParallelWave(enemies, reward);
-                    
-                    console.log(`Created parallel wave with ${enemies.length} enemy types as wave ${this.waveManager.getCurrentWave()}`);
-                } else {
-                    this.waveManager.startNextWave();
-                }
-            }
-        });
-        this.ui.addControl(waveButton);
-        
         // Create bottom panel for tower selection with adjusted dimensions
         const bottomPanel = new Rectangle('bottomPanel');
         bottomPanel.width = '800px';
@@ -571,25 +565,6 @@ export class GameplayState implements GameState {
                 waveDisplay += `×${difficulty.toFixed(1)}`;
             }
             waveText.text = waveDisplay;
-        }
-        
-        const waveButton = this.ui.getControlByName('waveButton') as Button;
-        if (waveButton && waveButton.textBlock) {
-            if (this.waveManager.isWaveInProgress()) {
-                waveButton.textBlock.text = '🔄 Next';
-                waveButton.background = '#F57C00';
-            } else if (this.waveManager.getAutoWaveTimeRemaining() > 0) {
-                const timeLeft = Math.ceil(this.waveManager.getAutoWaveTimeRemaining());
-                waveButton.textBlock.text = `⏱ ${timeLeft}s`;
-                waveButton.background = '#1976D2';
-            } else {
-                waveButton.textBlock.text = '▶️ Wave';
-                waveButton.background = '#D32F2F';
-            }
-            
-            waveButton.textBlock.fontSize = 13;
-            waveButton.textBlock.outlineWidth = 1;
-            waveButton.textBlock.outlineColor = "black";
         }
     }
 
@@ -1639,6 +1614,30 @@ export class GameplayState implements GameState {
         } else {
             pauseButton.textBlock.text = String.fromCharCode(0xf04c);  // FA pause icon
             pauseButton.background = '#2196F3'; // Blue color for pause
+        }
+    }
+
+    private registerWaveButtonUpdate(waveButton: Button): void {
+        if (!waveButton || !waveButton.textBlock) return;
+
+        // Create a render observer to update the button state
+        this.game.getScene().onBeforeRenderObservable.add(() => {
+            this.updateWaveButtonState(waveButton);
+        });
+    }
+
+    private updateWaveButtonState(waveButton: Button): void {
+        if (!waveButton || !waveButton.textBlock || !this.waveManager) return;
+
+        if (this.waveManager.isWaveInProgress()) {
+            waveButton.textBlock.text = String.fromCharCode(0xf519);  // FA random icon for "next"
+            waveButton.background = '#F57C00';
+        } else if (this.waveManager.getAutoWaveTimeRemaining() > 0) {
+            waveButton.textBlock.text = String.fromCharCode(0xf017);  // FA clock icon
+            waveButton.background = '#1976D2';
+        } else {
+            waveButton.textBlock.text = String.fromCharCode(0xf067);  // FA plus icon
+            waveButton.background = '#D32F2F';
         }
     }
 } 
