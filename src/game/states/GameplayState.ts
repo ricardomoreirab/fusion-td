@@ -145,10 +145,10 @@ export class GameplayState implements GameState {
         statsContainer.addControl(healthContainer);
 
         const healthText = new TextBlock('healthText');
-        healthText.text = `${String.fromCharCode(0xf004)} 100`;  // heart icon
+        healthText.text = `${this.getIcon(0xf004, '❤')} 100`;  // heart icon with fallback
         healthText.color = 'white';
         healthText.fontSize = 22;
-        healthText.fontFamily = 'FontAwesome';
+        healthText.fontFamily = 'FontAwesome, Arial';  // Added fallback font
         healthText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         healthText.left = '10px';
         healthText.outlineWidth = 1;
@@ -168,10 +168,10 @@ export class GameplayState implements GameState {
         statsContainer.addControl(moneyContainer);
 
         const moneyText = new TextBlock('moneyText');
-        moneyText.text = `${String.fromCharCode(0xf51e)} 100`;  // coins icon
+        moneyText.text = `${this.getIcon(0xf51e, '$')} 100`;  // coins icon with fallback
         moneyText.color = 'white';
         moneyText.fontSize = 22;
-        moneyText.fontFamily = 'FontAwesome';
+        moneyText.fontFamily = 'FontAwesome, Arial';  // Added fallback font
         moneyText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         moneyText.left = '10px';
         moneyText.outlineWidth = 1;
@@ -191,10 +191,10 @@ export class GameplayState implements GameState {
         statsContainer.addControl(waveContainer);
 
         const waveText = new TextBlock('waveText');
-        waveText.text = `${String.fromCharCode(0xf83e)} 1`;  // wave-square icon
+        waveText.text = `${this.getIcon(0xf83e, '~')} 1`;  // wave icon with fallback
         waveText.color = 'white';
         waveText.fontSize = 22;
-        waveText.fontFamily = 'FontAwesome';
+        waveText.fontFamily = 'FontAwesome, Arial';  // Added fallback font
         waveText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         waveText.left = '10px';
         waveText.outlineWidth = 1;
@@ -216,16 +216,16 @@ export class GameplayState implements GameState {
         this.ui.addControl(cameraHelpContainer);
 
         const cameraHelpText = new TextBlock('cameraHelpText');
-        cameraHelpText.text = `${String.fromCharCode(0xf8cc)} Left-click + drag to rotate camera\n${String.fromCharCode(0xf013)} Mouse wheel to zoom in/out`;  // mouse and cog icons
+        cameraHelpText.text = `${this.getIcon(0xf8cc, '🖱')} Left-click + drag to rotate camera\n${this.getIcon(0xf013, '⚙')} Mouse wheel to zoom in/out`;
         cameraHelpText.color = 'white';
         cameraHelpText.fontSize = 12;
-        cameraHelpText.fontFamily = 'FontAwesome';
+        cameraHelpText.fontFamily = 'FontAwesome, Arial';  // Added fallback font
         cameraHelpText.outlineWidth = 1;
         cameraHelpText.outlineColor = 'black';
         cameraHelpContainer.addControl(cameraHelpText);
 
         // Add show/hide button for camera help
-        const toggleHelpButton = Button.CreateSimpleButton('toggleHelpButton', String.fromCharCode(0xf05a));  // info-circle icon
+        const toggleHelpButton = Button.CreateSimpleButton('toggleHelpButton', this.getIcon(0xf05a, 'i'));  // info icon with fallback
         toggleHelpButton.width = '40px';
         toggleHelpButton.height = '40px';
         toggleHelpButton.color = 'white';
@@ -240,7 +240,7 @@ export class GameplayState implements GameState {
         toggleHelpButton.shadowColor = "rgba(0, 0, 0, 0.4)";
         toggleHelpButton.shadowBlur = 5;
         toggleHelpButton.shadowOffsetY = 2;
-        toggleHelpButton.fontFamily = 'FontAwesome';
+        toggleHelpButton.fontFamily = 'FontAwesome, Arial';  // Added fallback font
         
         // Add hover effect for help button
         toggleHelpButton.onPointerEnterObservable.add(() => {
@@ -264,14 +264,14 @@ export class GameplayState implements GameState {
         });
 
         // Add pause/resume toggle button to the top right
-        const pauseButton = Button.CreateSimpleButton('pauseButton', String.fromCharCode(0xf04c));
+        const pauseButton = Button.CreateSimpleButton('pauseButton', this.getIcon(0xf04c, '⏸'));  // pause icon with fallback
         pauseButton.width = '40px';
         pauseButton.height = '40px';
         pauseButton.color = 'white';
         pauseButton.background = '#2196F3';
         pauseButton.cornerRadius = 20;
         pauseButton.thickness = 2;
-        pauseButton.fontFamily = 'FontAwesome';
+        pauseButton.fontFamily = 'FontAwesome, Arial';  // Added fallback font
         pauseButton.fontSize = 20;
         pauseButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         pauseButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
@@ -429,14 +429,14 @@ export class GameplayState implements GameState {
         this.createResponsiveTowerButton('earthTower', 'Earth', '$125', '#795548', buttonWidth, '75%', towerPanel, true);
 
         // Create wave button in top right
-        const waveButton = Button.CreateSimpleButton('waveButton', String.fromCharCode(0xf067));  // plus icon
+        const waveButton = Button.CreateSimpleButton('waveButton', this.getIcon(0xf067, '+'));  // plus icon with fallback
         waveButton.width = '40px';
         waveButton.height = '40px';
         waveButton.color = 'white';
         waveButton.background = '#D32F2F';
         waveButton.cornerRadius = 20;
         waveButton.thickness = 2;
-        waveButton.fontFamily = 'FontAwesome';
+        waveButton.fontFamily = 'FontAwesome, Arial';  // Added fallback font
         waveButton.fontSize = 20;
         waveButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         waveButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
@@ -576,17 +576,17 @@ export class GameplayState implements GameState {
         
         const healthText = this.ui.getControlByName('healthText') as TextBlock;
         if (healthText) {
-            healthText.text = `${String.fromCharCode(0xf004)} ${this.playerStats.getHealth()}`;
+            healthText.text = `${this.getIcon(0xf004, '❤')} ${this.playerStats.getHealth()}`;
         }
         
         const moneyText = this.ui.getControlByName('moneyText') as TextBlock;
         if (moneyText) {
-            moneyText.text = `${String.fromCharCode(0xf51e)} ${this.playerStats.getMoney()}`;
+            moneyText.text = `${this.getIcon(0xf51e, '$')} ${this.playerStats.getMoney()}`;
         }
         
         const waveText = this.ui.getControlByName('waveText') as TextBlock;
         if (waveText) {
-            let waveDisplay = `${String.fromCharCode(0xf83e)} ${this.waveManager.getCurrentWave()}`;
+            let waveDisplay = `${this.getIcon(0xf83e, '~')} ${this.waveManager.getCurrentWave()}`;
             const difficulty = this.waveManager.getDifficultyMultiplier();
             if (difficulty > 1.0) {
                 waveDisplay += `×${difficulty.toFixed(1)}`;
@@ -1634,13 +1634,12 @@ export class GameplayState implements GameState {
 
         const isPaused = this.game.getIsPaused();
         
-        // Update button text and color based on game state
         if (isPaused) {
-            pauseButton.textBlock.text = String.fromCharCode(0xf04b);  // FA play icon
-            pauseButton.background = '#4CAF50'; // Green color for resume
+            pauseButton.textBlock.text = this.getIcon(0xf04b, '▶');  // play icon with fallback
+            pauseButton.background = '#4CAF50';
         } else {
-            pauseButton.textBlock.text = String.fromCharCode(0xf04c);  // FA pause icon
-            pauseButton.background = '#2196F3'; // Blue color for pause
+            pauseButton.textBlock.text = this.getIcon(0xf04c, '⏸');  // pause icon with fallback
+            pauseButton.background = '#2196F3';
         }
     }
 
@@ -1657,14 +1656,32 @@ export class GameplayState implements GameState {
         if (!waveButton || !waveButton.textBlock || !this.waveManager) return;
 
         if (this.waveManager.isWaveInProgress()) {
-            waveButton.textBlock.text = String.fromCharCode(0xf519);  // FA random icon for "next"
+            waveButton.textBlock.text = this.getIcon(0xf519, '⟳');  // random icon with fallback
             waveButton.background = '#F57C00';
         } else if (this.waveManager.getAutoWaveTimeRemaining() > 0) {
-            waveButton.textBlock.text = String.fromCharCode(0xf017);  // FA clock icon
+            waveButton.textBlock.text = this.getIcon(0xf017, '⏲');  // clock icon with fallback
             waveButton.background = '#1976D2';
         } else {
-            waveButton.textBlock.text = String.fromCharCode(0xf067);  // FA plus icon
+            waveButton.textBlock.text = this.getIcon(0xf067, '+');  // plus icon with fallback
             waveButton.background = '#D32F2F';
+        }
+    }
+
+    private getIcon(iconUnicode: number, fallbackText: string): string {
+        try {
+            const icon = String.fromCharCode(iconUnicode);
+            // Test if the icon is rendered as expected
+            const testSpan = document.createElement('span');
+            testSpan.style.fontFamily = 'FontAwesome';
+            testSpan.textContent = icon;
+            document.body.appendChild(testSpan);
+            const isIconValid = testSpan.offsetWidth > 0;
+            document.body.removeChild(testSpan);
+            
+            return isIconValid ? icon : fallbackText;
+        } catch (e) {
+            console.warn('Failed to load icon:', e);
+            return fallbackText;
         }
     }
 } 
