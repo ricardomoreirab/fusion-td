@@ -208,17 +208,38 @@ export class Enemy {
             direction = targetPoint.subtract(this.position);
         }
         
-        // If confused, modify the direction slightly but maintain general path following
+        // If confused, modify the direction but maintain general path following
         if (this.isConfused) {
-            if (!this.confusedDirection || Math.random() < 0.05) {
-                const randomOffset = new Vector3(
-                    (Math.random() - 0.5) * 0.5,
-                    0,
-                    (Math.random() - 0.5) * 0.5
-                );
-                this.confusedDirection = direction.normalize().add(randomOffset).normalize();
+            // Update confused direction more frequently for more erratic movement
+            if (!this.confusedDirection || Math.random() < 0.1) {
+                // Create a random offset perpendicular to the path direction
+                const pathDirection = direction.normalize();
+                const perpX = pathDirection.z;
+                const perpZ = -pathDirection.x;
+                const perpLength = Math.sqrt(perpX * perpX + perpZ * perpZ);
+                
+                if (perpLength > 0.001) {
+                    const normalizedPerpX = perpX / perpLength;
+                    const normalizedPerpZ = perpZ / perpLength;
+                    
+                    const randomOffset = new Vector3(
+                        normalizedPerpX * (Math.random() - 0.5) * 0.3,
+                        0,
+                        normalizedPerpZ * (Math.random() - 0.5) * 0.3
+                    );
+                    
+                    // Mix the path direction with the random offset
+                    this.confusedDirection = pathDirection.add(randomOffset).normalize();
+                }
             }
-            direction = direction.scale(0.7).add(this.confusedDirection.scale(0.3));
+            
+            // Use a stronger mix of confused direction to make movement more erratic
+            if (this.confusedDirection) {
+                direction = direction.scale(0.5).add(this.confusedDirection.scale(0.5));
+            }
+        } else {
+            // Reset confused direction when not confused
+            this.confusedDirection = null;
         }
         
         // Normalize the direction
@@ -227,7 +248,6 @@ export class Enemy {
         // If we're close enough to the target, move to the next point
         if (distance < 0.1) {
             this.currentPathIndex++;
-            this.confusedDirection = null;
             
             // If we've reached the end of the path, return true
             if (this.currentPathIndex >= this.path.length) {
@@ -241,21 +261,25 @@ export class Enemy {
         
         direction.normalize();
         
-        // Move towards the target
-        const movement = direction.scale(this.speed * deltaTime);
+        // Move towards the target with reduced speed when confused
+        const currentSpeed = this.isConfused ? this.speed * 0.7 : this.speed;
+        const movement = direction.scale(currentSpeed * deltaTime);
         this.position.addInPlace(movement);
         
         // Ensure we don't overshoot the target
         const newDistanceToTarget = this.position.subtract(targetPoint).length();
         if (newDistanceToTarget > distance) {
             this.position = targetPoint.clone();
-            this.currentPathIndex++;
         }
         
-        // Update mesh position if it exists
-        if (this.mesh) {
+        // Update mesh position if it still exists
+        if (this.mesh && !this.mesh.isDisposed()) {
             this.mesh.position = this.position.clone();
-            // Update health bar
+        }
+        
+        // Update health bar position if it still exists
+        if (this.healthBarMesh && !this.healthBarMesh.isDisposed() && 
+            this.healthBarBackgroundMesh && !this.healthBarBackgroundMesh.isDisposed()) {
             this.updateHealthBar();
         }
         
