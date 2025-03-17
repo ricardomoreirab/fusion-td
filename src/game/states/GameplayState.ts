@@ -263,73 +263,6 @@ export class GameplayState implements GameState {
             cameraHelpContainer.isVisible = !cameraHelpContainer.isVisible;
         });
 
-        // Create wave button in top right
-        const waveButton = Button.CreateSimpleButton('waveButton', String.fromCharCode(0xf067));  // plus icon
-        waveButton.width = '40px';
-        waveButton.height = '40px';
-        waveButton.color = 'white';
-        waveButton.background = '#D32F2F';
-        waveButton.cornerRadius = 20;
-        waveButton.thickness = 2;
-        waveButton.fontFamily = 'FontAwesome';
-        waveButton.fontSize = 20;
-        waveButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        waveButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        waveButton.top = '110px';
-        waveButton.left = '-20px';
-        waveButton.shadowColor = "rgba(0, 0, 0, 0.4)";
-        waveButton.shadowBlur = 5;
-        waveButton.shadowOffsetY = 2;
-        waveButton.zIndex = 100;
-
-        // Add hover effect for wave button
-        waveButton.onPointerEnterObservable.add(() => {
-            waveButton.background = '#F44336';
-            waveButton.shadowOffsetY = 4;
-        });
-
-        waveButton.onPointerOutObservable.add(() => {
-            waveButton.background = '#D32F2F';
-            waveButton.shadowOffsetY = 2;
-        });
-
-        waveButton.onPointerUpObservable.add(() => {
-            if (this.waveManager) {
-                if (this.waveManager.isWaveInProgress()) {
-                    const currentWave = this.waveManager.getCurrentWave();
-                    const enemies = [];
-                    
-                    enemies.push({ type: 'basic', count: 5 + Math.floor(currentWave / 2), delay: 1.0 });
-                    
-                    if (currentWave > 2) {
-                        enemies.push({ type: 'fast', count: 3 + Math.floor((currentWave - 2) / 2), delay: 0.8 });
-                    }
-                    
-                    if (currentWave > 4) {
-                        enemies.push({ type: 'tank', count: 1 + Math.floor((currentWave - 4) / 3), delay: 2.0 });
-                    }
-                    
-                    if (currentWave % 10 === 0 && currentWave > 0) {
-                        enemies.push({ type: 'boss', count: 1, delay: 0 });
-                    }
-                    
-                    const reward = 25 + currentWave * 10;
-                    
-                    this.waveManager.incrementWaveCounter();
-                    
-                    this.waveManager.createParallelWave(enemies, reward);
-                    
-                    console.log(`Created parallel wave with ${enemies.length} enemy types as wave ${this.waveManager.getCurrentWave()}`);
-                } else {
-                    this.waveManager.startNextWave();
-                }
-            }
-        });
-        this.ui.addControl(waveButton);
-
-        // Register wave button to update its state
-        this.registerWaveButtonUpdate(waveButton);
-
         // Add pause/resume toggle button to the top right
         const pauseButton = Button.CreateSimpleButton('pauseButton', String.fromCharCode(0xf04c));
         pauseButton.width = '40px';
@@ -373,7 +306,7 @@ export class GameplayState implements GameState {
 
         // Create bottom panel for tower selection with adjusted dimensions
         const bottomPanel = new Rectangle('bottomPanel');
-        bottomPanel.width = '800px';
+        bottomPanel.width = '100%';  // Full width for better mobile support
         bottomPanel.height = '80px';
         bottomPanel.background = 'transparent';
         bottomPanel.thickness = 0;
@@ -383,7 +316,7 @@ export class GameplayState implements GameState {
         bottomPanel.zIndex = 5;
         this.ui.addControl(bottomPanel);
 
-        // Create panel title and tabs - now centered relative to tower buttons
+        // Create panel title and tabs - centered and responsive
         const tabsContainer = new Rectangle('bottomTabsContainer');
         tabsContainer.width = '140px';
         tabsContainer.height = '24px';
@@ -391,7 +324,6 @@ export class GameplayState implements GameState {
         tabsContainer.thickness = 0;
         tabsContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         tabsContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        tabsContainer.left = '30px';
         tabsContainer.top = '0px';
         tabsContainer.zIndex = 10;
         bottomPanel.addControl(tabsContainer);
@@ -458,7 +390,7 @@ export class GameplayState implements GameState {
                 const currentTab = this.ui.getControlByName('elementalTab') as Button;
                 if (currentTab && currentTab !== elementalTab) {
                     elementalTab.background = '#333333';
-                    currentTab.shadowOffsetY = 2;
+                    elementalTab.shadowOffsetY = 2;
                 }
             }
         });
@@ -468,78 +400,163 @@ export class GameplayState implements GameState {
         });
         tabsContainer.addControl(elementalTab);
 
-        // Create tower selection container - now horizontal and thinner
+        // Create tower selection container - now responsive
         const towerPanel = new Rectangle('towerPanel');
-        towerPanel.width = '560px';
+        towerPanel.width = '95%';  // Leave some margin on the sides
         towerPanel.height = '45px';
         towerPanel.background = 'transparent';
         towerPanel.thickness = 0;
         towerPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         towerPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        towerPanel.left = '30px';
         towerPanel.top = '-5px';
         towerPanel.zIndex = 6;
         bottomPanel.addControl(towerPanel);
 
-        // Create tower buttons horizontally with smaller sizes and more spacing
-        this.createHorizontalTowerButton('basicTower', 'Basic', '$50', '#4CAF50', 0, towerPanel);
-        this.createHorizontalTowerButton('fastTower', 'Fast', '$100', '#2196F3', 140, towerPanel);
-        this.createHorizontalTowerButton('heavyTower', 'Heavy', '$150', '#FF9800', 280, towerPanel);
-        this.createHorizontalTowerButton('sniperTower', 'Sniper', '$200', '#9C27B0', 420, towerPanel);
+        // Calculate responsive button widths and spacing
+        const buttonWidth = '22%';  // Slightly less than 25% to ensure spacing
+        const buttonSpacing = '4%';  // Space between buttons
+
+        // Create tower buttons with responsive widths
+        this.createResponsiveTowerButton('basicTower', 'Basic', '$50', '#4CAF50', buttonWidth, '0%', towerPanel);
+        this.createResponsiveTowerButton('fastTower', 'Fast', '$100', '#2196F3', buttonWidth, '25%', towerPanel);
+        this.createResponsiveTowerButton('heavyTower', 'Heavy', '$150', '#FF9800', buttonWidth, '50%', towerPanel);
+        this.createResponsiveTowerButton('sniperTower', 'Sniper', '$200', '#9C27B0', buttonWidth, '75%', towerPanel);
 
         // Create elemental tower buttons (initially hidden)
-        this.createHorizontalTowerButton('fireTower', 'Fire', '$125', '#FF5722', 0, towerPanel, true);
-        this.createHorizontalTowerButton('waterTower', 'Water', '$125', '#03A9F4', 140, towerPanel, true);
-        this.createHorizontalTowerButton('windTower', 'Wind', '$125', '#8BC34A', 280, towerPanel, true);
-        this.createHorizontalTowerButton('earthTower', 'Earth', '$125', '#795548', 420, towerPanel, true);
+        this.createResponsiveTowerButton('fireTower', 'Fire', '$125', '#FF5722', buttonWidth, '0%', towerPanel, true);
+        this.createResponsiveTowerButton('waterTower', 'Water', '$125', '#03A9F4', buttonWidth, '25%', towerPanel, true);
+        this.createResponsiveTowerButton('windTower', 'Wind', '$125', '#8BC34A', buttonWidth, '50%', towerPanel, true);
+        this.createResponsiveTowerButton('earthTower', 'Earth', '$125', '#795548', buttonWidth, '75%', towerPanel, true);
+
+        // Create wave button in top right
+        const waveButton = Button.CreateSimpleButton('waveButton', String.fromCharCode(0xf067));  // plus icon
+        waveButton.width = '40px';
+        waveButton.height = '40px';
+        waveButton.color = 'white';
+        waveButton.background = '#D32F2F';
+        waveButton.cornerRadius = 20;
+        waveButton.thickness = 2;
+        waveButton.fontFamily = 'FontAwesome';
+        waveButton.fontSize = 20;
+        waveButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        waveButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        waveButton.top = '110px';
+        waveButton.left = '-20px';
+        waveButton.shadowColor = "rgba(0, 0, 0, 0.4)";
+        waveButton.shadowBlur = 5;
+        waveButton.shadowOffsetY = 2;
+        waveButton.zIndex = 100;
+
+        // Add hover effect for wave button
+        waveButton.onPointerEnterObservable.add(() => {
+            waveButton.background = '#F44336';
+            waveButton.shadowOffsetY = 4;
+        });
+
+        waveButton.onPointerOutObservable.add(() => {
+            waveButton.background = '#D32F2F';
+            waveButton.shadowOffsetY = 2;
+        });
+
+        waveButton.onPointerUpObservable.add(() => {
+            if (this.waveManager) {
+                if (this.waveManager.isWaveInProgress()) {
+                    const currentWave = this.waveManager.getCurrentWave();
+                    const enemies = [];
+                    
+                    enemies.push({ type: 'basic', count: 5 + Math.floor(currentWave / 2), delay: 1.0 });
+                    
+                    if (currentWave > 2) {
+                        enemies.push({ type: 'fast', count: 3 + Math.floor((currentWave - 2) / 2), delay: 0.8 });
+                    }
+                    
+                    if (currentWave > 4) {
+                        enemies.push({ type: 'tank', count: 1 + Math.floor((currentWave - 4) / 3), delay: 2.0 });
+                    }
+                    
+                    if (currentWave % 10 === 0 && currentWave > 0) {
+                        enemies.push({ type: 'boss', count: 1, delay: 0 });
+                    }
+                    
+                    const reward = 25 + currentWave * 10;
+                    
+                    this.waveManager.incrementWaveCounter();
+                    
+                    this.waveManager.createParallelWave(enemies, reward);
+                    
+                    console.log(`Created parallel wave with ${enemies.length} enemy types as wave ${this.waveManager.getCurrentWave()}`);
+                } else {
+                    this.waveManager.startNextWave();
+                }
+            }
+        });
+        this.ui.addControl(waveButton);
+
+        // Register wave button to update its state
+        this.registerWaveButtonUpdate(waveButton);
     }
 
-    private createTowerButton(type: string, name: string, cost: string, color: string, left: number, parent: Rectangle, hidden: boolean = false): void {
-        const button = new Rectangle(`${type}Button`);
-        button.width = '85px';
-        button.height = '85px';
+    private createResponsiveTowerButton(id: string, name: string, cost: string, color: string, width: string, left: string, parent: Rectangle, hidden: boolean = false): void {
+        const button = new Rectangle(id);
+        button.width = width;
+        button.height = '40px';
         button.background = color;
-        button.cornerRadius = 12;
+        button.cornerRadius = 4;
         button.thickness = 2;
-        button.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        button.left = `${left}px`;
+        button.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        button.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        button.left = left;
         button.isVisible = !hidden;
         button.isPointerBlocker = true;
         button.shadowColor = "rgba(0, 0, 0, 0.4)";
         button.shadowBlur = 5;
         button.shadowOffsetY = 2;
-        button.paddingTop = '12px';
-        button.paddingBottom = '12px';
         
-        const nameText = new TextBlock(`${type}Name`);
+        // Create a container for the text to ensure proper alignment
+        const textContainer = new Rectangle(`${id}_textContainer`);
+        textContainer.width = '100%';
+        textContainer.height = '100%';
+        textContainer.thickness = 0;
+        textContainer.background = 'transparent';
+        button.addControl(textContainer);
+        
+        // Name text at the top
+        const nameText = new TextBlock(`${id}_name`);
         nameText.text = name;
         nameText.color = 'white';
-        nameText.fontSize = 16;
+        nameText.fontSize = 13;
         nameText.fontFamily = 'Arial';
         nameText.fontWeight = 'bold';
-        nameText.top = '-25px';
+        nameText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        nameText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        nameText.top = '4px';
         nameText.outlineWidth = 1;
         nameText.outlineColor = 'black';
-        button.addControl(nameText);
+        textContainer.addControl(nameText);
         
-        const costText = new TextBlock(`${type}Cost`);
+        // Cost text at the bottom
+        const costText = new TextBlock(`${id}_cost`);
         costText.text = cost;
         costText.color = 'white';
-        costText.fontSize = 16;
+        costText.fontSize = 13;
         costText.fontFamily = 'Arial';
-        costText.top = '25px';
+        costText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        costText.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        costText.top = '-4px';
         costText.outlineWidth = 1;
         costText.outlineColor = 'black';
-        button.addControl(costText);
+        textContainer.addControl(costText);
         
         button.onPointerEnterObservable.add(() => {
             button.alpha = 0.8;
             button.thickness = 3;
+            button.shadowOffsetY = 4;
         });
         
         button.onPointerOutObservable.add(() => {
             button.alpha = 1;
             button.thickness = 2;
+            button.shadowOffsetY = 2;
         });
         
         button.onPointerDownObservable.add(() => {
@@ -548,7 +565,7 @@ export class GameplayState implements GameState {
         
         button.onPointerUpObservable.add(() => {
             button.alpha = 0.8;
-            this.selectTowerType(type);
+            this.selectTowerType(id);
         });
         
         parent.addControl(button);
