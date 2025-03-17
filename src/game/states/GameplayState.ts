@@ -29,6 +29,9 @@ export class GameplayState implements GameState {
     private upgradeButton: Rectangle | null = null;
     private towerInfoPanel: Rectangle | null = null;
     private iconCache: { [key: number]: string } = {};
+    private fontLoaded: boolean = false;
+    private maxRetries: number = 3;
+    private retryDelay: number = 500; // milliseconds
 
     constructor(game: Game) {
         this.game = game;
@@ -1668,40 +1671,85 @@ export class GameplayState implements GameState {
         }
     }
 
+    private async waitForFontLoad(): Promise<void> {
+        if (this.fontLoaded) return;
+        
+        try {
+            await document.fonts.load('16px FontAwesome');
+            this.fontLoaded = true;
+        } catch (e) {
+            console.warn('Font loading API not supported, falling back to timeout');
+            // Fallback: wait for a moment to let the font load
+            await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+    }
+
     private getIcon(iconUnicode: number, fallbackText: string): string {
         // Check cache first
         if (this.iconCache[iconUnicode]) {
             return this.iconCache[iconUnicode];
         }
 
-        try {
-            const icon = String.fromCharCode(iconUnicode);
-            
-            // Create a test span with proper font settings
-            const testSpan = document.createElement('span');
-            testSpan.style.fontFamily = 'FontAwesome, Arial';
-            testSpan.style.fontSize = '16px';
-            testSpan.style.position = 'absolute';
-            testSpan.style.visibility = 'hidden';
-            testSpan.textContent = icon;
-            
-            // Add to document temporarily
-            document.body.appendChild(testSpan);
-            
-            // Check if the icon is rendered correctly
-            const isIconValid = testSpan.offsetWidth > 0 && testSpan.offsetHeight > 0;
-            
-            // Clean up
-            document.body.removeChild(testSpan);
-            
-            // Cache the result
-            const result = isIconValid ? icon : fallbackText;
-            this.iconCache[iconUnicode] = result;
-            
-            return result;
-        } catch (e) {
-            console.warn('Failed to load icon:', e);
-            return fallbackText;
-        }
+        // Try to get the icon with retries
+        const tryGetIcon = async (retries: number = 0): Promise<string> => {
+            try {
+                // Wait for font to load on first try
+                if (retries === 0) {
+                    await this.waitForFontLoad();
+                }
+
+                const icon = String.fromCharCode(iconUnicode);
+                
+                // Create a test span with proper font settings
+                const testSpan = document.createElement('span');
+                testSpan.style.fontFamily = 'FontAwesome';
+                testSpan.style.fontSize = '16px';
+                testSpan.style.position = 'absolute';
+                testSpan.style.visibility = 'hidden';
+                testSpan.textContent = icon;
+                
+                // Add to document temporarily
+                document.body.appendChild(testSpan);
+                
+                // More thorough check for icon rendering
+                const isIconValid = testSpan.offsetWidth > 0 && 
+                                  testSpan.offsetHeight > 0 && 
+                                  window.getComputedStyle(testSpan).fontFamily.includes('FontAwesome');
+                
+                // Clean up
+                document.body.removeChild(testSpan);
+                
+                if (!isIconValid && retries < this.maxRetries) {
+                    // Wait and retry
+                    await new Promise(resolve => setTimeout(resolve, this.retryDelay));
+                    return tryGetIcon(retries + 1);
+                }
+                
+                // Cache and return the result
+                const result = isIconValid ? icon : fallbackText;
+                this.iconCache[iconUnicode] = result;
+                return result;
+            } catch (e) {
+                console.warn('Failed to load icon:', e);
+                return fallbackText;
+            }
+        };
+
+        // Start the retry process and use fallback while waiting
+        tryGetIcon().then(icon => {
+            // Update all instances of this icon in the UI
+            if (this.ui) {
+                const controls = this.ui.getControlsByType("TextBlock");
+                controls.forEach(control => {
+                    const textBlock = control as TextBlock;
+                    if (textBlock.text.includes(fallbackText)) {
+                        textBlock.text = textBlock.text.replace(fallbackText, icon);
+                    }
+                });
+            }
+        });
+
+        // Return fallback immediately while we wait for the icon to load
+        return fallbackText;
     }
 } 
