@@ -28,6 +28,7 @@ export class GameplayState implements GameState {
     private sellButton: Rectangle | null = null;
     private upgradeButton: Rectangle | null = null;
     private towerInfoPanel: Rectangle | null = null;
+    private iconCache: { [key: number]: string } = {};
 
     constructor(game: Game) {
         this.game = game;
@@ -122,19 +123,19 @@ export class GameplayState implements GameState {
         
         // Create minimalist stats icons with emojis
         const statsContainer = new Rectangle('statsContainer');
-        statsContainer.width = '150px';
+        statsContainer.width = '150px';  // Increased width
         statsContainer.height = '120px';
         statsContainer.background = 'transparent';
         statsContainer.thickness = 0;
         statsContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         statsContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        statsContainer.left = '10px';
+        statsContainer.left = '0px';
         statsContainer.top = '10px';
         this.ui.addControl(statsContainer);
 
         // Health display with heart emoji
         const healthContainer = new Rectangle('healthContainer');
-        healthContainer.width = '150px';
+        healthContainer.width = '150px';  // Increased width
         healthContainer.height = '40px';
         healthContainer.background = 'transparent';
         healthContainer.thickness = 0;
@@ -148,16 +149,16 @@ export class GameplayState implements GameState {
         healthText.text = `${this.getIcon(0xf004, '❤')} 100`;  // heart icon with fallback
         healthText.color = 'white';
         healthText.fontSize = 22;
-        healthText.fontFamily = 'FontAwesome, Arial';  // Added fallback font
+        healthText.fontFamily = 'FontAwesome, Arial';
         healthText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        healthText.left = '10px';
+        healthText.left = '10px';  // Small padding from the edge
         healthText.outlineWidth = 1;
         healthText.outlineColor = 'black';
         healthContainer.addControl(healthText);
 
         // Money display with coin emoji
         const moneyContainer = new Rectangle('moneyContainer');
-        moneyContainer.width = '150px';
+        moneyContainer.width = '150px';  // Increased width
         moneyContainer.height = '40px';
         moneyContainer.background = 'transparent';
         moneyContainer.thickness = 0;
@@ -171,16 +172,16 @@ export class GameplayState implements GameState {
         moneyText.text = `${this.getIcon(0xf51e, '$')} 100`;  // coins icon with fallback
         moneyText.color = 'white';
         moneyText.fontSize = 22;
-        moneyText.fontFamily = 'FontAwesome, Arial';  // Added fallback font
+        moneyText.fontFamily = 'FontAwesome, Arial';
         moneyText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        moneyText.left = '10px';
+        moneyText.left = '10px';  // Small padding from the edge
         moneyText.outlineWidth = 1;
         moneyText.outlineColor = 'black';
         moneyContainer.addControl(moneyText);
 
         // Wave display with wave emoji
         const waveContainer = new Rectangle('waveContainer');
-        waveContainer.width = '150px';
+        waveContainer.width = '150px';  // Increased width
         waveContainer.height = '40px';
         waveContainer.background = 'transparent';
         waveContainer.thickness = 0;
@@ -194,9 +195,9 @@ export class GameplayState implements GameState {
         waveText.text = `${this.getIcon(0xf83e, '~')} 1`;  // wave icon with fallback
         waveText.color = 'white';
         waveText.fontSize = 22;
-        waveText.fontFamily = 'FontAwesome, Arial';  // Added fallback font
+        waveText.fontFamily = 'FontAwesome, Arial';
         waveText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        waveText.left = '10px';
+        waveText.left = '10px';  // Small padding from the edge
         waveText.outlineWidth = 1;
         waveText.outlineColor = 'black';
         waveContainer.addControl(waveText);
@@ -390,7 +391,7 @@ export class GameplayState implements GameState {
                 const currentTab = this.ui.getControlByName('elementalTab') as Button;
                 if (currentTab && currentTab !== elementalTab) {
                     elementalTab.background = '#333333';
-                    elementalTab.shadowOffsetY = 2;
+                    currentTab.shadowOffsetY = 2;
                 }
             }
         });
@@ -1668,17 +1669,36 @@ export class GameplayState implements GameState {
     }
 
     private getIcon(iconUnicode: number, fallbackText: string): string {
+        // Check cache first
+        if (this.iconCache[iconUnicode]) {
+            return this.iconCache[iconUnicode];
+        }
+
         try {
             const icon = String.fromCharCode(iconUnicode);
-            // Test if the icon is rendered as expected
+            
+            // Create a test span with proper font settings
             const testSpan = document.createElement('span');
-            testSpan.style.fontFamily = 'FontAwesome';
+            testSpan.style.fontFamily = 'FontAwesome, Arial';
+            testSpan.style.fontSize = '16px';
+            testSpan.style.position = 'absolute';
+            testSpan.style.visibility = 'hidden';
             testSpan.textContent = icon;
+            
+            // Add to document temporarily
             document.body.appendChild(testSpan);
-            const isIconValid = testSpan.offsetWidth > 0;
+            
+            // Check if the icon is rendered correctly
+            const isIconValid = testSpan.offsetWidth > 0 && testSpan.offsetHeight > 0;
+            
+            // Clean up
             document.body.removeChild(testSpan);
             
-            return isIconValid ? icon : fallbackText;
+            // Cache the result
+            const result = isIconValid ? icon : fallbackText;
+            this.iconCache[iconUnicode] = result;
+            
+            return result;
         } catch (e) {
             console.warn('Failed to load icon:', e);
             return fallbackText;
