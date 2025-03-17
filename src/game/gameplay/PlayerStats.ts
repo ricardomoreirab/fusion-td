@@ -1,11 +1,13 @@
 export class PlayerStats {
     private health: number;
-    private money: number;
+    private money: number = 999999; // Give unlimited money for testing
     private won: boolean = false;
+    private unlimitedMoney: boolean = true; // Enable unlimited money for testing
 
     constructor(initialHealth: number, initialMoney: number) {
         this.health = initialHealth;
-        this.money = initialMoney;
+        // Always start with a large amount of money for testing
+        this.money = 999999;
     }
 
     /**
@@ -35,7 +37,8 @@ export class PlayerStats {
      * Get the current money
      */
     public getMoney(): number {
-        return this.money;
+        // Always return a large amount if unlimited money is enabled
+        return this.unlimitedMoney ? 999999 : this.money;
     }
 
     /**
@@ -43,7 +46,9 @@ export class PlayerStats {
      * @param amount The amount to add
      */
     public addMoney(amount: number): void {
-        this.money += amount;
+        if (!this.unlimitedMoney) {
+            this.money += amount;
+        }
     }
 
     /**
@@ -52,6 +57,11 @@ export class PlayerStats {
      * @returns True if the money was spent, false if not enough money
      */
     public spendMoney(amount: number): boolean {
+        // If unlimited money is enabled, always allow spending
+        if (this.unlimitedMoney) {
+            return true;
+        }
+        
         if (this.money >= amount) {
             this.money -= amount;
             return true;
@@ -72,5 +82,12 @@ export class PlayerStats {
      */
     public setWon(won: boolean): void {
         this.won = won;
+    }
+    
+    /**
+     * Toggle unlimited money mode for testing
+     */
+    public toggleUnlimitedMoney(): void {
+        this.unlimitedMoney = !this.unlimitedMoney;
     }
 } 

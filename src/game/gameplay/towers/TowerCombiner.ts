@@ -26,37 +26,37 @@ export class TowerCombiner {
             elements: [ElementType.FIRE, ElementType.WATER],
             resultType: 'SteamTower',
             name: 'Steam Tower',
-            description: 'Creates steam clouds that damage and slow enemies'
+            description: 'Creates superheated steam clouds that severely burn and slow enemies in a wide area'
         },
         {
             elements: [ElementType.FIRE, ElementType.EARTH],
             resultType: 'LavaTower',
             name: 'Lava Tower',
-            description: 'Creates lava pools that damage enemies over time'
+            description: 'Erupts with molten rock, creating deadly lava pools that continually damage enemies'
         },
         {
             elements: [ElementType.WATER, ElementType.WIND],
             resultType: 'IceTower',
-            name: 'Ice Tower',
-            description: 'Freezes enemies and deals bonus damage to frozen targets'
+            name: 'Frost Tower',
+            description: 'Generates freezing blizzards that slow and eventually freeze enemies solid'
         },
         {
             elements: [ElementType.WIND, ElementType.FIRE],
             resultType: 'StormTower',
-            name: 'Storm Tower',
-            description: 'Creates lightning strikes that chain between enemies'
+            name: 'Lightning Tower',
+            description: 'Summons devastating lightning strikes that chain between nearby enemies'
         },
         {
             elements: [ElementType.EARTH, ElementType.WATER],
             resultType: 'MudTower',
-            name: 'Mud Tower',
-            description: 'Creates mud that slows enemies and reduces their armor'
+            name: 'Swamp Tower',
+            description: 'Creates thick quicksand that traps enemies, slowing them and reducing their defenses'
         },
         {
             elements: [ElementType.EARTH, ElementType.WIND],
             resultType: 'DustTower',
-            name: 'Dust Tower',
-            description: 'Creates dust clouds that confuse and damage enemies'
+            name: 'Sandstorm Tower',
+            description: 'Generates raging sandstorms that blind and disorient enemies while dealing damage'
         }
     ];
     

@@ -38,7 +38,7 @@ export class GameplayState implements GameState {
         
         // Create game components
         this.map = new Map(this.game);
-        this.playerStats = new PlayerStats(100, 100); // Start with 100 health and 100 money
+        this.playerStats = new PlayerStats(100, 10000); // Start with 100 health and 10000 money
         this.towerManager = new TowerManager(this.game, this.map);
         this.enemyManager = new EnemyManager(this.game, this.map);
         this.waveManager = new WaveManager(this.enemyManager, this.playerStats);

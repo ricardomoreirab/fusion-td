@@ -590,9 +590,11 @@ export abstract class Tower {
         // Rotate to be flat on the ground
         this.rangeIndicator.rotation.x = Math.PI / 2;
         
-        // Create material
+        // Create material with direct Color4 initialization
         const material = new StandardMaterial('rangeIndicatorMaterial', this.scene);
         material.diffuseColor = new Color3(0.3, 0.6, 1);
+        material.specularColor = new Color3(0, 0, 0); // No specular
+        material.emissiveColor = new Color3(0, 0, 0); // No emission
         material.alpha = 0.3;
         this.rangeIndicator.material = material;
         
@@ -760,10 +762,14 @@ export abstract class Tower {
             this.position.z
         );
         
-        // Create a glowing material
+        // Create a glowing material with direct Color3 initialization
         const material = new StandardMaterial('selectionMaterial', this.scene);
-        material.diffuseColor = new Color3(0.3, 0.8, 1.0);
-        material.emissiveColor = new Color3(0.3, 0.8, 1.0);
+        
+        // Use explicit color values to avoid any undefined issues
+        const selectionColor = new Color3(0.3, 0.8, 1.0);
+        material.diffuseColor = selectionColor;
+        material.emissiveColor = selectionColor;
+        material.specularColor = new Color3(0, 0, 0); // No specular
         material.alpha = 0.7;
         this.selectionIndicator.material = material;
         
@@ -819,5 +825,29 @@ export abstract class Tower {
      */
     public getMesh(): Mesh | null {
         return this.mesh;
+    }
+
+    /**
+     * Helper method to safely create a Color4 from Color3
+     * @param color3 The Color3 to convert
+     * @param alpha The alpha value (default: 1.0)
+     * @returns A properly initialized Color4
+     */
+    protected safeColor4(color3: Color3, alpha: number = 1.0): Color4 {
+        if (!color3) {
+            return new Color4(1, 1, 1, alpha); // Default white if color3 is null
+        }
+        
+        try {
+            return new Color4(
+                color3.r !== undefined ? color3.r : 1.0,
+                color3.g !== undefined ? color3.g : 1.0,
+                color3.b !== undefined ? color3.b : 1.0,
+                alpha
+            );
+        } catch (error) {
+            console.error("Error creating Color4:", error);
+            return new Color4(1, 1, 1, alpha);
+        }
     }
 } 

@@ -6,7 +6,8 @@
   "scripts": {
     "start": "webpack serve --open",
     "build": "webpack --mode production",
-    "vercel-build": "webpack --mode production"
+    "vercel-build": "webpack --mode production",
+    "dev": "webpack serve --open"
   },
   "keywords": [
     "babylonjs",
