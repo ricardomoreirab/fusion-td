@@ -200,17 +200,25 @@ export class Enemy {
         // Calculate direction to the target
         let direction = targetPoint.subtract(this.position);
         
-        // If confused, use random direction or reverse
+        // Find the closest point on the path if we're too far from our target
+        const distanceToPath = direction.length();
+        if (distanceToPath > 2) { // If we're more than 2 units away from our target
+            // Reset to the last known good position
+            this.position = this.path[Math.max(0, this.currentPathIndex - 1)].clone();
+            direction = targetPoint.subtract(this.position);
+        }
+        
+        // If confused, modify the direction slightly but maintain general path following
         if (this.isConfused) {
             if (!this.confusedDirection || Math.random() < 0.05) {
-                // 5% chance to change direction when confused
-                this.confusedDirection = new Vector3(
-                    Math.random() * 2 - 1,
+                const randomOffset = new Vector3(
+                    (Math.random() - 0.5) * 0.5,
                     0,
-                    Math.random() * 2 - 1
-                ).normalize();
+                    (Math.random() - 0.5) * 0.5
+                );
+                this.confusedDirection = direction.normalize().add(randomOffset).normalize();
             }
-            direction = this.confusedDirection;
+            direction = direction.scale(0.7).add(this.confusedDirection.scale(0.3));
         }
         
         // Normalize the direction
@@ -219,12 +227,15 @@ export class Enemy {
         // If we're close enough to the target, move to the next point
         if (distance < 0.1) {
             this.currentPathIndex++;
+            this.confusedDirection = null;
             
             // If we've reached the end of the path, return true
             if (this.currentPathIndex >= this.path.length) {
                 return true;
             }
             
+            // Ensure we're exactly on the path point when reaching it
+            this.position = targetPoint.clone();
             return false;
         }
         
@@ -233,6 +244,13 @@ export class Enemy {
         // Move towards the target
         const movement = direction.scale(this.speed * deltaTime);
         this.position.addInPlace(movement);
+        
+        // Ensure we don't overshoot the target
+        const newDistanceToTarget = this.position.subtract(targetPoint).length();
+        if (newDistanceToTarget > distance) {
+            this.position = targetPoint.clone();
+            this.currentPathIndex++;
+        }
         
         // Update mesh position if it exists
         if (this.mesh) {

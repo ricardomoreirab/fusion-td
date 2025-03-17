@@ -1,10 +1,11 @@
-import { Engine, Scene, Vector3, HemisphericLight, ArcRotateCamera, Color4, SceneLoader } from '@babylonjs/core';
+import { Engine, Scene, Vector3, HemisphericLight, ArcRotateCamera, Color4, SceneLoader, Animation, AbstractMesh } from '@babylonjs/core';
 import { GameState } from './states/GameState';
 import { MenuState } from './states/MenuState';
 import { GameplayState } from './states/GameplayState';
 import { GameOverState } from './states/GameOverState';
 import { AssetManager } from './managers/AssetManager';
 import { StateManager } from './managers/StateManager';
+import { PauseScreen } from './ui/PauseScreen';
 
 export class Game {
     private canvas: HTMLCanvasElement;
@@ -12,6 +13,8 @@ export class Game {
     private scene: Scene;
     private stateManager: StateManager;
     private assetManager: AssetManager;
+    private _isPaused: boolean = false;
+    private pauseScreen: PauseScreen;
 
     constructor(canvasId: string) {
         // Get the canvas element
@@ -36,6 +39,9 @@ export class Game {
         this.stateManager.registerState('menu', new MenuState(this));
         this.stateManager.registerState('gameplay', new GameplayState(this));
         this.stateManager.registerState('gameOver', new GameOverState(this));
+        
+        // Initialize pause screen
+        this.pauseScreen = new PauseScreen(this);
     }
 
     public start(): void {
@@ -132,6 +138,117 @@ export class Game {
         console.log('Scene cleaned up');
     }
 
+    public pause(): void {
+        if (this._isPaused) {
+            console.log('Game already paused, ignoring pause request');
+            return;
+        }
+        
+        console.log('Pausing game');
+        this._isPaused = true;
+        
+        // Freeze game objects first
+        this.scene.freezeActiveMeshes();
+        
+        // Pause all animations and particles
+        this.scene.meshes.forEach((mesh: AbstractMesh) => {
+            if (mesh.animations) {
+                mesh.animations.forEach((animation: Animation) => {
+                    this.scene.stopAnimation(mesh);
+                });
+            }
+        });
+        
+        this.scene.particleSystems.forEach(system => {
+            system.stop();
+        });
+        
+        // Keep rendering the scene for UI, but stop game updates
+        console.log('Setting up UI-only render loop');
+        this.engine.stopRenderLoop();
+        
+        // Create a new render loop that ONLY renders the scene without updates
+        this.engine.runRenderLoop(() => {
+            // Only render the scene, no game state updates
+            this.scene.render();
+        });
+        
+        // Show the pause screen last, after the render loop is set up
+        try {
+            if (this.pauseScreen) {
+                console.log('Showing pause screen');
+                this.pauseScreen.show();
+                
+                // Force a render to ensure the pause screen appears immediately
+                this.scene.render();
+            }
+        } catch (error) {
+            console.error("Error showing pause screen:", error);
+        }
+        
+        // Dispatch a custom event that the game was paused
+        const pauseEvent = new CustomEvent('gamePaused');
+        document.dispatchEvent(pauseEvent);
+    }
+
+    public resume(): void {
+        if (!this._isPaused) {
+            console.log('Game not paused, ignoring resume request');
+            return;
+        }
+        
+        console.log('Resuming game');
+        
+        // Hide the pause screen first
+        try {
+            if (this.pauseScreen) {
+                console.log('Hiding pause screen');
+                this.pauseScreen.hide();
+            }
+        } catch (error) {
+            console.error("Error hiding pause screen:", error);
+        }
+        
+        this._isPaused = false;
+        this.scene.unfreezeActiveMeshes();
+        
+        // Resume all animations and particles
+        this.scene.meshes.forEach((mesh: AbstractMesh) => {
+            if (mesh.animations) {
+                mesh.animations.forEach((animation: Animation) => {
+                    this.scene.beginAnimation(mesh, 0, Number.MAX_VALUE, true);
+                });
+            }
+        });
+        
+        this.scene.particleSystems.forEach(system => {
+            system.start();
+        });
+        
+        // Restart the render loop with game updates
+        console.log('Restarting full game render loop');
+        this.engine.stopRenderLoop();
+        
+        // Create a new render loop that updates game state and renders
+        this.engine.runRenderLoop(() => {
+            if (!this._isPaused) {
+                // Only update the state if not paused (double-check)
+                this.stateManager.update(this.engine.getDeltaTime() / 1000);
+            }
+            
+            // Always render the scene
+            this.scene.render();
+        });
+        
+        // Dispatch a custom event that the game was resumed
+        const resumeEvent = new CustomEvent('gameResumed');
+        document.dispatchEvent(resumeEvent);
+    }
+
+    public getIsPaused(): boolean {
+        return this._isPaused;
+    }
+
     // Getters for accessing game components
     public getScene(): Scene {
         return this.scene;
@@ -151,5 +268,14 @@ export class Game {
 
     public getAssetManager(): AssetManager {
         return this.assetManager;
+    }
+
+    // Add this new method
+    public togglePause(): void {
+        if (this._isPaused) {
+            this.resume();
+        } else {
+            this.pause();
+        }
     }
 } 

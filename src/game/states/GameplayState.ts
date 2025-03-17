@@ -191,6 +191,47 @@ export class GameplayState implements GameState {
         waveText.outlineColor = 'black';
         waveContainer.addControl(waveText);
 
+        // Add pause/resume toggle button to the top right
+        const pauseButton = Button.CreateSimpleButton('pauseButton', '⏸️');
+        pauseButton.width = '50px';
+        pauseButton.height = '50px';
+        pauseButton.color = 'white';
+        pauseButton.background = '#2196F3';
+        pauseButton.cornerRadius = 4;
+        pauseButton.thickness = 0;
+        pauseButton.fontFamily = 'Arial';
+        pauseButton.fontSize = 22;
+        pauseButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        pauseButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        pauseButton.top = '10px';
+        pauseButton.left = '-10px';
+        pauseButton.shadowColor = "rgba(0, 0, 0, 0.4)";
+        pauseButton.shadowBlur = 5;
+        pauseButton.shadowOffsetY = 2;
+        pauseButton.zIndex = 100;
+        
+        // Add hover effect
+        pauseButton.onPointerEnterObservable.add(() => {
+            pauseButton.background = '#0b7dda';
+            pauseButton.shadowOffsetY = 4;
+        });
+        
+        pauseButton.onPointerOutObservable.add(() => {
+            pauseButton.background = '#2196F3';
+            pauseButton.shadowOffsetY = 2;
+        });
+        
+        // Add click handler
+        pauseButton.onPointerClickObservable.add(() => {
+            console.log('Pause/Resume button clicked');
+            this.game.togglePause();
+        });
+        
+        this.ui.addControl(pauseButton);
+
+        // Register button to update its state when the game pauses/resumes
+        this.registerPauseButtonUpdate(pauseButton);
+
         // Create right panel for game controls - just the wave button
         const waveButton = Button.CreateSimpleButton('waveButton', 'New Wave');
         waveButton.width = '130px';
@@ -351,7 +392,7 @@ export class GameplayState implements GameState {
                 const currentTab = this.ui.getControlByName('elementalTab') as Button;
                 if (currentTab && currentTab !== elementalTab) {
                     elementalTab.background = '#333333';
-                    elementalTab.shadowOffsetY = 2;
+                    currentTab.shadowOffsetY = 2;
                 }
             }
         });
@@ -1510,6 +1551,32 @@ export class GameplayState implements GameState {
             console.log(`Tower placed at grid position (${gridPosition.x}, ${gridPosition.y})`);
         } else {
             console.log(`Not enough money to place tower. Need ${towerCost}, have ${this.playerStats.getMoney()}`);
+        }
+    }
+
+    // Update the pause/resume button to reflect the current game state
+    private registerPauseButtonUpdate(pauseButton: Button): void {
+        // Initial state
+        this.updatePauseButtonState(pauseButton);
+
+        // Create a render observer to update the button state
+        this.game.getScene().onBeforeRenderObservable.add(() => {
+            this.updatePauseButtonState(pauseButton);
+        });
+    }
+
+    private updatePauseButtonState(pauseButton: Button): void {
+        if (!pauseButton || !pauseButton.textBlock) return;
+
+        const isPaused = this.game.getIsPaused();
+        
+        // Update button text and color based on game state
+        if (isPaused) {
+            pauseButton.textBlock.text = '▶️';  // Play symbol
+            pauseButton.background = '#4CAF50'; // Green color for resume
+        } else {
+            pauseButton.textBlock.text = '⏸️';  // Pause symbol
+            pauseButton.background = '#2196F3'; // Blue color for pause
         }
     }
 } 
