@@ -132,6 +132,52 @@ export class GameplayState implements GameState {
         statsContainer.top = '10px';
         this.ui.addControl(statsContainer);
 
+        // Add camera controls help text
+        const cameraHelpContainer = new Rectangle('cameraHelpContainer');
+        cameraHelpContainer.width = '300px';
+        cameraHelpContainer.height = '40px';
+        cameraHelpContainer.background = 'rgba(0,0,0,0.5)';
+        cameraHelpContainer.cornerRadius = 5;
+        cameraHelpContainer.thickness = 0;
+        cameraHelpContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        cameraHelpContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        cameraHelpContainer.left = '-10px';
+        cameraHelpContainer.top = '70px';
+        cameraHelpContainer.alpha = 0.7;
+        this.ui.addControl(cameraHelpContainer);
+
+        const cameraHelpText = new TextBlock('cameraHelpText');
+        cameraHelpText.text = '🖱️ Left-click + drag to rotate camera\n⚙️ Mouse wheel to zoom in/out';
+        cameraHelpText.color = 'white';
+        cameraHelpText.fontSize = 12;
+        cameraHelpText.fontFamily = 'Arial';
+        cameraHelpText.outlineWidth = 1;
+        cameraHelpText.outlineColor = 'black';
+        cameraHelpContainer.addControl(cameraHelpText);
+
+        // Add show/hide button for camera help
+        const toggleHelpButton = Button.CreateSimpleButton('toggleHelpButton', 'ℹ️');
+        toggleHelpButton.width = '30px';
+        toggleHelpButton.height = '30px';
+        toggleHelpButton.color = 'white';
+        toggleHelpButton.background = '#2196F3';
+        toggleHelpButton.cornerRadius = 15;
+        toggleHelpButton.thickness = 0;
+        toggleHelpButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        toggleHelpButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        toggleHelpButton.top = '60px';
+        toggleHelpButton.left = '-10px';
+        toggleHelpButton.zIndex = 100;
+        this.ui.addControl(toggleHelpButton);
+
+        // Initially hide the help text
+        cameraHelpContainer.isVisible = false;
+
+        // Toggle visibility on click
+        toggleHelpButton.onPointerClickObservable.add(() => {
+            cameraHelpContainer.isVisible = !cameraHelpContainer.isVisible;
+        });
+
         // Health display with heart emoji
         const healthContainer = new Rectangle('healthContainer');
         healthContainer.width = '90px';
