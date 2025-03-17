@@ -429,11 +429,9 @@ export class WaveManager {
         // Increment wave counter
         this.currentWave++;
         
-        // Update difficulty multiplier every 3 waves (20% increase)
-        if (this.currentWave % 3 === 0) {
-            this.difficultyMultiplier *= 1.2;
-            console.log(`Wave ${this.currentWave}: Difficulty increased to ${this.difficultyMultiplier.toFixed(2)}x`);
-        }
+        // Update difficulty multiplier every wave (10% increase)
+        this.difficultyMultiplier *= 1.1;
+        console.log(`Wave ${this.currentWave}: Difficulty increased to ${this.difficultyMultiplier.toFixed(2)}x`);
         
         // Get the current wave
         let wave: Wave;
@@ -590,11 +588,9 @@ export class WaveManager {
         // Increment wave counter
         this.currentWave++;
         
-        // Update difficulty multiplier every 3 waves (20% increase)
-        if (this.currentWave % 3 === 0) {
-            this.difficultyMultiplier *= 1.2;
-            console.log(`Wave ${this.currentWave}: Difficulty increased to ${this.difficultyMultiplier.toFixed(2)}x`);
-        }
+        // Update difficulty multiplier (10% increase per wave)
+        this.difficultyMultiplier *= 1.1;
+        console.log(`Wave ${this.currentWave}: Difficulty increased to ${this.difficultyMultiplier.toFixed(2)}x`);
         
         console.log(`Wave counter incremented to ${this.currentWave}`);
     }

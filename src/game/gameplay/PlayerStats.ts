@@ -1,13 +1,12 @@
 export class PlayerStats {
     private health: number;
-    private money: number = 999999; // Give unlimited money for testing
+    private money: number;
     private won: boolean = false;
-    private unlimitedMoney: boolean = true; // Enable unlimited money for testing
+    private unlimitedMoney: boolean = false; // Disable unlimited money
 
-    constructor(initialHealth: number, initialMoney: number) {
-        this.health = initialHealth;
-        // Always start with a large amount of money for testing
-        this.money = 999999;
+    constructor(health: number = 100, money: number = 100) {
+        this.health = health;
+        this.money = money;
     }
 
     /**
@@ -27,18 +26,17 @@ export class PlayerStats {
 
     /**
      * Reduce health by a specified amount
-     * @param amount The amount to reduce health by
+     * @param damage The amount to reduce health by
      */
-    public takeDamage(amount: number): void {
-        this.health = Math.max(0, this.health - amount);
+    public takeDamage(damage: number): void {
+        this.health = Math.max(0, this.health - damage);
     }
 
     /**
      * Get the current money
      */
     public getMoney(): number {
-        // Always return a large amount if unlimited money is enabled
-        return this.unlimitedMoney ? 999999 : this.money;
+        return this.money;
     }
 
     /**
@@ -46,9 +44,7 @@ export class PlayerStats {
      * @param amount The amount to add
      */
     public addMoney(amount: number): void {
-        if (!this.unlimitedMoney) {
-            this.money += amount;
-        }
+        this.money += amount;
     }
 
     /**
@@ -57,11 +53,6 @@ export class PlayerStats {
      * @returns True if the money was spent, false if not enough money
      */
     public spendMoney(amount: number): boolean {
-        // If unlimited money is enabled, always allow spending
-        if (this.unlimitedMoney) {
-            return true;
-        }
-        
         if (this.money >= amount) {
             this.money -= amount;
             return true;
@@ -83,11 +74,8 @@ export class PlayerStats {
     public setWon(won: boolean): void {
         this.won = won;
     }
-    
-    /**
-     * Toggle unlimited money mode for testing
-     */
-    public toggleUnlimitedMoney(): void {
-        this.unlimitedMoney = !this.unlimitedMoney;
+
+    public heal(amount: number): void {
+        this.health = Math.min(100, this.health + amount);
     }
 } 
