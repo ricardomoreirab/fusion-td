@@ -122,23 +122,26 @@ export class GameplayState implements GameState {
         
         // Create minimalist stats icons with emojis
         const statsContainer = new Rectangle('statsContainer');
-        statsContainer.width = '320px'; // Increased width to accommodate more spacing
-        statsContainer.height = '40px';
+        statsContainer.width = '150px';
+        statsContainer.height = '120px';
         statsContainer.background = 'transparent';
         statsContainer.thickness = 0;
         statsContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         statsContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        statsContainer.left = '20px'; // Increased left margin
+        statsContainer.left = '10px';
         statsContainer.top = '10px';
         this.ui.addControl(statsContainer);
 
         // Health display with heart emoji
         const healthContainer = new Rectangle('healthContainer');
-        healthContainer.width = '90px';
+        healthContainer.width = '150px';
         healthContainer.height = '40px';
         healthContainer.background = 'transparent';
         healthContainer.thickness = 0;
         healthContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        healthContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        healthContainer.top = '0px';
+        healthContainer.left = '0px';
         statsContainer.addControl(healthContainer);
 
         const healthText = new TextBlock('healthText');
@@ -147,18 +150,21 @@ export class GameplayState implements GameState {
         healthText.fontSize = 22;
         healthText.fontFamily = 'FontAwesome';
         healthText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        healthText.left = '10px';
         healthText.outlineWidth = 1;
         healthText.outlineColor = 'black';
         healthContainer.addControl(healthText);
 
         // Money display with coin emoji
         const moneyContainer = new Rectangle('moneyContainer');
-        moneyContainer.width = '110px';
+        moneyContainer.width = '150px';
         moneyContainer.height = '40px';
         moneyContainer.background = 'transparent';
         moneyContainer.thickness = 0;
         moneyContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        moneyContainer.left = '110px';
+        moneyContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        moneyContainer.top = '40px';
+        moneyContainer.left = '0px';
         statsContainer.addControl(moneyContainer);
 
         const moneyText = new TextBlock('moneyText');
@@ -167,18 +173,21 @@ export class GameplayState implements GameState {
         moneyText.fontSize = 22;
         moneyText.fontFamily = 'FontAwesome';
         moneyText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        moneyText.left = '10px';
         moneyText.outlineWidth = 1;
         moneyText.outlineColor = 'black';
         moneyContainer.addControl(moneyText);
 
         // Wave display with wave emoji
         const waveContainer = new Rectangle('waveContainer');
-        waveContainer.width = '90px';
+        waveContainer.width = '150px';
         waveContainer.height = '40px';
         waveContainer.background = 'transparent';
         waveContainer.thickness = 0;
         waveContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        waveContainer.left = '230px';
+        waveContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        waveContainer.top = '80px';
+        waveContainer.left = '0px';
         statsContainer.addControl(waveContainer);
 
         const waveText = new TextBlock('waveText');
@@ -187,6 +196,7 @@ export class GameplayState implements GameState {
         waveText.fontSize = 22;
         waveText.fontFamily = 'FontAwesome';
         waveText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        waveText.left = '10px';
         waveText.outlineWidth = 1;
         waveText.outlineColor = 'black';
         waveContainer.addControl(waveText);
