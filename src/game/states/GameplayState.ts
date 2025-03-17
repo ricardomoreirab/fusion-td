@@ -122,61 +122,15 @@ export class GameplayState implements GameState {
         
         // Create minimalist stats icons with emojis
         const statsContainer = new Rectangle('statsContainer');
-        statsContainer.width = '280px'; // Reduced width since we're using emojis
+        statsContainer.width = '320px'; // Increased width to accommodate more spacing
         statsContainer.height = '40px';
         statsContainer.background = 'transparent';
         statsContainer.thickness = 0;
         statsContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         statsContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        statsContainer.left = '10px';
+        statsContainer.left = '20px'; // Increased left margin
         statsContainer.top = '10px';
         this.ui.addControl(statsContainer);
-
-        // Add camera controls help text
-        const cameraHelpContainer = new Rectangle('cameraHelpContainer');
-        cameraHelpContainer.width = '300px';
-        cameraHelpContainer.height = '40px';
-        cameraHelpContainer.background = 'rgba(0,0,0,0.5)';
-        cameraHelpContainer.cornerRadius = 5;
-        cameraHelpContainer.thickness = 0;
-        cameraHelpContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        cameraHelpContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        cameraHelpContainer.left = '-10px';
-        cameraHelpContainer.top = '70px';
-        cameraHelpContainer.alpha = 0.7;
-        this.ui.addControl(cameraHelpContainer);
-
-        const cameraHelpText = new TextBlock('cameraHelpText');
-        cameraHelpText.text = '🖱️ Left-click + drag to rotate camera\n⚙️ Mouse wheel to zoom in/out';
-        cameraHelpText.color = 'white';
-        cameraHelpText.fontSize = 12;
-        cameraHelpText.fontFamily = 'Arial';
-        cameraHelpText.outlineWidth = 1;
-        cameraHelpText.outlineColor = 'black';
-        cameraHelpContainer.addControl(cameraHelpText);
-
-        // Add show/hide button for camera help
-        const toggleHelpButton = Button.CreateSimpleButton('toggleHelpButton', 'ℹ️');
-        toggleHelpButton.width = '30px';
-        toggleHelpButton.height = '30px';
-        toggleHelpButton.color = 'white';
-        toggleHelpButton.background = '#2196F3';
-        toggleHelpButton.cornerRadius = 15;
-        toggleHelpButton.thickness = 0;
-        toggleHelpButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        toggleHelpButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        toggleHelpButton.top = '60px';
-        toggleHelpButton.left = '-10px';
-        toggleHelpButton.zIndex = 100;
-        this.ui.addControl(toggleHelpButton);
-
-        // Initially hide the help text
-        cameraHelpContainer.isVisible = false;
-
-        // Toggle visibility on click
-        toggleHelpButton.onPointerClickObservable.add(() => {
-            cameraHelpContainer.isVisible = !cameraHelpContainer.isVisible;
-        });
 
         // Health display with heart emoji
         const healthContainer = new Rectangle('healthContainer');
@@ -188,10 +142,10 @@ export class GameplayState implements GameState {
         statsContainer.addControl(healthContainer);
 
         const healthText = new TextBlock('healthText');
-        healthText.text = '❤️ 100';
+        healthText.text = `${String.fromCharCode(0xf004)} 100`;  // heart icon
         healthText.color = 'white';
         healthText.fontSize = 22;
-        healthText.fontFamily = 'Arial';
+        healthText.fontFamily = 'FontAwesome';
         healthText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         healthText.outlineWidth = 1;
         healthText.outlineColor = 'black';
@@ -199,19 +153,19 @@ export class GameplayState implements GameState {
 
         // Money display with coin emoji
         const moneyContainer = new Rectangle('moneyContainer');
-        moneyContainer.width = '90px';
+        moneyContainer.width = '110px';
         moneyContainer.height = '40px';
         moneyContainer.background = 'transparent';
         moneyContainer.thickness = 0;
         moneyContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        moneyContainer.left = '95px';
+        moneyContainer.left = '110px';
         statsContainer.addControl(moneyContainer);
 
         const moneyText = new TextBlock('moneyText');
-        moneyText.text = '💰 100';
+        moneyText.text = `${String.fromCharCode(0xf51e)} 100`;  // coins icon
         moneyText.color = 'white';
         moneyText.fontSize = 22;
-        moneyText.fontFamily = 'Arial';
+        moneyText.fontFamily = 'FontAwesome';
         moneyText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         moneyText.outlineWidth = 1;
         moneyText.outlineColor = 'black';
@@ -224,33 +178,95 @@ export class GameplayState implements GameState {
         waveContainer.background = 'transparent';
         waveContainer.thickness = 0;
         waveContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        waveContainer.left = '190px';
+        waveContainer.left = '230px';
         statsContainer.addControl(waveContainer);
 
         const waveText = new TextBlock('waveText');
-        waveText.text = '🌊 1';
+        waveText.text = `${String.fromCharCode(0xf83e)} 1`;  // wave-square icon
         waveText.color = 'white';
         waveText.fontSize = 22;
-        waveText.fontFamily = 'Arial';
+        waveText.fontFamily = 'FontAwesome';
         waveText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         waveText.outlineWidth = 1;
         waveText.outlineColor = 'black';
         waveContainer.addControl(waveText);
 
+        // Add camera controls help text
+        const cameraHelpContainer = new Rectangle('cameraHelpContainer');
+        cameraHelpContainer.width = '300px';
+        cameraHelpContainer.height = '40px';
+        cameraHelpContainer.background = 'rgba(0,0,0,0.5)';
+        cameraHelpContainer.cornerRadius = 5;
+        cameraHelpContainer.thickness = 0;
+        cameraHelpContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        cameraHelpContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        cameraHelpContainer.left = '-20px';
+        cameraHelpContainer.top = '70px';
+        cameraHelpContainer.alpha = 0.7;
+        this.ui.addControl(cameraHelpContainer);
+
+        const cameraHelpText = new TextBlock('cameraHelpText');
+        cameraHelpText.text = `${String.fromCharCode(0xf8cc)} Left-click + drag to rotate camera\n${String.fromCharCode(0xf013)} Mouse wheel to zoom in/out`;  // mouse and cog icons
+        cameraHelpText.color = 'white';
+        cameraHelpText.fontSize = 12;
+        cameraHelpText.fontFamily = 'FontAwesome';
+        cameraHelpText.outlineWidth = 1;
+        cameraHelpText.outlineColor = 'black';
+        cameraHelpContainer.addControl(cameraHelpText);
+
+        // Add show/hide button for camera help
+        const toggleHelpButton = Button.CreateSimpleButton('toggleHelpButton', String.fromCharCode(0xf05a));  // info-circle icon
+        toggleHelpButton.width = '40px';
+        toggleHelpButton.height = '40px';
+        toggleHelpButton.color = 'white';
+        toggleHelpButton.background = '#2196F3';
+        toggleHelpButton.cornerRadius = 20;
+        toggleHelpButton.thickness = 2;
+        toggleHelpButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        toggleHelpButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        toggleHelpButton.top = '60px';
+        toggleHelpButton.left = '-20px';
+        toggleHelpButton.zIndex = 100;
+        toggleHelpButton.shadowColor = "rgba(0, 0, 0, 0.4)";
+        toggleHelpButton.shadowBlur = 5;
+        toggleHelpButton.shadowOffsetY = 2;
+        toggleHelpButton.fontFamily = 'FontAwesome';
+        
+        // Add hover effect for help button
+        toggleHelpButton.onPointerEnterObservable.add(() => {
+            toggleHelpButton.background = '#0b7dda';
+            toggleHelpButton.shadowOffsetY = 4;
+        });
+        
+        toggleHelpButton.onPointerOutObservable.add(() => {
+            toggleHelpButton.background = '#2196F3';
+            toggleHelpButton.shadowOffsetY = 2;
+        });
+        
+        this.ui.addControl(toggleHelpButton);
+
+        // Initially hide the help text
+        cameraHelpContainer.isVisible = false;
+
+        // Toggle visibility on click
+        toggleHelpButton.onPointerClickObservable.add(() => {
+            cameraHelpContainer.isVisible = !cameraHelpContainer.isVisible;
+        });
+
         // Add pause/resume toggle button to the top right
-        const pauseButton = Button.CreateSimpleButton('pauseButton', '⏸️');
-        pauseButton.width = '50px';
-        pauseButton.height = '50px';
+        const pauseButton = Button.CreateSimpleButton('pauseButton', String.fromCharCode(0xf04c));
+        pauseButton.width = '40px';
+        pauseButton.height = '40px';
         pauseButton.color = 'white';
         pauseButton.background = '#2196F3';
-        pauseButton.cornerRadius = 4;
-        pauseButton.thickness = 0;
-        pauseButton.fontFamily = 'Arial';
-        pauseButton.fontSize = 22;
+        pauseButton.cornerRadius = 20;
+        pauseButton.thickness = 2;
+        pauseButton.fontFamily = 'FontAwesome';
+        pauseButton.fontSize = 20;
         pauseButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         pauseButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         pauseButton.top = '10px';
-        pauseButton.left = '-10px';
+        pauseButton.left = '-20px';
         pauseButton.shadowColor = "rgba(0, 0, 0, 0.4)";
         pauseButton.shadowBlur = 5;
         pauseButton.shadowOffsetY = 2;
@@ -539,17 +555,17 @@ export class GameplayState implements GameState {
         
         const healthText = this.ui.getControlByName('healthText') as TextBlock;
         if (healthText) {
-            healthText.text = `❤️ ${this.playerStats.getHealth()}`;
+            healthText.text = `${String.fromCharCode(0xf004)} ${this.playerStats.getHealth()}`;
         }
         
         const moneyText = this.ui.getControlByName('moneyText') as TextBlock;
         if (moneyText) {
-            moneyText.text = `💰 ${this.playerStats.getMoney()}`;
+            moneyText.text = `${String.fromCharCode(0xf51e)} ${this.playerStats.getMoney()}`;
         }
         
         const waveText = this.ui.getControlByName('waveText') as TextBlock;
         if (waveText) {
-            let waveDisplay = `🌊 ${this.waveManager.getCurrentWave()}`;
+            let waveDisplay = `${String.fromCharCode(0xf83e)} ${this.waveManager.getCurrentWave()}`;
             const difficulty = this.waveManager.getDifficultyMultiplier();
             if (difficulty > 1.0) {
                 waveDisplay += `×${difficulty.toFixed(1)}`;
@@ -1292,7 +1308,7 @@ export class GameplayState implements GameState {
                 if (this.upgradeButton && this.playerStats && this.selectedTower) {
                     if (this.playerStats.getMoney() >= this.selectedTower.getUpgradeCost()) {
                         this.upgradeButton.background = "#22AA22";
-                        this.upgradeButton.thickness = 2;
+                        this.upgradeButton.color = "#44FF44";
                     } else {
                         this.upgradeButton.background = "#555555";
                         this.upgradeButton.color = "#777777";
@@ -1618,10 +1634,10 @@ export class GameplayState implements GameState {
         
         // Update button text and color based on game state
         if (isPaused) {
-            pauseButton.textBlock.text = '▶️';  // Play symbol
+            pauseButton.textBlock.text = String.fromCharCode(0xf04b);  // FA play icon
             pauseButton.background = '#4CAF50'; // Green color for resume
         } else {
-            pauseButton.textBlock.text = '⏸️';  // Pause symbol
+            pauseButton.textBlock.text = String.fromCharCode(0xf04c);  // FA pause icon
             pauseButton.background = '#2196F3'; // Blue color for pause
         }
     }
