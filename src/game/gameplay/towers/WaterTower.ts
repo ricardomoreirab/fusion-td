@@ -14,8 +14,7 @@ import { Enemy } from '../enemies/Enemy';
 export class WaterTower extends ElementalTower {
     private waterFountain: Mesh | null = null;
     private waterParticles: ParticleSystem | null = null;
-    private waterWheel: Mesh | null = null; // Add rotating water wheel
-    private wheelWaterParticles: ParticleSystem | null = null; // Additional particles
+    private waterWheel: Mesh | null = null; // Used for rotating water orbs
     
     /**
      * Constructor for the WaterTower
@@ -259,163 +258,107 @@ export class WaterTower extends ElementalTower {
         
         // Start the water effect
         this.waterParticles.start();
-        
-        // Add a second particle system for water falling from the wheel
-        this.wheelWaterParticles = new ParticleSystem("wheelWaterParticles", 50, this.scene);
-        this.wheelWaterParticles.emitter = new Vector3(
-            this.position.x + 0.5, // Match wheel x position
-            this.position.y + 1.6, // Below the wheel
-            this.position.z + 0.8  // Match wheel z position
-        );
-        
-        // Configure wheel water particles
-        this.wheelWaterParticles.minSize = 0.03;
-        this.wheelWaterParticles.maxSize = 0.1;
-        this.wheelWaterParticles.minLifeTime = 0.5;
-        this.wheelWaterParticles.maxLifeTime = 1.0;
-        this.wheelWaterParticles.emitRate = 30;
-        
-        // Colors
-        this.wheelWaterParticles.color1 = new Color4(0.4, 0.7, 1.0, 0.7);
-        this.wheelWaterParticles.color2 = new Color4(0.2, 0.5, 0.9, 0.6);
-        this.wheelWaterParticles.colorDead = new Color4(0.1, 0.3, 0.7, 0.0);
-        
-        // Direction - falling down and slightly forward
-        this.wheelWaterParticles.direction1 = new Vector3(-0.2, -1, -0.2);
-        this.wheelWaterParticles.direction2 = new Vector3(0.2, -1, 0.2);
-        this.wheelWaterParticles.minEmitPower = 0.3;
-        this.wheelWaterParticles.maxEmitPower = 0.8;
-        this.wheelWaterParticles.updateSpeed = 0.01;
-        this.wheelWaterParticles.gravity = new Vector3(0, -9.8, 0);
-        
-        // Start the wheel water effect
-        this.wheelWaterParticles.start();
     }
     
     /**
-     * Create a rotating water wheel for the tower
+     * Create a rotating water effect for the tower
      */
     private createWaterWheel(): void {
-        // Create the main wheel
-        const wheel = MeshBuilder.CreateCylinder(
-            'waterWheel',
-            {
-                height: 0.2,
-                diameter: 1.8, // Slightly smaller
-                tessellation: 16
-            },
-            this.scene
-        );
+        // Create an invisible parent mesh to hold the water orbs
+        this.waterWheel = new Mesh("waterOrbsParent", this.scene);
+        this.waterWheel.parent = this.mesh;
+        this.waterWheel.position.y = 2.5; // Position at mid-height of tower
         
-        // Create wheel material
-        const wheelMaterial = new StandardMaterial('wheelMaterial', this.scene);
-        wheelMaterial.diffuseColor = new Color3(0.1, 0.2, 0.3);
-        wheelMaterial.specularColor = new Color3(0.3, 0.4, 0.6);
-        wheel.material = wheelMaterial;
+        // Create circulating water orbs
+        const orbCount = 6;
+        const orbitRadius = 1.0;
         
-        // Position the wheel to stick out from the side of the tower - adjusted positioning
-        wheel.parent = this.mesh;
-        wheel.position.y = 2.2; // Lower slightly
-        wheel.position.z = 0.8; // Closer to the tower
-        wheel.position.x = 0.5; // Offset to the side a bit
-        wheel.rotation.x = Math.PI / 2; // Rotate to be vertical
-        
-        // Create paddles for the water wheel
-        const paddleCount = 8;
-        for (let i = 0; i < paddleCount; i++) {
-            const angle = (i / paddleCount) * Math.PI * 2;
+        for (let i = 0; i < orbCount; i++) {
+            const angle = (i / orbCount) * Math.PI * 2;
             
-            // Create paddle
-            const paddle = MeshBuilder.CreateBox(
-                `paddle${i}`,
+            // Create a water orb (smaller sphere)
+            const waterOrb = MeshBuilder.CreateSphere(
+                `waterOrb${i}`,
                 {
-                    width: 0.7,
-                    height: 0.15,
-                    depth: 0.25
+                    diameter: 0.25 + Math.random() * 0.15,
+                    segments: 8
                 },
                 this.scene
             );
             
-            // Position paddle around the wheel
-            paddle.parent = wheel;
-            paddle.position.x = Math.sin(angle) * 0.7; // Slightly smaller radius
-            paddle.position.y = Math.cos(angle) * 0.7;
+            // Position orb in a circular pattern
+            waterOrb.parent = this.waterWheel;
+            waterOrb.position.x = Math.sin(angle) * orbitRadius;
+            waterOrb.position.z = Math.cos(angle) * orbitRadius;
             
-            // Rotate paddle to face outward
-            paddle.rotation.z = angle;
+            // Add some height variance
+            waterOrb.position.y = (i % 2 === 0) ? 0.2 : -0.2;
             
-            // Create paddle material - blue with water tint
-            const paddleMaterial = new StandardMaterial(`paddleMaterial${i}`, this.scene);
-            paddleMaterial.diffuseColor = new Color3(0.2, 0.5, 0.7);
-            paddleMaterial.specularColor = new Color3(0.4, 0.6, 0.8);
-            paddle.material = paddleMaterial;
+            // Create translucent water material
+            const waterMaterial = new StandardMaterial(`waterOrbMaterial${i}`, this.scene);
+            waterMaterial.diffuseColor = new Color3(0.2, 0.5, 0.9);
+            waterMaterial.specularColor = new Color3(0.4, 0.7, 1.0);
+            waterMaterial.specularPower = 64; // More reflective for water
+            waterMaterial.alpha = 0.7; // Translucent
+            waterOrb.material = waterMaterial;
             
-            // Add water drip effect to each paddle
-            if (i % 2 === 0) { // Only add to every other paddle to reduce particle count
-                const dripPS = new ParticleSystem(`dripPS${i}`, 10, this.scene);
-                dripPS.emitter = paddle;
-                dripPS.minSize = 0.05;
-                dripPS.maxSize = 0.1;
-                dripPS.minLifeTime = 0.5;
-                dripPS.maxLifeTime = 0.8;
-                dripPS.emitRate = 5;
-                dripPS.color1 = new Color4(0.4, 0.7, 1.0, 0.7);
-                dripPS.color2 = new Color4(0.3, 0.6, 0.9, 0.5);
-                dripPS.colorDead = new Color4(0.2, 0.5, 0.8, 0);
-                dripPS.direction1 = new Vector3(0, -1, 0);
-                dripPS.direction2 = new Vector3(0, -1, 0);
-                dripPS.gravity = new Vector3(0, -9.8, 0);
-                dripPS.minEmitPower = 0.5;
-                dripPS.maxEmitPower = 1.0;
-                dripPS.updateSpeed = 0.01;
-                dripPS.start();
-            }
+            // Add particle system for each orb for water trail effect
+            const trailPS = new ParticleSystem(`waterTrail${i}`, 30, this.scene);
+            trailPS.emitter = waterOrb;
+            trailPS.minSize = 0.05;
+            trailPS.maxSize = 0.15;
+            trailPS.minLifeTime = 0.2;
+            trailPS.maxLifeTime = 0.5;
+            trailPS.emitRate = 20;
+            trailPS.color1 = new Color4(0.4, 0.7, 1.0, 0.6);
+            trailPS.color2 = new Color4(0.2, 0.5, 0.9, 0.4);
+            trailPS.colorDead = new Color4(0.1, 0.3, 0.7, 0);
+            trailPS.updateSpeed = 0.01;
+            trailPS.start();
         }
         
-        // Add support structure for water wheel
-        const support = MeshBuilder.CreateBox(
-            'wheelSupport',
-            {
-                width: 0.15,
-                height: 0.8,
-                depth: 0.15
-            },
-            this.scene
-        );
-        support.parent = this.mesh;
-        support.position.y = 2.2;
-        support.position.z = 0.45;
-        support.position.x = 0.5;
-        
-        const supportMaterial = new StandardMaterial('supportMaterial', this.scene);
-        supportMaterial.diffuseColor = new Color3(0.3, 0.2, 0.1);
-        supportMaterial.specularColor = new Color3(0.1, 0.1, 0.1);
-        support.material = supportMaterial;
-        
-        // Store reference to water wheel
-        this.waterWheel = wheel;
-        
-        // Create animation for water wheel rotation
+        // Create animation for the orbit rotation
         const frameRate = 30;
         const rotateAnimation = new Animation(
-            "waterWheelRotation", 
-            "rotation.z", 
+            "waterOrbitRotation", 
+            "rotation.y", 
             frameRate, 
             Animation.ANIMATIONTYPE_FLOAT, 
             Animation.ANIMATIONLOOPMODE_CYCLE
         );
         
-        // Create animation keys - rotate 360 degrees over 240 frames (8 seconds)
-        // Water wheel rotates more slowly than windmill
+        // Create animation keys - rotate 360 degrees over 180 frames (6 seconds)
         const keys = [];
         keys.push({ frame: 0, value: 0 });
-        keys.push({ frame: 240, value: Math.PI * 2 });
+        keys.push({ frame: 180, value: Math.PI * 2 });
         rotateAnimation.setKeys(keys);
         
-        // Attach animation to water wheel and play it
-        wheel.animations = [];
-        wheel.animations.push(rotateAnimation);
-        this.scene.beginAnimation(wheel, 0, 240, true);
+        // Attach animation to orbit parent and play it
+        this.waterWheel.animations = [];
+        this.waterWheel.animations.push(rotateAnimation);
+        this.scene.beginAnimation(this.waterWheel, 0, 180, true);
+        
+        // Add a secondary animation for gentle vertical movement
+        const floatAnimation = new Animation(
+            "waterFloatAnimation", 
+            "position.y", 
+            frameRate, 
+            Animation.ANIMATIONTYPE_FLOAT, 
+            Animation.ANIMATIONLOOPMODE_CYCLE
+        );
+        
+        // Create float animation keys
+        const floatKeys = [];
+        floatKeys.push({ frame: 0, value: 2.5 });
+        floatKeys.push({ frame: 60, value: 2.6 });
+        floatKeys.push({ frame: 120, value: 2.5 });
+        floatKeys.push({ frame: 180, value: 2.4 });
+        floatKeys.push({ frame: 240, value: 2.5 });
+        floatAnimation.setKeys(floatKeys);
+        
+        // Add float animation
+        this.waterWheel.animations.push(floatAnimation);
+        this.scene.beginAnimation(this.waterWheel, 0, 240, true);
     }
     
     /**
@@ -454,15 +397,11 @@ export class WaterTower extends ElementalTower {
             this.waterParticles.dispose();
         }
         
-        if (this.wheelWaterParticles) {
-            this.wheelWaterParticles.dispose();
-        }
-        
-        // Clean up water wheel and its particles
+        // Clean up water orbs and their particles
         if (this.waterWheel) {
             this.scene.stopAnimation(this.waterWheel);
             
-            // Find and dispose any particle systems attached to the water wheel
+            // Find and dispose any particle systems attached to the water orbs
             this.waterWheel.getChildMeshes().forEach(mesh => {
                 this.scene.particleSystems.forEach(ps => {
                     if (ps.emitter === mesh) {
@@ -476,22 +415,8 @@ export class WaterTower extends ElementalTower {
                 mesh.dispose();
             });
             
-            if (this.waterWheel.material) {
-                this.waterWheel.material.dispose();
-            }
             this.waterWheel.dispose();
             this.waterWheel = null;
-        }
-        
-        // Find and dispose wheel support
-        if (this.mesh) {
-            const support = this.mesh.getChildMeshes().find(mesh => mesh.name === 'wheelSupport');
-            if (support) {
-                if (support.material) {
-                    support.material.dispose();
-                }
-                support.dispose();
-            }
         }
         
         super.dispose();
