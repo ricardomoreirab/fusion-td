@@ -190,8 +190,19 @@ export class GameplayState implements GameState {
     }
 
     private createUI(): void {
-        // Create fullscreen UI
-        this.ui = AdvancedDynamicTexture.CreateFullscreenUI('gameplayUI', true, this.game.getScene());
+        // Create the UI
+        this.ui = AdvancedDynamicTexture.CreateFullscreenUI("gameplayUI", true, this.scene!);
+        
+        // Detect if we're on a mobile device
+        const isMobile = this.isMobileDevice();
+        
+        // Apply device-specific UI scaling
+        if (isMobile) {
+            // Scale UI for mobile devices
+            this.ui.idealWidth = 1024; // Reference width for scaling
+            this.ui.useSmallestIdeal = true;
+            this.ui.renderScale = 1.5; // Scale up UI elements for better touch targets
+        }
         
         // Create minimalist stats icons with emojis
         const statsContainer = new Rectangle('statsContainer');
@@ -292,7 +303,14 @@ export class GameplayState implements GameState {
         this.ui.addControl(cameraHelpContainer);
 
         const cameraHelpText = new TextBlock('cameraHelpText');
-        cameraHelpText.text = `⌨️ Hold Shift key for camera controls\n🖱 Shift+Mouse drag to rotate/move\n⚙ Shift+Mouse wheel to zoom\n⌨️ Shift+WASD/Arrows keys also work`;
+        
+        // Detect if we're on a mobile device for appropriate help text
+        if (this.isMobileDevice()) {
+            cameraHelpText.text = `👆 Use one finger to rotate camera\n✌️ Pinch to zoom in/out\n🎮 Use control pad to move map`;
+        } else {
+            cameraHelpText.text = `⌨️ Hold Shift key for camera controls\n🖱 Shift+Mouse drag to rotate/move\n⚙ Shift+Mouse wheel to zoom\n⌨️ Shift+WASD/Arrows keys also work`;
+        }
+        
         cameraHelpText.color = 'white';
         cameraHelpText.fontSize = 12;
         cameraHelpText.fontFamily = 'Arial';
@@ -2098,23 +2116,41 @@ export class GameplayState implements GameState {
             this.scene.activeCamera.viewport
         );
         
-        const screenX = screenPos.x * this.ui.getSize().width;
-        const screenY = screenPos.y * this.ui.getSize().height;
+        // Detect if we're on a mobile device
+        const isMobile = this.isMobileDevice();
+        
+        // Get UI dimensions
+        const uiWidth = this.ui.getSize().width;
+        const uiHeight = this.ui.getSize().height;
+        
+        // Calculate screen position
+        const screenX = screenPos.x * uiWidth;
+        const screenY = screenPos.y * uiHeight;
+        
+        // Adjust selector size based on device
+        const selectorSize = isMobile ? 280 : 260; // Larger for mobile
+        const selectorRadius = selectorSize / 2;
 
-        // Create circular tower selector panel - make it smaller
+        // Create circular tower selector panel
         this.towerSelectorPanel = new Rectangle('towerSelectorPanel');
-        this.towerSelectorPanel.width = '260px';  // Larger circular area
-        this.towerSelectorPanel.height = '260px';
+        this.towerSelectorPanel.width = selectorSize + 'px';
+        this.towerSelectorPanel.height = selectorSize + 'px';
         this.towerSelectorPanel.background = 'rgba(0,0,0,0.7)';
-        this.towerSelectorPanel.cornerRadius = 130; // Make it fully circular
+        this.towerSelectorPanel.cornerRadius = selectorRadius;
         this.towerSelectorPanel.thickness = 1;
         this.towerSelectorPanel.color = "#444444";
-        this.towerSelectorPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        this.towerSelectorPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         
-        // Position the selector where the player clicked
-        this.towerSelectorPanel.left = (screenX - 130) + 'px'; // Center horizontally
-        this.towerSelectorPanel.top = (screenY - 130) + 'px';  // Center vertically
+        // Use center positioning to avoid edge issues
+        this.towerSelectorPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.towerSelectorPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        
+        // Calculate position offsets from center of screen
+        const offsetX = screenX - (uiWidth / 2);
+        const offsetY = screenY - (uiHeight / 2);
+        
+        // Apply position
+        this.towerSelectorPanel.left = offsetX + 'px';
+        this.towerSelectorPanel.top = offsetY + 'px';
         
         this.towerSelectorPanel.zIndex = 10;
         this.ui.addControl(this.towerSelectorPanel);
@@ -2132,7 +2168,7 @@ export class GameplayState implements GameState {
         ];
         
         // Create a circular arrangement of tower buttons
-        const radius = 85; // Larger radius from center
+        const radius = isMobile ? 105 : 85; // Larger radius for mobile
         const buttonsCount = towers.length;
         
         // Add label in center
@@ -2168,35 +2204,43 @@ export class GameplayState implements GameState {
             const y = -Math.cos(angle) * radius; // Negative because Y is down in UI coordinates
             
             // Create button container
-            const button = new Rectangle(`${tower.id}_button`);
-            button.width = "55px";
-            button.height = "55px";
+            const button = new Button(`${tower.id}_button`);
+            const buttonSize = isMobile ? 65 : 55; // Larger buttons for mobile
+            button.width = buttonSize + "px";
+            button.height = buttonSize + "px";
             button.background = tower.color;
-            button.cornerRadius = 28;
+            button.color = "white";
+            button.cornerRadius = buttonSize / 2;
             button.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
             button.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
             button.left = x + "px";
             button.top = y + "px";
             
-            // Create name text directly (avoid using button.textBlock which might have issues)
+            // Tower name (full name now)
+            if (button.textBlock) {
+                button.textBlock.text = "";
+            }
+            
+            // Add tower name text with increased size on mobile
             const nameText = new TextBlock(`${tower.id}_name`, tower.name);
             nameText.color = "white";
-            nameText.fontSize = 12;
+            nameText.fontSize = isMobile ? 14 : 11;
+            nameText.resizeToFit = false;
             nameText.textWrapping = true;
-            nameText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            nameText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
             nameText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-            nameText.top = "-10px";
+            nameText.top = isMobile ? "-10px" : "-8px";
             nameText.outlineWidth = 1;
             nameText.outlineColor = "black";
             button.addControl(nameText);
             
-            // Add cost indicator at bottom of button
+            // Add small cost indicator at bottom of button
             const costIndicator = new TextBlock(`${tower.id}_cost`, "$" + tower.cost);
             costIndicator.color = "white";
-            costIndicator.fontSize = 10;
+            costIndicator.fontSize = isMobile ? 12 : 9;
             costIndicator.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
             costIndicator.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-            costIndicator.top = "12px";
+            costIndicator.top = isMobile ? "18px" : "16px";
             costIndicator.outlineWidth = 1;
             costIndicator.outlineColor = "black";
             button.addControl(costIndicator);
@@ -2382,7 +2426,8 @@ export class GameplayState implements GameState {
     }
 
     /**
-     * Setup camera controls to only work when Shift key is pressed
+     * Setup camera controls to only work when Shift key is pressed on desktop,
+     * and with touch gestures on mobile
      */
     private setupCameraControls(): void {
         if (!this.scene) return;
@@ -2393,40 +2438,184 @@ export class GameplayState implements GameState {
         // Track shift key state
         let isShiftPressed = false;
         
-        // Disable all inputs initially
-        if (camera.inputs.attached.keyboard) {
-            camera.inputs.attached.keyboard.detachControl();
-        }
-        if (camera.inputs.attached.pointers) {
-            camera.inputs.attached.pointers.detachControl();
-        }
-        if (camera.inputs.attached.mousewheel) {
-            camera.inputs.attached.mousewheel.detachControl();
-        }
+        // Detect if we're on a mobile device
+        const isMobile = this.isMobileDevice();
         
-        // Add listeners for shift key
-        this.scene.onKeyboardObservable.add((kbInfo) => {
-            if (kbInfo.event.key === 'Shift') {
-                if (kbInfo.type === KeyboardEventTypes.KEYDOWN && !isShiftPressed) {
-                    isShiftPressed = true;
-                    // Enable inputs when shift is pressed
-                    if (camera.inputs.attached.pointers) {
-                        camera.inputs.attached.pointers.attachControl(true);
-                    }
-                    if (camera.inputs.attached.mousewheel) {
-                        camera.inputs.attached.mousewheel.attachControl(true);
-                    }
-                } else if (kbInfo.type === KeyboardEventTypes.KEYUP && isShiftPressed) {
-                    isShiftPressed = false;
-                    // Disable inputs when shift is released
-                    if (camera.inputs.attached.pointers) {
-                        camera.inputs.attached.pointers.detachControl();
-                    }
-                    if (camera.inputs.attached.mousewheel) {
-                        camera.inputs.attached.mousewheel.detachControl();
+        // Setup for desktop controls
+        if (!isMobile) {
+            // Disable all inputs initially
+            if (camera.inputs.attached.keyboard) {
+                camera.inputs.attached.keyboard.detachControl();
+            }
+            if (camera.inputs.attached.pointers) {
+                camera.inputs.attached.pointers.detachControl();
+            }
+            if (camera.inputs.attached.mousewheel) {
+                camera.inputs.attached.mousewheel.detachControl();
+            }
+            
+            // Add listeners for shift key
+            this.scene.onKeyboardObservable.add((kbInfo) => {
+                if (kbInfo.event.key === 'Shift') {
+                    if (kbInfo.type === KeyboardEventTypes.KEYDOWN && !isShiftPressed) {
+                        isShiftPressed = true;
+                        // Enable inputs when shift is pressed
+                        if (camera.inputs.attached.pointers) {
+                            camera.inputs.attached.pointers.attachControl(true);
+                        }
+                        if (camera.inputs.attached.mousewheel) {
+                            camera.inputs.attached.mousewheel.attachControl(true);
+                        }
+                    } else if (kbInfo.type === KeyboardEventTypes.KEYUP && isShiftPressed) {
+                        isShiftPressed = false;
+                        // Disable inputs when shift is released
+                        if (camera.inputs.attached.pointers) {
+                            camera.inputs.attached.pointers.detachControl();
+                        }
+                        if (camera.inputs.attached.mousewheel) {
+                            camera.inputs.attached.mousewheel.detachControl();
+                        }
                     }
                 }
+            });
+        } 
+        // Setup for mobile controls
+        else {
+            // Use built-in multitouch camera for pinch-to-zoom
+            camera.useAutoRotationBehavior = false; // Disable auto-rotation on mobile
+            
+            // Enable touch camera controls
+            if (camera.inputs.attached.pointers) {
+                camera.inputs.attached.pointers.attachControl();
             }
+            
+            // Set up touch helper UI for mobile
+            this.setupMobileTouchHelpers();
+        }
+    }
+    
+    /**
+     * Add mobile touch helper UI elements
+     */
+    private setupMobileTouchHelpers(): void {
+        if (!this.ui) return;
+        
+        // Create mobile camera control buttons
+        const controlsContainer = new Rectangle("mobileCameraControls");
+        controlsContainer.width = "120px";
+        controlsContainer.height = "120px";
+        controlsContainer.background = "rgba(0,0,0,0.3)";
+        controlsContainer.cornerRadius = 60;
+        controlsContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        controlsContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        controlsContainer.left = "20px";
+        controlsContainer.top = "-20px";
+        controlsContainer.zIndex = 10;
+        this.ui.addControl(controlsContainer);
+        
+        // Add control buttons - arrows in a directional pad layout
+        const directions = [
+            { name: "up", icon: "↑", x: 0, y: -1, left: "0px", top: "-35px" },
+            { name: "down", icon: "↓", x: 0, y: 1, left: "0px", top: "35px" },
+            { name: "left", icon: "←", x: -1, y: 0, left: "-35px", top: "0px" },
+            { name: "right", icon: "→", x: 1, y: 0, left: "35px", top: "0px" }
+        ];
+        
+        directions.forEach(dir => {
+            const button = Button.CreateSimpleButton(dir.name + "Button", dir.icon);
+            button.width = "40px";
+            button.height = "40px";
+            button.color = "white";
+            button.background = "rgba(0,0,0,0.5)";
+            button.cornerRadius = 20;
+            button.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            button.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+            button.left = dir.left;
+            button.top = dir.top;
+            
+            // Make the button move the camera when pressed/held
+            button.onPointerDownObservable.add(() => {
+                // Start continuous movement
+                const moveInterval = setInterval(() => {
+                    this.moveCamera(dir.x, 0, dir.y);
+                }, 50);
+                
+                // Stop movement when button is released
+                button.onPointerUpObservable.add(() => {
+                    clearInterval(moveInterval);
+                });
+                
+                // Also stop if pointer leaves the button
+                button.onPointerOutObservable.add(() => {
+                    clearInterval(moveInterval);
+                });
+            });
+            
+            controlsContainer.addControl(button);
         });
+        
+        // Add zoom buttons
+        const zoomIn = Button.CreateSimpleButton("zoomInButton", "+");
+        zoomIn.width = "40px";
+        zoomIn.height = "40px";
+        zoomIn.color = "white";
+        zoomIn.background = "rgba(0,0,0,0.5)";
+        zoomIn.cornerRadius = 20;
+        zoomIn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        zoomIn.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        zoomIn.left = "-20px";
+        zoomIn.top = "-70px";
+        
+        zoomIn.onPointerDownObservable.add(() => {
+            const zoomInterval = setInterval(() => {
+                this.zoomCamera(-1);
+            }, 50);
+            
+            zoomIn.onPointerUpObservable.add(() => {
+                clearInterval(zoomInterval);
+            });
+            
+            zoomIn.onPointerOutObservable.add(() => {
+                clearInterval(zoomInterval);
+            });
+        });
+        
+        this.ui.addControl(zoomIn);
+        
+        const zoomOut = Button.CreateSimpleButton("zoomOutButton", "-");
+        zoomOut.width = "40px";
+        zoomOut.height = "40px";
+        zoomOut.color = "white";
+        zoomOut.background = "rgba(0,0,0,0.5)";
+        zoomOut.cornerRadius = 20;
+        zoomOut.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        zoomOut.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        zoomOut.left = "-20px";
+        zoomOut.top = "-20px";
+        
+        zoomOut.onPointerDownObservable.add(() => {
+            const zoomInterval = setInterval(() => {
+                this.zoomCamera(1);
+            }, 50);
+            
+            zoomOut.onPointerUpObservable.add(() => {
+                clearInterval(zoomInterval);
+            });
+            
+            zoomOut.onPointerOutObservable.add(() => {
+                clearInterval(zoomInterval);
+            });
+        });
+        
+        this.ui.addControl(zoomOut);
+    }
+    
+    /**
+     * Detect if the current device is a mobile device
+     */
+    private isMobileDevice(): boolean {
+        // Check for touch capability and small screen
+        return ('ontouchstart' in window || navigator.maxTouchPoints > 0) && 
+               window.innerWidth < 1024;
     }
 } 
