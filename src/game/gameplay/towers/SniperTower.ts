@@ -1,4 +1,4 @@
-import { Vector3, MeshBuilder, StandardMaterial, Color3, Mesh, Space, ParticleSystem, Texture, TrailMesh } from '@babylonjs/core';
+import { Vector3, MeshBuilder, StandardMaterial, Color3, Mesh, Space, ParticleSystem, Texture, TrailMesh, PointLight } from '@babylonjs/core';
 import { Game } from '../../Game';
 import { Tower } from './Tower';
 
@@ -15,291 +15,366 @@ export class SniperTower extends Tower {
         
         // Create a stone base
         const base = MeshBuilder.CreateCylinder('sniperBase', {
-            height: 1.0,
-            diameter: 1.8,
-            tessellation: 12
+            height: 0.4,
+            diameter: 2.0,
+            tessellation: 24
         }, this.scene);
-        base.position = new Vector3(0, 0.5, 0);
+        base.position = new Vector3(0, 0.2, 0);
+        
+        // Add decorative patterns to the stone base
+        const basePattern = MeshBuilder.CreateTorus('basePattern', {
+            diameter: 1.9,
+            thickness: 0.05,
+            tessellation: 48
+        }, this.scene);
+        basePattern.position = new Vector3(0, 0.1, 0);
+        basePattern.rotation.x = Math.PI / 2;
+        
+        // Create a second decorative pattern
+        const basePattern2 = MeshBuilder.CreateTorus('basePattern2', {
+            diameter: 1.9,
+            thickness: 0.05,
+            tessellation: 48
+        }, this.scene);
+        basePattern2.position = new Vector3(0, 0.3, 0);
+        basePattern2.rotation.x = Math.PI / 2;
+        
+        // Create corner stones at the base for added detail
+        const createCornerStone = (angle: number) => {
+            const stone = MeshBuilder.CreateBox(`cornerStone${angle}`, {
+                width: 0.25,
+                height: 0.5,
+                depth: 0.25
+            }, this.scene);
+            const x = Math.cos(angle) * 0.9;
+            const z = Math.sin(angle) * 0.9;
+            stone.position = new Vector3(x, 0.23, z);
+            stone.rotation.y = angle;
+            stone.parent = this.mesh;
+            return stone;
+        };
+        
+        const cornerStones = [];
+        for (let i = 0; i < 4; i++) {
+            const angle = (i / 4) * Math.PI * 2;
+            cornerStones.push(createCornerStone(angle));
+        }
         
         // Create a wooden platform
         const platform = MeshBuilder.CreateCylinder('sniperPlatform', {
-            height: 0.4,
-            diameterTop: 1.6,
-            diameterBottom: 1.8,
+            height: 0.25,
+            diameter: 1.8,
+            tessellation: 16
+        }, this.scene);
+        platform.position = new Vector3(0, 0.425, 0);
+        
+        // Create archer's platform
+        const archerStand = MeshBuilder.CreateCylinder('archerStand', {
+            height: 0.5,
+            diameter: 0.9,
             tessellation: 12
         }, this.scene);
-        platform.position = new Vector3(0, 1.2, 0);
+        archerStand.position = new Vector3(0, 0.7, 0);
         
-        // Create medieval tower structure
-        const towerLower = MeshBuilder.CreateCylinder('sniperTowerLower', {
-            height: 1.0,
-            diameter: 1.0,
-            tessellation: 8
-        }, this.scene);
-        towerLower.position = new Vector3(0, 1.9, 0);
-        
-        const towerUpper = MeshBuilder.CreateCylinder('sniperTowerUpper', {
-            height: 1.2,
-            diameter: 1.2,
-            tessellation: 8
-        }, this.scene);
-        towerUpper.position = new Vector3(0, 3.0, 0);
-        
-        // Create a lookout platform at the top
-        const lookout = MeshBuilder.CreateCylinder('sniperLookout', {
-            height: 0.2,
-            diameter: 1.5,
-            tessellation: 12
-        }, this.scene);
-        lookout.position = new Vector3(0, 3.7, 0);
-        
-        // Create stone battlements around the top
-        const crenellations = [];
-        for(let i = 0; i < 8; i++) {
-            const angle = (i / 8) * Math.PI * 2;
-            const x = Math.cos(angle) * 0.7;
-            const z = Math.sin(angle) * 0.7;
+        // Create decorative supports
+        const supports = [];
+        for (let i = 0; i < 4; i++) {
+            const angle = (i / 4) * Math.PI * 2;
+            const x = Math.cos(angle) * 0.8;
+            const z = Math.sin(angle) * 0.8;
             
-            const crenellation = MeshBuilder.CreateBox(`crenellation${i}`, {
-                width: 0.2,
-                height: 0.3,
-                depth: 0.2
+            const support = MeshBuilder.CreateBox(`support${i}`, {
+                width: 0.12,
+                height: 0.5,
+                depth: 0.12
             }, this.scene);
-            crenellation.position = new Vector3(x, 4.0, z);
-            crenellations.push(crenellation);
+            support.position = new Vector3(x, 0.6, z);
+            support.rotation.y = angle;
+            supports.push(support);
         }
         
-        // Create the archer figure (more detailed)
+        // Create the archer figure
         const archerBody = new Mesh("archerBody", this.scene);
-        archerBody.position = new Vector3(0, 3.9, 0);
+        archerBody.position = new Vector3(0, 1.1, 0);
         
         // Archer's torso
         const torso = MeshBuilder.CreateBox('archerTorso', {
-            width: 0.25,
-            height: 0.4,
-            depth: 0.15
+            width: 0.18,
+            height: 0.25,
+            depth: 0.12
         }, this.scene);
         torso.position = new Vector3(0, 0, 0);
         torso.parent = archerBody;
         
-        // Archer's head
-        const head = MeshBuilder.CreateSphere('archerHead', {
-            diameter: 0.18,
-            segments: 10
-        }, this.scene);
-        head.position = new Vector3(0, 0.28, 0);
-        head.parent = archerBody;
-        
-        // Archer's legs
+        // Archer's legs - add stance to show archer is ready to fire
         const leftLeg = MeshBuilder.CreateBox('leftLeg', {
-            width: 0.08,
-            height: 0.3,
-            depth: 0.08
+            width: 0.06,
+            height: 0.18,
+            depth: 0.06
         }, this.scene);
-        leftLeg.position = new Vector3(-0.08, -0.32, 0);
+        leftLeg.position = new Vector3(-0.06, -0.21, 0);
         leftLeg.parent = archerBody;
         
         const rightLeg = MeshBuilder.CreateBox('rightLeg', {
-            width: 0.08,
-            height: 0.3,
-            depth: 0.08
+            width: 0.06,
+            height: 0.18,
+            depth: 0.06
         }, this.scene);
-        rightLeg.position = new Vector3(0.08, -0.32, 0);
+        rightLeg.position = new Vector3(0.06, -0.21, 0);
+        rightLeg.rotation.x = -Math.PI / 8; // Slight stance
         rightLeg.parent = archerBody;
         
-        // Archer's arms
-        const leftArm = MeshBuilder.CreateBox('leftArm', {
-            width: 0.25,
-            height: 0.08,
-            depth: 0.08
+        // Archer's head
+        const head = MeshBuilder.CreateSphere('archerHead', {
+            diameter: 0.12,
+            segments: 8
         }, this.scene);
-        leftArm.position = new Vector3(-0.20, 0.05, 0);
-        leftArm.parent = archerBody;
-        
-        const rightArm = MeshBuilder.CreateBox('rightArm', {
-            width: 0.25,
-            height: 0.08,
-            depth: 0.08
-        }, this.scene);
-        rightArm.position = new Vector3(0.20, 0.05, 0);
-        rightArm.parent = archerBody;
+        head.position = new Vector3(0, 0.19, 0);
+        head.parent = archerBody;
         
         // Medieval hood
         const hood = MeshBuilder.CreateCylinder('archerHood', {
-            height: 0.15,
-            diameter: 0.2,
-            diameterTop: 0.12,
+            height: 0.1,
+            diameter: 0.13,
+            diameterTop: 0.08,
             tessellation: 8
         }, this.scene);
-        hood.position = new Vector3(0, 0.33, 0);
+        hood.position = new Vector3(0, 0.22, 0);
         hood.parent = archerBody;
         
-        // Create the longbow (larger and more detailed)
-        const bow = new Mesh("longbow", this.scene);
-        bow.position = new Vector3(0.3, 0.05, 0.3);
-        bow.parent = archerBody;
-        
-        // Bow stave (main part) - longer and curved
-        const bowStave = MeshBuilder.CreateCylinder('bowStave', {
-            height: 1.5,
-            diameter: 0.03,
-            tessellation: 6,
-            arc: 0.8
+        // Archer's arms positioned for drawing a bow
+        const leftArm = MeshBuilder.CreateBox('leftArm', {
+            width: 0.22,
+            height: 0.06,
+            depth: 0.06
         }, this.scene);
+        leftArm.position = new Vector3(-0.15, 0.06, 0.12);
+        leftArm.rotation.y = Math.PI / 6; // Angle forward
+        leftArm.parent = archerBody;
         
-        // Add curve to the bow
-        const bowPoints = [];
-        for(let i = 0; i < 20; i++) {
-            const y = (i / 19) * 1.5 - 0.75;
-            // Create a curved shape using sine function
-            const x = Math.sin(y * Math.PI * 0.7) * 0.08;
-            bowPoints.push(new Vector3(x, y, 0));
+        const rightArm = MeshBuilder.CreateBox('rightArm', {
+            width: 0.22,
+            height: 0.06,
+            depth: 0.06
+        }, this.scene);
+        rightArm.position = new Vector3(0.15, 0.06, 0.12);
+        rightArm.rotation.y = -Math.PI / 6; // Angle forward
+        rightArm.parent = archerBody;
+        
+        // Create the longbow - SIGNIFICANTLY LARGER
+        const longbow = new Mesh("longbow", this.scene);
+        longbow.position = new Vector3(0, 0.06, 0.25);
+        longbow.parent = archerBody;
+        
+        // Create a much larger curved bow
+        const bowCurvePoints = [];
+        for (let i = 0; i < 20; i++) {
+            const y = (i / 19) * 0.8 - 0.4; // Larger height
+            const x = Math.sin(y * Math.PI * 1.2) * 0.15; // More curve
+            bowCurvePoints.push(new Vector3(x, y, 0));
         }
         
-        const bowCurve = MeshBuilder.CreateLines("bowCurve", {
-            points: bowPoints,
-            updatable: true
-        }, this.scene);
-        bowCurve.color = new Color3(0.4, 0.3, 0.2);
-        bowCurve.parent = bow;
-        
-        // Thicker cylinder following the curve to give volume
-        for(let i = 0; i < bowPoints.length-1; i++) {
+        // Bow stave (main part) - thicker and more prominent
+        for (let i = 0; i < bowCurvePoints.length - 1; i++) {
             const segment = MeshBuilder.CreateCylinder(`bowSegment${i}`, {
-                height: Vector3.Distance(bowPoints[i], bowPoints[i+1]),
-                diameter: 0.04,
-                tessellation: 6
+                height: Vector3.Distance(bowCurvePoints[i], bowCurvePoints[i+1]),
+                diameter: 0.03, // Thicker
+                tessellation: 8
             }, this.scene);
             
-            // Position at midpoint
-            const midPoint = bowPoints[i].add(bowPoints[i+1]).scale(0.5);
+            const midPoint = bowCurvePoints[i].add(bowCurvePoints[i+1]).scale(0.5);
             segment.position = midPoint;
             
-            // Rotate to align with curve
-            const direction = bowPoints[i+1].subtract(bowPoints[i]);
+            const direction = bowCurvePoints[i+1].subtract(bowCurvePoints[i]);
             const upVector = new Vector3(0, 1, 0);
             const rotationAxis = Vector3.Cross(upVector, direction.normalize());
             let angle = Math.acos(Vector3.Dot(upVector, direction.normalize()));
             
-            if(!isNaN(angle)) {
-                segment.rotationQuaternion = null; // Remove any existing rotation
+            if (!isNaN(angle)) {
+                segment.rotationQuaternion = null;
                 segment.rotate(rotationAxis, angle, Space.WORLD);
             }
             
-            segment.parent = bow;
+            segment.parent = longbow;
         }
         
-        // Bow string
+        // Bow string - taut, showing it's ready to fire
         const string = MeshBuilder.CreateCylinder('bowString', {
-            height: 1.4,
+            height: 0.75, // Longer
             diameter: 0.01,
-            tessellation: 4
+            tessellation: 6
         }, this.scene);
-        string.position = new Vector3(0.07, 0, 0);
-        string.parent = bow;
+        string.position = new Vector3(0.12, 0, 0); // Further back to show tension
+        string.parent = longbow;
         
-        // Create a notched arrow
-        const arrow = this.createArrowMesh("sniperArrow");
-        arrow.rotation = new Vector3(0, -Math.PI / 2, 0);
-        arrow.position = new Vector3(0.05, 0, 0);
-        arrow.scaling = new Vector3(0.9, 0.9, 0.9);
-        arrow.parent = bow;
+        // Add decorative wrappings at grip and tips of bow
+        const grip = MeshBuilder.CreateCylinder('bowGrip', {
+            height: 0.1,
+            diameter: 0.035,
+            tessellation: 8
+        }, this.scene);
+        grip.position = new Vector3(0, 0, 0);
+        grip.parent = longbow;
+        
+        const topTip = MeshBuilder.CreateCylinder('bowTopTip', {
+            height: 0.06,
+            diameter: 0.03,
+            tessellation: 8
+        }, this.scene);
+        topTip.position = new Vector3(0.14, 0.36, 0);
+        topTip.rotation.z = Math.PI/6;
+        topTip.parent = longbow;
+        
+        const bottomTip = MeshBuilder.CreateCylinder('bowBottomTip', {
+            height: 0.06,
+            diameter: 0.03,
+            tessellation: 8
+        }, this.scene);
+        bottomTip.position = new Vector3(0.14, -0.36, 0);
+        bottomTip.rotation.z = -Math.PI/6;
+        bottomTip.parent = longbow;
+        
+        // Create a nocked arrow ready to fire
+        const readyArrow = this.createArrowMesh("readyArrow");
+        readyArrow.scaling = new Vector3(1.0, 1.0, 1.0);
+        readyArrow.rotation = new Vector3(0, -Math.PI / 2, 0);
+        readyArrow.position = new Vector3(0.12, 0, 0);
+        readyArrow.parent = longbow;
+        
+        // Create quiver with arrows
+        const quiver = MeshBuilder.CreateCylinder('quiver', {
+            height: 0.3,
+            diameter: 0.1,
+            tessellation: 10
+        }, this.scene);
+        quiver.position = new Vector3(-0.1, -0.06, -0.12);
+        quiver.rotation.x = Math.PI / 3;
+        quiver.rotation.z = Math.PI / 6;
+        quiver.parent = archerBody;
+        
+        // Add arrows in quiver
+        for (let i = 0; i < 5; i++) {
+            const quiverArrow = MeshBuilder.CreateCylinder(`quiverArrow${i}`, {
+                height: 0.25,
+                diameter: 0.012,
+                tessellation: 6
+            }, this.scene);
+            
+            const angle = (i / 5) * Math.PI * 0.5 - Math.PI * 0.25;
+            const radius = 0.025 + Math.random() * 0.012;
+            const x = Math.sin(angle) * radius;
+            const z = Math.cos(angle) * radius;
+            
+            quiverArrow.position = new Vector3(x, 0.1, z - 0.18);
+            quiverArrow.rotation.x = Math.PI / 3;
+            quiverArrow.rotation.z = Math.PI / 6 + (Math.random() - 0.5) * 0.1;
+            quiverArrow.parent = archerBody;
+            
+            // Create arrowhead
+            const arrowHead = MeshBuilder.CreateCylinder(`quiverArrowHead${i}`, {
+                height: 0.06,
+                diameterTop: 0,
+                diameterBottom: 0.025,
+                tessellation: 8
+            }, this.scene);
+            arrowHead.position = new Vector3(0, 0.15, 0);
+            arrowHead.parent = quiverArrow;
+        }
         
         // Materials
-        // Stone base material
-        const stoneMaterial = new StandardMaterial('sniperBaseMaterial', this.scene);
-        stoneMaterial.diffuseColor = new Color3(0.6, 0.6, 0.6); // Stone gray
+        const stoneMaterial = new StandardMaterial('sniperStoneMaterial', this.scene);
+        stoneMaterial.diffuseColor = new Color3(0.7, 0.7, 0.7); // Lighter gray stone
+        stoneMaterial.specularColor = new Color3(0.3, 0.3, 0.3);
         base.material = stoneMaterial;
         
-        // Wooden platform and tower material
-        const woodMaterial = new StandardMaterial('sniperWoodMaterial', this.scene);
-        woodMaterial.diffuseColor = new Color3(0.5, 0.35, 0.2); // Brown wood
-        platform.material = woodMaterial;
-        towerLower.material = woodMaterial;
-        towerUpper.material = woodMaterial;
-        lookout.material = woodMaterial;
+        const stonePatternMaterial = new StandardMaterial('stonePatternMaterial', this.scene);
+        stonePatternMaterial.diffuseColor = new Color3(0.8, 0.8, 0.8); // Even lighter for pattern
+        stonePatternMaterial.specularColor = new Color3(0.4, 0.4, 0.4);
+        basePattern.material = stonePatternMaterial;
+        basePattern2.material = stonePatternMaterial;
         
-        // Crenellation material
-        const crenellationMaterial = new StandardMaterial('sniperCrenellationMaterial', this.scene);
-        crenellationMaterial.diffuseColor = new Color3(0.7, 0.7, 0.7); // Light gray stone
-        for (const crenellation of crenellations) {
-            crenellation.material = crenellationMaterial;
+        for (const stone of cornerStones) {
+            stone.material = stoneMaterial;
         }
         
-        // Archer materials
+        const woodMaterial = new StandardMaterial('sniperWoodMaterial', this.scene);
+        woodMaterial.diffuseColor = new Color3(0.5, 0.35, 0.2);
+        platform.material = woodMaterial;
+        archerStand.material = woodMaterial;
+        
+        for (const support of supports) {
+            support.material = woodMaterial;
+        }
+        
         const archerBodyMaterial = new StandardMaterial('archerBodyMaterial', this.scene);
-        archerBodyMaterial.diffuseColor = new Color3(0.3, 0.3, 0.4); // Dark blue/gray tunic
+        archerBodyMaterial.diffuseColor = new Color3(0.3, 0.3, 0.4); // Dark uniform
         torso.material = archerBodyMaterial;
         leftLeg.material = archerBodyMaterial;
         rightLeg.material = archerBodyMaterial;
         
-        const archerArmsMaterial = new StandardMaterial('archerArmsMaterial', this.scene);
-        archerArmsMaterial.diffuseColor = new Color3(0.6, 0.5, 0.4); // Lighter skin tone
-        leftArm.material = archerArmsMaterial;
-        rightArm.material = archerArmsMaterial;
+        const skinMaterial = new StandardMaterial('archerSkinMaterial', this.scene);
+        skinMaterial.diffuseColor = new Color3(0.8, 0.6, 0.5);
+        head.material = skinMaterial;
         
-        // Archer's head - Medieval look
-        const headMaterial = new StandardMaterial('archerHeadMaterial', this.scene);
-        headMaterial.diffuseColor = new Color3(0.8, 0.6, 0.5); // Skin tone
-        head.material = headMaterial;
+        const clothMaterial = new StandardMaterial('archerClothMaterial', this.scene);
+        clothMaterial.diffuseColor = new Color3(0.3, 0.25, 0.2);
+        leftArm.material = clothMaterial;
+        rightArm.material = clothMaterial;
         
-        // Hood material - Medieval archer
-        const hoodMaterial = new StandardMaterial('archerHoodMaterial', this.scene);
-        hoodMaterial.diffuseColor = new Color3(0.2, 0.2, 0.3); // Dark fabric
+        const hoodMaterial = new StandardMaterial('hoodMaterial', this.scene);
+        hoodMaterial.diffuseColor = new Color3(0.25, 0.15, 0.1); // Darker leather hood
         hood.material = hoodMaterial;
         
-        // Bow material - polished wood
-        const bowMaterial = new StandardMaterial('sniperBowMaterial', this.scene);
-        bowMaterial.diffuseColor = new Color3(0.6, 0.4, 0.2); // Polished wood
-        bowMaterial.specularColor = new Color3(0.3, 0.3, 0.3);
-        bowMaterial.specularPower = 32;
-        for(let i = 0; i < bowPoints.length-1; i++) {
-            const segment = this.scene.getMeshByName(`bowSegment${i}`);
-            if(segment) {
-                segment.material = bowMaterial;
-            }
-        }
+        const bowMaterial = new StandardMaterial('bowMaterial', this.scene);
+        bowMaterial.diffuseColor = new Color3(0.35, 0.2, 0.1);
+        bowMaterial.specularColor = new Color3(0.2, 0.2, 0.2);
         
-        // String material
-        const stringMaterial = new StandardMaterial('sniperStringMaterial', this.scene);
-        stringMaterial.diffuseColor = new Color3(0.9, 0.9, 0.8); // Off-white
+        longbow.getChildMeshes().forEach(mesh => {
+            if (mesh.name.startsWith('bowSegment')) {
+                mesh.material = bowMaterial;
+            }
+        });
+        
+        const stringMaterial = new StandardMaterial('stringMaterial', this.scene);
+        stringMaterial.diffuseColor = new Color3(0.9, 0.9, 0.8);
         string.material = stringMaterial;
         
-        // Parent all parts to the root mesh
+        const tipMaterial = new StandardMaterial('tipMaterial', this.scene);
+        tipMaterial.diffuseColor = new Color3(0.8, 0.7, 0.5); // Lighter wood or bone
+        topTip.material = tipMaterial;
+        bottomTip.material = tipMaterial;
+        
+        const gripMaterial = new StandardMaterial('gripMaterial', this.scene);
+        gripMaterial.diffuseColor = new Color3(0.6, 0.3, 0.2); // Red leather
+        grip.material = gripMaterial;
+        
+        const quiverMaterial = new StandardMaterial('quiverMaterial', this.scene);
+        quiverMaterial.diffuseColor = new Color3(0.4, 0.15, 0.1);
+        quiver.material = quiverMaterial;
+        
+        // Parent all parts
         base.parent = this.mesh;
+        basePattern.parent = this.mesh;
+        basePattern2.parent = this.mesh;
         platform.parent = this.mesh;
-        towerLower.parent = this.mesh;
-        towerUpper.parent = this.mesh;
-        lookout.parent = this.mesh;
-        for (const crenellation of crenellations) {
-            crenellation.parent = this.mesh;
+        archerStand.parent = this.mesh;
+        
+        for (const support of supports) {
+            support.parent = this.mesh;
         }
         
-        // The archer body is already positioned, so parent it to the mesh
-        archerBody.parent = this.mesh;
+        // Create a turret group for rotation
+        const turret = new Mesh("sniperTurret", this.scene);
+        turret.position = new Vector3(0, 0, 0);
+        turret.parent = this.mesh;
         
-        // Store the bow reference for animation
-        const bowPivot = new Mesh("bowPivot", this.scene);
-        bowPivot.position = new Vector3(0, 3.9, 0);
-        bowPivot.parent = this.mesh;
+        // Parent archer to the turret for rotation
+        archerBody.parent = turret;
         
-        // Create arrow template for projectiles
-        const arrowTemplate = this.createArrowMesh("sniperArrowTemplate");
-        arrowTemplate.isVisible = false;
+        // Track active arrows for animation and disposal
+        const activeArrows: { mesh: Mesh, trail: ParticleSystem | null, distance: number, maxDistance: number, targetEnemy: any, targetPosition: Vector3, direction: Vector3, shouldContinue: boolean }[] = [];
         
-        // Track active arrows and the bow position for animations
-        const activeArrows: { 
-            mesh: Mesh, 
-            distance: number, 
-            maxDistance: number, 
-            targetEnemy: any, 
-            targetPosition: Vector3,
-            direction: Vector3,
-            trail?: ParticleSystem,
-            shouldContinue: boolean
-        }[] = [];
-        
-        // Store reference to active arrows in the mesh's metadata for cleanup
+        // Store reference in mesh metadata for cleanup
         this.mesh.metadata = { activeArrows };
     }
     
@@ -309,41 +384,88 @@ export class SniperTower extends Tower {
     private createArrowMesh(name: string): Mesh {
         const arrow = new Mesh(name, this.scene);
         
-        // Arrow shaft
+        // Arrow shaft - longer, suitable for a longbow
         const shaft = MeshBuilder.CreateCylinder('shaft', {
-            height: 1.2,
-            diameter: 0.02,
-            tessellation: 8
+            height: 1.8,
+            diameter: 0.025,
+            tessellation: 10
         }, this.scene);
         shaft.rotation.x = Math.PI / 2; // Horizontal
         shaft.position = new Vector3(0, 0, 0);
         
-        // Arrow head
+        // Arrow head - more defined, armor-piercing style
         const head = MeshBuilder.CreateCylinder('head', {
-            height: 0.15,
+            height: 0.35,
             diameterTop: 0.0,
-            diameterBottom: 0.06,
-            tessellation: 8
+            diameterBottom: 0.08,
+            tessellation: 10
         }, this.scene);
         head.rotation.x = -Math.PI / 2; // Point forward
-        head.position = new Vector3(0, 0, 0.6);
+        head.position = new Vector3(0, 0, 0.9);
         
-        // Arrow fletching (feathers)
-        const createFletching = (angle: number) => {
-            const fletching = MeshBuilder.CreateBox(`fletching${angle}`, {
-                width: 0.01,
-                height: 0.08,
-                depth: 0.3
+        // Middle collar at the head connection
+        const collar = MeshBuilder.CreateCylinder('collar', {
+            height: 0.05,
+            diameter: 0.04,
+            tessellation: 10
+        }, this.scene);
+        collar.position = new Vector3(0, 0, 0.7);
+        collar.rotation.x = Math.PI / 2;
+        
+        // Create detailed arrow fletching
+        // Base piece to attach fletching to
+        const fletchingBase = MeshBuilder.CreateCylinder('fletchingBase', {
+            height: 0.1,
+            diameter: 0.03,
+            tessellation: 10
+        }, this.scene);
+        fletchingBase.rotation.x = Math.PI / 2;
+        fletchingBase.position = new Vector3(0, 0, -0.7);
+        
+        // Create angled fletching pieces (more 3D than simple planes)
+        for (let i = 0; i < 3; i++) {
+            const angle = (i / 3) * Math.PI * 2;
+            
+            // Create a more detailed curved feather shape
+            const points = [];
+            for (let j = 0; j < 10; j++) {
+                const z = (j / 9) * 0.5;
+                const height = 0.02 + Math.sin(j / 9 * Math.PI) * 0.12;
+                points.push(new Vector3(0, height, -z - 0.5));
+            }
+            
+            // Create a custom shape for the fletching
+            const feather = MeshBuilder.CreateRibbon('feather' + i, {
+                pathArray: [
+                    points, 
+                    points.map(p => new Vector3(0.01, p.y * 0.9, p.z))
+                ],
+                closeArray: false,
+                closePath: false
             }, this.scene);
-            fletching.position = new Vector3(0, 0, -0.4);
-            fletching.rotation.y = angle;
-            return fletching;
-        };
+            
+            feather.rotation.x = Math.PI / 2;
+            feather.rotation.y = angle;
+            feather.parent = arrow;
+        }
         
-        const fletching1 = createFletching(0);
-        const fletching2 = createFletching(Math.PI / 2);
-        const fletching3 = createFletching(Math.PI);
-        const fletching4 = createFletching(Math.PI * 3 / 2);
+        // Nock at the end of the arrow
+        const nock = MeshBuilder.CreateCylinder('nock', {
+            height: 0.07,
+            diameterTop: 0.035,
+            diameterBottom: 0.03,
+            tessellation: 10
+        }, this.scene);
+        nock.rotation.x = Math.PI / 2;
+        nock.position = new Vector3(0, 0, -0.85);
+        
+        // Create a small slit in the nock for the bowstring
+        const nockSlit = MeshBuilder.CreateBox('nockSlit', {
+            width: 0.01,
+            height: 0.04,
+            depth: 0.03
+        }, this.scene);
+        nockSlit.position = new Vector3(0, 0, -0.9);
         
         // Materials
         const shaftMaterial = new StandardMaterial('shaftMaterial', this.scene);
@@ -353,22 +475,38 @@ export class SniperTower extends Tower {
         const headMaterial = new StandardMaterial('headMaterial', this.scene);
         headMaterial.diffuseColor = new Color3(0.6, 0.6, 0.6); // Metal color
         headMaterial.specularColor = new Color3(0.8, 0.8, 0.8);
+        headMaterial.specularPower = 64;
         head.material = headMaterial;
         
-        const fletchingMaterial = new StandardMaterial('fletchingMaterial', this.scene);
-        fletchingMaterial.diffuseColor = new Color3(0.8, 0.2, 0.2); // Red feathers for sniper
-        fletching1.material = fletchingMaterial;
-        fletching2.material = fletchingMaterial;
-        fletching3.material = fletchingMaterial;
-        fletching4.material = fletchingMaterial;
+        const collarMaterial = new StandardMaterial('collarMaterial', this.scene);
+        collarMaterial.diffuseColor = new Color3(0.4, 0.4, 0.4); // Darker metal
+        collar.material = collarMaterial;
         
-        // Parent all parts to the arrow mesh
+        const fletchingMaterial = new StandardMaterial('fletchingMaterial', this.scene);
+        fletchingMaterial.diffuseColor = new Color3(0.8, 0.2, 0.2); // Bright red feathers
+        fletchingBase.material = fletchingMaterial;
+        
+        arrow.getChildMeshes().forEach(mesh => {
+            if (mesh.name.startsWith('feather')) {
+                mesh.material = fletchingMaterial;
+            }
+        });
+        
+        const nockMaterial = new StandardMaterial('nockMaterial', this.scene);
+        nockMaterial.diffuseColor = new Color3(0.1, 0.1, 0.1); // Dark wood/bone
+        nock.material = nockMaterial;
+        
+        const nockSlitMaterial = new StandardMaterial('nockSlitMaterial', this.scene);
+        nockSlitMaterial.diffuseColor = new Color3(0.05, 0.05, 0.05); // Almost black
+        nockSlit.material = nockSlitMaterial;
+        
+        // Parent all parts
         shaft.parent = arrow;
         head.parent = arrow;
-        fletching1.parent = arrow;
-        fletching2.parent = arrow;
-        fletching3.parent = arrow;
-        fletching4.parent = arrow;
+        collar.parent = arrow;
+        fletchingBase.parent = arrow;
+        nock.parent = arrow;
+        nockSlit.parent = arrow;
         
         return arrow;
     }
@@ -378,28 +516,28 @@ export class SniperTower extends Tower {
      */
     private createArrowTrail(arrow: Mesh): ParticleSystem {
         // Create a particle system for the arrow trail
-        const particleSystem = new ParticleSystem("arrowTrail", 60, this.scene);
+        const particleSystem = new ParticleSystem("arrowTrail", 120, this.scene);
         
         // Set particle texture
         particleSystem.particleTexture = new Texture("assets/textures/particle.png", this.scene);
         
         // Particles follow the arrow
         particleSystem.emitter = arrow;
-        particleSystem.minEmitBox = new Vector3(-0.05, -0.05, -0.3); // Behind the arrow
-        particleSystem.maxEmitBox = new Vector3(0.05, 0.05, -0.1);
+        particleSystem.minEmitBox = new Vector3(-0.02, -0.02, -0.7); // Behind the arrow
+        particleSystem.maxEmitBox = new Vector3(0.02, 0.02, -0.3);
         
-        // Particle colors - red for sniper
-        particleSystem.color1 = new Color3(0.8, 0.2, 0.2).toColor4(0.7);
-        particleSystem.color2 = new Color3(0.5, 0.1, 0.1).toColor4(0.5);
-        particleSystem.colorDead = new Color3(0.3, 0.0, 0.0).toColor4(0);
+        // Particle colors - vibrant red for sniper with slight smoke
+        particleSystem.color1 = new Color3(0.9, 0.2, 0.2).toColor4(0.8);
+        particleSystem.color2 = new Color3(0.7, 0.1, 0.1).toColor4(0.6);
+        particleSystem.colorDead = new Color3(0.3, 0.3, 0.3).toColor4(0);
         
         particleSystem.minSize = 0.05;
-        particleSystem.maxSize = 0.1;
+        particleSystem.maxSize = 0.12;
         
         particleSystem.minLifeTime = 0.1;
-        particleSystem.maxLifeTime = 0.2;
+        particleSystem.maxLifeTime = 0.3;
         
-        particleSystem.emitRate = 100;
+        particleSystem.emitRate = 150;
         
         particleSystem.blendMode = ParticleSystem.BLENDMODE_ONEONE;
         
@@ -408,8 +546,8 @@ export class SniperTower extends Tower {
         particleSystem.direction1 = new Vector3(0, 0, -1);
         particleSystem.direction2 = new Vector3(0, 0, -1);
         
-        particleSystem.minEmitPower = 0.1;
-        particleSystem.maxEmitPower = 0.3;
+        particleSystem.minEmitPower = 0.2;
+        particleSystem.maxEmitPower = 0.5;
         
         particleSystem.updateSpeed = 0.01;
         
@@ -423,8 +561,8 @@ export class SniperTower extends Tower {
      * Create impact effect for arrows
      */
     private createArrowImpactEffect(position: Vector3): void {
-        // Create impact particles
-        const particleSystem = new ParticleSystem("sniperImpact", 50, this.scene);
+        // Create impact particles - a more dramatic effect
+        const particleSystem = new ParticleSystem("sniperImpact", 100, this.scene);
         
         // Set particle texture and properties
         particleSystem.particleTexture = new Texture("assets/textures/particle.png", this.scene);
@@ -432,29 +570,29 @@ export class SniperTower extends Tower {
         particleSystem.minEmitBox = new Vector3(-0.1, -0.1, -0.1);
         particleSystem.maxEmitBox = new Vector3(0.1, 0.1, 0.1);
         
-        // Red particles for sniper arrow
-        particleSystem.color1 = new Color3(0.8, 0.2, 0.2).toColor4(1.0);
-        particleSystem.color2 = new Color3(0.5, 0.1, 0.1).toColor4(1.0);
-        particleSystem.colorDead = new Color3(0.3, 0.0, 0.0).toColor4(0.0);
+        // Vibrant red particles with smoke
+        particleSystem.color1 = new Color3(1.0, 0.2, 0.2).toColor4(1.0);
+        particleSystem.color2 = new Color3(0.7, 0.1, 0.1).toColor4(0.8);
+        particleSystem.colorDead = new Color3(0.5, 0.0, 0.0).toColor4(0.0);
         
         particleSystem.minSize = 0.05;
         particleSystem.maxSize = 0.2;
         
-        particleSystem.minLifeTime = 0.1;
-        particleSystem.maxLifeTime = 0.3;
+        particleSystem.minLifeTime = 0.15;
+        particleSystem.maxLifeTime = 0.4;
         
-        particleSystem.emitRate = 200;
+        particleSystem.emitRate = 300;
         
         particleSystem.blendMode = ParticleSystem.BLENDMODE_ONEONE;
         
-        particleSystem.direction1 = new Vector3(-1, -1, -1);
-        particleSystem.direction2 = new Vector3(1, 1, 1);
+        particleSystem.direction1 = new Vector3(-2, -2, -2);
+        particleSystem.direction2 = new Vector3(2, 2, 2);
         
-        particleSystem.minEmitPower = 1;
-        particleSystem.maxEmitPower = 3;
+        particleSystem.minEmitPower = 1.5;
+        particleSystem.maxEmitPower = 3.5;
         
         particleSystem.updateSpeed = 0.01;
-        particleSystem.gravity = new Vector3(0, -5, 0);
+        particleSystem.gravity = new Vector3(0, -4, 0);
         
         // Start and then clean up
         particleSystem.start();
@@ -462,8 +600,36 @@ export class SniperTower extends Tower {
             particleSystem.stop();
             setTimeout(() => {
                 particleSystem.dispose();
-            }, 500);
-        }, 100);
+            }, 600);
+        }, 150);
+        
+        // Create a brief flash at impact point
+        const flash = MeshBuilder.CreateSphere("impactFlash", {
+            diameter: 0.5,
+            segments: 8
+        }, this.scene);
+        
+        flash.position = position.clone();
+        
+        const flashMaterial = new StandardMaterial("flashMaterial", this.scene);
+        flashMaterial.diffuseColor = new Color3(1.0, 0.4, 0.2);
+        flashMaterial.emissiveColor = new Color3(1.0, 0.2, 0.1);
+        flashMaterial.alpha = 0.7;
+        flash.material = flashMaterial;
+        
+        // Animate flash
+        let flashTime = 0;
+        const animateFlash = () => {
+            flashTime += this.scene.getEngine().getDeltaTime() / 1000;
+            if (flashTime < 0.15) {
+                const scale = 1.0 - (flashTime / 0.15);
+                flash.scaling.setAll(scale);
+                requestAnimationFrame(animateFlash);
+            } else {
+                flash.dispose();
+            }
+        };
+        animateFlash();
     }
     
     /**
@@ -523,27 +689,44 @@ export class SniperTower extends Tower {
         // Create a new arrow for firing
         const arrowMesh = this.createArrowMesh("sniperArrow_" + performance.now());
         
-        // Position the arrow at the top of the tower
+        // Position the arrow at the archer's bow
+        const bowPosition = this.mesh.position.clone();
+        bowPosition.y += 1.1; // Archer's height (adjusted for larger size)
+        
+        // Add slight offset for the bow's position
         const startPosition = new Vector3(
-            this.mesh.position.x,
-            this.mesh.position.y + 4,
-            this.mesh.position.z
+            bowPosition.x,
+            bowPosition.y + 0.06,
+            bowPosition.z + 0.25
         );
         
         arrowMesh.position = startPosition;
         
-        // Calculate direction to target
+        // Calculate direction to target with slight arc
         const direction = targetPosition.subtract(startPosition).normalize();
         
+        // Add a slight upward component to create an arc
+        const arcDirection = new Vector3(
+            direction.x,
+            direction.y + 0.1, // Add upward component
+            direction.z
+        ).normalize();
+        
         // Aim the arrow
-        arrowMesh.lookAt(targetPosition);
+        arrowMesh.lookAt(startPosition.add(arcDirection.scale(5)));
         
         // Create the trail effect for the arrow
         const trailSystem = this.createArrowTrail(arrowMesh);
         
         // Animation parameters
-        const speed = 40; // units per second (faster for sniper)
-        const maxDistance = Vector3.Distance(startPosition, targetPosition) * 1.2; // Allow for slight overshoot
+        const speed = 45; // units per second (faster for sniper)
+        const maxDistance = Vector3.Distance(startPosition, targetPosition) * 1.3; // Allow for arc
+        
+        // Add light to arrow for visual effect
+        const arrowLight = new PointLight("arrowLight", startPosition, this.scene);
+        arrowLight.diffuse = new Color3(1, 0.2, 0.2);
+        arrowLight.intensity = 0.5;
+        arrowLight.range = 5;
         
         // Create an arrow object to track in the animation
         const arrow = {
@@ -552,9 +735,12 @@ export class SniperTower extends Tower {
             maxDistance: maxDistance,
             targetEnemy: this.targetEnemy,
             targetPosition: targetPosition.clone(),
-            direction: direction,
+            direction: arcDirection,
             trail: trailSystem,
-            shouldContinue: true
+            light: arrowLight,
+            shouldContinue: true,
+            hasHit: false,
+            timeElapsed: 0
         };
         
         // Get the activeArrows array from the tower's metadata
@@ -564,30 +750,95 @@ export class SniperTower extends Tower {
         // Play sound
         this.game.getAssetManager().playSound('towerShoot');
         
+        // Animate the archer drawing and releasing the bow
+        const archerBody = this.scene.getMeshByName("archerBody");
+        if (archerBody) {
+            // Find the longbow among the archer's children
+            let longbow = null;
+            archerBody.getChildMeshes().forEach(mesh => {
+                if (mesh.name === "longbow") {
+                    longbow = mesh;
+                }
+            });
+            
+            if (longbow) {
+                // Make archer face the target
+                const targetDirection = new Vector3(
+                    targetPosition.x - this.mesh.position.x,
+                    0, // Keep on horizontal plane
+                    targetPosition.z - this.mesh.position.z
+                ).normalize();
+                
+                // Calculate angle to target
+                const forward = new Vector3(0, 0, 1);
+                let targetAngle = Math.atan2(targetDirection.x, targetDirection.z);
+                
+                // Rotate the archer turret to face target
+                const turret = this.scene.getMeshByName("sniperTurret");
+                if (turret) {
+                    turret.rotation.y = targetAngle;
+                }
+            }
+        }
+        
         // Set up animation callback
         const animateArrow = () => {
             // If tower or arrow was disposed, stop animation
             if (!this.mesh || arrowMesh.isDisposed() || !arrow.shouldContinue) {
                 // Arrow was disposed, stop animation
+                if (arrowLight) {
+                    arrowLight.dispose();
+                }
                 return;
             }
             
-            const deltaDistance = (speed * this.scene.getEngine().getDeltaTime()) / 1000;
+            const deltaTime = this.scene.getEngine().getDeltaTime() / 1000;
+            arrow.timeElapsed += deltaTime;
+            
+            // Calculate current arc height - peak at middle of flight, then descend
+            const arcHeight = Math.sin(Math.min(arrow.timeElapsed * 1.5, Math.PI)) * 1.5;
+            
+            // Calculate movement with arc
+            const deltaDistance = speed * deltaTime;
             arrow.distance += deltaDistance;
             
-            // Move arrow forward
-            const newPos = startPosition.add(direction.scale(arrow.distance));
+            // Calculate position along arc
+            const straightPos = startPosition.add(direction.scale(arrow.distance));
+            const arcVector = new Vector3(0, arcHeight, 0);
+            const flightProgress = Math.min(arrow.distance / maxDistance, 1);
+            const arcScale = Math.sin(flightProgress * Math.PI);
+            
+            // Apply arc to position
+            const newPos = straightPos.add(arcVector.scale(arcScale));
             arrowMesh.position = newPos;
             
-            // Update the trail position
-            if (trailSystem) {
-                trailSystem.emitter = arrowMesh;
+            // Update arrow rotation to follow arc
+            if (flightProgress < 0.9) {
+                // Calculate new direction based on current position and next position
+                const nextPos = startPosition.add(direction.scale(arrow.distance + deltaDistance))
+                    .add(arcVector.scale(Math.sin((flightProgress + deltaDistance/maxDistance) * Math.PI)));
+                const currentDirection = nextPos.subtract(newPos).normalize();
+                arrowMesh.lookAt(newPos.add(currentDirection.scale(1)));
+            } else {
+                // In final approach, aim directly at target
+                arrowMesh.lookAt(targetPosition);
+            }
+            
+            // Update the light position
+            if (arrowLight) {
+                arrowLight.position = newPos;
             }
             
             // If arrow reaches target or max distance
-            if (arrow.distance >= maxDistance) {
+            if (arrow.distance >= maxDistance || 
+                (arrow.targetEnemy && Vector3.Distance(arrowMesh.position, arrow.targetEnemy.getPosition()) < 0.5)) {
+                
+                // Get final position - either the target position or where the arrow ended
+                const finalPosition = arrow.targetEnemy && arrow.targetEnemy.isAlive() ? 
+                    arrow.targetEnemy.getPosition() : arrowMesh.position;
+                
                 // Create impact effect at the final position
-                this.createArrowImpactEffect(arrowMesh.position);
+                this.createArrowImpactEffect(finalPosition);
                 
                 // Remove from active arrows
                 const index = activeArrows.indexOf(arrow);
@@ -608,11 +859,35 @@ export class SniperTower extends Tower {
                 // Stop and dispose the trail system
                 if (trailSystem) {
                     trailSystem.stop();
-                    trailSystem.dispose();
+                    setTimeout(() => {
+                        trailSystem.dispose();
+                    }, 300);
                 }
                 
-                // Dispose arrow mesh
-                arrowMesh.dispose();
+                // Dispose the light
+                if (arrowLight) {
+                    arrowLight.dispose();
+                }
+                
+                // Embed arrow in target if it hit
+                if (arrow.targetEnemy && arrow.targetEnemy.isAlive()) {
+                    // Keep arrow in enemy for a moment before disposing
+                    const enemyPosition = arrow.targetEnemy.getPosition();
+                    arrowMesh.position = enemyPosition;
+                    
+                    // Make it stick out of the enemy at an angle
+                    const randomAngle = Math.random() * Math.PI * 0.2 - Math.PI * 0.1;
+                    arrowMesh.rotation.y += randomAngle;
+                    arrowMesh.rotation.x = -Math.PI * 0.3 + (Math.random() * 0.2 - 0.1);
+                    
+                    // Leave arrow in for half a second then dispose
+                    setTimeout(() => {
+                        arrowMesh.dispose();
+                    }, 500);
+                } else {
+                    // Dispose arrow mesh immediately if no hit
+                    arrowMesh.dispose();
+                }
                 
                 return;
             }

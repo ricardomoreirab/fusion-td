@@ -15,116 +15,252 @@ export class HeavyTower extends Tower {
         
         // Create a stone base
         const base = MeshBuilder.CreateCylinder("heavyBase", {
-            height: 0.2,
-            diameter: 1.8,
-            tessellation: 16
+            height: 0.4,
+            diameter: 2.0,
+            tessellation: 20
         }, this.scene);
-        base.position = new Vector3(0, 0.1, 0);
+        base.position = new Vector3(0, 0.2, 0);
+        
+        // Add decorative stone ring
+        const baseRing = MeshBuilder.CreateTorus('heavyBaseRing', {
+            diameter: 1.8,
+            thickness: 0.08,
+            tessellation: 20
+        }, this.scene);
+        baseRing.position = new Vector3(0, 0.35, 0);
+        baseRing.rotation.x = Math.PI / 2;
         
         // Create a wooden platform for the cannon
         const platform = MeshBuilder.CreateBox("platform", {
-            width: 1.2,
-            height: 0.15,
-            depth: 1.4
+            width: 1.4,
+            height: 0.2,
+            depth: 1.6
         }, this.scene);
-        platform.position = new Vector3(0, 0.22, 0);
+        platform.position = new Vector3(0, 0.4, 0);
         
-        // Create cannon barrel
+        // Create decorative platform beams
+        const createPlatformBeam = (index: number, total: number) => {
+            const angle = (index / total) * Math.PI * 2;
+            const beam = MeshBuilder.CreateBox(`beam${index}`, {
+                width: 0.1,
+                height: 0.05,
+                depth: 2.0
+            }, this.scene);
+            beam.rotation.y = angle;
+            beam.position = new Vector3(0, 0.32, 0);
+            beam.parent = this.mesh;
+        };
+        
+        for (let i = 0; i < 4; i++) {
+            createPlatformBeam(i, 4);
+        }
+        
+        // Create cannon barrel - longer and more ornate
         const barrel = MeshBuilder.CreateCylinder("barrel", {
-            height: 1.4,
-            diameter: 0.3,
-            tessellation: 16
+            height: 1.6,
+            diameter: 0.35,
+            tessellation: 20
         }, this.scene);
         barrel.rotation.x = Math.PI / 2; // Rotate to horizontal position
-        barrel.position = new Vector3(0, 0.35, 0.4);
+        barrel.position = new Vector3(0, 0.6, 0.4);
+        
+        // Create decorative rings on barrel
+        const createBarrelRing = (offset: number) => {
+            const ring = MeshBuilder.CreateTorus(`barrelRing${offset}`, {
+                diameter: 0.35,
+                thickness: 0.05,
+                tessellation: 16
+            }, this.scene);
+            ring.rotation.y = Math.PI / 2;
+            ring.position = new Vector3(0, 0.6, offset);
+            ring.parent = barrel;
+        };
+        
+        createBarrelRing(0.0);
+        createBarrelRing(0.5);
+        createBarrelRing(-0.6);
+        
+        // Create muzzle reinforcement
+        const muzzle = MeshBuilder.CreateCylinder("muzzle", {
+            height: 0.25,
+            diameter: 0.45,
+            tessellation: 20
+        }, this.scene);
+        muzzle.rotation.x = Math.PI / 2;
+        muzzle.position = new Vector3(0, 0.6, 0.9);
         
         // Create cannon back
         const back = MeshBuilder.CreateCylinder("cannonBack", {
-            height: 0.5,
-            diameter: 0.5,
-            tessellation: 16
+            height: 0.6,
+            diameter: 0.55,
+            tessellation: 20
         }, this.scene);
         back.rotation.x = Math.PI / 2;
-        back.position = new Vector3(0, 0.35, -0.3);
+        back.position = new Vector3(0, 0.6, -0.3);
         
-        // Create wheels
-        const wheelOptions = {
+        // Create loading port with hinge
+        const loadingPort = MeshBuilder.CreateCylinder("loadingPort", {
             height: 0.15,
-            diameter: 0.7,
-            tessellation: 16
+            diameter: 0.25,
+            tessellation: 12
+        }, this.scene);
+        loadingPort.rotation.z = Math.PI / 2;
+        loadingPort.position = new Vector3(0, 0.75, -0.3);
+        
+        const hinge = MeshBuilder.CreateBox("hinge", {
+            width: 0.2,
+            height: 0.05,
+            depth: 0.05
+        }, this.scene);
+        hinge.position = new Vector3(0, 0.75, -0.4);
+        
+        // Create wheels - more detailed wooden wheels
+        const wheelOptions = {
+            height: 0.2,
+            diameter: 0.75,
+            tessellation: 20
         };
         
         const leftFrontWheel = MeshBuilder.CreateCylinder("leftFrontWheel", wheelOptions, this.scene);
         leftFrontWheel.rotation.z = Math.PI / 2; // Horizontal
-        leftFrontWheel.position = new Vector3(-0.6, 0.35, -0.5);
+        leftFrontWheel.position = new Vector3(-0.7, 0.37, -0.5);
         
         const rightFrontWheel = MeshBuilder.CreateCylinder("rightFrontWheel", wheelOptions, this.scene);
         rightFrontWheel.rotation.z = Math.PI / 2;
-        rightFrontWheel.position = new Vector3(0.6, 0.35, -0.5);
+        rightFrontWheel.position = new Vector3(0.7, 0.37, -0.5);
         
         const leftBackWheel = MeshBuilder.CreateCylinder("leftBackWheel", wheelOptions, this.scene);
         leftBackWheel.rotation.z = Math.PI / 2;
-        leftBackWheel.position = new Vector3(-0.6, 0.35, 0.5);
+        leftBackWheel.position = new Vector3(-0.7, 0.37, 0.5);
         
         const rightBackWheel = MeshBuilder.CreateCylinder("rightBackWheel", wheelOptions, this.scene);
         rightBackWheel.rotation.z = Math.PI / 2;
-        rightBackWheel.position = new Vector3(0.6, 0.35, 0.5);
+        rightBackWheel.position = new Vector3(0.7, 0.37, 0.5);
+        
+        // Create wheel spokes
+        const createWheelSpokes = (wheel: Mesh) => {
+            for (let i = 0; i < 6; i++) {
+                const angle = (i / 6) * Math.PI * 2;
+                const spoke = MeshBuilder.CreateBox(`spoke${i}`, {
+                    width: 0.06,
+                    height: 0.06,
+                    depth: 0.6
+                }, this.scene);
+                spoke.rotation.x = angle;
+                spoke.position = new Vector3(0, 0, 0);
+                spoke.parent = wheel;
+            }
+        };
+        
+        createWheelSpokes(leftFrontWheel);
+        createWheelSpokes(rightFrontWheel);
+        createWheelSpokes(leftBackWheel);
+        createWheelSpokes(rightBackWheel);
         
         // Create axles
         const frontAxle = MeshBuilder.CreateCylinder("frontAxle", {
-            height: 1.4,
-            diameter: 0.1,
-            tessellation: 8
+            height: 1.6,
+            diameter: 0.12,
+            tessellation: 10
         }, this.scene);
         frontAxle.rotation.z = Math.PI / 2;
-        frontAxle.position = new Vector3(0, 0.35, -0.5);
+        frontAxle.position = new Vector3(0, 0.37, -0.5);
         
         const backAxle = MeshBuilder.CreateCylinder("backAxle", {
-            height: 1.4,
-            diameter: 0.1,
-            tessellation: 8
+            height: 1.6,
+            diameter: 0.12,
+            tessellation: 10
         }, this.scene);
         backAxle.rotation.z = Math.PI / 2;
-        backAxle.position = new Vector3(0, 0.35, 0.5);
+        backAxle.position = new Vector3(0, 0.37, 0.5);
         
         // Create supports
         const leftSupport = MeshBuilder.CreateBox("leftSupport", {
-            width: 0.1,
-            height: 0.2,
-            depth: 0.8
+            width: 0.15,
+            height: 0.25,
+            depth: 1.0
         }, this.scene);
-        leftSupport.position = new Vector3(-0.4, 0.45, 0);
+        leftSupport.position = new Vector3(-0.5, 0.5, 0);
         
         const rightSupport = MeshBuilder.CreateBox("rightSupport", {
-            width: 0.1,
-            height: 0.2,
-            depth: 0.8
+            width: 0.15,
+            height: 0.25,
+            depth: 1.0
         }, this.scene);
-        rightSupport.position = new Vector3(0.4, 0.45, 0);
+        rightSupport.position = new Vector3(0.5, 0.5, 0);
         
         // Create barrel rim
         const rim = MeshBuilder.CreateTorus("rim", {
-            diameter: 0.3,
+            diameter: 0.35,
             thickness: 0.07,
-            tessellation: 16
+            tessellation: 20
         }, this.scene);
         rim.rotation.x = Math.PI / 2;
-        rim.position = new Vector3(0, 0, 0.7);
+        rim.position = new Vector3(0, 0.6, 1.1);
+        
+        // Create a cannonball ready to fire
+        const cannonball = MeshBuilder.CreateSphere("readyCannonball", {
+            diameter: 0.25,
+            segments: 16
+        }, this.scene);
+        cannonball.position = new Vector3(0, 0.6, 0.9);
+        
+        // Create cannonball pile
+        const createCannonballPile = () => {
+            const positions = [
+                new Vector3(-0.4, 0.4, -0.8),
+                new Vector3(-0.25, 0.4, -0.6),
+                new Vector3(-0.1, 0.4, -0.8),
+                new Vector3(0.1, 0.4, -0.7),
+                new Vector3(0.3, 0.4, -0.8),
+                new Vector3(-0.2, 0.65, -0.7),
+                new Vector3(0.0, 0.65, -0.75)
+            ];
+            
+            const cannonballs = [];
+            for (let i = 0; i < positions.length; i++) {
+                const ball = MeshBuilder.CreateSphere(`pileCannonball${i}`, {
+                    diameter: 0.25,
+                    segments: 10
+                }, this.scene);
+                ball.position = positions[i];
+                ball.parent = this.mesh;
+                cannonballs.push(ball);
+            }
+            return cannonballs;
+        };
+        
+        const cannonballPile = createCannonballPile();
         
         // Materials
-        const stoneMaterial = new StandardMaterial("stoneMaterial", this.scene);
-        stoneMaterial.diffuseColor = new Color3(0.5, 0.5, 0.5);
+        const stoneMaterial = new StandardMaterial('heavyStoneMaterial', this.scene);
+        stoneMaterial.diffuseColor = new Color3(0.7, 0.7, 0.7); // Lighter gray stone
+        stoneMaterial.specularColor = new Color3(0.3, 0.3, 0.3);
         base.material = stoneMaterial;
+        baseRing.material = stoneMaterial;
         
-        const woodMaterial = new StandardMaterial("woodMaterial", this.scene);
-        woodMaterial.diffuseColor = new Color3(0.35, 0.2, 0.1);
+        const woodMaterial = new StandardMaterial('heavyWoodMaterial', this.scene);
+        woodMaterial.diffuseColor = new Color3(0.5, 0.35, 0.2);
         platform.material = woodMaterial;
         leftSupport.material = woodMaterial;
         rightSupport.material = woodMaterial;
-        leftFrontWheel.material = woodMaterial;
-        rightFrontWheel.material = woodMaterial;
-        leftBackWheel.material = woodMaterial;
-        rightBackWheel.material = woodMaterial;
+        
+        const darkWoodMaterial = new StandardMaterial('heavyDarkWoodMaterial', this.scene);
+        darkWoodMaterial.diffuseColor = new Color3(0.35, 0.25, 0.15);
+        
+        // Apply wood material to wheels and spokes
+        const wheelMaterial = new StandardMaterial("wheelMaterial", this.scene);
+        wheelMaterial.diffuseColor = new Color3(0.4, 0.3, 0.15);
+        
+        leftFrontWheel.material = wheelMaterial;
+        rightFrontWheel.material = wheelMaterial;
+        leftBackWheel.material = wheelMaterial;
+        rightBackWheel.material = wheelMaterial;
+        
+        leftFrontWheel.getChildMeshes().forEach(mesh => mesh.material = wheelMaterial);
+        rightFrontWheel.getChildMeshes().forEach(mesh => mesh.material = wheelMaterial);
+        leftBackWheel.getChildMeshes().forEach(mesh => mesh.material = wheelMaterial);
+        rightBackWheel.getChildMeshes().forEach(mesh => mesh.material = wheelMaterial);
         
         const metalMaterial = new StandardMaterial("metalMaterial", this.scene);
         metalMaterial.diffuseColor = new Color3(0.2, 0.2, 0.23);
@@ -133,38 +269,54 @@ export class HeavyTower extends Tower {
         barrel.material = metalMaterial;
         back.material = metalMaterial;
         rim.material = metalMaterial;
+        muzzle.material = metalMaterial;
+        loadingPort.material = metalMaterial;
+        hinge.material = metalMaterial;
+        
+        // Apply material to barrel rings
+        barrel.getChildMeshes().forEach(mesh => mesh.material = metalMaterial);
         
         const axleMaterial = new StandardMaterial("axleMaterial", this.scene);
         axleMaterial.diffuseColor = new Color3(0.3, 0.3, 0.3);
         frontAxle.material = axleMaterial;
         backAxle.material = axleMaterial;
         
+        const cannonballMaterial = new StandardMaterial("cannonballMaterial", this.scene);
+        cannonballMaterial.diffuseColor = new Color3(0.1, 0.1, 0.1);
+        cannonballMaterial.specularColor = new Color3(0.3, 0.3, 0.3);
+        cannonballMaterial.specularPower = 64;
+        cannonball.material = cannonballMaterial;
+        
+        cannonballPile.forEach(ball => ball.material = cannonballMaterial);
+        
         // Parent all to root
         base.parent = this.mesh;
+        baseRing.parent = this.mesh;
         platform.parent = this.mesh;
-        barrel.parent = this.mesh;
-        back.parent = this.mesh;
+        
+        // Create a turret for the rotating parts
+        const turret = new Mesh("heavyTurret", this.scene);
+        turret.position = new Vector3(0, 0, 0);
+        turret.parent = this.mesh;
+        
+        // Parent cannon to turret for rotation
+        barrel.parent = turret;
+        back.parent = turret;
+        muzzle.parent = turret;
+        loadingPort.parent = turret;
+        hinge.parent = turret;
+        rim.parent = turret;
+        cannonball.parent = turret;
+        leftSupport.parent = turret;
+        rightSupport.parent = turret;
+        
+        // Parent fixed parts to mesh
         leftFrontWheel.parent = this.mesh;
         rightFrontWheel.parent = this.mesh;
         leftBackWheel.parent = this.mesh;
         rightBackWheel.parent = this.mesh;
         frontAxle.parent = this.mesh;
         backAxle.parent = this.mesh;
-        leftSupport.parent = this.mesh;
-        rightSupport.parent = this.mesh;
-        rim.parent = barrel;
-        
-        // Create template for cannonballs
-        const projectileTemplate = MeshBuilder.CreateSphere("cannonballTemplate", {
-            diameter: 0.25,
-            segments: 12
-        }, this.scene);
-        
-        const projectileMaterial = new StandardMaterial("cannonballMaterial", this.scene);
-        projectileMaterial.diffuseColor = new Color3(0.1, 0.1, 0.1);
-        projectileMaterial.specularColor = new Color3(0.3, 0.3, 0.3);
-        projectileTemplate.material = projectileMaterial;
-        projectileTemplate.isVisible = false;
         
         // Track active projectiles
         const activeProjectiles: { mesh: Mesh, distance: number, maxDistance: number, targetEnemy: any, targetPosition: Vector3, shouldContinue: boolean }[] = [];
