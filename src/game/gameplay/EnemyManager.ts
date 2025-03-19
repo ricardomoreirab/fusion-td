@@ -7,12 +7,14 @@ import { FastEnemy } from './enemies/FastEnemy';
 import { TankEnemy } from './enemies/TankEnemy';
 import { BossEnemy } from './enemies/BossEnemy';
 import { PlayerStats } from './PlayerStats';
+import { TowerManager } from './TowerManager';
 
 export class EnemyManager {
     private game: Game;
     private map: Map;
     private enemies: Enemy[] = [];
     private playerStats: PlayerStats | null = null;
+    private towerManager: TowerManager | null = null;
 
     constructor(game: Game, map: Map) {
         this.game = game;
@@ -25,6 +27,19 @@ export class EnemyManager {
      */
     public setPlayerStats(playerStats: PlayerStats): void {
         this.playerStats = playerStats;
+    }
+
+    /**
+     * Set the tower manager reference for tower destruction capabilities
+     * @param towerManager The tower manager instance
+     */
+    public setTowerManager(towerManager: TowerManager): void {
+        this.towerManager = towerManager;
+        
+        // Update any existing enemies
+        for (const enemy of this.enemies) {
+            enemy.setTowerManager(towerManager);
+        }
     }
 
     /**
@@ -88,6 +103,11 @@ export class EnemyManager {
                 // Default to basic enemy
                 enemy = new BasicEnemy(this.game, startPosition, path);
                 break;
+        }
+        
+        // Set tower manager reference if available
+        if (this.towerManager) {
+            enemy.setTowerManager(this.towerManager);
         }
         
         // Add to enemies list

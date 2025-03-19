@@ -60,8 +60,14 @@ class ParallelWave {
             const enemyType = this.enemiesLeftToSpawn[0].type;
             const enemy = this.enemyManager.createEnemy(enemyType);
             
-            // Apply difficulty multiplier
-            enemy.applyDifficultyMultiplier(this.difficultyMultiplier);
+            // Apply difficulty multiplier with special handling for boss type
+            if (enemyType === 'boss') {
+                const bossMultiplier = 10.0;
+                enemy.applyDifficultyMultiplier(this.difficultyMultiplier * bossMultiplier);
+                console.log(`Boss enemy created in parallel wave with ${(this.difficultyMultiplier * bossMultiplier).toFixed(2)}x difficulty`);
+            } else {
+                enemy.applyDifficultyMultiplier(this.difficultyMultiplier);
+            }
 
             // Remove from queue
             this.enemiesLeftToSpawn.shift();
@@ -111,6 +117,18 @@ export class WaveManager {
     private autoWaveTimer: number = 0; // Timer for auto-starting waves
     private autoWaveDelay: number = 5; // Delay in seconds before auto-starting next wave
     private parallelWaves: ParallelWave[] = []; // Array of parallel waves
+    
+    // Speed-based difficulty system
+    private waveStartTime: number = 0; // Time when the wave started
+    private baseClearTime: number = 60; // Base time in seconds expected to clear a wave
+    private minClearTime: number = 15; // Minimum time to clear a wave for max multiplier
+    private speedMultiplierMax: number = 10.0; // Maximum multiplier based on speed
+    private speedMultiplier: number = 1.0; // Current speed-based multiplier
+    private lastWaveClearTime: number = 0; // Time taken to clear the last wave
+    
+    // Parallel wave difficulty system
+    private parallelWaveMultiplier: number = 1.0; // Additional multiplier for parallel waves
+    private maxParallelMultiplier: number = 2.0; // Maximum parallel wave multiplier (2x)
 
     constructor(enemyManager: EnemyManager, playerStats: PlayerStats) {
         this.enemyManager = enemyManager;
@@ -332,6 +350,17 @@ export class WaveManager {
             }
         }
         
+        // Calculate parallel wave multiplier based on number of active waves
+        // More parallel waves = higher multiplier
+        const activeWaveCount = this.parallelWaves.length;
+        if (activeWaveCount > 1) {
+            // Each additional wave adds 20% to the multiplier (1.0, 1.2, 1.4, 1.6, 1.8, 2.0)
+            this.parallelWaveMultiplier = Math.min(1.0 + (activeWaveCount - 1) * 0.2, this.maxParallelMultiplier);
+            console.log(`Parallel wave multiplier: ${this.parallelWaveMultiplier.toFixed(2)}x (${activeWaveCount} active waves)`);
+        } else {
+            this.parallelWaveMultiplier = 1.0;
+        }
+        
         // Remove completed waves and give rewards
         for (const wave of completedWaves) {
             // Give reward for completing the wave
@@ -380,6 +409,11 @@ export class WaveManager {
         
         console.log(`Created additional parallel wave with ${enemiesFlat.length} enemies`);
         
+        // Recalculate the parallel wave multiplier
+        const activeWaveCount = this.parallelWaves.length;
+        this.parallelWaveMultiplier = Math.min(1.0 + (activeWaveCount - 1) * 0.2, this.maxParallelMultiplier);
+        console.log(`Parallel wave multiplier increased to ${this.parallelWaveMultiplier.toFixed(2)}x (${activeWaveCount} active waves)`);
+        
         return true;
     }
 
@@ -391,26 +425,40 @@ export class WaveManager {
      * @returns The created parallel wave
      */
     private _createParallelWave(enemies: { type: string, delay: number }[], waveNumber: number, reward: number): ParallelWave {
-        // Create a new parallel wave with the current difficulty multiplier
+        // Update the parallel wave multiplier based on how many waves will be active
+        const activeWaveCount = this.parallelWaves.length + 1; // +1 for the wave we're about to create
+        if (activeWaveCount > 1) {
+            this.parallelWaveMultiplier = Math.min(1.0 + (activeWaveCount - 1) * 0.2, this.maxParallelMultiplier);
+        } else {
+            this.parallelWaveMultiplier = 1.0;
+        }
+        
+        // Calculate the effective difficulty with all multipliers
+        const effectiveDifficulty = Math.min(
+            this.difficultyMultiplier * this.speedMultiplier * this.parallelWaveMultiplier,
+            10.0
+        );
+        
+        // Create a new parallel wave with the effective difficulty multiplier
         const parallelWave = new ParallelWave(
             this.enemyManager,
             enemies,
             waveNumber,
             reward,
-            this.difficultyMultiplier
+            effectiveDifficulty // Use the combined difficulty
         );
         
         // Add to parallel waves array
         this.parallelWaves.push(parallelWave);
         
-        console.log(`Created parallel wave ${waveNumber} with ${enemies.length} enemies at difficulty ${this.difficultyMultiplier.toFixed(2)}x`);
+        console.log(`Created parallel wave with difficulty ${effectiveDifficulty.toFixed(2)}x (base: ${this.difficultyMultiplier.toFixed(2)}x, speed: ${this.speedMultiplier.toFixed(2)}x, parallel: ${this.parallelWaveMultiplier.toFixed(2)}x)`);
         
         return parallelWave;
     }
 
     /**
      * Start the next wave
-     * @returns True if the wave was started, false if all waves are completed
+     * @returns True if a new wave was started
      */
     public startNextWave(): boolean {
         // Reset auto-wave timer
@@ -429,9 +477,15 @@ export class WaveManager {
         // Increment wave counter
         this.currentWave++;
         
-        // Update difficulty multiplier every wave (10% increase)
+        // Store the wave start time for speed-based difficulty
+        this.waveStartTime = performance.now() / 1000; // Convert to seconds
+        
+        // Update basic difficulty multiplier every wave (10% increase)
         this.difficultyMultiplier *= 1.1;
-        console.log(`Wave ${this.currentWave}: Difficulty increased to ${this.difficultyMultiplier.toFixed(2)}x`);
+        
+        // Apply speed multiplier to the basic difficulty multiplier
+        const effectiveDifficulty = Math.min(this.difficultyMultiplier * this.speedMultiplier, 10.0);
+        console.log(`Wave ${this.currentWave}: Difficulty set to ${effectiveDifficulty.toFixed(2)}x (base: ${this.difficultyMultiplier.toFixed(2)}x, speed: ${this.speedMultiplier.toFixed(2)}x)`);
         
         // Get the current wave
         let wave: Wave;
@@ -441,6 +495,14 @@ export class WaveManager {
             // Generate a new wave if we've run out of predefined waves
             wave = this.generateNextWave();
             this.waves.push(wave);
+        }
+        
+        // Check if this is a boss wave
+        const isBossWave = wave.enemies.some(enemy => enemy.type === 'boss' && enemy.count > 0);
+        if (isBossWave) {
+            console.log(`%c BOSS WAVE ${this.currentWave}! Boss enemies are 10x stronger! %c`, 
+                'background: #f00; color: #fff; font-size: 16px; font-weight: bold; padding: 4px 8px;',
+                'background: none; color: inherit;');
         }
         
         // Set up the enemies to spawn
@@ -476,7 +538,7 @@ export class WaveManager {
         
         return true;
     }
-
+    
     /**
      * Complete the current wave
      */
@@ -488,11 +550,64 @@ export class WaveManager {
         // Mark wave as complete
         this.waveInProgress = false;
         
+        // Calculate time taken to clear the wave
+        const currentTime = performance.now() / 1000; // Convert to seconds
+        this.lastWaveClearTime = currentTime - this.waveStartTime;
+        
+        // Update speed multiplier based on clear time
+        this.updateSpeedMultiplier(this.lastWaveClearTime);
+        
+        // Reset parallel wave multiplier as all waves are now complete
+        this.parallelWaveMultiplier = 1.0;
+        
         // Reset auto-wave timer to start counting for next auto-wave
         this.autoWaveTimer = 0;
         
         // Debug log to confirm wave completion
-        console.log(`Main wave completed. Ready for wave ${this.currentWave + 1}. Auto-wave in ${this.autoWaveDelay} seconds.`);
+        console.log(`Wave ${this.currentWave} completed in ${this.lastWaveClearTime.toFixed(2)} seconds. Speed multiplier: ${this.speedMultiplier.toFixed(2)}x. Ready for wave ${this.currentWave + 1}. Auto-wave in ${this.autoWaveDelay} seconds.`);
+    }
+    
+    /**
+     * Update the speed multiplier based on clear time
+     * @param clearTime Time taken to clear the wave in seconds
+     */
+    private updateSpeedMultiplier(clearTime: number): void {
+        // Calculate normalized clear speed (1.0 is baseline, higher is faster)
+        // Adjust baseClearTime based on wave number to account for increasing difficulty
+        const adjustedBaseClearTime = this.baseClearTime * (1 + (this.currentWave - 1) * 0.1);
+        const clearSpeed = adjustedBaseClearTime / Math.max(clearTime, this.minClearTime);
+        
+        // Update speed multiplier
+        // The faster the clear, the higher the multiplier, up to speedMultiplierMax
+        // Scale from 1.0 to speedMultiplierMax
+        const newSpeedMultiplier = Math.min(clearSpeed, this.speedMultiplierMax);
+        
+        // Smooth the transition with weighted average (70% old, 30% new)
+        this.speedMultiplier = this.speedMultiplier * 0.7 + newSpeedMultiplier * 0.3;
+        
+        // Ensure the multiplier isn't less than 1.0
+        this.speedMultiplier = Math.max(1.0, this.speedMultiplier);
+        
+        // Ensure the multiplier isn't greater than the max
+        this.speedMultiplier = Math.min(this.speedMultiplier, this.speedMultiplierMax);
+        
+        console.log(`Wave clear speed: ${clearSpeed.toFixed(2)}x baseline. New speed multiplier: ${this.speedMultiplier.toFixed(2)}x`);
+    }
+    
+    /**
+     * Get the current speed multiplier
+     * @returns The current speed multiplier
+     */
+    public getSpeedMultiplier(): number {
+        return this.speedMultiplier;
+    }
+    
+    /**
+     * Get the effective difficulty multiplier (base * speed * parallel, capped at 10x)
+     * @returns The effective difficulty multiplier
+     */
+    public getEffectiveDifficultyMultiplier(): number {
+        return Math.min(this.difficultyMultiplier * this.speedMultiplier * this.parallelWaveMultiplier, 10.0);
     }
 
     /**
@@ -550,6 +665,10 @@ export class WaveManager {
         this.currentWave = 0;
         this.autoWaveTimer = 0;
         this.difficultyMultiplier = 1.0;
+        this.speedMultiplier = 1.0;
+        this.parallelWaveMultiplier = 1.0;
+        this.lastWaveClearTime = 0;
+        this.waveStartTime = 0;
         
         console.log('WaveManager disposed and reset');
     }
@@ -566,7 +685,7 @@ export class WaveManager {
     }
 
     /**
-     * Create an enemy with the current difficulty multiplier applied
+     * Create enemy with current difficulty applied
      * @param type The type of enemy to create
      * @returns The created enemy
      */
@@ -574,8 +693,20 @@ export class WaveManager {
         // Create the enemy
         const enemy = this.enemyManager.createEnemy(type);
         
-        // Apply difficulty multiplier
-        enemy.applyDifficultyMultiplier(this.difficultyMultiplier);
+        // Calculate the effective difficulty multiplier (capped at 10x)
+        const effectiveDifficulty = Math.min(
+            this.difficultyMultiplier * this.speedMultiplier * this.parallelWaveMultiplier, 
+            10.0
+        );
+        
+        // Apply additional 10x multiplier for boss-type enemies
+        if (type === 'boss') {
+            const bossMultiplier = 10.0;
+            enemy.applyDifficultyMultiplier(effectiveDifficulty * bossMultiplier);
+            console.log(`Boss enemy created with ${(effectiveDifficulty * bossMultiplier).toFixed(2)}x difficulty`);
+        } else {
+            enemy.applyDifficultyMultiplier(effectiveDifficulty);
+        }
         
         return enemy;
     }
@@ -593,5 +724,61 @@ export class WaveManager {
         console.log(`Wave ${this.currentWave}: Difficulty increased to ${this.difficultyMultiplier.toFixed(2)}x`);
         
         console.log(`Wave counter incremented to ${this.currentWave}`);
+    }
+
+    /**
+     * Get the time when the current wave started in seconds
+     * @returns The wave start time in seconds
+     */
+    public getWaveStartTime(): number {
+        return this.waveStartTime;
+    }
+    
+    /**
+     * Get the base time expected to clear a wave
+     * @returns The base clear time in seconds
+     */
+    public getBaseClearTime(): number {
+        // Adjust base clear time based on wave number
+        return this.baseClearTime * (1 + (this.currentWave - 1) * 0.1);
+    }
+    
+    /**
+     * Get the time taken to clear the last wave
+     * @returns The last wave clear time in seconds
+     */
+    public getLastWaveClearTime(): number {
+        return this.lastWaveClearTime;
+    }
+
+    /**
+     * Get the parallel wave multiplier
+     * @returns The current parallel wave multiplier
+     */
+    public getParallelWaveMultiplier(): number {
+        return this.parallelWaveMultiplier;
+    }
+
+    /**
+     * Get the number of active parallel waves
+     * @returns The number of active parallel waves
+     */
+    public getActiveParallelWaveCount(): number {
+        return this.parallelWaves.length;
+    }
+
+    /**
+     * Check if the current wave is a boss wave
+     * @returns True if the current wave contains a boss enemy
+     */
+    public isBossWave(): boolean {
+        // Check if we have a predefined wave
+        if (this.currentWave > 0 && this.currentWave <= this.waves.length) {
+            const wave = this.waves[this.currentWave - 1];
+            return wave.enemies.some(enemy => enemy.type === 'boss' && enemy.count > 0);
+        }
+        
+        // For generated waves, boss appears every 5 waves starting at wave 10
+        return this.currentWave >= 10 && (this.currentWave - 10) % 5 === 0;
     }
 } 

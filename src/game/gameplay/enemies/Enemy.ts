@@ -1,6 +1,8 @@
 import { Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, Color4, Scene, ParticleSystem, Texture } from '@babylonjs/core';
 import { Game } from '../../Game';
 import { EnemyType, StatusEffect } from '../towers/Tower';
+import { TowerManager } from '../TowerManager';
+import { Tower } from '../towers/Tower';
 
 export class Enemy {
     protected game: Game;
@@ -19,6 +21,13 @@ export class Enemy {
     protected path: Vector3[] = [];
     protected currentPathIndex: number = 0;
     protected originalScale: number = 1.0; // Store original scale for health-based scaling
+    
+    // Tower destruction ability
+    protected canDestroyTowers: boolean = false;
+    protected towerDestructionRange: number = 0;
+    protected towerDestructionCooldown: number = 5; // 5 seconds cooldown
+    protected lastTowerDestructionTime: number = 0;
+    protected towerManager: TowerManager | null = null;
     
     // Elemental properties
     protected enemyType: EnemyType = EnemyType.NORMAL;
@@ -183,6 +192,9 @@ export class Enemy {
         
         // Update status effects
         this.updateStatusEffects(deltaTime);
+        
+        // Check for tower destruction (for boss enemies)
+        this.checkTowerDestruction(deltaTime);
         
         // Don't move if frozen or stunned
         if (this.isFrozen || this.isStunned) {
@@ -776,5 +788,111 @@ export class Enemy {
                 material.diffuseColor = new Color3(0.8, 0.2, 0.2);
                 break;
         }
+    }
+
+    /**
+     * Set the tower manager reference
+     * @param towerManager The tower manager instance
+     */
+    public setTowerManager(towerManager: TowerManager): void {
+        this.towerManager = towerManager;
+    }
+    
+    /**
+     * Check for towers in destruction range and destroy one if cooldown allows
+     * @param deltaTime Time elapsed since last update
+     * @returns True if a tower was destroyed
+     */
+    protected checkTowerDestruction(deltaTime: number): boolean {
+        // Only process if this enemy can destroy towers
+        if (!this.canDestroyTowers || !this.towerManager || !this.mesh) {
+            return false;
+        }
+        
+        // Check cooldown
+        const currentTime = performance.now() / 1000;
+        if (currentTime - this.lastTowerDestructionTime < this.towerDestructionCooldown) {
+            return false;
+        }
+        
+        // Find the closest tower in range
+        const closestTower = this.towerManager.getClosestTower(this.position, this.towerDestructionRange);
+        if (closestTower) {
+            // Destroy the tower
+            this.destroyTower(closestTower);
+            
+            // Update cooldown time
+            this.lastTowerDestructionTime = currentTime;
+            return true;
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Destroy a tower and create a destruction effect
+     * @param tower The tower to destroy
+     */
+    protected destroyTower(tower: Tower): void {
+        if (!this.towerManager) return;
+        
+        // Create destruction effect
+        this.createTowerDestructionEffect(tower.getPosition());
+        
+        // Remove the tower
+        this.towerManager.sellTower(tower);
+    }
+    
+    /**
+     * Create a destruction effect at the tower position
+     * @param position The position of the destroyed tower
+     */
+    protected createTowerDestructionEffect(position: Vector3): void {
+        // Create explosion effect
+        const explosion = new ParticleSystem("towerExplosion", 100, this.scene);
+        explosion.particleTexture = new Texture("assets/particles/flare.png", this.scene);
+        explosion.emitter = position;
+        explosion.minEmitBox = new Vector3(-0.5, 0, -0.5);
+        explosion.maxEmitBox = new Vector3(0.5, 1, 0.5);
+        
+        // Set particle properties
+        explosion.color1 = new Color4(1, 0.5, 0.1, 1);
+        explosion.color2 = new Color4(1, 0.2, 0.1, 1);
+        explosion.colorDead = new Color4(0, 0, 0, 0);
+        
+        explosion.minSize = 0.5;
+        explosion.maxSize = 1.5;
+        
+        explosion.minLifeTime = 0.5;
+        explosion.maxLifeTime = 1.5;
+        
+        explosion.emitRate = 100;
+        explosion.blendMode = ParticleSystem.BLENDMODE_ONEONE;
+        explosion.gravity = new Vector3(0, 8, 0);
+        explosion.direction1 = new Vector3(-2, 5, -2);
+        explosion.direction2 = new Vector3(2, 8, 2);
+        
+        explosion.minAngularSpeed = 0;
+        explosion.maxAngularSpeed = Math.PI;
+        
+        explosion.minEmitPower = 1;
+        explosion.maxEmitPower = 3;
+        
+        explosion.targetStopDuration = 0.5;
+        
+        // Start the system
+        explosion.start();
+        
+        // Create sound effect
+        // Play destruction sound
+        const randomSound = Math.floor(Math.random() * 3) + 1;
+        const sound = new Audio(`assets/audio/explosion${randomSound}.mp3`);
+        sound.volume = 0.5;
+        sound.play();
+        
+        // Clean up after effect completes
+        setTimeout(() => {
+            explosion.dispose();
+        }, 2000);
     }
 } 

@@ -155,13 +155,35 @@ export class Game {
             particleSystem.dispose();
         }
         
-        // Clear any remaining transformNodes
-        const transformNodes = this.scene.transformNodes.slice();
-        for (const node of transformNodes) {
-            node.dispose();
+        // Clear all animations
+        this.scene.stopAllAnimations();
+        
+        // Clear all render observers
+        this.scene.onBeforeRenderObservable.clear();
+        this.scene.onAfterRenderObservable.clear();
+        
+        // Remove any scene metadata that might contain previous game state
+        this.scene.metadata = {};
+        
+        // Clear all event listeners to prevent memory leaks
+        this.scene.onPointerObservable.clear();
+        this.scene.onKeyboardObservable.clear();
+        
+        // Find and dispose any AdvancedDynamicTexture manually
+        // (They are not tracked by the scene automatically)
+        const guiTextures = this.scene.textures.filter(texture => 
+            texture.name && texture.name.indexOf("AdvancedDynamicTexture") !== -1);
+        for (const texture of guiTextures) {
+            texture.dispose();
         }
         
-        console.log('Scene cleaned up');
+        // Stop any active sounds
+        if (this.scene.audioEnabled) {
+            this.scene.audioEnabled = false;
+            this.scene.audioEnabled = true; // Reset audio
+        }
+        
+        console.log("Scene thoroughly cleaned for state transition");
     }
 
     public pause(): void {

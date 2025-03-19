@@ -1,4 +1,4 @@
-import { Vector3, MeshBuilder, StandardMaterial, Color3, Mesh } from '@babylonjs/core';
+import { Vector3, MeshBuilder, StandardMaterial, Color3, Mesh, Color4, Texture, ParticleSystem } from '@babylonjs/core';
 import { Game } from '../../Game';
 import { Enemy } from './Enemy';
 
@@ -10,10 +10,21 @@ export class BossEnemy extends Enemy {
     private leftEye: Mesh | null = null;
     private rightEye: Mesh | null = null;
     private jaw: Mesh | null = null;
+    private towerDestructionRangeIndicator: Mesh | null = null;
+    private isDestroyingTower: boolean = false;
+    private destructionTargetPosition: Vector3 | null = null;
     
     constructor(game: Game, position: Vector3, path: Vector3[]) {
         // Boss enemy has very low speed, extremely high health, high damage, and very high reward
         super(game, position, path, 0.7, 300, 30, 100);
+        
+        // Enable tower destruction ability for boss
+        this.canDestroyTowers = true;
+        this.towerDestructionRange = 3.0; // 3 units range for destroying towers
+        this.towerDestructionCooldown = 5.0; // 5 seconds cooldown
+        
+        // Create visual range indicator for tower destruction
+        this.createTowerDestructionRangeIndicator();
     }
 
     protected createMesh(): void {
@@ -265,151 +276,279 @@ export class BossEnemy extends Enemy {
     }
     
     /**
-     * Update the boss enemy with animation
+     * Create a visual indicator for the tower destruction range
+     */
+    private createTowerDestructionRangeIndicator(): void {
+        // Create a semi-transparent disk to show the destruction range
+        this.towerDestructionRangeIndicator = MeshBuilder.CreateDisc(
+            'destructionRange',
+            {
+                radius: this.towerDestructionRange,
+                tessellation: 32,
+                sideOrientation: Mesh.DOUBLESIDE
+            },
+            this.scene
+        );
+        
+        // Position at ground level
+        this.towerDestructionRangeIndicator.rotation.x = Math.PI / 2;
+        this.towerDestructionRangeIndicator.position.y = 0.05; // Slightly above ground
+        
+        // Create material
+        const material = new StandardMaterial('destructionRangeMaterial', this.scene);
+        material.diffuseColor = new Color3(0.8, 0.2, 0.2);
+        material.alpha = 0.2;
+        material.emissiveColor = new Color3(0.5, 0.1, 0.1);
+        this.towerDestructionRangeIndicator.material = material;
+        
+        // Initially invisible
+        this.towerDestructionRangeIndicator.setEnabled(false);
+    }
+    
+    /**
+     * Update the boss enemy
      * @param deltaTime Time elapsed since last update in seconds
      * @returns True if the enemy reached the end of the path
      */
     public update(deltaTime: number): boolean {
         if (!this.alive || !this.mesh) return false;
         
-        // Get the result from the parent update method
-        const result = super.update(deltaTime);
+        // Update animation time
+        this.animationTime += deltaTime;
         
-        // Update animation
-        if (!this.isFrozen && !this.isStunned && this.currentPathIndex < this.path.length) {
-            this.animationTime += deltaTime * 2; // Control animation speed
+        // Animate parts
+        this.animateParts(deltaTime);
+        
+        // Check for tower destruction with visual effects
+        const destroyed = this.checkTowerDestruction(deltaTime);
+        
+        // If we just targeted a tower to destroy, play the destruction animation
+        if (destroyed && this.towerDestructionRangeIndicator) {
+            this.isDestroyingTower = true;
             
-            // Animate body - slight bobbing
-            if (this.mesh) {
-                this.mesh.position.y = this.position.y + 1.0 + Math.sin(this.animationTime * 0.5) * 0.1;
-            }
+            // Flash the range indicator
+            this.towerDestructionRangeIndicator.setEnabled(true);
+            this.towerDestructionRangeIndicator.position = new Vector3(
+                this.position.x,
+                0.05,
+                this.position.z
+            );
             
-            // Animate arms - swinging
-            if (this.leftArm && this.rightArm) {
-                this.leftArm.rotation.x = Math.sin(this.animationTime) * 0.2;
-                this.rightArm.rotation.x = Math.sin(this.animationTime + Math.PI) * 0.2;
-            }
+            // Hide after a short time
+            setTimeout(() => {
+                if (this.towerDestructionRangeIndicator) {
+                    this.towerDestructionRangeIndicator.setEnabled(false);
+                }
+                this.isDestroyingTower = false;
+            }, 500);
+        }
+        
+        // Call parent update method (handles movement and status effects)
+        return super.update(deltaTime);
+    }
+    
+    /**
+     * Override the tower destruction effect for boss
+     */
+    protected createTowerDestructionEffect(position: Vector3): void {
+        // Store the target position for animation
+        this.destructionTargetPosition = position.clone();
+        
+        // Create a larger, more impressive explosion for boss
+        const explosion = new ParticleSystem("bossDestructionExplosion", 200, this.scene);
+        explosion.particleTexture = new Texture("assets/particles/flare.png", this.scene);
+        explosion.emitter = position;
+        explosion.minEmitBox = new Vector3(-1, 0, -1);
+        explosion.maxEmitBox = new Vector3(1, 2, 1);
+        
+        // Set particle properties for a more dramatic effect
+        explosion.color1 = new Color4(1, 0.5, 0.1, 1);
+        explosion.color2 = new Color4(1, 0.2, 0.1, 1);
+        explosion.colorDead = new Color4(0.1, 0, 0, 0);
+        
+        explosion.minSize = 0.8;
+        explosion.maxSize = 2.5;
+        
+        explosion.minLifeTime = 0.5;
+        explosion.maxLifeTime = 2.0;
+        
+        explosion.emitRate = 200;
+        explosion.blendMode = ParticleSystem.BLENDMODE_ONEONE;
+        explosion.gravity = new Vector3(0, 10, 0);
+        explosion.direction1 = new Vector3(-3, 8, -3);
+        explosion.direction2 = new Vector3(3, 10, 3);
+        
+        explosion.minAngularSpeed = 0;
+        explosion.maxAngularSpeed = Math.PI * 2;
+        
+        explosion.minEmitPower = 2;
+        explosion.maxEmitPower = 5;
+        
+        explosion.targetStopDuration = 0.5;
+        
+        // Add secondary smoke effect
+        const smoke = new ParticleSystem("destructionSmoke", 50, this.scene);
+        smoke.particleTexture = new Texture("assets/particles/smoke.png", this.scene);
+        smoke.emitter = position;
+        smoke.minEmitBox = new Vector3(-1, 0, -1);
+        smoke.maxEmitBox = new Vector3(1, 0.5, 1);
+        
+        // Set smoke properties
+        smoke.color1 = new Color4(0.2, 0.2, 0.2, 0.7);
+        smoke.color2 = new Color4(0.1, 0.1, 0.1, 0.7);
+        smoke.colorDead = new Color4(0, 0, 0, 0);
+        
+        smoke.minSize = 2;
+        smoke.maxSize = 4;
+        
+        smoke.minLifeTime = 2.0;
+        smoke.maxLifeTime = 5.0;
+        
+        smoke.emitRate = 30;
+        smoke.gravity = new Vector3(0, 2, 0);
+        smoke.direction1 = new Vector3(-0.5, 1, -0.5);
+        smoke.direction2 = new Vector3(0.5, 1, 0.5);
+        
+        smoke.minAngularSpeed = 0;
+        smoke.maxAngularSpeed = Math.PI / 4;
+        
+        smoke.minEmitPower = 0.5;
+        smoke.maxEmitPower = 1;
+        
+        // Start the effects
+        explosion.start();
+        smoke.start();
+        
+        // Play a louder destruction sound
+        const sound = new Audio(`assets/audio/explosion_large.mp3`);
+        sound.volume = 0.8;
+        sound.play();
+        
+        // Clean up after effects complete
+        setTimeout(() => {
+            explosion.dispose();
+            smoke.dispose();
+        }, 5000);
+        
+        // Show an on-screen message
+        this.showTowerDestructionMessage();
+    }
+    
+    /**
+     * Show a message on screen when a tower is destroyed
+     */
+    private showTowerDestructionMessage(): void {
+        // Create a div element for the message
+        const messageElement = document.createElement('div');
+        messageElement.style.position = 'absolute';
+        messageElement.style.top = '30%';
+        messageElement.style.left = '50%';
+        messageElement.style.transform = 'translate(-50%, -50%)';
+        messageElement.style.color = '#ff3030';
+        messageElement.style.fontSize = '32px';
+        messageElement.style.fontWeight = 'bold';
+        messageElement.style.textShadow = '2px 2px 4px #000';
+        messageElement.style.fontFamily = 'Arial, sans-serif';
+        messageElement.style.zIndex = '1000';
+        messageElement.style.pointerEvents = 'none';
+        messageElement.style.opacity = '1';
+        messageElement.style.transition = 'opacity 0.5s';
+        messageElement.innerHTML = 'BOSS DESTROYED A TOWER!';
+        
+        // Add to document
+        document.body.appendChild(messageElement);
+        
+        // Fade and remove after 2 seconds
+        setTimeout(() => {
+            messageElement.style.opacity = '0';
+            setTimeout(() => {
+                document.body.removeChild(messageElement);
+            }, 500);
+        }, 2000);
+    }
+    
+    /**
+     * Animate boss parts
+     * @param deltaTime Time elapsed since last update
+     */
+    private animateParts(deltaTime: number): void {
+        if (!this.mesh) return;
+        
+        // Animate head - slight bobbing motion
+        if (this.head) {
+            this.head.position.y = 2.0 + Math.sin(this.animationTime * 2) * 0.1;
             
-            // Animate jaw - opening and closing
-            if (this.jaw) {
-                this.jaw.position.y = -0.5 - Math.abs(Math.sin(this.animationTime * 0.7)) * 0.2;
-            }
-            
-            // Animate eyes - pulsing glow
-            if (this.leftEye && this.rightEye) {
-                const eyeMaterial = this.leftEye.material as StandardMaterial;
-                const rightEyeMaterial = this.rightEye.material as StandardMaterial;
+            // If destroying a tower, make head look at target
+            if (this.isDestroyingTower && this.destructionTargetPosition) {
+                const direction = this.destructionTargetPosition.subtract(this.position);
+                direction.y = 0; // Keep level
                 
-                const pulseIntensity = 0.7 + Math.abs(Math.sin(this.animationTime)) * 0.5;
-                eyeMaterial.emissiveColor = new Color3(pulseIntensity, pulseIntensity * 0.7, 0);
-                rightEyeMaterial.emissiveColor = new Color3(pulseIntensity, pulseIntensity * 0.7, 0);
-                
-                // Occasional blink
-                const blinkFactor = Math.sin(this.animationTime * 0.3) > 0.95 ? 0.1 : 1.0;
-                this.leftEye.scaling.y = blinkFactor;
-                this.rightEye.scaling.y = blinkFactor;
-            }
-            
-            // If we're moving, rotate the mesh to face the direction of movement
-            if (this.currentPathIndex < this.path.length) {
-                // Get the next point in the path
-                const targetPoint = this.path[this.currentPathIndex];
-                
-                // Calculate direction to the target
-                const direction = targetPoint.subtract(this.position);
-                
-                // Only rotate if we're moving
-                if (direction.length() > 0.01) {
-                    // Calculate the rotation to face the direction of movement
+                if (direction.length() > 0.1) {
+                    // Calculate rotation to face target
                     const angle = Math.atan2(direction.z, direction.x);
-                    this.mesh.rotation.y = -angle + Math.PI / 2;
+                    // Rotate head to face target
+                    this.head.rotation.y = -angle + Math.PI / 2;
+                }
+            } else {
+                // Normal animation - slow rotation
+                this.head.rotation.y = Math.sin(this.animationTime) * 0.2;
+            }
+        }
+        
+        // Animate jaw - opening and closing
+        if (this.jaw) {
+            this.jaw.rotation.x = Math.abs(Math.sin(this.animationTime * 3)) * 0.3;
+            
+            // Open wider when destroying a tower
+            if (this.isDestroyingTower) {
+                this.jaw.rotation.x = Math.PI / 4; // Open wide
+            }
+        }
+        
+        // Animate eyes - glowing effect
+        if (this.leftEye && this.rightEye) {
+            const eyeGlow = Math.abs(Math.sin(this.animationTime * 5)) * 0.3 + 0.7;
+            
+            const leftEyeMat = this.leftEye.material as StandardMaterial;
+            const rightEyeMat = this.rightEye.material as StandardMaterial;
+            
+            if (leftEyeMat && rightEyeMat) {
+                // Normal glow animation
+                leftEyeMat.emissiveColor = new Color3(1 * eyeGlow, 0.7 * eyeGlow, 0);
+                rightEyeMat.emissiveColor = new Color3(1 * eyeGlow, 0.7 * eyeGlow, 0);
+                
+                // Brighter when destroying
+                if (this.isDestroyingTower) {
+                    leftEyeMat.emissiveColor = new Color3(1, 0.2, 0.2); // Bright red
+                    rightEyeMat.emissiveColor = new Color3(1, 0.2, 0.2);
                 }
             }
         }
         
-        return result;
+        // Animate arms - swaying motion
+        if (this.leftArm && this.rightArm) {
+            this.leftArm.rotation.x = Math.sin(this.animationTime * 2) * 0.1;
+            this.rightArm.rotation.x = Math.sin(this.animationTime * 2 + Math.PI) * 0.1;
+            
+            // When destroying a tower, raise arms
+            if (this.isDestroyingTower) {
+                this.leftArm.rotation.x = -Math.PI / 4; // Raise arm
+                this.rightArm.rotation.x = -Math.PI / 4;
+            }
+        }
     }
     
     /**
-     * Override the health bar creation to make it larger for boss enemies
+     * Clean up resources
      */
-    protected createHealthBar(): void {
-        if (!this.mesh) return;
-        
-        // Create background bar (gray)
-        this.healthBarBackgroundMesh = MeshBuilder.CreateBox('healthBarBg', {
-            width: 2.5, // Wider for boss enemies
-            height: 0.3, // Taller for boss enemies
-            depth: 0.05
-        }, this.scene);
-        
-        // Position above the enemy
-        this.healthBarBackgroundMesh.position = new Vector3(
-            this.position.x,
-            this.position.y + 3.5, // Higher for taller enemy
-            this.position.z
-        );
-        
-        // Create material for background
-        const bgMaterial = new StandardMaterial('healthBarBgMaterial', this.scene);
-        bgMaterial.diffuseColor = new Color3(0.3, 0.3, 0.3);
-        this.healthBarBackgroundMesh.material = bgMaterial;
-        
-        // Create health bar (green)
-        this.healthBarMesh = MeshBuilder.CreateBox('healthBar', {
-            width: 2.5, // Wider for boss enemies
-            height: 0.3, // Taller for boss enemies
-            depth: 0.06 // Slightly in front of background
-        }, this.scene);
-        
-        // Position at the same place as background
-        this.healthBarMesh.position = new Vector3(
-            this.position.x,
-            this.position.y + 3.5, // Higher for taller enemy
-            this.position.z
-        );
-        
-        // Create material for health bar
-        const healthMaterial = new StandardMaterial('healthBarMaterial', this.scene);
-        healthMaterial.diffuseColor = new Color3(0.2, 0.8, 0.2); // Green
-        this.healthBarMesh.material = healthMaterial;
-        
-        // Update health bar to match initial health
-        this.updateHealthBar();
-    }
-    
-    /**
-     * Override the updateHealthBar method to position the health bar higher
-     */
-    protected updateHealthBar(): void {
-        if (!this.mesh || !this.healthBarMesh || !this.healthBarBackgroundMesh) return;
-        
-        // Calculate health percentage
-        const healthPercent = Math.max(0, this.health / this.maxHealth);
-        
-        // Update health bar width based on health percentage
-        this.healthBarMesh.scaling.x = healthPercent;
-        
-        // Adjust position to align left side
-        const offset = (1 - healthPercent) * 1.25; // Adjusted for wider bar (2.5 width)
-        this.healthBarMesh.position.x = this.position.x - offset;
-        
-        // Update health bar color based on health percentage
-        const material = this.healthBarMesh.material as StandardMaterial;
-        if (healthPercent > 0.6) {
-            material.diffuseColor = new Color3(0.2, 0.8, 0.2); // Green
-        } else if (healthPercent > 0.3) {
-            material.diffuseColor = new Color3(0.8, 0.8, 0.2); // Yellow
-        } else {
-            material.diffuseColor = new Color3(0.8, 0.2, 0.2); // Red
+    public dispose(): void {
+        // Dispose of tower destruction range indicator
+        if (this.towerDestructionRangeIndicator) {
+            this.towerDestructionRangeIndicator.dispose();
+            this.towerDestructionRangeIndicator = null;
         }
         
-        // Position health bars above the enemy
-        this.healthBarBackgroundMesh.position.x = this.position.x;
-        this.healthBarBackgroundMesh.position.y = this.position.y + 3.5; // Higher for taller enemy
-        this.healthBarBackgroundMesh.position.z = this.position.z;
-        
-        this.healthBarMesh.position.y = this.position.y + 3.5; // Higher for taller enemy
-        this.healthBarMesh.position.z = this.position.z;
+        // Call parent dispose
+        super.dispose();
     }
 } 

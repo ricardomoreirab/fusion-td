@@ -47,27 +47,72 @@ export class GameplayState implements GameState {
     }
 
     public enter(): void {
-        console.log('Entering gameplay state');
+        // Reset all state variables to ensure a clean start
+        this.ui = null;
+        this.map = null;
+        this.towerManager = null;
+        this.enemyManager = null;
+        this.waveManager = null;
+        this.playerStats = null;
+        this.isPaused = false;
+        this.selectedTowerType = null;
+        this.towerPreview = null;
+        this.squareOutline = null;
+        this.confirmationButtons = { container: null, position: null };
+        this.placementState = 'selecting';
+        this.selectedTower = null;
+        this.sellButton = null;
+        this.upgradeButton = null;
+        this.towerInfoPanel = null;
+        this.selectedPosition = null;
+        this.towerSelectorPanel = null;
+        this.placementOutline = null;
+        this.placementPlane = null;
+        this.towerTypeText = null;
+        this.towerLevelText = null;
+        this.towerDamageText = null;
+        this.towerRangeText = null;
+        this.towerRateText = null;
         
-        // Create game components
+        // Setup the map
         this.map = new Map(this.game);
-        this.playerStats = new PlayerStats(100, 100); // Start with 100 health and 100 money
-        this.towerManager = new TowerManager(this.game, this.map);
-        this.enemyManager = new EnemyManager(this.game, this.map);
-        this.waveManager = new WaveManager(this.enemyManager, this.playerStats);
-        
-        // Connect managers
-        this.enemyManager.setPlayerStats(this.playerStats);
-        this.towerManager.setEnemyManager(this.enemyManager);
         
         // Initialize the map
         this.map.initialize();
         
+        // Create enemy manager
+        this.enemyManager = new EnemyManager(this.game, this.map);
+        
+        // Create player stats (initial values: health, money)
+        this.playerStats = new PlayerStats(100, 200);
+        
+        // Set player stats in enemy manager for rewards
+        this.enemyManager.setPlayerStats(this.playerStats);
+        
+        // Create tower manager
+        this.towerManager = new TowerManager(this.game, this.map);
+        
+        // Connect managers for targeting
+        this.towerManager.setEnemyManager(this.enemyManager);
+        
+        // Connect managers for tower destruction (new)
+        this.enemyManager.setTowerManager(this.towerManager);
+        
+        // Create wave manager
+        this.waveManager = new WaveManager(this.enemyManager, this.playerStats);
+        
         // Create UI
         this.createUI();
         
-        // Set up input handling
+        // Setup input handling
         this.setupInputHandling();
+        
+        // Store player stats reference in scene metadata for access by game over state
+        this.game.getScene().metadata = {
+            playerStats: this.playerStats
+        };
+        
+        console.log('Gameplay state initialized with fresh state');
     }
 
     public exit(): void {
@@ -136,7 +181,7 @@ export class GameplayState implements GameState {
         // Create minimalist stats icons with emojis
         const statsContainer = new Rectangle('statsContainer');
         statsContainer.width = '150px';  // Increased width
-        statsContainer.height = '120px';
+        statsContainer.height = '160px';  // Increased height to accommodate timer
         statsContainer.background = 'transparent';
         statsContainer.thickness = 0;
         statsContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
@@ -213,6 +258,29 @@ export class GameplayState implements GameState {
         waveText.outlineWidth = 1;
         waveText.outlineColor = 'black';
         waveContainer.addControl(waveText);
+        
+        // Add timer display
+        const timerContainer = new Rectangle('timerContainer');
+        timerContainer.width = '150px';
+        timerContainer.height = '40px';
+        timerContainer.background = 'transparent';
+        timerContainer.thickness = 0;
+        timerContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        timerContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        timerContainer.top = '120px';
+        timerContainer.left = '0px';
+        statsContainer.addControl(timerContainer);
+        
+        const timerText = new TextBlock('timerText');
+        timerText.text = `⏱️ 0:00`;  // Using stopwatch emoji
+        timerText.color = 'white';
+        timerText.fontSize = 22;
+        timerText.fontFamily = 'Arial';
+        timerText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        timerText.left = '10px';
+        timerText.outlineWidth = 1;
+        timerText.outlineColor = 'black';
+        timerContainer.addControl(timerText);
 
         // Add camera controls help text
         const cameraHelpContainer = new Rectangle('cameraHelpContainer');
@@ -474,13 +542,109 @@ export class GameplayState implements GameState {
         
         const waveText = this.ui.getControlByName('waveText') as TextBlock;
         if (waveText) {
+            // Get base difficulty, speed multiplier, and parallel wave multiplier
+            const baseDifficulty = this.waveManager.getDifficultyMultiplier();
+            const speedMultiplier = this.waveManager.getSpeedMultiplier();
+            const parallelMultiplier = this.waveManager.getParallelWaveMultiplier();
+            const effectiveDifficulty = this.waveManager.getEffectiveDifficultyMultiplier();
+            
+            // Display wave number with difficulty multiplier
             let waveDisplay = `🌊 ${this.waveManager.getCurrentWave()}`;  // Using wave emoji
-            const difficulty = this.waveManager.getDifficultyMultiplier();
-            if (difficulty > 1.0) {
-                waveDisplay += `×${difficulty.toFixed(1)}`;
+            
+            // Add boss indicator if it's a boss wave
+            if (this.waveManager.isBossWave()) {
+                waveDisplay += ` 👑`; // Crown emoji for boss wave
             }
+            
+            // Add parallel wave count if more than 1
+            const parallelWaveCount = this.waveManager.getActiveParallelWaveCount();
+            if (parallelWaveCount > 1) {
+                waveDisplay += ` (${parallelWaveCount})`;
+            }
+            
+            // Add difficulty display
+            if (effectiveDifficulty > 1.0) {
+                // Simple difficulty display
+                waveDisplay += ` ×${effectiveDifficulty.toFixed(1)}`;
+                
+                // Add speed indicator if it's affecting difficulty significantly
+                if (speedMultiplier > 1.1) {
+                    waveDisplay += ` 🔥`; // Fire emoji indicates speed bonus
+                }
+                
+                // Add parallel indicator if it's affecting difficulty
+                if (parallelMultiplier > 1.0) {
+                    waveDisplay += ` 🔄`; // Recycling symbol to indicate parallel waves
+                }
+            }
+            
             waveText.text = waveDisplay;
         }
+        
+        // Update timer
+        const timerText = this.ui.getControlByName('timerText') as TextBlock;
+        if (timerText && this.waveManager.isWaveInProgress()) {
+            // Get the current wave time
+            const currentTime = performance.now() / 1000; // Convert to seconds
+            const waveTime = currentTime - this.waveManager.getWaveStartTime();
+            
+            // Format as minutes:seconds
+            const minutes = Math.floor(waveTime / 60);
+            const seconds = Math.floor(waveTime % 60);
+            const formattedTime = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+            
+            // Update the timer text
+            timerText.text = `⏱️ ${formattedTime}`;
+            
+            // Change color based on time compared to base clear time
+            const baseClearTime = this.waveManager.getBaseClearTime();
+            
+            if (waveTime < baseClearTime * 0.6) {
+                // Fast - green
+                timerText.color = "lightgreen";
+            } else if (waveTime < baseClearTime) {
+                // Average - white
+                timerText.color = "white";
+            } else {
+                // Slow - yellow to red
+                const timeRatio = Math.min(waveTime / baseClearTime, 2.0);
+                const normalizedRatio = (timeRatio - 1.0);
+                timerText.color = normalizedRatio > 0.5 ? "salmon" : "khaki";
+            }
+        } else if (timerText && !this.waveManager.isWaveInProgress()) {
+            // Display last wave time if available
+            const lastTime = this.waveManager.getLastWaveClearTime();
+            if (lastTime > 0) {
+                const minutes = Math.floor(lastTime / 60);
+                const seconds = Math.floor(lastTime % 60);
+                const formattedTime = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+                timerText.text = `⏱️ ${formattedTime}`;
+                timerText.color = "gray"; // Gray to indicate it's not active
+            } else {
+                timerText.text = `⏱️ --:--`;
+                timerText.color = "gray";
+            }
+        }
+    }
+    
+    /**
+     * Get a color based on difficulty level
+     * @param difficulty The current difficulty
+     * @returns A color string in hex format
+     */
+    private getDifficultyColor(difficulty: number): string {
+        // Start at yellow (1.0) and go to red (10.0)
+        const normalizedDifficulty = Math.min((difficulty - 1) / 9, 1);
+        
+        // Calculate RGB values
+        const red = 255; // Always full red
+        const green = Math.floor(255 * (1 - normalizedDifficulty * 0.8)); // Decrease green component
+        
+        // Convert to hex
+        const redHex = red.toString(16).padStart(2, '0');
+        const greenHex = green.toString(16).padStart(2, '0');
+        
+        return `#${redHex}${greenHex}00`;
     }
 
     private setupInputHandling(): void {
