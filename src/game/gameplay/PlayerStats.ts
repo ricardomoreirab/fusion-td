@@ -2,9 +2,9 @@ export class PlayerStats {
     private health: number;
     private money: number;
     private won: boolean = false;
-    private unlimitedMoney: boolean = true; // Enable unlimited money by default
+    private unlimitedMoney: boolean = false; // Disable unlimited money by default
 
-    constructor(health: number = 100, money: number = 9999) {
+    constructor(health: number = 100, money: number = 200) {
         this.health = health;
         this.money = money;
     }
