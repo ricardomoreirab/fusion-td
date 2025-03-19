@@ -573,44 +573,134 @@ export abstract class Tower {
     }
 
     /**
-     * Show the range indicator
+     * Show the tower's range indicator
      */
     protected showRangeIndicator(): void {
+        // If we already have a range indicator, do nothing
         if (this.rangeIndicator) return;
         
-        // Create a disc to show the range
-        this.rangeIndicator = MeshBuilder.CreateDisc('rangeIndicator', {
-            radius: this.range,
-            tessellation: 64
-        }, this.scene);
+        // Create a simple disc to show the tower's range
+        this.rangeIndicator = MeshBuilder.CreateDisc(
+            'rangeIndicator' + this.mesh!.id,
+            { radius: this.range, tessellation: 64, sideOrientation: Mesh.DOUBLESIDE },
+            this.scene
+        );
         
-        // Position at tower base
-        this.rangeIndicator.position = new Vector3(this.position.x, 0.05, this.position.z);
+        // Position the range indicator just above the ground
+        this.rangeIndicator.position = new Vector3(this.position.x, 0.01, this.position.z);
+        this.rangeIndicator.rotation = new Vector3(Math.PI / 2, 0, 0); // Rotate to be horizontal
         
-        // Rotate to be flat on the ground
-        this.rangeIndicator.rotation.x = Math.PI / 2;
+        // Set render mode to prevent z-fighting
+        this.rangeIndicator.renderingGroupId = 1;
         
-        // Create material with direct Color4 initialization
-        const material = new StandardMaterial('rangeIndicatorMaterial', this.scene);
-        material.diffuseColor = new Color3(0.3, 0.6, 1);
-        material.specularColor = new Color3(0, 0, 0); // No specular
-        material.emissiveColor = new Color3(0, 0, 0); // No emission
-        material.alpha = 0.3;
-        this.rangeIndicator.material = material;
+        // Create a material for the range indicator
+        const rangeMaterial = new StandardMaterial('rangeMaterial_' + this.mesh!.id, this.scene);
+        
+        // Default yellow color
+        let rangeColor = new Color3(1.0, 0.8, 0.2);
+        
+        // Set color based on element type
+        switch (this.elementType) {
+            case ElementType.FIRE:
+                rangeColor = new Color3(0.9, 0.3, 0.1); // Red for fire
+                break;
+            case ElementType.WATER:
+                rangeColor = new Color3(0.1, 0.4, 0.9); // Blue for water
+                break;
+            case ElementType.WIND:
+                rangeColor = new Color3(0.5, 0.9, 0.1); // Lime for wind
+                break;
+            case ElementType.EARTH:
+                rangeColor = new Color3(0.7, 0.5, 0.1); // Brown for earth
+                break;
+        }
+        
+        // Configure material for clean rendering
+        rangeMaterial.diffuseColor = rangeColor;
+        rangeMaterial.specularColor = new Color3(0, 0, 0); // No specular
+        rangeMaterial.emissiveColor = rangeColor.scale(0.5); // Medium glow
+        rangeMaterial.alpha = 0.5; // Semi-transparent
+        rangeMaterial.disableLighting = true;
+        
+        // Apply the material
+        this.rangeIndicator.material = rangeMaterial;
+        
+        // Create a simple ring outline 
+        const ringPoints = [];
+        const numPoints = 60;
+        
+        // Create a circle of points
+        for (let i = 0; i < numPoints; i++) {
+            const angle = (i / numPoints) * Math.PI * 2;
+            ringPoints.push(new Vector3(
+                Math.cos(angle) * this.range,
+                0,
+                Math.sin(angle) * this.range
+            ));
+        }
+        
+        // Close the loop
+        ringPoints.push(ringPoints[0].clone());
+        
+        // Create a tube for the ring
+        const outerRing = MeshBuilder.CreateTube(
+            'rangeRing' + this.mesh!.id,
+            { path: ringPoints, radius: 0.1, tessellation: 3 },
+            this.scene
+        );
+        
+        // Position it just above the disc
+        outerRing.position = new Vector3(this.position.x, 0.02, this.position.z);
+        outerRing.parent = this.rangeIndicator;
+        
+        // Create ring material
+        const ringMaterial = new StandardMaterial('ringMaterial_' + this.mesh!.id, this.scene);
+        ringMaterial.diffuseColor = rangeColor;
+        ringMaterial.emissiveColor = rangeColor;
+        ringMaterial.alpha = 0.8;
+        ringMaterial.disableLighting = true;
+        outerRing.material = ringMaterial;
+        
+        // Simple animation that just alternates the alpha value
+        const animationCallback = () => {
+            if (this.rangeIndicator && this.showingRange) {
+                const sinWave = (Math.sin(performance.now() * 0.002) + 1) * 0.5;
+                
+                // Animate the disc
+                if (this.rangeIndicator?.material) {
+                    const discMat = this.rangeIndicator.material as StandardMaterial;
+                    discMat.alpha = 0.4 + sinWave * 0.2;
+                }
+                
+                // Animate the ring
+                if (outerRing?.material) {
+                    const ringMat = outerRing.material as StandardMaterial;
+                    ringMat.alpha = 0.7 + sinWave * 0.3;
+                }
+            }
+        };
+        
+        // Store the callback for cleanup
+        this.rangeIndicator.metadata = { animationCallback };
+        this.scene.registerBeforeRender(animationCallback);
         
         this.showingRange = true;
     }
 
     /**
-     * Hide the range indicator
+     * Hide the tower's range indicator
      */
     protected hideRangeIndicator(): void {
         if (this.rangeIndicator) {
-            this.rangeIndicator.dispose();
+            // Remove the animation callback to prevent memory leaks
+            if (this.rangeIndicator.metadata && this.rangeIndicator.metadata.animationCallback) {
+                this.scene.unregisterBeforeRender(this.rangeIndicator.metadata.animationCallback);
+            }
+            
+            this.rangeIndicator.dispose(); // Dispose includes all children automatically
             this.rangeIndicator = null;
+            this.showingRange = false;
         }
-        
-        this.showingRange = false;
     }
 
     /**

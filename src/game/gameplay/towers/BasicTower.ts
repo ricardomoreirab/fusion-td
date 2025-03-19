@@ -1,4 +1,4 @@
-import { Vector3, MeshBuilder, StandardMaterial, Color3, Mesh, Space, ParticleSystem, Texture } from '@babylonjs/core';
+import { Vector3, MeshBuilder, StandardMaterial, Color3, Mesh, Space, ParticleSystem, Texture, CylinderBuilder } from '@babylonjs/core';
 import { Game } from '../../Game';
 import { Tower } from './Tower';
 
@@ -16,111 +16,213 @@ export class BasicTower extends Tower {
         this.mesh = new Mesh("basicTowerRoot", this.scene);
         this.mesh.position = this.position.clone();
         
-        // Create a cylinder for the tower base
+        // Create a stone base for the medieval tower
         const base = MeshBuilder.CreateCylinder('towerBase', {
-            height: 0.8,
-            diameter: 2,
-            tessellation: 16
-        }, this.scene);
-        base.position = new Vector3(0, 0.4, 0); // Position relative to root
-        
-        // Create a narrower cylinder for the middle section
-        const middle = MeshBuilder.CreateCylinder('towerMiddle', {
-            height: 1.2,
-            diameterTop: 1.4,
-            diameterBottom: 1.8,
-            tessellation: 16
-        }, this.scene);
-        middle.position = new Vector3(0, 1.4, 0); // Position relative to root
-        
-        // Create a box for the tower turret
-        const turret = MeshBuilder.CreateBox('towerTurret', {
-            width: 1.2,
             height: 0.6,
-            depth: 1.6
-        }, this.scene);
-        turret.position = new Vector3(0, 2.3, 0); // Position relative to root
-        
-        // Create a cylinder for the gun barrel - position relative to turret
-        const barrel = MeshBuilder.CreateCylinder('towerBarrel', {
-            height: 1.2,
-            diameter: 0.3,
+            diameter: 2.2,
             tessellation: 12
         }, this.scene);
-        barrel.rotation.x = Math.PI / 2; // Rotate to be horizontal
-        barrel.position = new Vector3(0, 0, 0.9); // Position relative to turret
+        base.position = new Vector3(0, 0.3, 0); // Position relative to root
         
-        // Add a muzzle brake at the end of the barrel - position relative to barrel
-        const muzzleBrake = MeshBuilder.CreateCylinder('towerMuzzleBrake', {
+        // Create a stone middle section
+        const middle = MeshBuilder.CreateCylinder('towerMiddle', {
+            height: 1.0,
+            diameterTop: 1.8,
+            diameterBottom: 2.0,
+            tessellation: 12
+        }, this.scene);
+        middle.position = new Vector3(0, 1.1, 0); // Position relative to root
+        
+        // Create a wooden platform for the ballista
+        const platform = MeshBuilder.CreateCylinder('towerPlatform', {
             height: 0.2,
-            diameter: 0.5,
+            diameter: 2.0,
             tessellation: 12
         }, this.scene);
-        muzzleBrake.rotation.x = Math.PI / 2; // Rotate to be horizontal
-        muzzleBrake.position = new Vector3(0, 0, 0.7); // Position relative to barrel end
+        platform.position = new Vector3(0, 1.7, 0);
         
-        // Add details to the turret - a small radar or sensor - position relative to turret
-        const sensor = MeshBuilder.CreateCylinder('towerSensor', {
-            height: 0.4,
-            diameter: 0.3,
+        // Create the ballista base (rotatable part)
+        const ballistaBase = MeshBuilder.CreateBox('ballistaBase', {
+            width: 1.4,
+            height: 0.3,
+            depth: 1.4
+        }, this.scene);
+        ballistaBase.position = new Vector3(0, 1.95, 0);
+        
+        // Create the ballista arms (crossbow shape)
+        const leftArm = MeshBuilder.CreateBox('leftArm', {
+            width: 0.2,
+            height: 0.15,
+            depth: 1.2
+        }, this.scene);
+        leftArm.position = new Vector3(-0.6, 2.1, 0);
+        leftArm.rotation.y = Math.PI / 4; // Angle outward
+        
+        const rightArm = MeshBuilder.CreateBox('rightArm', {
+            width: 0.2,
+            height: 0.15,
+            depth: 1.2
+        }, this.scene);
+        rightArm.position = new Vector3(0.6, 2.1, 0);
+        rightArm.rotation.y = -Math.PI / 4; // Angle outward
+        
+        // Create the string connecting the arms
+        const leftString = MeshBuilder.CreateCylinder('leftString', {
+            height: 1.0,
+            diameter: 0.05,
             tessellation: 8
         }, this.scene);
-        sensor.position = new Vector3(0, 0.3, -0.5); // Position relative to turret
+        leftString.position = new Vector3(-0.5, 2.1, 0.4);
+        leftString.rotation.x = Math.PI / 2;
+        leftString.rotation.y = -Math.PI / 8;
         
-        // Create materials with different shades for visual interest
-        const baseMaterial = new StandardMaterial('towerBaseMaterial', this.scene);
-        baseMaterial.diffuseColor = new Color3(0.2, 0.2, 0.3); // Dark gray
-        base.material = baseMaterial;
+        const rightString = MeshBuilder.CreateCylinder('rightString', {
+            height: 1.0,
+            diameter: 0.05,
+            tessellation: 8
+        }, this.scene);
+        rightString.position = new Vector3(0.5, 2.1, 0.4);
+        rightString.rotation.x = Math.PI / 2;
+        rightString.rotation.y = Math.PI / 8;
         
-        const middleMaterial = new StandardMaterial('towerMiddleMaterial', this.scene);
-        middleMaterial.diffuseColor = new Color3(0.3, 0.3, 0.5); // Medium gray-blue
-        middle.material = middleMaterial;
+        // Create the central rail for the bolt
+        const rail = MeshBuilder.CreateBox('rail', {
+            width: 0.3,
+            height: 0.1,
+            depth: 1.6
+        }, this.scene);
+        rail.position = new Vector3(0, 2.0, 0.2);
         
-        const turretMaterial = new StandardMaterial('towerTurretMaterial', this.scene);
-        turretMaterial.diffuseColor = new Color3(0.2, 0.4, 0.8); // Blue
-        turretMaterial.specularColor = new Color3(0.6, 0.6, 0.8);
-        turretMaterial.specularPower = 32;
-        turret.material = turretMaterial;
+        // Create a bolt (arrow) for the ballista - will be the visible projectile
+        const bolt = MeshBuilder.CreateCylinder('bolt', {
+            height: 1.0,
+            diameter: 0.1,
+            tessellation: 8
+        }, this.scene);
+        bolt.rotation.x = Math.PI / 2; // Horizontal
+        bolt.position = new Vector3(0, 2.1, 0.8); // At front of rail
         
-        const barrelMaterial = new StandardMaterial('towerBarrelMaterial', this.scene);
-        barrelMaterial.diffuseColor = new Color3(0.1, 0.1, 0.1); // Almost black
-        barrel.material = barrelMaterial;
+        // Create bolt head (arrow tip) using cylinder with zero top diameter
+        const boltHead = MeshBuilder.CreateCylinder('boltHead', {
+            height: 0.3,
+            diameterTop: 0,
+            diameterBottom: 0.2,
+            tessellation: 8
+        }, this.scene);
+        boltHead.rotation.x = Math.PI / 2; // Horizontal
+        boltHead.position = new Vector3(0, 2.1, 1.25); // In front of bolt
         
-        const muzzleMaterial = new StandardMaterial('towerMuzzleMaterial', this.scene);
-        muzzleMaterial.diffuseColor = new Color3(0.15, 0.15, 0.15); // Dark gray
-        muzzleBrake.material = muzzleMaterial;
+        // Create bolt fletching (arrow feathers)
+        const fletching = MeshBuilder.CreateCylinder('fletching', {
+            height: 0.2,
+            diameterTop: 0.05,
+            diameterBottom: 0.25,
+            tessellation: 8
+        }, this.scene);
+        fletching.rotation.x = Math.PI / 2; // Horizontal
+        fletching.position = new Vector3(0, 2.1, 0.4); // At back of bolt
         
-        const sensorMaterial = new StandardMaterial('towerSensorMaterial', this.scene);
-        sensorMaterial.diffuseColor = new Color3(0.7, 0.2, 0.2); // Red
-        sensorMaterial.emissiveColor = new Color3(0.5, 0.1, 0.1); // Glowing red
-        sensor.material = sensorMaterial;
+        // Create materials 
+        const stoneMaterial = new StandardMaterial('stoneMaterial', this.scene);
+        stoneMaterial.diffuseColor = new Color3(0.5, 0.5, 0.45); // Stone color
+        stoneMaterial.specularColor = new Color3(0.2, 0.2, 0.2);
+        stoneMaterial.specularPower = 64;
+        base.material = stoneMaterial;
+        middle.material = stoneMaterial;
+        
+        const woodMaterial = new StandardMaterial('woodMaterial', this.scene);
+        woodMaterial.diffuseColor = new Color3(0.4, 0.3, 0.2); // Brown wood
+        woodMaterial.specularColor = new Color3(0.1, 0.1, 0.1);
+        platform.material = woodMaterial;
+        ballistaBase.material = woodMaterial;
+        leftArm.material = woodMaterial;
+        rightArm.material = woodMaterial;
+        rail.material = woodMaterial;
+        
+        const stringMaterial = new StandardMaterial('stringMaterial', this.scene);
+        stringMaterial.diffuseColor = new Color3(0.85, 0.8, 0.7); // Rope color
+        leftString.material = stringMaterial;
+        rightString.material = stringMaterial;
+        
+        const boltMaterial = new StandardMaterial('boltMaterial', this.scene);
+        boltMaterial.diffuseColor = new Color3(0.6, 0.5, 0.3); // Wood color
+        bolt.material = boltMaterial;
+        
+        const boltHeadMaterial = new StandardMaterial('boltHeadMaterial', this.scene);
+        boltHeadMaterial.diffuseColor = new Color3(0.5, 0.5, 0.5); // Metal color
+        boltHeadMaterial.specularColor = new Color3(0.8, 0.8, 0.8);
+        boltHeadMaterial.specularPower = 64;
+        boltHead.material = boltHeadMaterial;
+        
+        const fletchingMaterial = new StandardMaterial('fletchingMaterial', this.scene);
+        fletchingMaterial.diffuseColor = new Color3(0.4, 0.1, 0.1); // Red feather
+        fletching.material = fletchingMaterial;
         
         // Parent all parts to the root mesh
         base.parent = this.mesh;
         middle.parent = this.mesh;
+        platform.parent = this.mesh;
+        
+        // Create a turret group for rotation
+        const turret = new Mesh("ballistaTurret", this.scene);
+        turret.position = new Vector3(0, 0, 0);
         turret.parent = this.mesh;
         
-        // Parent components to the turret for proper rotation
-        barrel.parent = turret;
-        sensor.parent = turret;
+        // Parent ballista parts to the turret for proper rotation
+        ballistaBase.parent = turret;
+        leftArm.parent = turret;
+        rightArm.parent = turret;
+        leftString.parent = turret;
+        rightString.parent = turret;
+        rail.parent = turret;
+        bolt.parent = turret;
+        boltHead.parent = turret;
+        fletching.parent = turret;
         
-        // Parent muzzle brake to barrel
-        muzzleBrake.parent = barrel;
-        
-        // Create bullet template for visual effect (not visible initially)
-        const bulletTemplate = MeshBuilder.CreateSphere('basicBulletTemplate', {
-            diameter: 0.3,
-            segments: 8
+        // Create arrow template for visual effect (not visible initially)
+        const arrowTemplate = MeshBuilder.CreateCylinder('basicArrowTemplate', {
+            height: 1.0,
+            diameter: 0.1,
+            tessellation: 8
         }, this.scene);
         
-        // Create bullet material with blue glow to match tower theme
-        const bulletMaterial = new StandardMaterial('basicBulletMaterial', this.scene);
-        bulletMaterial.diffuseColor = new Color3(0.2, 0.4, 0.8); // Blue
-        bulletMaterial.emissiveColor = new Color3(0.1, 0.2, 0.6); // Blue glow
-        bulletMaterial.specularColor = new Color3(0.6, 0.8, 1.0);
-        bulletMaterial.specularPower = 64; // Shiny
-        bulletTemplate.material = bulletMaterial;
-        bulletTemplate.isVisible = false; // Hide the template
+        // Create arrow head using cylinder with zero top diameter
+        const arrowHead = MeshBuilder.CreateCylinder('arrowHead', {
+            height: 0.3,
+            diameterTop: 0,
+            diameterBottom: 0.2,
+            tessellation: 8
+        }, this.scene);
+        arrowHead.parent = arrowTemplate;
+        arrowHead.position.z = 0.65; // Position at front of arrow
+        
+        // Create arrow fletching
+        const arrowFletching = MeshBuilder.CreateCylinder('arrowFletching', {
+            height: 0.2,
+            diameterTop: 0.05,
+            diameterBottom: 0.25,
+            tessellation: 8
+        }, this.scene);
+        arrowFletching.parent = arrowTemplate;
+        arrowFletching.position.z = -0.5; // Position at back of arrow
+        
+        // Create arrow materials
+        const arrowShaftMaterial = new StandardMaterial('arrowShaftMaterial', this.scene);
+        arrowShaftMaterial.diffuseColor = new Color3(0.6, 0.5, 0.3); // Wood color
+        arrowTemplate.material = arrowShaftMaterial;
+        
+        const arrowHeadMaterial = new StandardMaterial('arrowHeadMaterial', this.scene);
+        arrowHeadMaterial.diffuseColor = new Color3(0.5, 0.5, 0.5); // Metal color
+        arrowHeadMaterial.specularColor = new Color3(0.8, 0.8, 0.8);
+        arrowHeadMaterial.specularPower = 64;
+        arrowHead.material = arrowHeadMaterial;
+        
+        const arrowFletchingMaterial = new StandardMaterial('arrowFletchingMaterial', this.scene);
+        arrowFletchingMaterial.diffuseColor = new Color3(0.4, 0.1, 0.1); // Red feather
+        arrowFletching.material = arrowFletchingMaterial;
+        
+        arrowTemplate.rotation.x = Math.PI / 2; // Orient horizontally
+        arrowTemplate.isVisible = false; // Hide the template
         
         // Track active bullets for animation
         const activeBullets: { mesh: Mesh, distance: number, maxDistance: number, targetEnemy: any, targetPosition: Vector3 }[] = [];
@@ -142,19 +244,19 @@ export class BasicTower extends Tower {
                     lastFireTime = currentTime;
                     
                     // Create a new bullet instance
-                    const newBullet = bulletTemplate.clone("basicBullet_" + currentTime);
+                    const newBullet = arrowTemplate.clone("basicBullet_" + currentTime);
                     newBullet.isVisible = true;
                     
-                    // Get the world position of the muzzle brake
-                    const muzzleWorldMatrix = muzzleBrake.getWorldMatrix();
-                    const muzzleWorldPosition = Vector3.TransformCoordinates(new Vector3(0, 0, 0), muzzleWorldMatrix);
-                    newBullet.position = muzzleWorldPosition;
+                    // Get the world position of the bolt
+                    const boltWorldMatrix = bolt.getWorldMatrix();
+                    const boltWorldPosition = Vector3.TransformCoordinates(new Vector3(0, 0, 0), boltWorldMatrix);
+                    newBullet.position = boltWorldPosition;
                     
                     // Get the direction to the target
                     if (this.targetEnemy) {
                         const targetPosition = this.targetEnemy.getPosition();
-                        // Create a direction vector from muzzle to target
-                        const direction = targetPosition.subtract(muzzleWorldPosition).normalize();
+                        // Create a direction vector from bolt to target
+                        const direction = targetPosition.subtract(boltWorldPosition).normalize();
                         
                         // Set the bullet's forward direction to point at the target
                         newBullet.lookAt(targetPosition);
@@ -264,7 +366,7 @@ export class BasicTower extends Tower {
         if (!this.mesh) return;
         
         // Find the turret
-        const turret = this.scene.getMeshByName('towerTurret');
+        const turret = this.scene.getMeshByName('ballistaTurret');
         if (turret) {
             // Scale up the turret based on level (reduced scaling)
             const scale = 1 + (this.level - 1) * 0.1; // Reduced from 0.2 to 0.1
@@ -281,7 +383,7 @@ export class BasicTower extends Tower {
             }
             
             // Find and update the sensor color to show power level (more subtle)
-            const sensor = this.scene.getMeshByName('towerSensor');
+            const sensor = this.scene.getMeshByName('fletching');
             if (sensor && sensor.material) {
                 const sensorMat = sensor.material as StandardMaterial;
                 sensorMat.emissiveColor = new Color3(0.5 + (this.level - 1) * 0.05, 0.1, 0.1); // Reduced from 0.1 to 0.05

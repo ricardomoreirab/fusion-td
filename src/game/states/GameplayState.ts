@@ -36,6 +36,11 @@ export class GameplayState implements GameState {
     private towerSelectorPanel: Rectangle | null = null;
     private placementOutline: Mesh | null = null;
     private placementPlane: Mesh | null = null;
+    private towerTypeText: TextBlock | null = null;
+    private towerLevelText: TextBlock | null = null;
+    private towerDamageText: TextBlock | null = null;
+    private towerRangeText: TextBlock | null = null;
+    private towerRateText: TextBlock | null = null;
 
     constructor(game: Game) {
         this.game = game;
@@ -485,31 +490,52 @@ export class GameplayState implements GameState {
         this.scene.onPointerDown = (evt) => {
             if (evt.button !== 0 || !this.scene) return;
             
+            // Check if we're clicking on UI elements
             const pickInfo = this.scene.pick(
                 this.scene.pointerX, 
                 this.scene.pointerY
             );
             
+            // Don't process clicks on GUI elements
             if (pickInfo.hit && pickInfo.pickedMesh && pickInfo.pickedMesh.name.includes('GUI')) {
                 return;
             }
             
+            // We'll detect clicks outside of towers and handle UI cleanup below
+
             // First check if we're clicking on a tower
             const pickResult = this.scene.pick(
                 this.scene.pointerX, 
-                this.scene.pointerY
+                this.scene.pointerY,
+                (mesh) => {
+                    // Only pick meshes that aren't UI or range indicators
+                    return !mesh.name.includes('GUI') && 
+                           !mesh.name.includes('rangeIndicator') &&
+                           !mesh.name.includes('rangeRing');
+                }
             );
             
             if (pickResult.hit && pickResult.pickedMesh) {
                 const clickedTower = this.findTowerByMesh(pickResult.pickedMesh);
                 
                 if (clickedTower) {
+                    // If we already have this tower selected, do nothing (allows clicking range indicator)
+                    if (this.selectedTower === clickedTower) {
+                        return;
+                    }
+                    
+                    // Otherwise, select the new tower
                     this.selectTower(clickedTower);
                     // Hide any existing placement UI when selecting a tower
                     this.hidePlacementOutline();
                     this.hideTowerSelector();
                     return;
                 }
+            }
+            
+            // If click wasn't on a tower, deselect any selected tower
+            if (this.selectedTower) {
+                this.deselectTower();
             }
 
             // If we're not clicking on a tower, check if we're clicking on the ground
@@ -1085,67 +1111,155 @@ export class GameplayState implements GameState {
         if (!this.ui || !this.selectedTower) return;
         
         if (!this.towerInfoPanel) {
+            // Create medieval-styled tower info panel with larger size
             this.towerInfoPanel = new Rectangle('towerInfoPanel');
-            this.towerInfoPanel.width = "220px";
-            this.towerInfoPanel.height = "160px";
-            this.towerInfoPanel.cornerRadius = 10;
-            this.towerInfoPanel.color = "#333333";
-            this.towerInfoPanel.thickness = 2;
-            this.towerInfoPanel.background = "#222222";
-            this.towerInfoPanel.alpha = 0.9;
+            this.towerInfoPanel.width = "260px";  // Wider to fit more info
+            this.towerInfoPanel.height = "250px"; // Taller to fit more info
+            this.towerInfoPanel.cornerRadius = 8;
+            this.towerInfoPanel.color = "#5D4037"; // Brown border for medieval style
+            this.towerInfoPanel.thickness = 3;
+            this.towerInfoPanel.background = "#3E2723"; // Dark brown background
+            this.towerInfoPanel.alpha = 0.95;
             this.towerInfoPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
             this.towerInfoPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
             this.towerInfoPanel.top = "-160px";
             this.towerInfoPanel.left = "-10px";
-            this.towerInfoPanel.shadowColor = "rgba(0, 0, 0, 0.6)";
-            this.towerInfoPanel.shadowBlur = 5;
-            this.towerInfoPanel.shadowOffsetY = 2;
+            this.towerInfoPanel.shadowColor = "rgba(0, 0, 0, 0.7)";
+            this.towerInfoPanel.shadowBlur = 10;
+            this.towerInfoPanel.shadowOffsetY = 3;
             this.ui.addControl(this.towerInfoPanel);
             
-            const titleBlock = new TextBlock('towerInfoTitle', 'Tower Info');
-            titleBlock.color = "white";
-            titleBlock.fontSize = 16;
-            titleBlock.height = "30px";
+            // Create header with scroll-like appearance
+            const headerBg = new Rectangle('headerBg');
+            headerBg.width = "100%";
+            headerBg.height = "40px";
+            headerBg.background = "#8D6E63"; // Lighter brown
+            headerBg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            headerBg.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            headerBg.cornerRadius = 8;
+            this.towerInfoPanel.addControl(headerBg);
+            
+            const titleBlock = new TextBlock('towerInfoTitle', 'Tower Information');
+            titleBlock.color = "#FFEBEE"; // Off-white for parchment feel
+            titleBlock.fontSize = 18;
+            titleBlock.fontStyle = "bold";
+            titleBlock.height = "40px";
             titleBlock.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
             titleBlock.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
             titleBlock.top = "10px";
             this.towerInfoPanel.addControl(titleBlock);
             
+            // Create tower stats grid (name: value)
+            const statsGrid = new Grid('statsGrid');
+            statsGrid.addColumnDefinition(0.5); // Labels
+            statsGrid.addColumnDefinition(0.5); // Values
+            statsGrid.addRowDefinition(0.2); // Type
+            statsGrid.addRowDefinition(0.2); // Level
+            statsGrid.addRowDefinition(0.2); // Damage
+            statsGrid.addRowDefinition(0.2); // Range
+            statsGrid.addRowDefinition(0.2); // Rate
+            statsGrid.width = "90%";
+            statsGrid.height = "120px";
+            statsGrid.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            statsGrid.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            statsGrid.top = "50px";
+            this.towerInfoPanel.addControl(statsGrid);
+            
+            // Add labels
+            const createLabel = (text: string, row: number) => {
+                const label = new TextBlock(`${text}Label`, text + ":");
+                label.color = "#D7CCC8"; // Light tan
+                label.fontSize = 14;
+                label.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+                label.paddingRight = "10px";
+                statsGrid.addControl(label, row, 0);
+                return label;
+            };
+            
+            createLabel("Type", 0);
+            createLabel("Level", 1);
+            createLabel("Damage", 2);
+            createLabel("Range", 3);
+            createLabel("Fire Rate", 4);
+            
+            // Add value fields (will be updated with each tower selection)
+            const createValue = (id: string, row: number) => {
+                const value = new TextBlock(id, "-");
+                value.color = "#FFECB3"; // Gold-ish color for values
+                value.fontSize = 14;
+                value.fontStyle = "bold";
+                value.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+                statsGrid.addControl(value, row, 1);
+                return value;
+            };
+            
+            this.towerTypeText = createValue("typeValue", 0);
+            this.towerLevelText = createValue("levelValue", 1);
+            this.towerDamageText = createValue("damageValue", 2);
+            this.towerRangeText = createValue("rangeValue", 3);
+            this.towerRateText = createValue("rateValue", 4);
+            
+            // Create divider
+            const divider = new Rectangle('divider');
+            divider.width = "90%";
+            divider.height = "2px";
+            divider.background = "#8D6E63"; // Light brown
+            divider.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            divider.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            divider.top = "175px";
+            this.towerInfoPanel.addControl(divider);
+            
             this.sellButton = new Rectangle('sellButton');
-            this.sellButton.width = "100px";
+            this.sellButton.width = "110px";
             this.sellButton.height = "40px";
-            this.sellButton.cornerRadius = 5;
-            this.sellButton.color = "#FF4444";
+            this.sellButton.cornerRadius = 4;
+            this.sellButton.color = "#D50000"; // Darker red border
             this.sellButton.thickness = 2;
-            this.sellButton.background = "#AA2222";
-            this.sellButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            this.sellButton.background = "#B71C1C"; // Deep red background
+            this.sellButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
             this.sellButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-            this.sellButton.top = "-20px";
-            this.sellButton.left = "0px";
+            this.sellButton.top = "-15px";
+            this.sellButton.left = "15px";
             this.sellButton.isPointerBlocker = true;
+            this.sellButton.shadowColor = "rgba(0, 0, 0, 0.4)";
+            this.sellButton.shadowBlur = 5;
+            this.sellButton.shadowOffsetY = 2;
+            
+            // Add wooden texture pattern to button
+            const sellPattern = new Rectangle('sellPattern');
+            sellPattern.width = "100%";
+            sellPattern.height = "100%";
+            sellPattern.background = "#C62828"; // Slightly lighter red
+            sellPattern.alpha = 0.4;
+            sellPattern.zIndex = -1;
+            this.sellButton.addControl(sellPattern);
             
             const sellText = new TextBlock('sellText', 'SELL');
-            sellText.color = "white";
-            sellText.fontSize = 14;
+            sellText.color = "#FFD700"; // Gold text for medieval feel
+            sellText.fontSize = 16;
+            sellText.fontStyle = "bold";
+            sellText.top = "-8px";
             this.sellButton.addControl(sellText);
             
             const sellValueText = new TextBlock('sellValueText', '');
-            sellValueText.color = "white";
-            sellValueText.fontSize = 12;
-            sellValueText.top = "15px";
+            sellValueText.color = "#FFFDE7"; // Off-white
+            sellValueText.fontSize = 14;
+            sellValueText.top = "12px";
             this.sellButton.addControl(sellValueText);
             
             this.sellButton.onPointerEnterObservable.add(() => {
                 if (this.sellButton) {
-                    this.sellButton.background = "#DD3333";
+                    this.sellButton.background = "#D32F2F"; // Brighter red
                     this.sellButton.thickness = 3;
+                    this.sellButton.shadowOffsetY = 4; // Raise shadow on hover
                 }
             });
             
             this.sellButton.onPointerOutObservable.add(() => {
                 if (this.sellButton) {
-                    this.sellButton.background = "#AA2222";
+                    this.sellButton.background = "#B71C1C";
                     this.sellButton.thickness = 2;
+                    this.sellButton.shadowOffsetY = 2;
                 }
             });
             
@@ -1173,27 +1287,41 @@ export class GameplayState implements GameState {
             this.towerInfoPanel.addControl(this.sellButton);
             
             this.upgradeButton = new Rectangle('upgradeButton');
-            this.upgradeButton.width = "100px";
+            this.upgradeButton.width = "110px";
             this.upgradeButton.height = "40px";
-            this.upgradeButton.cornerRadius = 5;
-            this.upgradeButton.color = "#44FF44";
+            this.upgradeButton.cornerRadius = 4;
+            this.upgradeButton.color = "#2E7D32"; // Darker green border
             this.upgradeButton.thickness = 2;
-            this.upgradeButton.background = "#22AA22";
-            this.upgradeButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            this.upgradeButton.background = "#1B5E20"; // Deep green background
+            this.upgradeButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
             this.upgradeButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-            this.upgradeButton.top = "-70px";
-            this.upgradeButton.left = "0px";
+            this.upgradeButton.top = "-15px";
+            this.upgradeButton.left = "-15px";
             this.upgradeButton.isPointerBlocker = true;
+            this.upgradeButton.shadowColor = "rgba(0, 0, 0, 0.4)";
+            this.upgradeButton.shadowBlur = 5;
+            this.upgradeButton.shadowOffsetY = 2;
+            
+            // Add wooden texture pattern to button
+            const upgradePattern = new Rectangle('upgradePattern');
+            upgradePattern.width = "100%";
+            upgradePattern.height = "100%";
+            upgradePattern.background = "#2E7D32"; // Slightly lighter green
+            upgradePattern.alpha = 0.4;
+            upgradePattern.zIndex = -1;
+            this.upgradeButton.addControl(upgradePattern);
             
             const upgradeText = new TextBlock('upgradeText', 'UPGRADE');
-            upgradeText.color = "white";
-            upgradeText.fontSize = 14;
+            upgradeText.color = "#FFD700"; // Gold text
+            upgradeText.fontSize = 16;
+            upgradeText.fontStyle = "bold";
+            upgradeText.top = "-8px";
             this.upgradeButton.addControl(upgradeText);
             
             const upgradeCostText = new TextBlock('upgradeCostText', '');
-            upgradeCostText.color = "white";
-            upgradeCostText.fontSize = 12;
-            upgradeCostText.top = "15px";
+            upgradeCostText.color = "#FFFDE7"; // Off-white
+            upgradeCostText.fontSize = 14;
+            upgradeCostText.top = "12px";
             this.upgradeButton.addControl(upgradeCostText);
             
             this.upgradeButton.onPointerEnterObservable.add(() => {
@@ -1245,25 +1373,59 @@ export class GameplayState implements GameState {
             this.towerInfoPanel.isVisible = true;
         }
         
-        if (this.sellButton) {
-            const sellValueTextBlock = this.sellButton.getChildByName('sellValueText') as TextBlock;
-            if (sellValueTextBlock) {
-                sellValueTextBlock.text = `$${this.selectedTower.getSellValue()}`;
-            }
+        // Update tower info panel content based on selected tower
+        this.updateTowerInfo();
+        
+        // Display the panel
+        if (this.towerInfoPanel) {
+            this.towerInfoPanel.isVisible = true;
+        }
+    }
+    
+    /**
+     * Update the tower information display
+     */
+    private updateTowerInfo(): void {
+        if (!this.selectedTower || !this.towerTypeText || !this.towerLevelText || 
+            !this.towerDamageText || !this.towerRangeText || !this.towerRateText) {
+            return;
         }
         
-        if (this.upgradeButton) {
-            const upgradeCostTextBlock = this.upgradeButton.getChildByName('upgradeCostText') as TextBlock;
-            if (upgradeCostTextBlock) {
-                upgradeCostTextBlock.text = `$${this.selectedTower.getUpgradeCost()}`;
-            }
-            
-            if (this.playerStats && this.playerStats.getMoney() < this.selectedTower.getUpgradeCost()) {
-                this.upgradeButton.background = "#555555";
-                this.upgradeButton.color = "#777777";
+        // Get tower class name (e.g., "BasicTower" -> "Basic")
+        let towerType = this.selectedTower.constructor.name;
+        towerType = towerType.replace("Tower", "");
+        
+        // Update tower info text fields
+        this.towerTypeText.text = towerType;
+        this.towerLevelText.text = `${this.selectedTower.getLevel()}`;
+        this.towerDamageText.text = `${this.selectedTower.getDamage().toFixed(1)}`;
+        this.towerRangeText.text = `${this.selectedTower.getRange().toFixed(1)}`;
+        this.towerRateText.text = `${this.selectedTower.getFireRate().toFixed(1)}/sec`;
+        
+        // Update sell value
+        const sellValueEl = this.sellButton?.getChildByName('sellValueText') as TextBlock;
+        if (sellValueEl) {
+            sellValueEl.text = `$${this.selectedTower.getSellValue()}`;
+        }
+        
+        // Update upgrade cost
+        const upgradeCostEl = this.upgradeButton?.getChildByName('upgradeCostText') as TextBlock;
+        if (upgradeCostEl) {
+            upgradeCostEl.text = `$${this.selectedTower.getUpgradeCost()}`;
+        }
+        
+        // Check if player can afford upgrade
+        if (this.playerStats && this.upgradeButton) {
+            if (this.playerStats.getMoney() >= this.selectedTower.getUpgradeCost()) {
+                // Can afford upgrade
+                this.upgradeButton.background = "#1B5E20"; // Normal green
+                this.upgradeButton.color = "#2E7D32";      // Normal border
+                this.upgradeButton.alpha = 1.0;
             } else {
-                this.upgradeButton.background = "#22AA22";
-                this.upgradeButton.color = "#44FF44";
+                // Cannot afford upgrade
+                this.upgradeButton.background = "#424242"; // Gray out
+                this.upgradeButton.color = "#616161";      // Gray border
+                this.upgradeButton.alpha = 0.8;
             }
         }
     }
