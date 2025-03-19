@@ -4,12 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Fusion TD - Tower Defense Game</title>
-    <!-- Preload Font Awesome font file -->
-    <link rel="preload" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/webfonts/fa-solid-900.woff2" as="font" type="font/woff2" crossorigin>
-    <!-- Font Awesome CSS -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <!-- Font Awesome JS -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/js/all.min.js"></script>
     <style>
         html, body {
             width: 100%;
@@ -52,26 +46,9 @@
             background-color: #4CAF50;
             transition: width 0.3s ease;
         }
-        /* Font Awesome preload and configuration */
-        @font-face {
-            font-family: 'FontAwesome';
-            font-display: block;
-            src: url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/webfonts/fa-solid-900.woff2') format('woff2');
-            font-weight: 900;
-            font-style: normal;
-        }
-        /* Hidden preload element */
-        #fa-preload {
-            position: absolute;
-            visibility: hidden;
-            font-family: 'FontAwesome';
-            left: -9999px;
-        }
     </style>
 </head>
 <body>
-    <!-- Preload element for Font Awesome -->
-    <div id="fa-preload">&#xf004;&#xf51e;&#xf83e;&#xf04c;&#xf04b;&#xf067;&#xf519;&#xf017;&#xf05a;&#xf013;&#xf8cc;</div>
     <canvas id="renderCanvas"></canvas>
     <div id="loadingScreen" class="loading-screen">
         <h1>Fusion TD</h1>

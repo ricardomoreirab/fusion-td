@@ -32,6 +32,10 @@ export class GameplayState implements GameState {
     private fontLoaded: boolean = false;
     private maxRetries: number = 3;
     private retryDelay: number = 500; // milliseconds
+    private selectedPosition: Vector3 | null = null;
+    private towerSelectorPanel: Rectangle | null = null;
+    private placementOutline: Mesh | null = null;
+    private placementPlane: Mesh | null = null;
 
     constructor(game: Game) {
         this.game = game;
@@ -149,19 +153,19 @@ export class GameplayState implements GameState {
         statsContainer.addControl(healthContainer);
 
         const healthText = new TextBlock('healthText');
-        healthText.text = `${this.getIcon(0xf004, '❤')} 100`;  // heart icon with fallback
+        healthText.text = `❤ 100`;  // Using heart emoji
         healthText.color = 'white';
         healthText.fontSize = 22;
-        healthText.fontFamily = 'FontAwesome, Arial';
+        healthText.fontFamily = 'Arial';  // Removed FontAwesome
         healthText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        healthText.left = '10px';  // Small padding from the edge
+        healthText.left = '10px';
         healthText.outlineWidth = 1;
         healthText.outlineColor = 'black';
         healthContainer.addControl(healthText);
 
         // Money display with coin emoji
         const moneyContainer = new Rectangle('moneyContainer');
-        moneyContainer.width = '150px';  // Increased width
+        moneyContainer.width = '150px';
         moneyContainer.height = '40px';
         moneyContainer.background = 'transparent';
         moneyContainer.thickness = 0;
@@ -172,19 +176,19 @@ export class GameplayState implements GameState {
         statsContainer.addControl(moneyContainer);
 
         const moneyText = new TextBlock('moneyText');
-        moneyText.text = `${this.getIcon(0xf51e, '$')} 100`;  // coins icon with fallback
+        moneyText.text = `💰 100`;  // Using money bag emoji
         moneyText.color = 'white';
         moneyText.fontSize = 22;
-        moneyText.fontFamily = 'FontAwesome, Arial';
+        moneyText.fontFamily = 'Arial';  // Removed FontAwesome
         moneyText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        moneyText.left = '10px';  // Small padding from the edge
+        moneyText.left = '10px';
         moneyText.outlineWidth = 1;
         moneyText.outlineColor = 'black';
         moneyContainer.addControl(moneyText);
 
         // Wave display with wave emoji
         const waveContainer = new Rectangle('waveContainer');
-        waveContainer.width = '150px';  // Increased width
+        waveContainer.width = '150px';
         waveContainer.height = '40px';
         waveContainer.background = 'transparent';
         waveContainer.thickness = 0;
@@ -195,12 +199,12 @@ export class GameplayState implements GameState {
         statsContainer.addControl(waveContainer);
 
         const waveText = new TextBlock('waveText');
-        waveText.text = `${this.getIcon(0xf83e, '~')} 1`;  // wave icon with fallback
+        waveText.text = `🌊 1`;  // Using wave emoji
         waveText.color = 'white';
         waveText.fontSize = 22;
-        waveText.fontFamily = 'FontAwesome, Arial';
+        waveText.fontFamily = 'Arial';  // Removed FontAwesome
         waveText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        waveText.left = '10px';  // Small padding from the edge
+        waveText.left = '10px';
         waveText.outlineWidth = 1;
         waveText.outlineColor = 'black';
         waveContainer.addControl(waveText);
@@ -220,16 +224,16 @@ export class GameplayState implements GameState {
         this.ui.addControl(cameraHelpContainer);
 
         const cameraHelpText = new TextBlock('cameraHelpText');
-        cameraHelpText.text = `${this.getIcon(0xf8cc, '🖱')} Left-click + drag to rotate camera\n${this.getIcon(0xf013, '⚙')} Mouse wheel to zoom in/out`;
+        cameraHelpText.text = `🖱 Left-click + drag to rotate camera\n⚙ Mouse wheel to zoom in/out`;  // Using mouse and gear emojis
         cameraHelpText.color = 'white';
         cameraHelpText.fontSize = 12;
-        cameraHelpText.fontFamily = 'FontAwesome, Arial';  // Added fallback font
+        cameraHelpText.fontFamily = 'Arial';  // Removed FontAwesome
         cameraHelpText.outlineWidth = 1;
         cameraHelpText.outlineColor = 'black';
         cameraHelpContainer.addControl(cameraHelpText);
 
         // Add show/hide button for camera help
-        const toggleHelpButton = Button.CreateSimpleButton('toggleHelpButton', this.getIcon(0xf05a, 'i'));  // info icon with fallback
+        const toggleHelpButton = Button.CreateSimpleButton('toggleHelpButton', 'ℹ');  // Using info emoji
         toggleHelpButton.width = '40px';
         toggleHelpButton.height = '40px';
         toggleHelpButton.color = 'white';
@@ -244,7 +248,6 @@ export class GameplayState implements GameState {
         toggleHelpButton.shadowColor = "rgba(0, 0, 0, 0.4)";
         toggleHelpButton.shadowBlur = 5;
         toggleHelpButton.shadowOffsetY = 2;
-        toggleHelpButton.fontFamily = 'FontAwesome, Arial';  // Added fallback font
         
         // Add hover effect for help button
         toggleHelpButton.onPointerEnterObservable.add(() => {
@@ -268,14 +271,14 @@ export class GameplayState implements GameState {
         });
 
         // Add pause/resume toggle button to the top right
-        const pauseButton = Button.CreateSimpleButton('pauseButton', this.getIcon(0xf04c, '⏸'));  // pause icon with fallback
+        const pauseButton = Button.CreateSimpleButton('pauseButton', '⏸');  // Using pause icon
         pauseButton.width = '40px';
         pauseButton.height = '40px';
         pauseButton.color = 'white';
         pauseButton.background = '#2196F3';
         pauseButton.cornerRadius = 20;
         pauseButton.thickness = 2;
-        pauseButton.fontFamily = 'FontAwesome, Arial';  // Added fallback font
+        pauseButton.fontFamily = 'Arial';  // Removed FontAwesome
         pauseButton.fontSize = 20;
         pauseButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         pauseButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
@@ -308,139 +311,15 @@ export class GameplayState implements GameState {
         // Register button to update its state when the game pauses/resumes
         this.registerPauseButtonUpdate(pauseButton);
 
-        // Create bottom panel for tower selection with adjusted dimensions
-        const bottomPanel = new Rectangle('bottomPanel');
-        bottomPanel.width = '100%';  // Full width for better mobile support
-        bottomPanel.height = '80px';
-        bottomPanel.background = 'transparent';
-        bottomPanel.thickness = 0;
-        bottomPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        bottomPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        bottomPanel.top = '-5px';
-        bottomPanel.zIndex = 5;
-        this.ui.addControl(bottomPanel);
-
-        // Create panel title and tabs - centered and responsive
-        const tabsContainer = new Rectangle('bottomTabsContainer');
-        tabsContainer.width = '140px';
-        tabsContainer.height = '24px';
-        tabsContainer.background = 'transparent';
-        tabsContainer.thickness = 0;
-        tabsContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        tabsContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        tabsContainer.top = '0px';
-        tabsContainer.zIndex = 10;
-        bottomPanel.addControl(tabsContainer);
-
-        const basicTab = Button.CreateSimpleButton('basicTab', 'Basic');
-        basicTab.width = '65px';
-        basicTab.height = '24px';
-        basicTab.color = 'white';
-        basicTab.background = '#388E3C';
-        basicTab.cornerRadius = 4;
-        basicTab.thickness = 1;
-        basicTab.fontFamily = 'Arial';
-        basicTab.fontSize = 12;
-        basicTab.fontWeight = 'bold';
-        basicTab.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        basicTab.shadowColor = "rgba(0, 0, 0, 0.6)";
-        basicTab.shadowBlur = 5;
-        basicTab.shadowOffsetY = 2;
-        basicTab.isPointerBlocker = true;
-
-        basicTab.onPointerEnterObservable.add(() => {
-            basicTab.background = '#4CAF50';
-            basicTab.shadowOffsetY = 4;
-        });
-
-        basicTab.onPointerOutObservable.add(() => {
-            if (this.ui) {
-                const currentTab = this.ui.getControlByName('basicTab') as Button;
-                if (currentTab && currentTab !== basicTab) {
-                    basicTab.background = '#388E3C';
-                    basicTab.shadowOffsetY = 2;
-                }
-            }
-        });
-
-        basicTab.onPointerUpObservable.add(() => {
-            this.switchTowerCategory('basic');
-        });
-        tabsContainer.addControl(basicTab);
-
-        const elementalTab = Button.CreateSimpleButton('elementalTab', 'Elemental');
-        elementalTab.width = '65px';
-        elementalTab.height = '24px';
-        elementalTab.color = 'white';
-        elementalTab.background = '#333333';
-        elementalTab.cornerRadius = 4;
-        elementalTab.thickness = 1;
-        elementalTab.fontFamily = 'Arial';
-        elementalTab.fontSize = 12;
-        elementalTab.fontWeight = 'bold';
-        elementalTab.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        elementalTab.shadowColor = "rgba(0, 0, 0, 0.6)";
-        elementalTab.shadowBlur = 5;
-        elementalTab.shadowOffsetY = 2;
-        elementalTab.isPointerBlocker = true;
-
-        elementalTab.onPointerEnterObservable.add(() => {
-            elementalTab.background = '#555555';
-            elementalTab.shadowOffsetY = 4;
-        });
-
-        elementalTab.onPointerOutObservable.add(() => {
-            if (this.ui) {
-                const currentTab = this.ui.getControlByName('elementalTab') as Button;
-                if (currentTab && currentTab !== elementalTab) {
-                    elementalTab.background = '#333333';
-                    currentTab.shadowOffsetY = 2;
-                }
-            }
-        });
-
-        elementalTab.onPointerUpObservable.add(() => {
-            this.switchTowerCategory('elemental');
-        });
-        tabsContainer.addControl(elementalTab);
-
-        // Create tower selection container - now responsive
-        const towerPanel = new Rectangle('towerPanel');
-        towerPanel.width = '95%';  // Leave some margin on the sides
-        towerPanel.height = '45px';
-        towerPanel.background = 'transparent';
-        towerPanel.thickness = 0;
-        towerPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        towerPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        towerPanel.top = '-5px';
-        towerPanel.zIndex = 6;
-        bottomPanel.addControl(towerPanel);
-
-        // Calculate responsive button widths and spacing
-        const buttonWidth = '22%';  // Slightly less than 25% to ensure spacing
-        const buttonSpacing = '4%';  // Space between buttons
-
-        // Create tower buttons with responsive widths
-        this.createResponsiveTowerButton('basicTower', 'Basic', '$50', '#4CAF50', buttonWidth, '0%', towerPanel);
-        this.createResponsiveTowerButton('fastTower', 'Fast', '$100', '#2196F3', buttonWidth, '25%', towerPanel);
-        this.createResponsiveTowerButton('heavyTower', 'Heavy', '$150', '#FF9800', buttonWidth, '50%', towerPanel);
-        this.createResponsiveTowerButton('sniperTower', 'Sniper', '$200', '#9C27B0', buttonWidth, '75%', towerPanel);
-
-        // Create elemental tower buttons (initially hidden)
-        this.createResponsiveTowerButton('fireTower', 'Fire', '$125', '#FF5722', buttonWidth, '0%', towerPanel, true);
-        this.createResponsiveTowerButton('waterTower', 'Water', '$125', '#03A9F4', buttonWidth, '25%', towerPanel, true);
-        this.createResponsiveTowerButton('windTower', 'Wind', '$125', '#8BC34A', buttonWidth, '50%', towerPanel, true);
-        this.createResponsiveTowerButton('earthTower', 'Earth', '$125', '#795548', buttonWidth, '75%', towerPanel, true);
-
         // Create wave button in top right
-        const waveButton = Button.CreateSimpleButton('waveButton', this.getIcon(0xf067, '+'));  // plus icon with fallback
+        const waveButton = Button.CreateSimpleButton('waveButton', '+');  // Using plus sign
         waveButton.width = '40px';
         waveButton.height = '40px';
         waveButton.color = 'white';
         waveButton.background = '#D32F2F';
         waveButton.cornerRadius = 20;
         waveButton.thickness = 2;
-        waveButton.fontFamily = 'FontAwesome, Arial';  // Added fallback font
+        waveButton.fontFamily = 'Arial';  // Removed FontAwesome
         waveButton.fontSize = 20;
         waveButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         waveButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
@@ -580,17 +459,17 @@ export class GameplayState implements GameState {
         
         const healthText = this.ui.getControlByName('healthText') as TextBlock;
         if (healthText) {
-            healthText.text = `${this.getIcon(0xf004, '❤')} ${this.playerStats.getHealth()}`;
+            healthText.text = `❤ ${this.playerStats.getHealth()}`;  // Using heart emoji
         }
         
         const moneyText = this.ui.getControlByName('moneyText') as TextBlock;
         if (moneyText) {
-            moneyText.text = `${this.getIcon(0xf51e, '$')} ${this.playerStats.getMoney()}`;
+            moneyText.text = `💰 ${this.playerStats.getMoney()}`;  // Using money bag emoji
         }
         
         const waveText = this.ui.getControlByName('waveText') as TextBlock;
         if (waveText) {
-            let waveDisplay = `${this.getIcon(0xf83e, '~')} ${this.waveManager.getCurrentWave()}`;
+            let waveDisplay = `🌊 ${this.waveManager.getCurrentWave()}`;  // Using wave emoji
             const difficulty = this.waveManager.getDifficultyMultiplier();
             if (difficulty > 1.0) {
                 waveDisplay += `×${difficulty.toFixed(1)}`;
@@ -615,41 +494,52 @@ export class GameplayState implements GameState {
                 return;
             }
             
-            if (this.selectedTowerType && this.scene) {
-                const pickResult = this.scene.pick(
-                    this.scene.pointerX, 
-                    this.scene.pointerY,
-                    (mesh) => {
-                        return mesh.name.startsWith('ground_');
-                    }
-                );
+            // First check if we're clicking on a tower
+            const pickResult = this.scene.pick(
+                this.scene.pointerX, 
+                this.scene.pointerY
+            );
+            
+            if (pickResult.hit && pickResult.pickedMesh) {
+                const clickedTower = this.findTowerByMesh(pickResult.pickedMesh);
                 
-                if (pickResult.hit) {
-                    const position = pickResult.pickedPoint;
-                    if (position && this.map) {
-                        const gridPosition = this.map.worldToGrid(position);
-                        if (this.map.canPlaceTower(gridPosition.x, gridPosition.y)) {
-                            this.placeTowerAtPosition(position);
-                        }
+                if (clickedTower) {
+                    this.selectTower(clickedTower);
+                    // Hide any existing placement UI when selecting a tower
+                    this.hidePlacementOutline();
+                    this.hideTowerSelector();
+                    return;
+                }
+            }
+
+            // If we're not clicking on a tower, check if we're clicking on the ground
+            const groundPickResult = this.scene.pick(
+                this.scene.pointerX, 
+                this.scene.pointerY,
+                (mesh) => {
+                    return mesh.name.startsWith('ground_');
+                }
+            );
+            
+            if (groundPickResult.hit && groundPickResult.pickedPoint) {
+                const position = groundPickResult.pickedPoint;
+                if (this.map) {
+                    const gridPosition = this.map.worldToGrid(position);
+                    if (this.map.canPlaceTower(gridPosition.x, gridPosition.y)) {
+                        // Hide any existing placement UI before showing new ones
+                        this.hidePlacementOutline();
+                        this.hideTowerSelector();
+                        
+                        // Store the selected position and show tower selector
+                        this.selectedPosition = position;
+                        this.showPlacementOutline(position);
+                        this.showTowerSelector();
                     }
                 }
             } else {
-                const pickResult = this.scene.pick(
-                    this.scene.pointerX, 
-                    this.scene.pointerY
-                );
-                
-                if (pickResult.hit && pickResult.pickedMesh) {
-                    const clickedTower = this.findTowerByMesh(pickResult.pickedMesh);
-                    
-                    if (clickedTower) {
-                        this.selectTower(clickedTower);
-                    } else {
-                        this.deselectTower();
-                    }
-                } else {
-                    this.deselectTower();
-                }
+                this.deselectTower();
+                this.hidePlacementOutline();
+                this.hideTowerSelector();
             }
         };
         
@@ -971,6 +861,7 @@ export class GameplayState implements GameState {
 
     private cancelTowerPlacement(): void {
         this.selectedTowerType = null;
+        this.selectedPosition = null;
         
         if (this.towerPreview) {
             this.towerPreview.setEnabled(false);
@@ -978,6 +869,9 @@ export class GameplayState implements GameState {
         if (this.squareOutline) {
             this.squareOutline.setEnabled(false);
         }
+        
+        this.hideTowerSelector();
+        this.hidePlacementOutline();
         
         console.log('Tower placement cancelled');
     }
@@ -1639,10 +1533,10 @@ export class GameplayState implements GameState {
         const isPaused = this.game.getIsPaused();
         
         if (isPaused) {
-            pauseButton.textBlock.text = this.getIcon(0xf04b, '▶');  // play icon with fallback
+            pauseButton.textBlock.text = '▶';  // Using play icon
             pauseButton.background = '#4CAF50';
         } else {
-            pauseButton.textBlock.text = this.getIcon(0xf04c, '⏸');  // pause icon with fallback
+            pauseButton.textBlock.text = '⏸';  // Using pause icon
             pauseButton.background = '#2196F3';
         }
     }
@@ -1660,13 +1554,13 @@ export class GameplayState implements GameState {
         if (!waveButton || !waveButton.textBlock || !this.waveManager) return;
 
         if (this.waveManager.isWaveInProgress()) {
-            waveButton.textBlock.text = this.getIcon(0xf519, '⟳');  // random icon with fallback
+            waveButton.textBlock.text = '⟳';  // Using random icon
             waveButton.background = '#F57C00';
         } else if (this.waveManager.getAutoWaveTimeRemaining() > 0) {
-            waveButton.textBlock.text = this.getIcon(0xf017, '⏲');  // clock icon with fallback
+            waveButton.textBlock.text = '⏲';  // Using clock icon
             waveButton.background = '#1976D2';
         } else {
-            waveButton.textBlock.text = this.getIcon(0xf067, '+');  // plus icon with fallback
+            waveButton.textBlock.text = '+';  // Using plus icon
             waveButton.background = '#D32F2F';
         }
     }
@@ -1751,5 +1645,255 @@ export class GameplayState implements GameState {
 
         // Return fallback immediately while we wait for the icon to load
         return fallbackText;
+    }
+
+    private showPlacementOutline(position: Vector3): void {
+        if (!this.map) return;
+
+        const gridPosition = this.map.worldToGrid(position);
+        const worldPosition = this.map.gridToWorld(gridPosition.x, gridPosition.y);
+        
+        // Create a more visible outline
+        const size = 2.2;
+        const y = 0.1;
+        const lineThickness = 0.05;
+        
+        const corners = [
+            new Vector3(-size/2, y, -size/2),
+            new Vector3(size/2, y, -size/2),
+            new Vector3(size/2, y, size/2),
+            new Vector3(-size/2, y, size/2),
+            new Vector3(-size/2, y, -size/2)
+        ];
+        
+        // Create the outline mesh
+        const outline = MeshBuilder.CreateLines('placementOutline', {
+            points: corners.map(corner => corner.add(new Vector3(worldPosition.x, 0, worldPosition.z))),
+            updatable: true
+        }, this.game.getScene());
+        
+        outline.color = new Color3(0, 1, 0);
+        outline.enableEdgesRendering();
+        outline.edgesWidth = 10.0;
+        
+        // Create a semi-transparent plane to show the placement area
+        const plane = MeshBuilder.CreateGround('placementPlane', {
+            width: size,
+            height: size,
+            subdivisions: 1
+        }, this.game.getScene());
+        
+        plane.position = new Vector3(worldPosition.x, y, worldPosition.z);
+        plane.rotation = new Vector3(0, 0, 0);
+        
+        const material = new StandardMaterial('placementMaterial', this.game.getScene());
+        material.diffuseColor = new Color3(0, 1, 0);
+        material.alpha = 0.2;
+        material.emissiveColor = new Color3(0, 0.7, 0);  // Increased green component for more glow
+        plane.material = material;
+        
+        // Store references to clean up later
+        this.placementOutline = outline;
+        this.placementPlane = plane;
+    }
+
+    private hidePlacementOutline(): void {
+        if (this.placementOutline) {
+            this.placementOutline.dispose();
+            this.placementOutline = null;
+        }
+        if (this.placementPlane) {
+            this.placementPlane.dispose();
+            this.placementPlane = null;
+        }
+    }
+
+    private showTowerSelector(): void {
+        if (!this.ui || !this.selectedPosition) return;
+
+        // Create tower selector panel with modern sleek styling
+        this.towerSelectorPanel = new Rectangle('towerSelectorPanel');
+        this.towerSelectorPanel.width = '850px';
+        this.towerSelectorPanel.height = '180px';  // Increased from 150px to 180px
+        this.towerSelectorPanel.background = '#1A1A1A';
+        this.towerSelectorPanel.alpha = 0.95;
+        this.towerSelectorPanel.thickness = 1;
+        this.towerSelectorPanel.cornerRadius = 8;
+        this.towerSelectorPanel.color = "#333333";
+        this.towerSelectorPanel.zIndex = 10;
+        this.towerSelectorPanel.shadowColor = "rgba(0, 0, 0, 0.7)";
+        this.towerSelectorPanel.shadowBlur = 15;
+        this.towerSelectorPanel.shadowOffsetY = -3;
+        this.towerSelectorPanel.paddingBottom = "20px";  // Added padding at the bottom
+        
+        this.towerSelectorPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.towerSelectorPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        this.towerSelectorPanel.top = '-10px';
+        
+        // Create grid for tower buttons
+        const grid = new Grid();
+        for (let i = 0; i < 8; i++) {
+            grid.addColumnDefinition(1/8);
+        }
+        grid.addRowDefinition(1);
+        grid.width = '830px';
+        grid.height = '160px';  // Increased from 130px to 160px
+        grid.top = '0px';
+        grid.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.towerSelectorPanel.addControl(grid);
+
+        // Add tower buttons with modern styling
+        const towers = [
+            { id: 'basicTower', name: 'Basic', cost: '$50', color: '#4CAF50', accentColor: '#81C784' },
+            { id: 'fastTower', name: 'Fast', cost: '$100', color: '#2196F3', accentColor: '#64B5F6' },
+            { id: 'heavyTower', name: 'Heavy', cost: '$150', color: '#FF9800', accentColor: '#FFB74D' },
+            { id: 'sniperTower', name: 'Sniper', cost: '$200', color: '#9C27B0', accentColor: '#BA68C8' },
+            { id: 'fireTower', name: 'Fire', cost: '$125', color: '#FF5722', accentColor: '#FF8A65' },
+            { id: 'waterTower', name: 'Water', cost: '$125', color: '#03A9F4', accentColor: '#4FC3F7' },
+            { id: 'windTower', name: 'Wind', cost: '$125', color: '#8BC34A', accentColor: '#AED581' },
+            { id: 'earthTower', name: 'Earth', cost: '$125', color: '#795548', accentColor: '#A1887F' }
+        ];
+
+        towers.forEach((tower, index) => {
+            const buttonContainer = new Rectangle(`${tower.id}_container`);
+            buttonContainer.width = '95px';
+            buttonContainer.height = '140px';  // Increased from 110px to 140px
+            buttonContainer.background = '#252525';
+            buttonContainer.cornerRadius = 6;
+            buttonContainer.thickness = 0;
+            buttonContainer.isPointerBlocker = true;
+            
+            // Add top accent border
+            const accentBorder = new Rectangle(`${tower.id}_accent`);
+            accentBorder.width = '100%';
+            accentBorder.height = '3px';
+            accentBorder.background = tower.color;
+            accentBorder.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            accentBorder.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            accentBorder.cornerRadiusX = 3;
+            buttonContainer.addControl(accentBorder);
+
+            // Add hover effect with transition-like animation
+            buttonContainer.onPointerEnterObservable.add(() => {
+                buttonContainer.background = '#303030';
+                
+                // Animate the accent border
+                let startSize = 3;
+                let targetSize = 5;
+                let step = 0.5;
+                let interval = setInterval(() => {
+                    startSize += step;
+                    accentBorder.height = startSize + "px";
+                    if (startSize >= targetSize) {
+                        clearInterval(interval);
+                    }
+                }, 20);
+                
+                // Animate text scaling
+                nameText.fontSize = Number(nameText.fontSize) + 1;
+                costText.fontSize = Number(costText.fontSize) + 1;
+            });
+
+            buttonContainer.onPointerOutObservable.add(() => {
+                buttonContainer.background = '#252525';
+                
+                // Animate the accent border back
+                let currentSize = parseFloat(accentBorder.height.toString());
+                let targetSize = 3;
+                let step = 0.5;
+                let interval = setInterval(() => {
+                    currentSize -= step;
+                    accentBorder.height = currentSize + "px";
+                    if (currentSize <= targetSize) {
+                        clearInterval(interval);
+                    }
+                }, 20);
+                
+                // Animate text scaling back
+                nameText.fontSize = Number(nameText.fontSize) - 1;
+                costText.fontSize = Number(costText.fontSize) - 1;
+            });
+
+            // Tower name with improved typography
+            const nameText = new TextBlock(`${tower.id}_name`, tower.name);
+            nameText.color = 'white';
+            nameText.fontSize = 18;
+            nameText.fontFamily = 'Arial';
+            nameText.fontWeight = 'bold';
+            nameText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            nameText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            nameText.top = '20px';
+            buttonContainer.addControl(nameText);
+
+            // Tower cost with improved styling
+            const costText = new TextBlock(`${tower.id}_cost`, tower.cost);
+            costText.color = tower.accentColor;
+            costText.fontSize = 24;  // Increased from 20px to 24px
+            costText.fontFamily = 'Arial';
+            costText.fontWeight = 'bold';
+            costText.outlineWidth = 1;  // Increased from 0.5 to 1
+            costText.outlineColor = 'black';
+            costText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            costText.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+            costText.top = '-30px';  // Changed from -20px to -30px
+            buttonContainer.addControl(costText);
+
+            // Add click effect
+            buttonContainer.onPointerDownObservable.add(() => {
+                buttonContainer.background = '#1A1A1A';
+                
+                // Scale down slightly for press effect
+                buttonContainer.scaleX = 0.95;
+                buttonContainer.scaleY = 0.95;
+                
+                setTimeout(() => {
+                    buttonContainer.scaleX = 1;
+                    buttonContainer.scaleY = 1;
+                }, 100);
+            });
+
+            // Handle click to place tower
+            buttonContainer.onPointerClickObservable.add(() => {
+                // Check if player has enough money
+                if (this.playerStats && this.getTowerCost(tower.id) > this.playerStats.getMoney()) {
+                    // Shake effect for insufficient funds
+                    let originalLeft = 0;
+                    let shakeAmount = 3;
+                    let duration = 50;
+                    
+                    let shakeInterval = setInterval(() => {
+                        buttonContainer.left = (Math.random() * shakeAmount * 2 - shakeAmount) + "px";
+                    }, 20);
+                    
+                    setTimeout(() => {
+                        clearInterval(shakeInterval);
+                        buttonContainer.left = originalLeft + "px";
+                    }, duration * 5);
+                    
+                    // Play error sound
+                    this.game.getAssetManager().playSound('error');
+                    return;
+                }
+                
+                this.selectedTowerType = tower.id;
+                this.placeTowerAtPosition(this.selectedPosition!);
+                this.hideTowerSelector();
+                this.hidePlacementOutline();
+            });
+
+            grid.addControl(buttonContainer, 0, index);
+        });
+
+        // No close button - just add the panel directly
+        this.ui.addControl(this.towerSelectorPanel);
+    }
+
+    private hideTowerSelector(): void {
+        if (this.towerSelectorPanel && this.ui) {
+            this.ui.removeControl(this.towerSelectorPanel);
+            this.towerSelectorPanel = null;
+        }
+        this.selectedPosition = null;
+        this.hidePlacementOutline();
     }
 } 
