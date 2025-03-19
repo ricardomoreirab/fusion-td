@@ -481,21 +481,17 @@ export class WaveManager {
         // Store the wave start time for speed-based difficulty
         this.waveStartTime = performance.now() / 1000; // Convert to seconds
         
-        // First apply the standard 15% increase per wave (increased from 10%)
-        this.difficultyMultiplier *= 1.15;
-        
-        // Check if this is a milestone wave (every 5 waves)
+        // Only increase difficulty on milestone waves (every 5 waves)
         if (this.currentWave % 5 === 0) {
-            // Double the CURRENT difficulty (after the 15% increase was already applied)
-            // This makes the doubling accumulative
-            this.difficultyMultiplier *= 2.5; // Increased from 2.0 to 2.5 (150% increase instead of 100%)
-            console.log(`%c MILESTONE WAVE ${this.currentWave}! Difficulty INCREASED BY 150% to ${this.difficultyMultiplier.toFixed(2)}x! %c`, 
+            // Apply a larger increase on milestone waves
+            this.difficultyMultiplier *= 2.5; // 150% increase
+            console.log(`%c MILESTONE WAVE ${this.currentWave}! Difficulty INCREASED TO ${this.difficultyMultiplier.toFixed(2)}x! %c`, 
                 'background: #ff5500; color: #fff; font-size: 18px; font-weight: bold; padding: 4px 8px;',
                 'background: none; color: inherit;');
         }
         
         // Apply speed multiplier to the basic difficulty multiplier
-        const effectiveDifficulty = Math.min(this.difficultyMultiplier * this.speedMultiplier * this.parallelWaveMultiplier, 15.0); // Increased cap from 10.0 to 15.0
+        const effectiveDifficulty = Math.min(this.difficultyMultiplier * this.speedMultiplier * this.parallelWaveMultiplier, 15.0);
         console.log(`Wave ${this.currentWave}: Difficulty set to ${effectiveDifficulty.toFixed(2)}x (base: ${this.difficultyMultiplier.toFixed(2)}x, speed: ${this.speedMultiplier.toFixed(2)}x, parallel: ${this.parallelWaveMultiplier.toFixed(2)}x)`);
         
         // Get the current wave
@@ -704,10 +700,10 @@ export class WaveManager {
         // Create the enemy
         const enemy = this.enemyManager.createEnemy(type);
         
-        // Calculate the effective difficulty multiplier (capped at 10x)
+        // Calculate the effective difficulty multiplier (capped at 15x)
         const effectiveDifficulty = Math.min(
             this.difficultyMultiplier * this.speedMultiplier * this.parallelWaveMultiplier, 
-            10.0
+            15.0
         );
         
         // Apply additional 10x multiplier for boss-type enemies
@@ -720,29 +716,6 @@ export class WaveManager {
         }
         
         return enemy;
-    }
-
-    /**
-     * Increment the wave counter and apply difficulty changes
-     * This is used when creating parallel waves to count them as new waves
-     */
-    public incrementWaveCounter(): void {
-        // Increment wave counter
-        this.currentWave++;
-        
-        // First apply the standard 15% increase (updated from 10%)
-        this.difficultyMultiplier *= 1.15;
-        
-        // Check if this is a milestone wave (every 5 waves)
-        if (this.currentWave % 5 === 0) {
-            // Apply the 150% increase (updated from 100%)
-            this.difficultyMultiplier *= 2.5;
-            console.log(`%c MILESTONE WAVE ${this.currentWave}! Difficulty INCREASED BY 150% to ${this.difficultyMultiplier.toFixed(2)}x! %c`, 
-                'background: #ff5500; color: #fff; font-size: 18px; font-weight: bold; padding: 4px 8px;',
-                'background: none; color: inherit;');
-        } else {
-            console.log(`Wave ${this.currentWave}: Difficulty increased to ${this.difficultyMultiplier.toFixed(2)}x`);
-        }
     }
 
     /**
@@ -864,5 +837,25 @@ export class WaveManager {
      */
     public getTimeToNextWave(): number {
         return this.getAutoWaveTimeRemaining();
+    }
+
+    /**
+     * Increment the wave counter and apply difficulty changes
+     * This is used when creating parallel waves to count them as new waves
+     */
+    public incrementWaveCounter(): void {
+        // Increment wave counter
+        this.currentWave++;
+        
+        // Only increase difficulty on milestone waves
+        if (this.currentWave % 5 === 0) {
+            // Apply a larger increase on milestone waves
+            this.difficultyMultiplier *= 2.5; // 150% increase
+            console.log(`%c MILESTONE WAVE ${this.currentWave}! Difficulty INCREASED TO ${this.difficultyMultiplier.toFixed(2)}x! %c`, 
+                'background: #ff5500; color: #fff; font-size: 18px; font-weight: bold; padding: 4px 8px;',
+                'background: none; color: inherit;');
+        } else {
+            console.log(`Wave ${this.currentWave}: No difficulty change, still at ${this.difficultyMultiplier.toFixed(2)}x`);
+        }
     }
 } 

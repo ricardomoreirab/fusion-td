@@ -1818,13 +1818,14 @@ export class GameplayState implements GameState {
                 waveButton.metadata.isPulsing = false;
                 waveButton.fontSize = 20; // Reset font size
             }
-        } else if (this.waveManager.getAutoWaveTimeRemaining() > 0) {
-            // Normal auto-wave countdown
-            waveButton.textBlock.text = '⏲';  // Using clock icon
+        } else {
+            // Check if next wave is a milestone wave (every 5th wave)
+            const nextWave = this.waveManager.getCurrentWave() + 1;
+            const isNextMilestone = nextWave % 5 === 0;
             
-            // Check if next wave is a milestone wave
-            if (this.waveManager.isNextWaveMilestone()) {
-                // Warning color for milestone
+            if (isNextMilestone) {
+                // Warning icon and color for milestone wave
+                waveButton.textBlock.text = '⚠️';
                 waveButton.background = '#FF8800';
                 
                 // Add pulse animation for milestone warning
@@ -1847,70 +1848,9 @@ export class GameplayState implements GameState {
                     pulseAnimation();
                 }
             } else {
-                // Normal auto-wave button
-                waveButton.background = '#1976D2';
-                
-                // Cancel pulse if active
-                if (waveButton.metadata?.isPulsing) {
-                    waveButton.metadata.isPulsing = false;
-                    waveButton.fontSize = 20; // Reset font size
-                }
-            }
-        } else {
-            // Ready to start next wave
-            waveButton.textBlock.text = '+';  // Using plus icon
-            
-            // Check if next wave is a milestone wave
-            if (this.waveManager.isNextWaveMilestone()) {
-                // Warning color and animation for milestone
-                waveButton.background = '#FF8800';
-                
-                // Add pulsing warning animation
-                if (!waveButton.metadata?.isPulsing) {
-                    waveButton.metadata = { isPulsing: true };
-                    
-                    const pulseAnimation = () => {
-                        if (!waveButton || !waveButton.metadata?.isPulsing) return;
-                        
-                        const scaleValue = 1.0 + 0.15 * Math.sin(performance.now() / 150);
-                        waveButton.fontSize = Math.floor(20 * scaleValue);
-                        
-                        requestAnimationFrame(pulseAnimation);
-                    };
-                    
-                    pulseAnimation();
-                }
-                
-                // Override the hover behavior for milestone waves
-                waveButton.onPointerEnterObservable.clear();
-                waveButton.onPointerOutObservable.clear();
-                
-                waveButton.onPointerEnterObservable.add(() => {
-                    waveButton.background = '#FF9800';
-                    waveButton.shadowOffsetY = 4;
-                });
-                
-                waveButton.onPointerOutObservable.add(() => {
-                    waveButton.background = '#FF8800';
-                    waveButton.shadowOffsetY = 2;
-                });
-            } else {
-                // Normal wave button
+                // Normal next wave button
+                waveButton.textBlock.text = '+';
                 waveButton.background = '#D32F2F';
-                
-                // Reset hover behavior
-                waveButton.onPointerEnterObservable.clear();
-                waveButton.onPointerOutObservable.clear();
-                
-                waveButton.onPointerEnterObservable.add(() => {
-                    waveButton.background = '#F44336';
-                    waveButton.shadowOffsetY = 4;
-                });
-                
-                waveButton.onPointerOutObservable.add(() => {
-                    waveButton.background = '#D32F2F';
-                    waveButton.shadowOffsetY = 2;
-                });
                 
                 // Cancel pulse if active
                 if (waveButton.metadata?.isPulsing) {
