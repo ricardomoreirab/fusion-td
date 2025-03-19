@@ -1635,6 +1635,7 @@ export class GameplayState implements GameState {
         
         try {
             const towerPosition = this.selectedTower.getPosition();
+            const selectedTowerId = this.selectedTower.getId(); // Ensure we have the specific tower ID
             
             if (this.towerManager.upgradeTower(this.selectedTower)) {
                 this.playerStats.spendMoney(upgradeCost);
@@ -1643,6 +1644,12 @@ export class GameplayState implements GameState {
                 this.createUpgradeEffect(towerPosition);
                 
                 this.game.getAssetManager().playSound('towerUpgrade');
+                
+                // Make sure we update the UI with the same tower
+                const upgradedTower = this.towerManager.getTowerById(selectedTowerId);
+                if (upgradedTower) {
+                    this.selectedTower = upgradedTower;
+                }
                 
                 this.showTowerActions();
                 

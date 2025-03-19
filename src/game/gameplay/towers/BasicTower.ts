@@ -519,8 +519,11 @@ export class BasicTower extends Tower {
     protected updateVisuals(): void {
         if (!this.mesh) return;
         
-        // Find the turret
-        const turret = this.scene.getMeshByName('ballistaTurret');
+        // Get all child meshes of this tower
+        const towerParts = this.mesh.getChildMeshes();
+        
+        // Find the turret within this tower's hierarchy
+        const turret = towerParts.find(mesh => mesh.name.includes('ballistaTurret'));
         if (turret) {
             // Scale up the turret based on level (reduced scaling)
             const scale = 1 + (this.level - 1) * 0.1; // Reduced from 0.2 to 0.1
@@ -537,7 +540,7 @@ export class BasicTower extends Tower {
             }
             
             // Find and update the sensor color to show power level (more subtle)
-            const sensor = this.scene.getMeshByName('stringRight');
+            const sensor = towerParts.find(mesh => mesh.name.includes('stringRight'));
             if (sensor && sensor.material) {
                 const sensorMat = sensor.material as StandardMaterial;
                 sensorMat.emissiveColor = new Color3(0.5 + (this.level - 1) * 0.05, 0.1, 0.1); // Reduced from 0.1 to 0.05

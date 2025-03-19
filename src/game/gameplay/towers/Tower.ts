@@ -65,6 +65,7 @@ export abstract class Tower {
     protected isInitialized: boolean = false;
     protected isSelected: boolean = false;
     protected selectionIndicator: Mesh | null = null;
+    protected towerId: string;
     
     // Elemental properties
     protected elementType: ElementType = ElementType.NONE;
@@ -88,6 +89,7 @@ export abstract class Tower {
         this.cost = cost;
         this.upgradeCost = Math.floor(cost * 1.0);
         this.sellValue = Math.floor(cost * 0.6);
+        this.towerId = `tower_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
         
         // Create the tower mesh
         this.createMesh();
@@ -939,5 +941,13 @@ export abstract class Tower {
             console.error("Error creating Color4:", error);
             return new Color4(1, 1, 1, alpha);
         }
+    }
+
+    /**
+     * Get the unique ID of this tower
+     * @returns The tower's unique ID
+     */
+    public getId(): string {
+        return this.towerId;
     }
 } 

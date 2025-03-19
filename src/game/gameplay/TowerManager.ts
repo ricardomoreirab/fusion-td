@@ -200,7 +200,7 @@ export class TowerManager {
     }
 
     /**
-     * Get all towers
+     * Get all towers managed by this manager
      * @returns Array of all towers
      */
     public getTowers(): Tower[] {
@@ -208,10 +208,19 @@ export class TowerManager {
     }
 
     /**
-     * Find the closest tower to a position within a certain range
-     * @param position The position to check from
-     * @param maxRange The maximum range to check
-     * @returns The closest tower or null if none found
+     * Get a specific tower by its unique ID
+     * @param id The tower's unique ID
+     * @returns The tower if found, null otherwise
+     */
+    public getTowerById(id: string): Tower | null {
+        return this.towers.find(tower => tower.getId() === id) || null;
+    }
+
+    /**
+     * Find the closest tower to a given position
+     * @param position The position to search from
+     * @param maxRange Maximum search range
+     * @returns The closest tower, or null if none found within range
      */
     public getClosestTower(position: Vector3, maxRange: number): Tower | null {
         let closestTower: Tower | null = null;

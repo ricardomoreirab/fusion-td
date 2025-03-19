@@ -751,7 +751,11 @@ export class SniperTower extends Tower {
         this.game.getAssetManager().playSound('towerShoot');
         
         // Animate the archer drawing and releasing the bow
-        const archerBody = this.scene.getMeshByName("archerBody");
+        // Get all child meshes of this tower
+        const towerParts = this.mesh.getChildMeshes();
+        
+        // Find archer body in this tower's hierarchy
+        const archerBody = towerParts.find(mesh => mesh.name.includes("archerBody"));
         if (archerBody) {
             // Find the longbow among the archer's children
             let longbow = null;
@@ -774,7 +778,7 @@ export class SniperTower extends Tower {
                 let targetAngle = Math.atan2(targetDirection.x, targetDirection.z);
                 
                 // Rotate the archer turret to face target
-                const turret = this.scene.getMeshByName("sniperTurret");
+                const turret = towerParts.find(mesh => mesh.name.includes("sniperTurret"));
                 if (turret) {
                     turret.rotation.y = targetAngle;
                 }
@@ -799,13 +803,13 @@ export class SniperTower extends Tower {
             const arcHeight = Math.sin(Math.min(arrow.timeElapsed * 1.5, Math.PI)) * 1.5;
             
             // Calculate movement with arc
-            const deltaDistance = speed * deltaTime;
+            const deltaDistance = (45 * deltaTime); // Use a fixed speed value instead of arrow.speed
             arrow.distance += deltaDistance;
             
             // Calculate position along arc
-            const straightPos = startPosition.add(direction.scale(arrow.distance));
+            const straightPos = this.position.add(arcDirection.scale(arrow.distance));
             const arcVector = new Vector3(0, arcHeight, 0);
-            const flightProgress = Math.min(arrow.distance / maxDistance, 1);
+            const flightProgress = Math.min(arrow.distance / arrow.maxDistance, 1);
             const arcScale = Math.sin(flightProgress * Math.PI);
             
             // Apply arc to position
@@ -815,8 +819,8 @@ export class SniperTower extends Tower {
             // Update arrow rotation to follow arc
             if (flightProgress < 0.9) {
                 // Calculate new direction based on current position and next position
-                const nextPos = startPosition.add(direction.scale(arrow.distance + deltaDistance))
-                    .add(arcVector.scale(Math.sin((flightProgress + deltaDistance/maxDistance) * Math.PI)));
+                const nextPos = straightPos.add(arcDirection.scale(arrow.distance + deltaDistance))
+                    .add(arcVector.scale(Math.sin((flightProgress + deltaDistance/arrow.maxDistance) * Math.PI)));
                 const currentDirection = nextPos.subtract(newPos).normalize();
                 arrowMesh.lookAt(newPos.add(currentDirection.scale(1)));
             } else {
@@ -830,7 +834,7 @@ export class SniperTower extends Tower {
             }
             
             // If arrow reaches target or max distance
-            if (arrow.distance >= maxDistance || 
+            if (arrow.distance >= arrow.maxDistance || 
                 (arrow.targetEnemy && Vector3.Distance(arrowMesh.position, arrow.targetEnemy.getPosition()) < 0.5)) {
                 
                 // Get final position - either the target position or where the arrow ended
@@ -857,10 +861,10 @@ export class SniperTower extends Tower {
                 }
                 
                 // Stop and dispose the trail system
-                if (trailSystem) {
-                    trailSystem.stop();
+                if (arrow.trail) {
+                    arrow.trail.stop();
                     setTimeout(() => {
-                        trailSystem.dispose();
+                        arrow.trail.dispose();
                     }, 300);
                 }
                 
@@ -898,5 +902,64 @@ export class SniperTower extends Tower {
         
         // Start animation
         animateArrow();
+    }
+
+    /**
+     * Update tower visuals after upgrade
+     */
+    protected updateVisuals(): void {
+        if (!this.mesh) return;
+        
+        // Get all child meshes of this tower
+        const towerParts = this.mesh.getChildMeshes();
+        
+        // Find and update the archer body
+        const archerBody = towerParts.find(mesh => mesh.name.includes("archerBody"));
+        if (archerBody) {
+            // Scale up slightly based on level
+            const scale = 1 + (this.level - 1) * 0.08;
+            archerBody.scaling.setAll(scale);
+            
+            // Make it more detailed with higher levels by updating materials
+            archerBody.getChildMeshes().forEach(part => {
+                if (part.material) {
+                    const material = part.material as StandardMaterial;
+                    // Enhance colors based on level
+                    if (material.diffuseColor) {
+                        // Make colors more vibrant at higher levels
+                        material.specularColor = new Color3(
+                            Math.min(0.8, 0.3 + (this.level - 1) * 0.1),
+                            Math.min(0.8, 0.3 + (this.level - 1) * 0.1),
+                            Math.min(0.8, 0.3 + (this.level - 1) * 0.1)
+                        );
+                    }
+                }
+            });
+        }
+        
+        // Find and update the turret
+        const turret = towerParts.find(mesh => mesh.name.includes("sniperTurret"));
+        if (turret) {
+            // Update turret colors based on level
+            turret.getChildMeshes().forEach(part => {
+                if (part.material) {
+                    const material = part.material as StandardMaterial;
+                    if (material.diffuseColor) {
+                        // Make it look more powerful with each level
+                        material.emissiveColor = new Color3(
+                            0.05 * this.level,
+                            0.01 * this.level,
+                            0
+                        );
+                    }
+                }
+            });
+        }
+        
+        // Update range indicator if showing
+        if (this.showingRange && this.rangeIndicator) {
+            this.hideRangeIndicator();
+            this.showRangeIndicator();
+        }
     }
 } 

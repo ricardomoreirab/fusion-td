@@ -341,8 +341,8 @@ export class HeavyTower extends Tower {
     private createProjectile(targetPosition: Vector3): void {
         if (!this.mesh) return;
         
-        // Get barrel for positioning
-        const barrel = this.scene.getMeshByName("barrel");
+        // Get barrel from this tower's hierarchy
+        const barrel = this.mesh.getChildMeshes().find(mesh => mesh.name.includes("barrel"));
         
         // Create cannonball
         const cannonball = MeshBuilder.CreateSphere("cannonball", {
@@ -461,21 +461,20 @@ export class HeavyTower extends Tower {
      * Create cannon fire effect
      */
     private createCannonFireEffect(position: Vector3, direction: Vector3): void {
-        // Create flash
-        const flash = MeshBuilder.CreateSphere("flash", {
-            diameter: 0.5,
-            segments: 8
-        }, this.scene);
+        // Create a flash effect at the cannon muzzle
+        const flash = MeshBuilder.CreateSphere("flash", { diameter: 0.5 }, this.scene);
         flash.position = position.clone();
+        flash.position.y += 0.1;
         
-        // Flash material
+        // Create a glowing material for the flash
         const flashMaterial = new StandardMaterial("flashMaterial", this.scene);
-        flashMaterial.diffuseColor = new Color3(1.0, 0.7, 0.3);
-        flashMaterial.emissiveColor = new Color3(1.0, 0.7, 0.3);
-        flashMaterial.alpha = 0.8;
+        flashMaterial.diffuseColor = new Color3(1, 0.7, 0.3);
+        flashMaterial.emissiveColor = new Color3(1, 0.6, 0.1);
+        flashMaterial.alpha = 0.7;
+        flashMaterial.disableLighting = true;
         flash.material = flashMaterial;
         
-        // Animate flash
+        // Animate the flash
         let flashTime = 0;
         const animateFlash = () => {
             flashTime += this.scene.getEngine().getDeltaTime() / 1000;
@@ -490,7 +489,10 @@ export class HeavyTower extends Tower {
         animateFlash();
         
         // Create cannon recoil
-        const barrel = this.scene.getMeshByName("barrel");
+        if (!this.mesh) return;
+        
+        // Get barrel from this tower's hierarchy
+        const barrel = this.mesh.getChildMeshes().find(mesh => mesh.name.includes("barrel"));
         if (barrel) {
             const originalPos = barrel.position.clone();
             const recoilPos = originalPos.clone();
@@ -667,8 +669,8 @@ export class HeavyTower extends Tower {
     protected updateVisuals(): void {
         if (!this.mesh) return;
         
-        // Find barrel
-        const barrel = this.scene.getMeshByName("barrel");
+        // Find barrel within this tower's hierarchy
+        const barrel = this.mesh.getChildMeshes().find(mesh => mesh.name.includes("barrel"));
         if (barrel) {
             // Make slightly larger
             const barrelScale = 1 + (this.level - 1) * 0.05;

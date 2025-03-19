@@ -432,8 +432,8 @@ export class FastTower extends Tower {
     protected updateVisuals(): void {
         if (!this.mesh) return;
         
-        // Find the turret head
-        const turretHead = this.scene.getMeshByName('fastTurretHead');
+        // Find the turret head in this tower's hierarchy
+        const turretHead = this.mesh.getChildMeshes().find(mesh => mesh.name.includes('fastTurretHead'));
         if (turretHead) {
             // Scale up the turret based on level
             const scale = 1 + (this.level - 1) * 0.15;
@@ -449,8 +449,9 @@ export class FastTower extends Tower {
             }
             
             // Update fin colors
+            const towerChildren = this.mesh.getChildMeshes();
             for (let i = 0; i < 8; i++) {
-                const fin = this.scene.getMeshByName(`fastFin${i}`);
+                const fin = towerChildren.find(mesh => mesh.name.includes(`fastFin${i}`));
                 if (fin && fin.material) {
                     const finMat = fin.material as StandardMaterial;
                     finMat.diffuseColor = new Color3(0.4, 0.6 + (this.level - 1) * 0.1, 0.4);
