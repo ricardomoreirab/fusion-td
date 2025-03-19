@@ -13,267 +13,273 @@ export class FastTower extends Tower {
         this.mesh = new Mesh("fastTowerRoot", this.scene);
         this.mesh.position = this.position.clone();
         
-        // Create a cylinder for the tower base
+        // Create a stone base
         const base = MeshBuilder.CreateCylinder('fastBase', {
             height: 0.8,
             diameter: 1.8,
-            tessellation: 16
+            tessellation: 12
         }, this.scene);
-        base.position = new Vector3(0, 0.4, 0); // Position relative to root
+        base.position = new Vector3(0, 0.4, 0);
         
-        // Create a middle section
+        // Create wooden middle platform
         const middle = MeshBuilder.CreateCylinder('fastMiddle', {
-            height: 1.0,
-            diameterTop: 1.2,
-            diameterBottom: 1.6,
-            tessellation: 16
-        }, this.scene);
-        middle.position = new Vector3(0, 1.3, 0); // Position relative to root
-        
-        // Create a sphere for the turret head
-        const turretHead = MeshBuilder.CreateSphere('fastTurretHead', {
-            diameter: 1.2,
-            segments: 16
-        }, this.scene);
-        turretHead.position = new Vector3(0, 2.2, 0); // Position relative to root
-        
-        // Create a housing for the barrels - position relative to turret head
-        const housing = MeshBuilder.CreateCylinder('fastHousing', {
             height: 0.6,
-            diameter: 1.0,
-            tessellation: 16
-        }, this.scene);
-        housing.rotation.x = Math.PI / 2; // Rotate to be horizontal
-        housing.position = new Vector3(0, 0, 0.3); // Position relative to turret head
-        
-        // Create a single barrel for rapid fire
-        const barrel = MeshBuilder.CreateCylinder('fastBarrel', {
-            height: 2.0,
-            diameter: 0.25,
+            diameterTop: 1.5,
+            diameterBottom: 1.8,
             tessellation: 12
         }, this.scene);
-        barrel.rotation.x = Math.PI / 2; // Rotate to be horizontal
-        barrel.position = new Vector3(0, 0, 1.2); // Position relative to turret head
+        middle.position = new Vector3(0, 1.1, 0);
         
-        // Create a muzzle brake at the end of the barrel
-        const muzzleBrake = MeshBuilder.CreateCylinder('fastMuzzleBrake', {
-            height: 0.3,
-            diameter: 0.4,
-            tessellation: 12
+        // Create central turret post
+        const post = MeshBuilder.CreateCylinder('fastPost', {
+            height: 0.8,
+            diameter: 0.6,
+            tessellation: 8
         }, this.scene);
-        muzzleBrake.rotation.x = Math.PI / 2; // Rotate to be horizontal
-        muzzleBrake.position = new Vector3(0, 0, 2.3); // Position relative to turret head
+        post.position = new Vector3(0, 1.8, 0);
         
-        // Add cooling fins to the barrel
-        const fins: Mesh[] = [];
-        for (let i = 0; i < 8; i++) {
-            const angle = (i / 8) * Math.PI * 2;
-            const fin = MeshBuilder.CreateBox(`fastFin${i}`, {
-                width: 0.05,
-                height: 0.4,
-                depth: 0.8
+        // Create the crossbow body (horizontal piece)
+        const crossbowBody = MeshBuilder.CreateBox('fastCrossbowBody', {
+            width: 0.4,
+            height: 0.2,
+            depth: 1.0
+        }, this.scene);
+        crossbowBody.position = new Vector3(0, 2.2, 0.2);
+        
+        // Create the crossbow arms (the bow part)
+        const leftArm = MeshBuilder.CreateCylinder('fastLeftArm', {
+            height: 1.2,
+            diameter: 0.15,
+            tessellation: 8
+        }, this.scene);
+        leftArm.rotation.z = Math.PI / 2; // Horizontal
+        leftArm.rotation.y = -Math.PI / 8; // Angled slightly
+        leftArm.position = new Vector3(-0.4, 2.2, 0.2);
+        
+        const rightArm = MeshBuilder.CreateCylinder('fastRightArm', {
+            height: 1.2,
+            diameter: 0.15,
+            tessellation: 8
+        }, this.scene);
+        rightArm.rotation.z = Math.PI / 2; // Horizontal
+        rightArm.rotation.y = Math.PI / 8; // Angled slightly
+        rightArm.position = new Vector3(0.4, 2.2, 0.2);
+        
+        // Create the string connecting the arms
+        const stringLeft = MeshBuilder.CreateCylinder('fastStringLeft', {
+            height: 0.7,
+            diameter: 0.05,
+            tessellation: 6
+        }, this.scene);
+        stringLeft.position = new Vector3(-0.35, 2.2, 0.6);
+        stringLeft.rotation.z = Math.PI / 2;
+        stringLeft.rotation.y = -Math.PI / 5;
+        
+        const stringRight = MeshBuilder.CreateCylinder('fastStringRight', {
+            height: 0.7,
+            diameter: 0.05,
+            tessellation: 6
+        }, this.scene);
+        stringRight.position = new Vector3(0.35, 2.2, 0.6);
+        stringRight.rotation.z = Math.PI / 2;
+        stringRight.rotation.y = Math.PI / 5;
+        
+        // Create the arrow guide
+        const arrowGuide = MeshBuilder.CreateBox('fastArrowGuide', {
+            width: 0.1,
+            height: 0.05,
+            depth: 1.0
+        }, this.scene);
+        arrowGuide.position = new Vector3(0, 2.25, 0.2);
+        
+        // Create wooden support beams
+        const beams = [];
+        for (let i = 0; i < 4; i++) {
+            const angle = (i / 4) * Math.PI * 2;
+            const beam = MeshBuilder.CreateBox(`fastBeam${i}`, {
+                width: 0.15,
+                height: 0.8,
+                depth: 0.15
             }, this.scene);
             
-            // Position the fin around the barrel
-            const finRadius = 0.3;
-            const x = Math.cos(angle) * finRadius;
-            const y = Math.sin(angle) * finRadius;
+            const x = Math.cos(angle) * 0.8;
+            const z = Math.sin(angle) * 0.8;
             
-            fin.position = new Vector3(x, y, 1.0); // Position relative to turret head
+            beam.position = new Vector3(x, 1.5, z);
+            beam.rotation.y = angle;
             
-            // Rotate the fin to point outward
-            fin.rotation.z = angle;
-            
-            fins.push(fin);
+            beams.push(beam);
         }
         
-        // Create materials with different shades
+        // Create materials
+        // Stone base material
         const baseMaterial = new StandardMaterial('fastBaseMaterial', this.scene);
-        baseMaterial.diffuseColor = new Color3(0.2, 0.3, 0.2); // Dark green-gray
+        baseMaterial.diffuseColor = new Color3(0.6, 0.6, 0.6); // Stone gray
         base.material = baseMaterial;
         
-        const middleMaterial = new StandardMaterial('fastMiddleMaterial', this.scene);
-        middleMaterial.diffuseColor = new Color3(0.3, 0.5, 0.3); // Medium green
-        middle.material = middleMaterial;
+        // Wooden platform material
+        const woodMaterial = new StandardMaterial('fastWoodMaterial', this.scene);
+        woodMaterial.diffuseColor = new Color3(0.5, 0.35, 0.2); // Brown wood
+        middle.material = woodMaterial;
+        post.material = woodMaterial;
         
-        const turretMaterial = new StandardMaterial('fastTurretMaterial', this.scene);
-        turretMaterial.diffuseColor = new Color3(0.2, 0.8, 0.2); // Bright green
-        turretMaterial.specularColor = new Color3(0.6, 0.8, 0.6);
-        turretMaterial.specularPower = 32;
-        turretHead.material = turretMaterial;
+        // Crossbow body material - darker wood
+        const crossbowMaterial = new StandardMaterial('fastCrossbowMaterial', this.scene);
+        crossbowMaterial.diffuseColor = new Color3(0.4, 0.25, 0.15); // Darker brown
+        crossbowBody.material = crossbowMaterial;
         
-        const housingMaterial = new StandardMaterial('fastHousingMaterial', this.scene);
-        housingMaterial.diffuseColor = new Color3(0.15, 0.15, 0.15); // Dark gray
-        housing.material = housingMaterial;
+        // Crossbow arms material - flexible wood
+        const armsMaterial = new StandardMaterial('fastArmsMaterial', this.scene);
+        armsMaterial.diffuseColor = new Color3(0.35, 0.2, 0.1); // Very dark brown
+        leftArm.material = armsMaterial;
+        rightArm.material = armsMaterial;
         
-        const barrelMaterial = new StandardMaterial('fastBarrelMaterial', this.scene);
-        barrelMaterial.diffuseColor = new Color3(0.1, 0.1, 0.1); // Almost black
-        barrel.material = barrelMaterial;
+        // String material
+        const stringMaterial = new StandardMaterial('fastStringMaterial', this.scene);
+        stringMaterial.diffuseColor = new Color3(0.9, 0.9, 0.8); // Light tan
+        stringLeft.material = stringMaterial;
+        stringRight.material = stringMaterial;
         
-        const muzzleMaterial = new StandardMaterial('fastMuzzleMaterial', this.scene);
-        muzzleMaterial.diffuseColor = new Color3(0.2, 0.2, 0.2); // Dark gray
-        muzzleBrake.material = muzzleMaterial;
+        // Arrow guide material - metal
+        const guideMaterial = new StandardMaterial('fastGuideMaterial', this.scene);
+        guideMaterial.diffuseColor = new Color3(0.4, 0.4, 0.45); // Metal gray
+        guideMaterial.specularColor = new Color3(0.7, 0.7, 0.7);
+        guideMaterial.specularPower = 32;
+        arrowGuide.material = guideMaterial;
         
-        // Create fin material
-        const finMaterial = new StandardMaterial('fastFinMaterial', this.scene);
-        finMaterial.diffuseColor = new Color3(0.4, 0.6, 0.4); // Light green
-        
-        // Apply fin material to all fins
-        for (const fin of fins) {
-            fin.material = finMaterial;
+        // Apply wood material to beams
+        for (const beam of beams) {
+            beam.material = woodMaterial;
         }
         
         // Parent all parts to the root mesh
         base.parent = this.mesh;
         middle.parent = this.mesh;
+        post.parent = this.mesh;
+        
+        // Create a holder for the rotating parts
+        const turretHead = new Mesh("fastTurretHead", this.scene);
+        turretHead.position = new Vector3(0, 2.2, 0);
         turretHead.parent = this.mesh;
         
-        // Parent all turret components to the turret head
-        housing.parent = turretHead;
-        barrel.parent = turretHead;
-        muzzleBrake.parent = turretHead;
+        // Parent crossbow parts to the turret head for rotation
+        crossbowBody.parent = turretHead;
+        crossbowBody.position = new Vector3(0, 0, 0.2); // Position relative to turret head
         
-        // Parent fins to the turret head
-        for (const fin of fins) {
-            fin.parent = turretHead;
+        leftArm.parent = turretHead;
+        leftArm.position = new Vector3(-0.4, 0, 0.2); // Position relative to turret head
+        
+        rightArm.parent = turretHead;
+        rightArm.position = new Vector3(0.4, 0, 0.2); // Position relative to turret head
+        
+        stringLeft.parent = turretHead;
+        stringLeft.position = new Vector3(-0.35, 0, 0.6); // Position relative to turret head
+        
+        stringRight.parent = turretHead;
+        stringRight.position = new Vector3(0.35, 0, 0.6); // Position relative to turret head
+        
+        arrowGuide.parent = turretHead;
+        arrowGuide.position = new Vector3(0, 0.05, 0.2); // Position relative to turret head
+        
+        // Parent support beams to the root
+        for (const beam of beams) {
+            beam.parent = this.mesh;
         }
         
-        // Add muzzle flash effect when firing
-        let lastFireTime = 0;
-        let muzzleFlashVisible = false;
-        let isInitialized = false;
+        // Create arrow template for projectiles
+        const arrowTemplate = this.createArrowMesh("fastArrowTemplate");
+        arrowTemplate.isVisible = false;
         
-        // Add a small delay before the tower can fire to ensure proper initialization
-        setTimeout(() => {
-            isInitialized = true;
-        }, 500);
+        // Track active arrows
+        const activeArrows: { mesh: Mesh, distance: number, maxDistance: number, targetEnemy: any, targetPosition: Vector3, direction: Vector3, shouldContinue: boolean }[] = [];
         
-        // Create muzzle flash
-        const muzzleFlash = MeshBuilder.CreateCylinder('fastMuzzleFlash', {
-            height: 0.1,
-            diameterTop: 0.6,
-            diameterBottom: 0.3,
-            tessellation: 12
-        }, this.scene);
-        muzzleFlash.rotation.x = Math.PI / 2; // Rotate to be horizontal
-        muzzleFlash.position = new Vector3(0, 0, 2.5); // Position at the end of the muzzle brake
+        // Store reference to active arrows in the mesh's metadata for disposal when tower is sold
+        this.mesh.metadata = { activeArrows };
         
-        // Create muzzle flash material
-        const muzzleFlashMaterial = new StandardMaterial('fastMuzzleFlashMaterial', this.scene);
-        muzzleFlashMaterial.diffuseColor = new Color3(1, 0.7, 0);
-        muzzleFlashMaterial.emissiveColor = new Color3(1, 0.5, 0);
-        muzzleFlashMaterial.alpha = 0.8;
-        muzzleFlash.material = muzzleFlashMaterial;
-        muzzleFlash.isVisible = false;
-        muzzleFlash.parent = turretHead;
-        
-        // Create bullet template for visual effect (not visible initially)
-        const bulletTemplate = MeshBuilder.CreateCylinder('fastBulletTemplate', {
-            height: 0.3,
-            diameter: 0.15,
-            tessellation: 8
-        }, this.scene);
-        
-        // Create bullet material with green glow to match tower theme
-        const bulletMaterial = new StandardMaterial('fastBulletMaterial', this.scene);
-        bulletMaterial.diffuseColor = new Color3(0.2, 0.9, 0.2); // Bright green
-        bulletMaterial.emissiveColor = new Color3(0, 0.5, 0); // Green glow
-        bulletMaterial.specularColor = new Color3(0.8, 1, 0.8);
-        bulletMaterial.specularPower = 64; // Shiny
-        bulletTemplate.material = bulletMaterial;
-        bulletTemplate.isVisible = false; // Hide the template
-        
-        // Track active bullets for animation
-        const activeBullets: { mesh: Mesh, distance: number, maxDistance: number, targetEnemy: any, targetPosition: Vector3 }[] = [];
-        
-        this.scene.registerBeforeRender(() => {
-            if (this.targetEnemy && isInitialized) {
-                // Show muzzle flash briefly when firing
-                const currentTime = performance.now();
-                if (currentTime - lastFireTime > 250) { // Fire every 250ms (4 shots per second)
-                    lastFireTime = currentTime;
-                    muzzleFlash.isVisible = true;
-                    
-                    // Hide muzzle flash after a short delay
-                    setTimeout(() => {
-                        muzzleFlash.isVisible = false;
-                    }, 50);
-                    
-                    // Create a new bullet instance
-                    const newBullet = bulletTemplate.clone("fastBullet_" + currentTime);
-                    newBullet.rotation.x = Math.PI / 2; // Rotate to be horizontal
-                    newBullet.isVisible = true;
-                    
-                    // Get the world position of the muzzle brake
-                    const muzzleWorldMatrix = muzzleBrake.getWorldMatrix();
-                    const muzzleWorldPosition = Vector3.TransformCoordinates(new Vector3(0, 0, 0.2), muzzleWorldMatrix);
-                    newBullet.position = muzzleWorldPosition;
-                    
-                    // Get the direction to the target
-                    const targetPosition = this.targetEnemy.getPosition();
-                    // Create a direction vector from muzzle to target
-                    const direction = targetPosition.subtract(muzzleWorldPosition).normalize();
-                    
-                    // Set the bullet's forward direction to point at the target
-                    newBullet.lookAt(targetPosition);
-                    
-                    // Add to active bullets for animation
-                    activeBullets.push({
-                        mesh: newBullet,
-                        distance: 0,
-                        maxDistance: 20, // Maximum travel distance before disposal
-                        targetEnemy: this.targetEnemy,
-                        targetPosition: targetPosition.clone()
-                    });
-                }
-            }
-            
-            // Update bullet positions
-            for (let i = activeBullets.length - 1; i >= 0; i--) {
-                const bulletInfo = activeBullets[i];
-                
-                // Move bullet forward along its local Z axis
-                const moveDistance = 0.5; // Speed of bullet
-                bulletInfo.mesh.translate(new Vector3(0, 0, 1), moveDistance, Space.LOCAL);
-                bulletInfo.distance += moveDistance;
-                
-                // Check if the bullet has reached its target
-                const targetPosition = bulletInfo.targetEnemy.getPosition(); // Get updated position
-                const distanceToTarget = Vector3.Distance(bulletInfo.mesh.position, targetPosition);
-                
-                // Remove bullet if it's traveled too far or hit the target
-                if (bulletInfo.distance >= bulletInfo.maxDistance || distanceToTarget < 0.5) {
-                    // Create impact effect if hit target
-                    if (distanceToTarget < 0.5) {
-                        this.createBulletImpactEffect(bulletInfo.mesh.position);
-                    }
-                    
-                    bulletInfo.mesh.dispose();
-                    activeBullets.splice(i, 1);
-                }
-            }
-        });
+        // No need for scene.registerBeforeRender as we're using createProjectileEffect
     }
     
     /**
-     * Create a particle effect when a bullet hits an enemy
+     * Create an arrow mesh
      */
-    private createBulletImpactEffect(position: Vector3): void {
-        // Create a particle system for the impact
-        const particleSystem = new ParticleSystem("bulletImpact", 50, this.scene);
+    private createArrowMesh(name: string): Mesh {
+        const arrow = new Mesh(name, this.scene);
         
-        // Set particle texture
+        // Arrow shaft
+        const shaft = MeshBuilder.CreateCylinder('shaft', {
+            height: 1.0,
+            diameter: 0.05,
+            tessellation: 8
+        }, this.scene);
+        shaft.rotation.x = Math.PI / 2; // Horizontal
+        shaft.position = new Vector3(0, 0, 0);
+        
+        // Arrow head - use cylinder with 0 top diameter instead of cone
+        const head = MeshBuilder.CreateCylinder('head', {
+            height: 0.2,
+            diameterTop: 0.0,
+            diameterBottom: 0.1,
+            tessellation: 8
+        }, this.scene);
+        head.rotation.x = -Math.PI / 2; // Point forward
+        head.position = new Vector3(0, 0, 0.6);
+        
+        // Arrow fletching (feathers)
+        const fletching1 = MeshBuilder.CreatePlane('fletching1', {
+            width: 0.2,
+            height: 0.2
+        }, this.scene);
+        fletching1.position = new Vector3(0, 0, -0.4);
+        fletching1.rotation.z = Math.PI / 2;
+        
+        const fletching2 = MeshBuilder.CreatePlane('fletching2', {
+            width: 0.2,
+            height: 0.2
+        }, this.scene);
+        fletching2.position = new Vector3(0, 0, -0.4);
+        fletching2.rotation.z = 0;
+        
+        // Materials
+        const shaftMaterial = new StandardMaterial('shaftMaterial', this.scene);
+        shaftMaterial.diffuseColor = new Color3(0.7, 0.5, 0.3); // Wood color
+        shaft.material = shaftMaterial;
+        
+        const headMaterial = new StandardMaterial('headMaterial', this.scene);
+        headMaterial.diffuseColor = new Color3(0.6, 0.6, 0.6); // Metal color
+        headMaterial.specularColor = new Color3(0.8, 0.8, 0.8);
+        head.material = headMaterial;
+        
+        const fletchingMaterial = new StandardMaterial('fletchingMaterial', this.scene);
+        fletchingMaterial.diffuseColor = new Color3(0.2, 0.8, 0.2); // Green feathers
+        fletching1.material = fletchingMaterial;
+        fletching2.material = fletchingMaterial;
+        
+        // Parent all parts to the arrow mesh
+        shaft.parent = arrow;
+        head.parent = arrow;
+        fletching1.parent = arrow;
+        fletching2.parent = arrow;
+        
+        return arrow;
+    }
+    
+    /**
+     * Create impact effect for arrows
+     */
+    private createArrowImpactEffect(position: Vector3): void {
+        // Simple particles for arrow impact
+        const particleSystem = new ParticleSystem("arrowImpact", 30, this.scene);
+        
+        // Set texture and properties
         particleSystem.particleTexture = new Texture("assets/textures/particle.png", this.scene);
-        
-        // Set emission properties
         particleSystem.emitter = position;
         particleSystem.minEmitBox = new Vector3(-0.1, -0.1, -0.1);
         particleSystem.maxEmitBox = new Vector3(0.1, 0.1, 0.1);
         
-        // Set particle properties - green for fast tower
-        particleSystem.color1 = new Color3(0.2, 1.0, 0.2).toColor4(1.0);
-        particleSystem.color2 = new Color3(0.1, 0.8, 0.1).toColor4(1.0);
-        particleSystem.colorDead = new Color3(0.0, 0.5, 0.0).toColor4(0.0);
+        // Particle colors - green to match Fletcher theme
+        particleSystem.color1 = new Color3(0.2, 0.8, 0.2).toColor4(1.0);
+        particleSystem.color2 = new Color3(0.1, 0.6, 0.1).toColor4(1.0);
+        particleSystem.colorDead = new Color3(0.1, 0.3, 0.1).toColor4(0.0);
         
         particleSystem.minSize = 0.1;
         particleSystem.maxSize = 0.3;
@@ -281,24 +287,24 @@ export class FastTower extends Tower {
         particleSystem.minLifeTime = 0.1;
         particleSystem.maxLifeTime = 0.3;
         
-        particleSystem.emitRate = 300;
-        
+        particleSystem.emitRate = 100;
         particleSystem.blendMode = ParticleSystem.BLENDMODE_ONEONE;
+        particleSystem.gravity = new Vector3(0, -5, 0);
         
-        particleSystem.gravity = new Vector3(0, -9.8, 0);
+        particleSystem.direction1 = new Vector3(-1, -1, -1);
+        particleSystem.direction2 = new Vector3(1, 1, 1);
         
         particleSystem.minEmitPower = 1;
         particleSystem.maxEmitPower = 3;
         
         particleSystem.updateSpeed = 0.01;
         
-        // Start the particle system
+        // Start particles
         particleSystem.start();
         
-        // Stop after a short time
+        // Stop and dispose after a short time
         setTimeout(() => {
             particleSystem.stop();
-            // Dispose after particles have died out
             setTimeout(() => {
                 particleSystem.dispose();
             }, 500);
@@ -339,11 +345,156 @@ export class FastTower extends Tower {
     }
     
     /**
-     * Override the createProjectileEffect method to prevent the default projectile
-     * since we have our own custom bullet effect
+     * Create the missile attack effect (an arrow projectile)
+     * @param targetPosition The position of the target
      */
     protected createProjectileEffect(targetPosition: Vector3): void {
-        // Do nothing - we're using our custom bullet effect instead
-        // This prevents the default white projectile from being created
+        if (!this.mesh || !this.targetEnemy) return;
+        
+        const arrowSize = 0.2;
+        const arrowHead = MeshBuilder.CreateCylinder("arrow", {
+            height: 0.6,
+            diameter: 0.1,
+            tessellation: 8
+        }, this.scene);
+        
+        const arrowShaft = MeshBuilder.CreateCylinder("arrowShaft", {
+            height: 1.0,
+            diameter: 0.05,
+            tessellation: 8
+        }, this.scene);
+        
+        arrowShaft.parent = arrowHead;
+        arrowShaft.position.y = -0.8;
+        
+        // Position the arrow at the top of the tower
+        const startPosition = new Vector3(
+            this.mesh.position.x,
+            this.mesh.position.y + 2,
+            this.mesh.position.z
+        );
+        
+        arrowHead.position = startPosition;
+        
+        // Calculate direction and rotation
+        const direction = targetPosition.subtract(startPosition).normalize();
+        
+        // Set arrow rotation based on direction
+        const upVector = new Vector3(0, 1, 0);
+        const rotationAxis = Vector3.Cross(upVector, direction).normalize();
+        const angle = Math.acos(Vector3.Dot(upVector, direction));
+        
+        // Check if angle calculation is valid (not NaN)
+        if (!isNaN(angle)) {
+            arrowHead.rotate(rotationAxis, angle);
+        }
+        
+        // Set material
+        const arrowMaterial = new StandardMaterial("arrowMaterial", this.scene);
+        arrowMaterial.diffuseColor = new Color3(0.6, 0.3, 0.1);
+        arrowHead.material = arrowMaterial;
+        
+        const shaftMaterial = new StandardMaterial("shaftMaterial", this.scene);
+        shaftMaterial.diffuseColor = new Color3(0.8, 0.6, 0.2);
+        arrowShaft.material = shaftMaterial;
+        
+        // Animation parameters
+        const speed = 30; // units per second
+        const maxDistance = Vector3.Distance(startPosition, targetPosition);
+        
+        // Create an arrow object to track in the animation
+        const arrow = {
+            mesh: arrowHead,
+            distance: 0,
+            maxDistance: maxDistance,
+            targetEnemy: this.targetEnemy,
+            targetPosition: targetPosition,
+            direction: direction,
+            shouldContinue: true
+        };
+        
+        // Get the activeArrows array from the tower's metadata
+        const activeArrows = this.mesh.metadata?.activeArrows || [];
+        activeArrows.push(arrow);
+        
+        // Set up animation callback
+        const animateArrow = () => {
+            // If tower or arrow was disposed, stop animation
+            if (!this.mesh || arrowHead.isDisposed() || !arrow.shouldContinue) {
+                // Arrow was disposed, stop animation
+                return;
+            }
+            
+            const deltaDistance = (speed * this.scene.getEngine().getDeltaTime()) / 1000;
+            arrow.distance += deltaDistance;
+            
+            // Move arrow forward
+            const newPos = startPosition.add(direction.scale(arrow.distance));
+            arrowHead.position = newPos;
+            
+            // If arrow reaches target or max distance
+            if (arrow.distance >= maxDistance) {
+                // Create impact effect at the final position
+                this.createImpactEffect(arrowHead.position);
+                
+                // Remove from active arrows
+                const index = activeArrows.indexOf(arrow);
+                if (index > -1) {
+                    activeArrows.splice(index, 1);
+                }
+                
+                // Apply damage if enemy still exists and is alive
+                if (arrow.targetEnemy && arrow.targetEnemy.isAlive()) {
+                    const damage = this.calculateDamage(arrow.targetEnemy);
+                    arrow.targetEnemy.takeDamage(damage);
+                    
+                    // Attempt to apply primary and secondary effects
+                    this.applyPrimaryEffect(arrow.targetEnemy);
+                    this.applySecondaryEffect(arrow.targetEnemy);
+                }
+                
+                // Dispose arrow mesh
+                arrowHead.dispose();
+                
+                return;
+            }
+            
+            // Continue animation
+            requestAnimationFrame(animateArrow);
+        };
+        
+        // Start animation
+        animateArrow();
+    }
+
+    /**
+     * Override the dispose method to clean up in-flight arrows when tower is sold
+     */
+    public dispose(): void {
+        // Clean up any in-flight arrows
+        if (this.mesh && this.mesh.metadata && this.mesh.metadata.activeArrows) {
+            const activeArrows = this.mesh.metadata.activeArrows as Array<{ 
+                mesh: Mesh, 
+                shouldContinue: boolean 
+            }>;
+            
+            // First mark all arrows to stop their animation loops
+            for (const arrowInfo of activeArrows) {
+                arrowInfo.shouldContinue = false;
+            }
+            
+            // Then dispose all active arrow meshes
+            for (const arrowInfo of activeArrows) {
+                if (arrowInfo.mesh) {
+                    arrowInfo.mesh.dispose();
+                }
+            }
+            
+            // Clear the array
+            activeArrows.length = 0;
+        }
+        
+        // Call the parent dispose method
+        super.dispose();
     }
 } 

@@ -127,6 +127,14 @@ export class AssetManager {
             volume: 0.7
         });
         this.sounds.set("enemyDeath", enemyDeath);
+        
+        // Cannon explosion sound
+        const explosion = new Sound("explosion", "assets/sounds/explosion.mp3", this.scene, null, {
+            loop: false,
+            autoplay: false,
+            volume: 0.8
+        });
+        this.sounds.set("explosion", explosion);
     }
 
     /**

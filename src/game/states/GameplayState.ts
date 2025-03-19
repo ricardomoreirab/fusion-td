@@ -1875,178 +1875,319 @@ export class GameplayState implements GameState {
 
         // Create tower selector panel with modern sleek styling
         this.towerSelectorPanel = new Rectangle('towerSelectorPanel');
-        this.towerSelectorPanel.width = '850px';
-        this.towerSelectorPanel.height = '180px';  // Increased from 150px to 180px
-        this.towerSelectorPanel.background = '#1A1A1A';
-        this.towerSelectorPanel.alpha = 0.95;
-        this.towerSelectorPanel.thickness = 1;
-        this.towerSelectorPanel.cornerRadius = 8;
-        this.towerSelectorPanel.color = "#333333";
-        this.towerSelectorPanel.zIndex = 10;
-        this.towerSelectorPanel.shadowColor = "rgba(0, 0, 0, 0.7)";
-        this.towerSelectorPanel.shadowBlur = 15;
-        this.towerSelectorPanel.shadowOffsetY = -3;
-        this.towerSelectorPanel.paddingBottom = "20px";  // Added padding at the bottom
         
-        this.towerSelectorPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        this.towerSelectorPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        this.towerSelectorPanel.top = '-10px';
+        // Make panel responsive based on screen width
+        const screenWidth = this.ui.getSize().width;
+        const isMobile = screenWidth < 768;
         
-        // Create grid for tower buttons
-        const grid = new Grid();
-        for (let i = 0; i < 8; i++) {
-            grid.addColumnDefinition(1/8);
-        }
-        grid.addRowDefinition(1);
-        grid.width = '830px';
-        grid.height = '160px';  // Increased from 130px to 160px
-        grid.top = '0px';
-        grid.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        this.towerSelectorPanel.addControl(grid);
-
-        // Add tower buttons with modern styling
-        const towers = [
-            { id: 'basicTower', name: 'Basic', cost: '$50', color: '#4CAF50', accentColor: '#81C784' },
-            { id: 'fastTower', name: 'Fast', cost: '$100', color: '#2196F3', accentColor: '#64B5F6' },
-            { id: 'heavyTower', name: 'Heavy', cost: '$150', color: '#FF9800', accentColor: '#FFB74D' },
-            { id: 'sniperTower', name: 'Sniper', cost: '$200', color: '#9C27B0', accentColor: '#BA68C8' },
-            { id: 'fireTower', name: 'Fire', cost: '$125', color: '#FF5722', accentColor: '#FF8A65' },
-            { id: 'waterTower', name: 'Water', cost: '$125', color: '#03A9F4', accentColor: '#4FC3F7' },
-            { id: 'windTower', name: 'Wind', cost: '$125', color: '#8BC34A', accentColor: '#AED581' },
-            { id: 'earthTower', name: 'Earth', cost: '$125', color: '#795548', accentColor: '#A1887F' }
-        ];
-
-        towers.forEach((tower, index) => {
-            const buttonContainer = new Rectangle(`${tower.id}_container`);
-            buttonContainer.width = '95px';
-            buttonContainer.height = '140px';  // Increased from 110px to 140px
-            buttonContainer.background = '#252525';
-            buttonContainer.cornerRadius = 6;
-            buttonContainer.thickness = 0;
-            buttonContainer.isPointerBlocker = true;
+        if (isMobile) {
+            // Mobile layout: 2x4 grid
+            this.towerSelectorPanel.width = '100%';
+            this.towerSelectorPanel.height = '400px';  // Taller for mobile
+            this.towerSelectorPanel.background = '#1A1A1A';
+            this.towerSelectorPanel.alpha = 0.95;
+            this.towerSelectorPanel.thickness = 1;
+            this.towerSelectorPanel.cornerRadius = 8;
+            this.towerSelectorPanel.color = "#333333";
+            this.towerSelectorPanel.zIndex = 10;
+            this.towerSelectorPanel.shadowColor = "rgba(0, 0, 0, 0.7)";
+            this.towerSelectorPanel.shadowBlur = 15;
+            this.towerSelectorPanel.shadowOffsetY = -3;
+            this.towerSelectorPanel.paddingBottom = "20px";
             
-            // Add top accent border
-            const accentBorder = new Rectangle(`${tower.id}_accent`);
-            accentBorder.width = '100%';
-            accentBorder.height = '3px';
-            accentBorder.background = tower.color;
-            accentBorder.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-            accentBorder.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-            accentBorder.cornerRadiusX = 3;
-            buttonContainer.addControl(accentBorder);
+            this.towerSelectorPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            this.towerSelectorPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+            this.towerSelectorPanel.top = '0px';
+            
+            // Create grid for tower buttons - 2x4 layout for mobile
+            const grid = new Grid();
+            for (let i = 0; i < 4; i++) {
+                grid.addColumnDefinition(1/4);
+            }
+            for (let i = 0; i < 2; i++) {
+                grid.addRowDefinition(1/2);
+            }
+            grid.width = '100%';
+            grid.height = '380px';
+            grid.top = '0px';
+            grid.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            this.towerSelectorPanel.addControl(grid);
 
-            // Add hover effect with transition-like animation
-            buttonContainer.onPointerEnterObservable.add(() => {
-                buttonContainer.background = '#303030';
-                
-                // Animate the accent border
-                let startSize = 3;
-                let targetSize = 5;
-                let step = 0.5;
-                let interval = setInterval(() => {
-                    startSize += step;
-                    accentBorder.height = startSize + "px";
-                    if (startSize >= targetSize) {
-                        clearInterval(interval);
-                    }
-                }, 20);
-                
-                // Animate text scaling
-                nameText.fontSize = Number(nameText.fontSize) + 1;
-                costText.fontSize = Number(costText.fontSize) + 1;
-            });
+            // Add tower buttons with mobile-optimized styling
+            const towers = [
+                { id: 'basicTower', name: 'Basic', cost: '$50', color: '#4CAF50', accentColor: '#81C784' },
+                { id: 'fastTower', name: 'Fast', cost: '$100', color: '#2196F3', accentColor: '#64B5F6' },
+                { id: 'heavyTower', name: 'Heavy', cost: '$150', color: '#FF9800', accentColor: '#FFB74D' },
+                { id: 'sniperTower', name: 'Sniper', cost: '$200', color: '#9C27B0', accentColor: '#BA68C8' },
+                { id: 'fireTower', name: 'Fire', cost: '$125', color: '#FF5722', accentColor: '#FF8A65' },
+                { id: 'waterTower', name: 'Water', cost: '$125', color: '#03A9F4', accentColor: '#4FC3F7' },
+                { id: 'windTower', name: 'Wind', cost: '$125', color: '#8BC34A', accentColor: '#AED581' },
+                { id: 'earthTower', name: 'Earth', cost: '$125', color: '#795548', accentColor: '#A1887F' }
+            ];
 
-            buttonContainer.onPointerOutObservable.add(() => {
+            towers.forEach((tower, index) => {
+                const buttonContainer = new Rectangle(`${tower.id}_container`);
+                buttonContainer.width = '90%';
+                buttonContainer.height = '90%';
                 buttonContainer.background = '#252525';
+                buttonContainer.cornerRadius = 6;
+                buttonContainer.thickness = 0;
+                buttonContainer.isPointerBlocker = true;
                 
-                // Animate the accent border back
-                let currentSize = parseFloat(accentBorder.height.toString());
-                let targetSize = 3;
-                let step = 0.5;
-                let interval = setInterval(() => {
-                    currentSize -= step;
-                    accentBorder.height = currentSize + "px";
-                    if (currentSize <= targetSize) {
-                        clearInterval(interval);
-                    }
-                }, 20);
-                
-                // Animate text scaling back
-                nameText.fontSize = Number(nameText.fontSize) - 1;
-                costText.fontSize = Number(costText.fontSize) - 1;
-            });
+                // Add top accent border
+                const accentBorder = new Rectangle(`${tower.id}_accent`);
+                accentBorder.width = '100%';
+                accentBorder.height = '3px';
+                accentBorder.background = tower.color;
+                accentBorder.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+                accentBorder.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+                accentBorder.cornerRadiusX = 3;
+                buttonContainer.addControl(accentBorder);
 
-            // Tower name with improved typography
-            const nameText = new TextBlock(`${tower.id}_name`, tower.name);
-            nameText.color = 'white';
-            nameText.fontSize = 18;
-            nameText.fontFamily = 'Arial';
-            nameText.fontWeight = 'bold';
-            nameText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-            nameText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-            nameText.top = '20px';
-            buttonContainer.addControl(nameText);
-
-            // Tower cost with improved styling
-            const costText = new TextBlock(`${tower.id}_cost`, tower.cost);
-            costText.color = tower.accentColor;
-            costText.fontSize = 24;  // Increased from 20px to 24px
-            costText.fontFamily = 'Arial';
-            costText.fontWeight = 'bold';
-            costText.outlineWidth = 1;  // Increased from 0.5 to 1
-            costText.outlineColor = 'black';
-            costText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-            costText.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-            costText.top = '-30px';  // Changed from -20px to -30px
-            buttonContainer.addControl(costText);
-
-            // Add click effect
-            buttonContainer.onPointerDownObservable.add(() => {
-                buttonContainer.background = '#1A1A1A';
-                
-                // Scale down slightly for press effect
-                buttonContainer.scaleX = 0.95;
-                buttonContainer.scaleY = 0.95;
-                
-                setTimeout(() => {
-                    buttonContainer.scaleX = 1;
-                    buttonContainer.scaleY = 1;
-                }, 100);
-            });
-
-            // Handle click to place tower
-            buttonContainer.onPointerClickObservable.add(() => {
-                // Check if player has enough money
-                if (this.playerStats && this.getTowerCost(tower.id) > this.playerStats.getMoney()) {
-                    // Shake effect for insufficient funds
-                    let originalLeft = 0;
-                    let shakeAmount = 3;
-                    let duration = 50;
+                // Add hover effect with transition-like animation
+                buttonContainer.onPointerEnterObservable.add(() => {
+                    buttonContainer.background = '#303030';
                     
-                    let shakeInterval = setInterval(() => {
-                        buttonContainer.left = (Math.random() * shakeAmount * 2 - shakeAmount) + "px";
+                    // Animate the accent border
+                    let startSize = 3;
+                    let targetSize = 5;
+                    let step = 0.5;
+                    let interval = setInterval(() => {
+                        startSize += step;
+                        accentBorder.height = startSize + "px";
+                        if (startSize >= targetSize) {
+                            clearInterval(interval);
+                        }
                     }, 20);
                     
-                    setTimeout(() => {
-                        clearInterval(shakeInterval);
-                        buttonContainer.left = originalLeft + "px";
-                    }, duration * 5);
+                    // Animate text scaling
+                    nameText.fontSize = Number(nameText.fontSize) + 1;
+                    costText.fontSize = Number(costText.fontSize) + 1;
+                });
+
+                buttonContainer.onPointerOutObservable.add(() => {
+                    buttonContainer.background = '#252525';
+                    accentBorder.height = "3px";
+                    nameText.fontSize = Number(nameText.fontSize) - 1;
+                    costText.fontSize = Number(costText.fontSize) - 1;
+                });
+
+                // Add tower name
+                const nameText = new TextBlock(`${tower.id}_name`, tower.name);
+                nameText.color = 'white';
+                nameText.fontSize = 16;
+                nameText.fontFamily = 'Arial';
+                nameText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+                nameText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+                nameText.top = "15px";
+                buttonContainer.addControl(nameText);
+
+                // Add cost
+                const costText = new TextBlock(`${tower.id}_cost`, tower.cost);
+                costText.color = '#FFD700';
+                costText.fontSize = 14;
+                costText.fontFamily = 'Arial';
+                costText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+                costText.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+                costText.top = "-20px";
+                buttonContainer.addControl(costText);
+
+                // Add click effect
+                buttonContainer.onPointerDownObservable.add(() => {
+                    buttonContainer.background = '#1A1A1A';
+                    buttonContainer.scaleX = 0.95;
+                    buttonContainer.scaleY = 0.95;
                     
-                    // Play error sound
-                    this.game.getAssetManager().playSound('error');
-                    return;
-                }
-                
-                this.selectedTowerType = tower.id;
-                this.placeTowerAtPosition(this.selectedPosition!);
-                this.hideTowerSelector();
-                this.hidePlacementOutline();
+                    setTimeout(() => {
+                        buttonContainer.scaleX = 1;
+                        buttonContainer.scaleY = 1;
+                    }, 100);
+                });
+
+                // Handle click to place tower
+                buttonContainer.onPointerClickObservable.add(() => {
+                    if (this.playerStats && this.getTowerCost(tower.id) > this.playerStats.getMoney()) {
+                        let originalLeft = 0;
+                        let shakeAmount = 3;
+                        let duration = 50;
+                        
+                        let shakeInterval = setInterval(() => {
+                            buttonContainer.left = (Math.random() * shakeAmount * 2 - shakeAmount) + "px";
+                        }, 20);
+                        
+                        setTimeout(() => {
+                            clearInterval(shakeInterval);
+                            buttonContainer.left = originalLeft + "px";
+                        }, duration * 5);
+                        
+                        this.game.getAssetManager().playSound('error');
+                        return;
+                    }
+                    
+                    this.selectedTowerType = tower.id;
+                    this.placeTowerAtPosition(this.selectedPosition!);
+                    this.hideTowerSelector();
+                    this.hidePlacementOutline();
+                });
+
+                // Calculate grid position (2x4 layout)
+                const row = Math.floor(index / 4);
+                const col = index % 4;
+                grid.addControl(buttonContainer, row, col);
             });
+        } else {
+            // Desktop layout (original 1x8 grid)
+            this.towerSelectorPanel.width = '850px';
+            this.towerSelectorPanel.height = '180px';
+            this.towerSelectorPanel.background = '#1A1A1A';
+            this.towerSelectorPanel.alpha = 0.95;
+            this.towerSelectorPanel.thickness = 1;
+            this.towerSelectorPanel.cornerRadius = 8;
+            this.towerSelectorPanel.color = "#333333";
+            this.towerSelectorPanel.zIndex = 10;
+            this.towerSelectorPanel.shadowColor = "rgba(0, 0, 0, 0.7)";
+            this.towerSelectorPanel.shadowBlur = 15;
+            this.towerSelectorPanel.shadowOffsetY = -3;
+            this.towerSelectorPanel.paddingBottom = "20px";
+            
+            this.towerSelectorPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            this.towerSelectorPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+            this.towerSelectorPanel.top = '-10px';
+            
+            // Create grid for tower buttons
+            const grid = new Grid();
+            for (let i = 0; i < 8; i++) {
+                grid.addColumnDefinition(1/8);
+            }
+            grid.addRowDefinition(1);
+            grid.width = '830px';
+            grid.height = '160px';
+            grid.top = '0px';
+            grid.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            this.towerSelectorPanel.addControl(grid);
 
-            grid.addControl(buttonContainer, 0, index);
-        });
+            // Add tower buttons with desktop styling
+            const towers = [
+                { id: 'basicTower', name: 'Basic', cost: '$50', color: '#4CAF50', accentColor: '#81C784' },
+                { id: 'fastTower', name: 'Fast', cost: '$100', color: '#2196F3', accentColor: '#64B5F6' },
+                { id: 'heavyTower', name: 'Heavy', cost: '$150', color: '#FF9800', accentColor: '#FFB74D' },
+                { id: 'sniperTower', name: 'Sniper', cost: '$200', color: '#9C27B0', accentColor: '#BA68C8' },
+                { id: 'fireTower', name: 'Fire', cost: '$125', color: '#FF5722', accentColor: '#FF8A65' },
+                { id: 'waterTower', name: 'Water', cost: '$125', color: '#03A9F4', accentColor: '#4FC3F7' },
+                { id: 'windTower', name: 'Wind', cost: '$125', color: '#8BC34A', accentColor: '#AED581' },
+                { id: 'earthTower', name: 'Earth', cost: '$125', color: '#795548', accentColor: '#A1887F' }
+            ];
 
-        // No close button - just add the panel directly
+            towers.forEach((tower, index) => {
+                const buttonContainer = new Rectangle(`${tower.id}_container`);
+                buttonContainer.width = '95px';
+                buttonContainer.height = '140px';
+                buttonContainer.background = '#252525';
+                buttonContainer.cornerRadius = 6;
+                buttonContainer.thickness = 0;
+                buttonContainer.isPointerBlocker = true;
+                
+                // Add top accent border
+                const accentBorder = new Rectangle(`${tower.id}_accent`);
+                accentBorder.width = '100%';
+                accentBorder.height = '3px';
+                accentBorder.background = tower.color;
+                accentBorder.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+                accentBorder.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+                accentBorder.cornerRadiusX = 3;
+                buttonContainer.addControl(accentBorder);
+
+                // Add hover effect with transition-like animation
+                buttonContainer.onPointerEnterObservable.add(() => {
+                    buttonContainer.background = '#303030';
+                    
+                    // Animate the accent border
+                    let startSize = 3;
+                    let targetSize = 5;
+                    let step = 0.5;
+                    let interval = setInterval(() => {
+                        startSize += step;
+                        accentBorder.height = startSize + "px";
+                        if (startSize >= targetSize) {
+                            clearInterval(interval);
+                        }
+                    }, 20);
+                    
+                    // Animate text scaling
+                    nameText.fontSize = Number(nameText.fontSize) + 1;
+                    costText.fontSize = Number(costText.fontSize) + 1;
+                });
+
+                buttonContainer.onPointerOutObservable.add(() => {
+                    buttonContainer.background = '#252525';
+                    accentBorder.height = "3px";
+                    nameText.fontSize = Number(nameText.fontSize) - 1;
+                    costText.fontSize = Number(costText.fontSize) - 1;
+                });
+
+                // Add tower name
+                const nameText = new TextBlock(`${tower.id}_name`, tower.name);
+                nameText.color = 'white';
+                nameText.fontSize = 14;
+                nameText.fontFamily = 'Arial';
+                nameText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+                nameText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+                nameText.top = "10px";
+                buttonContainer.addControl(nameText);
+
+                // Add cost
+                const costText = new TextBlock(`${tower.id}_cost`, tower.cost);
+                costText.color = '#FFD700';
+                costText.fontSize = 12;
+                costText.fontFamily = 'Arial';
+                costText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+                costText.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+                costText.top = "-20px";
+                buttonContainer.addControl(costText);
+
+                // Add click effect
+                buttonContainer.onPointerDownObservable.add(() => {
+                    buttonContainer.background = '#1A1A1A';
+                    buttonContainer.scaleX = 0.95;
+                    buttonContainer.scaleY = 0.95;
+                    
+                    setTimeout(() => {
+                        buttonContainer.scaleX = 1;
+                        buttonContainer.scaleY = 1;
+                    }, 100);
+                });
+
+                // Handle click to place tower
+                buttonContainer.onPointerClickObservable.add(() => {
+                    if (this.playerStats && this.getTowerCost(tower.id) > this.playerStats.getMoney()) {
+                        let originalLeft = 0;
+                        let shakeAmount = 3;
+                        let duration = 50;
+                        
+                        let shakeInterval = setInterval(() => {
+                            buttonContainer.left = (Math.random() * shakeAmount * 2 - shakeAmount) + "px";
+                        }, 20);
+                        
+                        setTimeout(() => {
+                            clearInterval(shakeInterval);
+                            buttonContainer.left = originalLeft + "px";
+                        }, duration * 5);
+                        
+                        this.game.getAssetManager().playSound('error');
+                        return;
+                    }
+                    
+                    this.selectedTowerType = tower.id;
+                    this.placeTowerAtPosition(this.selectedPosition!);
+                    this.hideTowerSelector();
+                    this.hidePlacementOutline();
+                });
+
+                grid.addControl(buttonContainer, 0, index);
+            });
+        }
+
+        // Add the panel to the UI
         this.ui.addControl(this.towerSelectorPanel);
     }
 

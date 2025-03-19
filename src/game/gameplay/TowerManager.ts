@@ -269,11 +269,14 @@ export class TowerManager {
         // Get the grid position before removing the tower
         const gridPosition = this.map.worldToGrid(tower.getPosition());
         
-        // Remove from towers list
-        this.removeTower(tower);
-        
-        // Dispose the tower
+        // Dispose the tower (which will clean up projectiles)
         tower.dispose();
+        
+        // Remove from towers list after disposal
+        const index = this.towers.indexOf(tower);
+        if (index !== -1) {
+            this.towers.splice(index, 1);
+        }
         
         // Update the grid after tower is disposed
         this.map.setTowerPlaced(gridPosition.x, gridPosition.y, false);
