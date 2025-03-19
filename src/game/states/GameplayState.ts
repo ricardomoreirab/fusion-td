@@ -595,6 +595,15 @@ export class GameplayState implements GameState {
                 return;
             }
             
+            // If we have an open tower selector, check if the click is outside it
+            // and close it if so
+            if (this.towerSelectorPanel) {
+                // First hide the tower selector to handle "clicking outside"
+                this.hideTowerSelector();
+                this.hidePlacementOutline();
+                return; // Return here to prevent immediate selection on the next click
+            }
+            
             // We'll detect clicks outside of towers and handle UI cleanup below
 
             // First check if we're clicking on a tower
@@ -2050,42 +2059,43 @@ export class GameplayState implements GameState {
 
         // Create circular tower selector panel - make it smaller
         this.towerSelectorPanel = new Rectangle('towerSelectorPanel');
-        this.towerSelectorPanel.width = '200px';  // Smaller circular area
-        this.towerSelectorPanel.height = '200px';
+        this.towerSelectorPanel.width = '260px';  // Larger circular area
+        this.towerSelectorPanel.height = '260px';
         this.towerSelectorPanel.background = 'rgba(0,0,0,0.7)';
-        this.towerSelectorPanel.cornerRadius = 100; // Make it fully circular
+        this.towerSelectorPanel.cornerRadius = 130; // Make it fully circular
         this.towerSelectorPanel.thickness = 1;
         this.towerSelectorPanel.color = "#444444";
         this.towerSelectorPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         this.towerSelectorPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         
         // Position the selector where the player clicked
-        this.towerSelectorPanel.left = (screenX - 100) + 'px'; // Center horizontally
-        this.towerSelectorPanel.top = (screenY - 100) + 'px';  // Center vertically
+        this.towerSelectorPanel.left = (screenX - 130) + 'px'; // Center horizontally
+        this.towerSelectorPanel.top = (screenY - 130) + 'px';  // Center vertically
         
         this.towerSelectorPanel.zIndex = 10;
         this.ui.addControl(this.towerSelectorPanel);
         
         // Define tower buttons
         const towers = [
-            { id: 'basicTower', name: 'B', cost: '50', color: '#4CAF50' },
-            { id: 'fastTower', name: 'F', cost: '100', color: '#2196F3' },
-            { id: 'heavyTower', name: 'H', cost: '150', color: '#FF9800' },
-            { id: 'sniperTower', name: 'S', cost: '200', color: '#9C27B0' },
-            { id: 'fireTower', name: '🔥', cost: '125', color: '#FF5722' },
-            { id: 'waterTower', name: '💧', cost: '125', color: '#03A9F4' },
-            { id: 'windTower', name: '💨', cost: '125', color: '#8BC34A' },
-            { id: 'earthTower', name: '🌍', cost: '125', color: '#795548' }
+            { id: 'basicTower', name: 'Basic', cost: '50', color: '#4CAF50' },
+            { id: 'fastTower', name: 'Fast', cost: '100', color: '#2196F3' },
+            { id: 'heavyTower', name: 'Heavy', cost: '150', color: '#FF9800' },
+            { id: 'sniperTower', name: 'Sniper', cost: '200', color: '#9C27B0' },
+            { id: 'fireTower', name: 'Fire', cost: '125', color: '#FF5722' },
+            { id: 'waterTower', name: 'Water', cost: '125', color: '#03A9F4' },
+            { id: 'windTower', name: 'Wind', cost: '125', color: '#8BC34A' },
+            { id: 'earthTower', name: 'Earth', cost: '125', color: '#795548' }
         ];
         
         // Create a circular arrangement of tower buttons
-        const radius = 65; // Smaller radius from center
+        const radius = 85; // Larger radius from center
         const buttonsCount = towers.length;
         
         // Add label in center
-        const centerLabel = new TextBlock("centerLabel", "Select");
+        const centerLabel = new TextBlock("centerLabel", "Click to\nselect tower");
         centerLabel.color = "white";
         centerLabel.fontSize = 14;
+        centerLabel.textWrapping = true;
         centerLabel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         centerLabel.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
         this.towerSelectorPanel.addControl(centerLabel);
@@ -2114,30 +2124,35 @@ export class GameplayState implements GameState {
             const y = -Math.cos(angle) * radius; // Negative because Y is down in UI coordinates
             
             // Create button container
-            const button = new Button(`${tower.id}_button`);
-            button.width = "32px";
-            button.height = "32px";
+            const button = new Rectangle(`${tower.id}_button`);
+            button.width = "55px";
+            button.height = "55px";
             button.background = tower.color;
-            button.color = "white";
-            button.cornerRadius = 16;
+            button.cornerRadius = 28;
             button.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
             button.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
             button.left = x + "px";
             button.top = y + "px";
             
-            // Tower icon/name
-            if (button.textBlock) {
-                button.textBlock.text = tower.name;
-                button.textBlock.fontSize = tower.name.length > 1 ? 10 : 14;
-            }
+            // Create name text directly (avoid using button.textBlock which might have issues)
+            const nameText = new TextBlock(`${tower.id}_name`, tower.name);
+            nameText.color = "white";
+            nameText.fontSize = 12;
+            nameText.textWrapping = true;
+            nameText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            nameText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+            nameText.top = "-10px";
+            nameText.outlineWidth = 1;
+            nameText.outlineColor = "black";
+            button.addControl(nameText);
             
-            // Add small cost indicator at bottom of button
+            // Add cost indicator at bottom of button
             const costIndicator = new TextBlock(`${tower.id}_cost`, "$" + tower.cost);
             costIndicator.color = "white";
-            costIndicator.fontSize = 9;
+            costIndicator.fontSize = 10;
             costIndicator.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
             costIndicator.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-            costIndicator.top = "10px";
+            costIndicator.top = "12px";
             costIndicator.outlineWidth = 1;
             costIndicator.outlineColor = "black";
             button.addControl(costIndicator);
@@ -2147,18 +2162,25 @@ export class GameplayState implements GameState {
                 button.background = this.lightenColor(tower.color, 20);
                 button.scaleX = 1.1;
                 button.scaleY = 1.1;
-                centerLabel.text = tower.id.replace('Tower', '');
+                
+                nameText.fontSize = 13;
+                nameText.outlineWidth = 2;
             });
             
             button.onPointerOutObservable.add(() => {
                 button.background = tower.color;
                 button.scaleX = 1.0;
                 button.scaleY = 1.0;
-                centerLabel.text = "Select";
+                
+                nameText.fontSize = 12;
+                nameText.outlineWidth = 1;
             });
             
+            // Make button clickable
+            button.isPointerBlocker = true;
+            
             // Handle tower selection - use the stored position
-            button.onPointerClickObservable.add(() => {
+            button.onPointerUpObservable.add(() => {
                 // Check if player has enough money
                 if (this.playerStats && this.getTowerCost(tower.id) > this.playerStats.getMoney()) {
                     // Shake effect for insufficient funds
