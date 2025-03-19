@@ -108,7 +108,7 @@ export class Game {
         
         // Adjust control speeds for better user experience
         camera.wheelPrecision = 40; // Smoother zoom speed (lower value = more sensitive)
-        camera.panningSensibility = 0; // Disable panning to keep focus on center
+        camera.panningSensibility = 100; // Enable panning to move around the map
         camera.angularSensibilityX = 400; // Faster horizontal rotation (lower value = more sensitive)
         camera.angularSensibilityY = 400; // Faster vertical rotation
         
