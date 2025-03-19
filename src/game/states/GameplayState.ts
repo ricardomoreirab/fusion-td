@@ -8,6 +8,7 @@ import { EnemyManager } from '../gameplay/EnemyManager';
 import { WaveManager } from '../gameplay/WaveManager';
 import { PlayerStats } from '../gameplay/PlayerStats';
 import { Tower } from '../gameplay/towers/Tower';
+import { WaveStatus } from '../gameplay/WaveStatus';
 
 export class GameplayState implements GameState {
     private game: Game;
@@ -180,19 +181,19 @@ export class GameplayState implements GameState {
         
         // Create minimalist stats icons with emojis
         const statsContainer = new Rectangle('statsContainer');
-        statsContainer.width = '150px';  // Increased width
-        statsContainer.height = '160px';  // Increased height to accommodate timer
+        statsContainer.width = '200px';  // Reduced width for more compact display
+        statsContainer.height = '180px';  // Reduced height
         statsContainer.background = 'transparent';
         statsContainer.thickness = 0;
         statsContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         statsContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        statsContainer.left = '0px';
+        statsContainer.left = '10px';
         statsContainer.top = '10px';
         this.ui.addControl(statsContainer);
 
         // Health display with heart emoji
         const healthContainer = new Rectangle('healthContainer');
-        healthContainer.width = '150px';  // Increased width
+        healthContainer.width = '190px';  // Slightly less than parent
         healthContainer.height = '40px';
         healthContainer.background = 'transparent';
         healthContainer.thickness = 0;
@@ -206,22 +207,23 @@ export class GameplayState implements GameState {
         healthText.text = `❤ 100`;  // Using heart emoji
         healthText.color = 'white';
         healthText.fontSize = 22;
-        healthText.fontFamily = 'Arial';  // Removed FontAwesome
+        healthText.fontFamily = 'Arial';
         healthText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         healthText.left = '10px';
         healthText.outlineWidth = 1;
         healthText.outlineColor = 'black';
+        healthText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         healthContainer.addControl(healthText);
 
         // Money display with coin emoji
         const moneyContainer = new Rectangle('moneyContainer');
-        moneyContainer.width = '150px';
+        moneyContainer.width = '190px'; // Slightly less than parent
         moneyContainer.height = '40px';
         moneyContainer.background = 'transparent';
         moneyContainer.thickness = 0;
         moneyContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         moneyContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        moneyContainer.top = '40px';
+        moneyContainer.top = '40px'; // Reduced spacing between items
         moneyContainer.left = '0px';
         statsContainer.addControl(moneyContainer);
 
@@ -229,22 +231,23 @@ export class GameplayState implements GameState {
         moneyText.text = `💰 100`;  // Using money bag emoji
         moneyText.color = 'white';
         moneyText.fontSize = 22;
-        moneyText.fontFamily = 'Arial';  // Removed FontAwesome
+        moneyText.fontFamily = 'Arial';
         moneyText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         moneyText.left = '10px';
         moneyText.outlineWidth = 1;
         moneyText.outlineColor = 'black';
+        moneyText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         moneyContainer.addControl(moneyText);
 
         // Wave display with wave emoji
         const waveContainer = new Rectangle('waveContainer');
-        waveContainer.width = '150px';
-        waveContainer.height = '40px';
+        waveContainer.width = '190px'; // Slightly less than parent
+        waveContainer.height = '40px'; // Reduced height for single line
         waveContainer.background = 'transparent';
         waveContainer.thickness = 0;
         waveContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         waveContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        waveContainer.top = '80px';
+        waveContainer.top = '80px'; // Return to original spacing
         waveContainer.left = '0px';
         statsContainer.addControl(waveContainer);
 
@@ -252,22 +255,23 @@ export class GameplayState implements GameState {
         waveText.text = `🌊 1`;  // Using wave emoji
         waveText.color = 'white';
         waveText.fontSize = 22;
-        waveText.fontFamily = 'Arial';  // Removed FontAwesome
+        waveText.fontFamily = 'Arial';
         waveText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         waveText.left = '10px';
         waveText.outlineWidth = 1;
         waveText.outlineColor = 'black';
+        waveText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         waveContainer.addControl(waveText);
         
         // Add timer display
         const timerContainer = new Rectangle('timerContainer');
-        timerContainer.width = '150px';
-        timerContainer.height = '40px';
+        timerContainer.width = '190px'; // Slightly less than parent
+        timerContainer.height = '40px'; // Reduced height for single line
         timerContainer.background = 'transparent';
         timerContainer.thickness = 0;
         timerContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         timerContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        timerContainer.top = '120px';
+        timerContainer.top = '120px'; // Return to original spacing
         timerContainer.left = '0px';
         statsContainer.addControl(timerContainer);
         
@@ -280,6 +284,7 @@ export class GameplayState implements GameState {
         timerText.left = '10px';
         timerText.outlineWidth = 1;
         timerText.outlineColor = 'black';
+        timerText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         timerContainer.addControl(timerText);
 
         // Add camera controls help text
@@ -529,101 +534,68 @@ export class GameplayState implements GameState {
 
     private updateUI(): void {
         if (!this.ui || !this.playerStats || !this.waveManager) return;
-        
+
         const healthText = this.ui.getControlByName('healthText') as TextBlock;
-        if (healthText) {
-            healthText.text = `❤ ${this.playerStats.getHealth()}`;  // Using heart emoji
-        }
-        
         const moneyText = this.ui.getControlByName('moneyText') as TextBlock;
-        if (moneyText) {
-            moneyText.text = `💰 ${this.playerStats.getMoney()}`;  // Using money bag emoji
-        }
-        
         const waveText = this.ui.getControlByName('waveText') as TextBlock;
-        if (waveText) {
-            // Get base difficulty, speed multiplier, and parallel wave multiplier
-            const baseDifficulty = this.waveManager.getDifficultyMultiplier();
-            const speedMultiplier = this.waveManager.getSpeedMultiplier();
-            const parallelMultiplier = this.waveManager.getParallelWaveMultiplier();
-            const effectiveDifficulty = this.waveManager.getEffectiveDifficultyMultiplier();
-            
-            // Display wave number with difficulty multiplier
-            let waveDisplay = `🌊 ${this.waveManager.getCurrentWave()}`;  // Using wave emoji
-            
-            // Add boss indicator if it's a boss wave
-            if (this.waveManager.isBossWave()) {
-                waveDisplay += ` 👑`; // Crown emoji for boss wave
-            }
-            
-            // Add parallel wave count if more than 1
-            const parallelWaveCount = this.waveManager.getActiveParallelWaveCount();
-            if (parallelWaveCount > 1) {
-                waveDisplay += ` (${parallelWaveCount})`;
-            }
-            
-            // Add difficulty display
-            if (effectiveDifficulty > 1.0) {
-                // Simple difficulty display
-                waveDisplay += ` ×${effectiveDifficulty.toFixed(1)}`;
-                
-                // Add speed indicator if it's affecting difficulty significantly
-                if (speedMultiplier > 1.1) {
-                    waveDisplay += ` 🔥`; // Fire emoji indicates speed bonus
-                }
-                
-                // Add parallel indicator if it's affecting difficulty
-                if (parallelMultiplier > 1.0) {
-                    waveDisplay += ` 🔄`; // Recycling symbol to indicate parallel waves
-                }
-            }
-            
-            waveText.text = waveDisplay;
-        }
-        
-        // Update timer
         const timerText = this.ui.getControlByName('timerText') as TextBlock;
-        if (timerText && this.waveManager.isWaveInProgress()) {
-            // Get the current wave time
-            const currentTime = performance.now() / 1000; // Convert to seconds
-            const waveTime = currentTime - this.waveManager.getWaveStartTime();
+
+        if (!healthText || !moneyText || !waveText || !timerText) return;
+
+        // Update health display with hearts
+        const health = this.playerStats.getHealth();
+        healthText.text = `❤ ${health}`;
+        
+        // Change color based on health
+        if (health <= 25) {
+            healthText.color = 'red';
+        } else if (health <= 50) {
+            healthText.color = 'orange';
+        } else {
+            healthText.color = 'white';
+        }
+
+        // Update money display with coins
+        moneyText.text = `💰 ${this.playerStats.getMoney()}`;
+
+        // Update wave display - simplified
+        const waveManager = this.waveManager;
+        const currentWave = waveManager.getCurrentWave();
+
+        // Add milestone indicator if it's a milestone wave
+        const isMilestone = waveManager.isMilestoneWave();
+        const milestoneIndicator = isMilestone ? ' 🔥🔥' : '';
+        
+        // Add boss indicator if it's a boss wave
+        const isBossWave = waveManager.isBossWave();
+        const bossIndicator = isBossWave ? ' 👹' : '';
+        
+        // Get the difficulty multiplier and format it to one decimal place
+        const diffMultiplier = waveManager.getDifficultyMultiplier().toFixed(1);
+        
+        // Add wave and difficulty in a compact format
+        waveText.text = `🌊 ${currentWave}${milestoneIndicator}${bossIndicator} (×${diffMultiplier})`;
+
+        // Update timer display - simplified
+        const waveStatus = waveManager.getWaveStatus();
+        if (waveStatus === WaveStatus.InProgress) {
+            // Show only enemy count, no timing info
+            const enemiesRemaining = waveManager.getRemainingEnemiesInWave();
+            timerText.text = `⏱️ ${enemiesRemaining}`;
+            timerText.color = 'white';
+        } else if (waveStatus === WaveStatus.Countdown) {
+            // Check if next wave is a milestone
+            const isNextMilestone = waveManager.isNextWaveMilestone();
+            const warningIcon = isNextMilestone ? '⚠️ ' : '⏱️ ';
             
-            // Format as minutes:seconds
-            const minutes = Math.floor(waveTime / 60);
-            const seconds = Math.floor(waveTime % 60);
-            const formattedTime = `${minutes}:${seconds.toString().padStart(2, '0')}`;
-            
-            // Update the timer text
-            timerText.text = `⏱️ ${formattedTime}`;
-            
-            // Change color based on time compared to base clear time
-            const baseClearTime = this.waveManager.getBaseClearTime();
-            
-            if (waveTime < baseClearTime * 0.6) {
-                // Fast - green
-                timerText.color = "lightgreen";
-            } else if (waveTime < baseClearTime) {
-                // Average - white
-                timerText.color = "white";
-            } else {
-                // Slow - yellow to red
-                const timeRatio = Math.min(waveTime / baseClearTime, 2.0);
-                const normalizedRatio = (timeRatio - 1.0);
-                timerText.color = normalizedRatio > 0.5 ? "salmon" : "khaki";
-            }
-        } else if (timerText && !this.waveManager.isWaveInProgress()) {
-            // Display last wave time if available
-            const lastTime = this.waveManager.getLastWaveClearTime();
-            if (lastTime > 0) {
-                const minutes = Math.floor(lastTime / 60);
-                const seconds = Math.floor(lastTime % 60);
-                const formattedTime = `${minutes}:${seconds.toString().padStart(2, '0')}`;
-                timerText.text = `⏱️ ${formattedTime}`;
-                timerText.color = "gray"; // Gray to indicate it's not active
-            } else {
-                timerText.text = `⏱️ --:--`;
-                timerText.color = "gray";
-            }
+            // Show simplified countdown (just the number of seconds)
+            const nextWaveTimeRemaining = waveManager.getTimeToNextWave();
+            timerText.text = `${warningIcon}${nextWaveTimeRemaining.toFixed(0)}s`;
+            timerText.color = isNextMilestone ? '#ff8800' : 'white';
+        } else {
+            // Ready for next wave
+            timerText.text = `⏱️ Ready!`;
+            timerText.color = 'green';
         }
     }
     
@@ -1878,16 +1850,116 @@ export class GameplayState implements GameState {
 
     private updateWaveButtonState(waveButton: Button): void {
         if (!waveButton || !waveButton.textBlock || !this.waveManager) return;
-
+        
         if (this.waveManager.isWaveInProgress()) {
             waveButton.textBlock.text = '⟳';  // Using random icon
             waveButton.background = '#F57C00';
+            
+            // Cancel any milestone pulse effect
+            if (waveButton.metadata?.isPulsing) {
+                waveButton.metadata.isPulsing = false;
+                waveButton.fontSize = 20; // Reset font size
+            }
         } else if (this.waveManager.getAutoWaveTimeRemaining() > 0) {
+            // Normal auto-wave countdown
             waveButton.textBlock.text = '⏲';  // Using clock icon
-            waveButton.background = '#1976D2';
+            
+            // Check if next wave is a milestone wave
+            if (this.waveManager.isNextWaveMilestone()) {
+                // Warning color for milestone
+                waveButton.background = '#FF8800';
+                
+                // Add pulse animation for milestone warning
+                if (!waveButton.metadata?.isPulsing) {
+                    waveButton.metadata = { isPulsing: true };
+                    
+                    // Create pulse animation
+                    const pulseAnimation = () => {
+                        if (!waveButton || !waveButton.metadata?.isPulsing) return;
+                        
+                        // Calculate scale based on time
+                        const scaleValue = 1.0 + 0.1 * Math.sin(performance.now() / 200);
+                        waveButton.fontSize = Math.floor(20 * scaleValue);
+                        
+                        // Continue animation
+                        requestAnimationFrame(pulseAnimation);
+                    };
+                    
+                    // Start pulse animation
+                    pulseAnimation();
+                }
+            } else {
+                // Normal auto-wave button
+                waveButton.background = '#1976D2';
+                
+                // Cancel pulse if active
+                if (waveButton.metadata?.isPulsing) {
+                    waveButton.metadata.isPulsing = false;
+                    waveButton.fontSize = 20; // Reset font size
+                }
+            }
         } else {
+            // Ready to start next wave
             waveButton.textBlock.text = '+';  // Using plus icon
-            waveButton.background = '#D32F2F';
+            
+            // Check if next wave is a milestone wave
+            if (this.waveManager.isNextWaveMilestone()) {
+                // Warning color and animation for milestone
+                waveButton.background = '#FF8800';
+                
+                // Add pulsing warning animation
+                if (!waveButton.metadata?.isPulsing) {
+                    waveButton.metadata = { isPulsing: true };
+                    
+                    const pulseAnimation = () => {
+                        if (!waveButton || !waveButton.metadata?.isPulsing) return;
+                        
+                        const scaleValue = 1.0 + 0.15 * Math.sin(performance.now() / 150);
+                        waveButton.fontSize = Math.floor(20 * scaleValue);
+                        
+                        requestAnimationFrame(pulseAnimation);
+                    };
+                    
+                    pulseAnimation();
+                }
+                
+                // Override the hover behavior for milestone waves
+                waveButton.onPointerEnterObservable.clear();
+                waveButton.onPointerOutObservable.clear();
+                
+                waveButton.onPointerEnterObservable.add(() => {
+                    waveButton.background = '#FF9800';
+                    waveButton.shadowOffsetY = 4;
+                });
+                
+                waveButton.onPointerOutObservable.add(() => {
+                    waveButton.background = '#FF8800';
+                    waveButton.shadowOffsetY = 2;
+                });
+            } else {
+                // Normal wave button
+                waveButton.background = '#D32F2F';
+                
+                // Reset hover behavior
+                waveButton.onPointerEnterObservable.clear();
+                waveButton.onPointerOutObservable.clear();
+                
+                waveButton.onPointerEnterObservable.add(() => {
+                    waveButton.background = '#F44336';
+                    waveButton.shadowOffsetY = 4;
+                });
+                
+                waveButton.onPointerOutObservable.add(() => {
+                    waveButton.background = '#D32F2F';
+                    waveButton.shadowOffsetY = 2;
+                });
+                
+                // Cancel pulse if active
+                if (waveButton.metadata?.isPulsing) {
+                    waveButton.metadata.isPulsing = false;
+                    waveButton.fontSize = 20; // Reset font size
+                }
+            }
         }
     }
 

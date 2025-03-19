@@ -1,6 +1,7 @@
 import { EnemyManager } from './EnemyManager';
 import { PlayerStats } from './PlayerStats';
 import { Enemy } from './enemies/Enemy';
+import { WaveStatus } from './WaveStatus';
 
 // Define a wave of enemies
 interface Wave {
@@ -480,12 +481,22 @@ export class WaveManager {
         // Store the wave start time for speed-based difficulty
         this.waveStartTime = performance.now() / 1000; // Convert to seconds
         
-        // Update basic difficulty multiplier every wave (10% increase)
-        this.difficultyMultiplier *= 1.1;
+        // First apply the standard 15% increase per wave (increased from 10%)
+        this.difficultyMultiplier *= 1.15;
+        
+        // Check if this is a milestone wave (every 5 waves)
+        if (this.currentWave % 5 === 0) {
+            // Double the CURRENT difficulty (after the 15% increase was already applied)
+            // This makes the doubling accumulative
+            this.difficultyMultiplier *= 2.5; // Increased from 2.0 to 2.5 (150% increase instead of 100%)
+            console.log(`%c MILESTONE WAVE ${this.currentWave}! Difficulty INCREASED BY 150% to ${this.difficultyMultiplier.toFixed(2)}x! %c`, 
+                'background: #ff5500; color: #fff; font-size: 18px; font-weight: bold; padding: 4px 8px;',
+                'background: none; color: inherit;');
+        }
         
         // Apply speed multiplier to the basic difficulty multiplier
-        const effectiveDifficulty = Math.min(this.difficultyMultiplier * this.speedMultiplier, 10.0);
-        console.log(`Wave ${this.currentWave}: Difficulty set to ${effectiveDifficulty.toFixed(2)}x (base: ${this.difficultyMultiplier.toFixed(2)}x, speed: ${this.speedMultiplier.toFixed(2)}x)`);
+        const effectiveDifficulty = Math.min(this.difficultyMultiplier * this.speedMultiplier * this.parallelWaveMultiplier, 15.0); // Increased cap from 10.0 to 15.0
+        console.log(`Wave ${this.currentWave}: Difficulty set to ${effectiveDifficulty.toFixed(2)}x (base: ${this.difficultyMultiplier.toFixed(2)}x, speed: ${this.speedMultiplier.toFixed(2)}x, parallel: ${this.parallelWaveMultiplier.toFixed(2)}x)`);
         
         // Get the current wave
         let wave: Wave;
@@ -719,11 +730,19 @@ export class WaveManager {
         // Increment wave counter
         this.currentWave++;
         
-        // Update difficulty multiplier (10% increase per wave)
-        this.difficultyMultiplier *= 1.1;
-        console.log(`Wave ${this.currentWave}: Difficulty increased to ${this.difficultyMultiplier.toFixed(2)}x`);
+        // First apply the standard 15% increase (updated from 10%)
+        this.difficultyMultiplier *= 1.15;
         
-        console.log(`Wave counter incremented to ${this.currentWave}`);
+        // Check if this is a milestone wave (every 5 waves)
+        if (this.currentWave % 5 === 0) {
+            // Apply the 150% increase (updated from 100%)
+            this.difficultyMultiplier *= 2.5;
+            console.log(`%c MILESTONE WAVE ${this.currentWave}! Difficulty INCREASED BY 150% to ${this.difficultyMultiplier.toFixed(2)}x! %c`, 
+                'background: #ff5500; color: #fff; font-size: 18px; font-weight: bold; padding: 4px 8px;',
+                'background: none; color: inherit;');
+        } else {
+            console.log(`Wave ${this.currentWave}: Difficulty increased to ${this.difficultyMultiplier.toFixed(2)}x`);
+        }
     }
 
     /**
@@ -780,5 +799,70 @@ export class WaveManager {
         
         // For generated waves, boss appears every 5 waves starting at wave 10
         return this.currentWave >= 10 && (this.currentWave - 10) % 5 === 0;
+    }
+
+    /**
+     * Check if the current wave is a milestone wave (every 5 waves)
+     * @returns True if the current wave is a milestone wave
+     */
+    public isMilestoneWave(): boolean {
+        return this.currentWave > 0 && this.currentWave % 5 === 0;
+    }
+    
+    /**
+     * Check if the next wave will be a milestone wave (every 5 waves)
+     * @returns True if the next wave will be a milestone wave
+     */
+    public isNextWaveMilestone(): boolean {
+        return (this.currentWave + 1) % 5 === 0;
+    }
+
+    /**
+     * Get the current wave status
+     * @returns The current wave status
+     */
+    public getWaveStatus(): WaveStatus {
+        if (this.waveInProgress) {
+            return WaveStatus.InProgress;
+        } else if (this.getAutoWaveTimeRemaining() > 0) {
+            return WaveStatus.Countdown;
+        } else {
+            return WaveStatus.Ready;
+        }
+    }
+
+    /**
+     * Get the time remaining until next enemy spawn
+     * @returns Time in seconds until next enemy spawn, or 0 if no enemies left to spawn
+     */
+    public getTimeToNextSpawn(): number {
+        if (!this.waveInProgress || this.enemiesLeftToSpawn.length === 0) {
+            return 0;
+        }
+        
+        const nextDelay = this.enemiesLeftToSpawn[0].delay;
+        return Math.max(0, nextDelay - this.timeSinceLastSpawn);
+    }
+
+    /**
+     * Get the number of remaining enemies in the current wave
+     * @returns The number of enemies left to spawn + active enemies on the map
+     */
+    public getRemainingEnemiesInWave(): number {
+        if (!this.waveInProgress) {
+            return 0;
+        }
+        
+        const toSpawn = this.enemiesLeftToSpawn.length;
+        const active = this.enemyManager.getEnemyCount();
+        return toSpawn + active;
+    }
+
+    /**
+     * Get the time remaining until next wave starts
+     * @returns Time in seconds until next wave, or 0 if no wave is pending
+     */
+    public getTimeToNextWave(): number {
+        return this.getAutoWaveTimeRemaining();
     }
 } 

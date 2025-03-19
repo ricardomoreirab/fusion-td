@@ -1,4 +1,4 @@
-import { Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, Color4, Scene, ParticleSystem, Texture } from '@babylonjs/core';
+import { Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, Color4, Scene, ParticleSystem, Texture, DynamicTexture, Sound } from '@babylonjs/core';
 import { Game } from '../../Game';
 import { EnemyType, StatusEffect } from '../towers/Tower';
 import { TowerManager } from '../TowerManager';
@@ -44,6 +44,7 @@ export class Enemy {
     protected burnDamageInterval: number = 0.5; // Seconds between burn damage ticks
     protected lastBurnDamageTime: number = 0;
     protected burnDamagePerTick: number = 0;
+    protected damageResistance: number = 0;
 
     constructor(game: Game, position: Vector3, path: Vector3[], speed: number, health: number, damage: number, reward: number) {
         this.game = game;
@@ -554,14 +555,48 @@ export class Enemy {
     }
 
     /**
-     * Apply damage to the enemy
+     * Apply a difficulty multiplier to the enemy's stats
+     * @param multiplier The multiplier to apply
+     */
+    public applyDifficultyMultiplier(multiplier: number): void {
+        // Apply stronger multiplier to health (increased from just multiplier to multiplier^1.5)
+        const healthMultiplier = Math.pow(multiplier, 1.5);
+        this.maxHealth = Math.floor(this.maxHealth * healthMultiplier);
+        this.health = this.maxHealth;
+        
+        // Apply multiplier to damage (increased from multiplier to multiplier*1.2)
+        this.damage = Math.floor(this.damage * multiplier * 1.2);
+        
+        // Apply multiplier to reward (slightly increased to compensate for difficulty)
+        this.reward = Math.floor(this.reward * multiplier * 1.1);
+        
+        // Add damage resistance based on difficulty - increased scaling
+        // Higher multiplier = more resistance (damage reduction)
+        // Previous formula: Math.min(0.5, (multiplier - 1) * 0.1)
+        // New formula: Increased scaling and higher cap at 70%
+        this.damageResistance = Math.min(0.7, (multiplier - 1) * 0.15);
+        
+        // Update health bar
+        this.updateHealthBar();
+        
+        console.log(`Enemy stats multiplied by ${multiplier.toFixed(2)}, health: ${this.maxHealth} (×${healthMultiplier.toFixed(2)}), resistance: ${(this.damageResistance * 100).toFixed(0)}%`);
+    }
+    
+    /**
+     * Apply damage to the enemy with damage resistance
      * @param amount The amount of damage to apply
      * @returns True if the enemy died from this damage
      */
     public takeDamage(amount: number): boolean {
         if (!this.alive) return false;
         
-        this.health -= amount;
+        // Apply damage resistance if it exists
+        let actualDamage = amount;
+        if (this.damageResistance && this.damageResistance > 0) {
+            actualDamage = amount * (1 - this.damageResistance);
+        }
+        
+        this.health -= actualDamage;
         
         // Update health bar instead of scaling
         this.updateHealthBar();
@@ -669,25 +704,6 @@ export class Enemy {
             particleSystem.dispose();
         });
         this.statusEffectParticles.clear();
-    }
-
-    /**
-     * Apply a difficulty multiplier to the enemy's stats
-     * @param multiplier The multiplier to apply
-     */
-    public applyDifficultyMultiplier(multiplier: number): void {
-        // Apply multiplier to health
-        this.maxHealth = Math.floor(this.maxHealth * multiplier);
-        this.health = this.maxHealth;
-        
-        // Apply multiplier to damage
-        this.damage = Math.floor(this.damage * multiplier);
-        
-        // Apply multiplier to reward
-        this.reward = Math.floor(this.reward * multiplier);
-        
-        // Update health bar
-        this.updateHealthBar();
     }
 
     /**
@@ -836,63 +852,55 @@ export class Enemy {
     protected destroyTower(tower: Tower): void {
         if (!this.towerManager) return;
         
-        // Create destruction effect
-        this.createTowerDestructionEffect(tower.getPosition());
-        
-        // Remove the tower
+        // Simply remove the tower without any special effects
         this.towerManager.sellTower(tower);
+        
+        // Show a message on the screen
+        this.showTowerDestroyedMessage();
+        
+        // Log the tower destruction
+        console.log("Tower destroyed by boss enemy");
+    }
+    
+    /**
+     * Show a message when a tower is destroyed
+     */
+    protected showTowerDestroyedMessage(): void {
+        const scene = this.scene;
+        if (!scene) return;
+        
+        // Create a text block in the center of the screen
+        const message = document.createElement('div');
+        message.style.position = 'absolute';
+        message.style.top = '50%';
+        message.style.left = '50%';
+        message.style.transform = 'translate(-50%, -50%)';
+        message.style.background = 'rgba(200, 0, 0, 0.7)';
+        message.style.color = 'white';
+        message.style.padding = '15px 30px';
+        message.style.borderRadius = '5px';
+        message.style.fontFamily = 'Arial, sans-serif';
+        message.style.fontSize = '24px';
+        message.style.fontWeight = 'bold';
+        message.style.zIndex = '1000';
+        message.innerText = 'The boss destroyed your tower!';
+        
+        // Add to document
+        document.body.appendChild(message);
+        
+        // Remove after 2 seconds
+        setTimeout(() => {
+            document.body.removeChild(message);
+        }, 2000);
     }
     
     /**
      * Create a destruction effect at the tower position
+     * This method is kept empty to avoid trying to load external assets
      * @param position The position of the destroyed tower
      */
     protected createTowerDestructionEffect(position: Vector3): void {
-        // Create explosion effect
-        const explosion = new ParticleSystem("towerExplosion", 100, this.scene);
-        explosion.particleTexture = new Texture("assets/particles/flare.png", this.scene);
-        explosion.emitter = position;
-        explosion.minEmitBox = new Vector3(-0.5, 0, -0.5);
-        explosion.maxEmitBox = new Vector3(0.5, 1, 0.5);
-        
-        // Set particle properties
-        explosion.color1 = new Color4(1, 0.5, 0.1, 1);
-        explosion.color2 = new Color4(1, 0.2, 0.1, 1);
-        explosion.colorDead = new Color4(0, 0, 0, 0);
-        
-        explosion.minSize = 0.5;
-        explosion.maxSize = 1.5;
-        
-        explosion.minLifeTime = 0.5;
-        explosion.maxLifeTime = 1.5;
-        
-        explosion.emitRate = 100;
-        explosion.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-        explosion.gravity = new Vector3(0, 8, 0);
-        explosion.direction1 = new Vector3(-2, 5, -2);
-        explosion.direction2 = new Vector3(2, 8, 2);
-        
-        explosion.minAngularSpeed = 0;
-        explosion.maxAngularSpeed = Math.PI;
-        
-        explosion.minEmitPower = 1;
-        explosion.maxEmitPower = 3;
-        
-        explosion.targetStopDuration = 0.5;
-        
-        // Start the system
-        explosion.start();
-        
-        // Create sound effect
-        // Play destruction sound
-        const randomSound = Math.floor(Math.random() * 3) + 1;
-        const sound = new Audio(`assets/audio/explosion${randomSound}.mp3`);
-        sound.volume = 0.5;
-        sound.play();
-        
-        // Clean up after effect completes
-        setTimeout(() => {
-            explosion.dispose();
-        }, 2000);
+        // Method intentionally left empty to prevent asset loading errors
+        console.log("Tower destroyed at position", position);
     }
 } 

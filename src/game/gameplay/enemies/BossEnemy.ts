@@ -16,15 +16,19 @@ export class BossEnemy extends Enemy {
     
     constructor(game: Game, position: Vector3, path: Vector3[]) {
         // Boss enemy has very low speed, extremely high health, high damage, and very high reward
-        super(game, position, path, 0.7, 300, 30, 100);
+        // Increased base health from 300 to 500, damage from 30 to 50, reward from 100 to 150
+        super(game, position, path, 0.7, 500, 50, 150);
         
         // Enable tower destruction ability for boss
         this.canDestroyTowers = true;
-        this.towerDestructionRange = 3.0; // 3 units range for destroying towers
-        this.towerDestructionCooldown = 5.0; // 5 seconds cooldown
+        this.towerDestructionRange = 4.0; // Increased from 3.0 to 4.0 units range for destroying towers
+        this.towerDestructionCooldown = 4.0; // Reduced from 5.0 to 4.0 seconds cooldown
         
         // Create visual range indicator for tower destruction
         this.createTowerDestructionRangeIndicator();
+
+        // Add innate damage resistance for bosses (20%)
+        this.damageResistance = 0.2;
     }
 
     protected createMesh(): void {
@@ -550,5 +554,30 @@ export class BossEnemy extends Enemy {
         
         // Call parent dispose
         super.dispose();
+    }
+
+    /**
+     * Override applyDifficultyMultiplier to make bosses extra challenging
+     * @param multiplier The difficulty multiplier
+     */
+    public applyDifficultyMultiplier(multiplier: number): void {
+        // Apply the standard difficulty scaling first
+        super.applyDifficultyMultiplier(multiplier);
+        
+        // Then add an additional boss-specific multiplier
+        const bossMultiplier = 1.2; // Additional 20% power for bosses
+        
+        // Further increase health and damage for bosses
+        this.maxHealth = Math.floor(this.maxHealth * bossMultiplier);
+        this.health = this.maxHealth;
+        this.damage = Math.floor(this.damage * bossMultiplier);
+        
+        // Increase boss resistance (on top of existing resistance)
+        this.damageResistance = Math.min(0.8, this.damageResistance + 0.05);
+        
+        // Update health bar
+        this.updateHealthBar();
+        
+        console.log(`Boss upgraded with additional multiplier: ${bossMultiplier}. Final stats - Health: ${this.maxHealth}, Resistance: ${(this.damageResistance * 100).toFixed(0)}%`);
     }
 } 

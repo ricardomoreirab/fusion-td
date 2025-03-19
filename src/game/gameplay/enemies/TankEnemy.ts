@@ -414,13 +414,16 @@ export class TankEnemy extends Enemy {
     }
     
     /**
-     * Apply damage to the enemy with damage reduction
+     * Apply damage to the enemy with innate tank damage reduction
      * @param amount The amount of damage to apply
      * @returns True if the enemy died from this damage
      */
     public takeDamage(amount: number): boolean {
-        // Tank enemies have 20% damage reduction
-        const reducedAmount = amount * 0.8;
+        // Tank enemies now have innate 30% damage reduction (increased from 20%)
+        const tankReduction = amount * 0.3; // 30% damage reduction
+        const reducedAmount = amount - tankReduction;
+        
+        // Let the parent class handle additional resistance from difficulty
         return super.takeDamage(reducedAmount);
     }
     
