@@ -103,16 +103,16 @@ export class Game {
         camera.lowerAlphaLimit = 0; // Allow full 360-degree rotation
         camera.upperAlphaLimit = 2 * Math.PI; // Full circle rotation
         
-        // Enable camera controls
+        // Setup camera control - we'll enable controls in GameplayState
         camera.attachControl(this.canvas, true);
         
-        // Adjust control speeds for better user experience
-        camera.wheelPrecision = 40; // Smoother zoom speed (lower value = more sensitive)
-        camera.panningSensibility = 100; // Enable panning to move around the map
-        camera.angularSensibilityX = 400; // Faster horizontal rotation (lower value = more sensitive)
-        camera.angularSensibilityY = 400; // Faster vertical rotation
+        // Configure control speeds
+        camera.wheelPrecision = 40; // Smoother zoom speed
+        camera.panningSensibility = 100; // Panning sensitivity
+        camera.angularSensibilityX = 400; // Horizontal rotation sensitivity
+        camera.angularSensibilityY = 400; // Vertical rotation sensitivity
         
-        // Set inertia for smoother camera movement with quick response
+        // Set inertia for smoother camera movement
         camera.inertia = 0.5; // Lower inertia for more responsive controls
         
         // Additional camera improvements

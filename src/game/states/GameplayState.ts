@@ -50,6 +50,18 @@ export class GameplayState implements GameState {
     }
 
     public enter(): void {
+        console.log("Entering gameplay state");
+        this.game.cleanupScene();
+
+        this.scene = this.game.getScene();
+        if (!this.scene) {
+            console.error("Scene is null in GameplayState.enter()");
+            return;
+        }
+
+        // Setup camera control based on Shift key
+        this.setupCameraControls();
+        
         // Reset all state variables to ensure a clean start
         this.ui = null;
         this.map = null;
@@ -268,7 +280,7 @@ export class GameplayState implements GameState {
         // Add camera controls help text
         const cameraHelpContainer = new Rectangle('cameraHelpContainer');
         cameraHelpContainer.width = '300px';
-        cameraHelpContainer.height = '80px';
+        cameraHelpContainer.height = '100px';
         cameraHelpContainer.background = 'rgba(0,0,0,0.5)';
         cameraHelpContainer.cornerRadius = 5;
         cameraHelpContainer.thickness = 0;
@@ -280,7 +292,7 @@ export class GameplayState implements GameState {
         this.ui.addControl(cameraHelpContainer);
 
         const cameraHelpText = new TextBlock('cameraHelpText');
-        cameraHelpText.text = `🖱 Left-click + drag to rotate camera\n👆 Right-click + drag to move map\n⚙ Mouse wheel to zoom in/out\n⌨️ WASD keys to move map`;
+        cameraHelpText.text = `⌨️ Hold Shift key for camera controls\n🖱 Shift+Mouse drag to rotate/move\n⚙ Shift+Mouse wheel to zoom\n⌨️ Shift+WASD/Arrows keys also work`;
         cameraHelpText.color = 'white';
         cameraHelpText.fontSize = 12;
         cameraHelpText.fontFamily = 'Arial';
@@ -700,29 +712,61 @@ export class GameplayState implements GameState {
         this.scene.onKeyboardObservable.add((kbInfo) => {
             switch (kbInfo.type) {
                 case KeyboardEventTypes.KEYDOWN:
-                    switch (kbInfo.event.key) {
-                        case 'Escape':
-                            if (this.selectedTowerType) {
-                                this.cancelTowerPlacement();
-                            }
-                            break;
-                        // Add WASD controls for camera movement
-                        case 'w':
-                        case 'W':
-                            this.moveCamera(0, 0, 1); // Move forward
-                            break;
-                        case 's':
-                        case 'S':
-                            this.moveCamera(0, 0, -1); // Move backward
-                            break;
-                        case 'a':
-                        case 'A':
-                            this.moveCamera(-1, 0, 0); // Move left
-                            break;
-                        case 'd':
-                        case 'D':
-                            this.moveCamera(1, 0, 0); // Move right
-                            break;
+                    // Check if Escape is pressed to cancel tower placement
+                    if (kbInfo.event.key === 'Escape') {
+                        if (this.selectedTowerType) {
+                            this.cancelTowerPlacement();
+                        }
+                        return;
+                    }
+                    
+                    // Check if Shift key is pressed for camera controls
+                    const isShiftPressed = kbInfo.event.shiftKey;
+                    
+                    if (isShiftPressed) {
+                        // Camera movement with Shift+WASD
+                        switch (kbInfo.event.key) {
+                            case 'w':
+                            case 'W':
+                                this.moveCamera(0, 0, 1); // Move forward
+                                break;
+                            case 's':
+                            case 'S':
+                                this.moveCamera(0, 0, -1); // Move backward
+                                break;
+                            case 'a':
+                            case 'A':
+                                this.moveCamera(-1, 0, 0); // Move left
+                                break;
+                            case 'd':
+                            case 'D':
+                                this.moveCamera(1, 0, 0); // Move right
+                                break;
+                                
+                            // Camera zoom with Shift+E/Q
+                            case 'e':
+                            case 'E':
+                                this.zoomCamera(-1); // Zoom in
+                                break;
+                            case 'q':
+                            case 'Q':
+                                this.zoomCamera(1); // Zoom out
+                                break;
+                                
+                            // Camera rotation with Shift+Arrow keys
+                            case 'ArrowLeft':
+                                this.rotateCamera(-1, 0); // Rotate left
+                                break;
+                            case 'ArrowRight':
+                                this.rotateCamera(1, 0); // Rotate right
+                                break;
+                            case 'ArrowUp':
+                                this.rotateCamera(0, -1); // Rotate up
+                                break;
+                            case 'ArrowDown':
+                                this.rotateCamera(0, 1); // Rotate down
+                                break;
+                        }
                     }
                     break;
             }
@@ -2291,5 +2335,98 @@ export class GameplayState implements GameState {
             this.ui.removeControl(this.towerSelectorPanel);
             this.towerSelectorPanel = null;
         }
+    }
+
+    /**
+     * Zoom the camera in or out
+     * @param direction Positive for zoom out, negative for zoom in
+     */
+    private zoomCamera(direction: number): void {
+        if (!this.scene || !this.scene.activeCamera) return;
+        
+        const camera = this.scene.activeCamera as ArcRotateCamera;
+        const zoomSpeed = 5; // Adjust this value to control zoom speed
+        
+        // Add delta to radius (distance from target)
+        camera.radius += direction * zoomSpeed;
+        
+        // Enforce zoom limits
+        camera.radius = Math.max(camera.lowerRadiusLimit || 25, camera.radius);
+        camera.radius = Math.min(camera.upperRadiusLimit || 60, camera.radius);
+    }
+    
+    /**
+     * Rotate the camera horizontally or vertically
+     * @param horizontalDirection -1 for left, 1 for right, 0 for no horizontal change
+     * @param verticalDirection -1 for up, 1 for down, 0 for no vertical change
+     */
+    private rotateCamera(horizontalDirection: number, verticalDirection: number): void {
+        if (!this.scene || !this.scene.activeCamera) return;
+        
+        const camera = this.scene.activeCamera as ArcRotateCamera;
+        const rotationSpeed = 0.05; // Adjust this value to control rotation speed
+        
+        // Rotate horizontally (alpha)
+        if (horizontalDirection !== 0) {
+            camera.alpha += horizontalDirection * rotationSpeed;
+        }
+        
+        // Rotate vertically (beta)
+        if (verticalDirection !== 0) {
+            camera.beta += verticalDirection * rotationSpeed;
+            
+            // Enforce beta limits to prevent flipping
+            camera.beta = Math.max(camera.lowerBetaLimit || 0.1, camera.beta);
+            camera.beta = Math.min(camera.upperBetaLimit || Math.PI - 0.1, camera.beta);
+        }
+    }
+
+    /**
+     * Setup camera controls to only work when Shift key is pressed
+     */
+    private setupCameraControls(): void {
+        if (!this.scene) return;
+        
+        const camera = this.scene.activeCamera as ArcRotateCamera;
+        if (!camera) return;
+        
+        // Track shift key state
+        let isShiftPressed = false;
+        
+        // Disable all inputs initially
+        if (camera.inputs.attached.keyboard) {
+            camera.inputs.attached.keyboard.detachControl();
+        }
+        if (camera.inputs.attached.pointers) {
+            camera.inputs.attached.pointers.detachControl();
+        }
+        if (camera.inputs.attached.mousewheel) {
+            camera.inputs.attached.mousewheel.detachControl();
+        }
+        
+        // Add listeners for shift key
+        this.scene.onKeyboardObservable.add((kbInfo) => {
+            if (kbInfo.event.key === 'Shift') {
+                if (kbInfo.type === KeyboardEventTypes.KEYDOWN && !isShiftPressed) {
+                    isShiftPressed = true;
+                    // Enable inputs when shift is pressed
+                    if (camera.inputs.attached.pointers) {
+                        camera.inputs.attached.pointers.attachControl(true);
+                    }
+                    if (camera.inputs.attached.mousewheel) {
+                        camera.inputs.attached.mousewheel.attachControl(true);
+                    }
+                } else if (kbInfo.type === KeyboardEventTypes.KEYUP && isShiftPressed) {
+                    isShiftPressed = false;
+                    // Disable inputs when shift is released
+                    if (camera.inputs.attached.pointers) {
+                        camera.inputs.attached.pointers.detachControl();
+                    }
+                    if (camera.inputs.attached.mousewheel) {
+                        camera.inputs.attached.mousewheel.detachControl();
+                    }
+                }
+            }
+        });
     }
 } 
