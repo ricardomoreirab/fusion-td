@@ -385,7 +385,8 @@ export class BasicTower extends Tower {
             isInitialized = true;
         }, 500);
         
-        this.scene.registerBeforeRender(() => {
+        // Create the animation callback
+        const animationCallback = () => {
             if (this.targetEnemy && isInitialized) {
                 // Check if it's time to fire based on fire rate
                 const currentTime = performance.now();
@@ -446,7 +447,11 @@ export class BasicTower extends Tower {
                     activeBullets.splice(i, 1);
                 }
             }
-        });
+        };
+        
+        // Register the callback and store both the callback and bullet tracking in metadata
+        this.scene.registerBeforeRender(animationCallback);
+        this.mesh!.metadata = { activeBullets, animationCallback };
     }
 
     /**
@@ -539,5 +544,33 @@ export class BasicTower extends Tower {
                 sensorMat.diffuseColor = new Color3(0.7 + (this.level - 1) * 0.05, 0.2, 0.2); // Reduced from 0.1 to 0.05
             }
         }
+    }
+
+    /**
+     * Override dispose method to clean up active projectiles
+     */
+    public override dispose(): void {
+        // Clean up animation callback to prevent continued execution after disposal
+        if (this.mesh && this.mesh.metadata) {
+            // Unregister the beforeRender callback
+            if (this.mesh.metadata.animationCallback) {
+                this.scene.unregisterBeforeRender(this.mesh.metadata.animationCallback);
+            }
+            
+            // Dispose all active bullets
+            const activeBullets = this.mesh.metadata.activeBullets;
+            if (activeBullets) {
+                for (let i = activeBullets.length - 1; i >= 0; i--) {
+                    if (activeBullets[i].mesh && !activeBullets[i].mesh.isDisposed()) {
+                        activeBullets[i].mesh.dispose();
+                    }
+                }
+                // Clear the array
+                activeBullets.length = 0;
+            }
+        }
+        
+        // Call the parent class dispose method
+        super.dispose();
     }
 } 
