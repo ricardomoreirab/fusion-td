@@ -42,6 +42,8 @@ export class GameplayState implements GameState {
     private towerDamageText: TextBlock | null = null;
     private towerRangeText: TextBlock | null = null;
     private towerRateText: TextBlock | null = null;
+    private playerHealth: number = 100;
+    private playerMoney: number = 200;
 
     constructor(game: Game) {
         this.game = game;
@@ -182,7 +184,7 @@ export class GameplayState implements GameState {
         // Create minimalist stats icons with emojis
         const statsContainer = new Rectangle('statsContainer');
         statsContainer.width = '200px';  // Reduced width for more compact display
-        statsContainer.height = '180px';  // Reduced height
+        statsContainer.height = '140px';  // Reduced height (reduced from 180px to 140px)
         statsContainer.background = 'transparent';
         statsContainer.thickness = 0;
         statsContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
@@ -263,30 +265,6 @@ export class GameplayState implements GameState {
         waveText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         waveContainer.addControl(waveText);
         
-        // Add timer display
-        const timerContainer = new Rectangle('timerContainer');
-        timerContainer.width = '190px'; // Slightly less than parent
-        timerContainer.height = '40px'; // Reduced height for single line
-        timerContainer.background = 'transparent';
-        timerContainer.thickness = 0;
-        timerContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        timerContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        timerContainer.top = '120px'; // Return to original spacing
-        timerContainer.left = '0px';
-        statsContainer.addControl(timerContainer);
-        
-        const timerText = new TextBlock('timerText');
-        timerText.text = `⏱️ 0:00`;  // Using stopwatch emoji
-        timerText.color = 'white';
-        timerText.fontSize = 22;
-        timerText.fontFamily = 'Arial';
-        timerText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        timerText.left = '10px';
-        timerText.outlineWidth = 1;
-        timerText.outlineColor = 'black';
-        timerText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        timerContainer.addControl(timerText);
-
         // Add camera controls help text
         const cameraHelpContainer = new Rectangle('cameraHelpContainer');
         cameraHelpContainer.width = '300px';
@@ -535,12 +513,12 @@ export class GameplayState implements GameState {
     private updateUI(): void {
         if (!this.ui || !this.playerStats || !this.waveManager) return;
 
+        // Get references to UI elements
         const healthText = this.ui.getControlByName('healthText') as TextBlock;
         const moneyText = this.ui.getControlByName('moneyText') as TextBlock;
         const waveText = this.ui.getControlByName('waveText') as TextBlock;
-        const timerText = this.ui.getControlByName('timerText') as TextBlock;
 
-        if (!healthText || !moneyText || !waveText || !timerText) return;
+        if (!healthText || !moneyText || !waveText) return;
 
         // Update health display with hearts
         const health = this.playerStats.getHealth();
@@ -559,44 +537,24 @@ export class GameplayState implements GameState {
         moneyText.text = `💰 ${this.playerStats.getMoney()}`;
 
         // Update wave display - simplified
-        const waveManager = this.waveManager;
-        const currentWave = waveManager.getCurrentWave();
-
-        // Add milestone indicator if it's a milestone wave
-        const isMilestone = waveManager.isMilestoneWave();
-        const milestoneIndicator = isMilestone ? ' 🔥🔥' : '';
+        const currentWave = this.waveManager.getCurrentWave();
+        let waveDisplay = `🌊 ${currentWave}`;
         
-        // Add boss indicator if it's a boss wave
-        const isBossWave = waveManager.isBossWave();
-        const bossIndicator = isBossWave ? ' 👹' : '';
-        
-        // Get the difficulty multiplier and format it to one decimal place
-        const diffMultiplier = waveManager.getDifficultyMultiplier().toFixed(1);
-        
-        // Add wave and difficulty in a compact format
-        waveText.text = `🌊 ${currentWave}${milestoneIndicator}${bossIndicator} (×${diffMultiplier})`;
-
-        // Update timer display - simplified
-        const waveStatus = waveManager.getWaveStatus();
-        if (waveStatus === WaveStatus.InProgress) {
-            // Show only enemy count, no timing info
-            const enemiesRemaining = waveManager.getRemainingEnemiesInWave();
-            timerText.text = `⏱️ ${enemiesRemaining}`;
-            timerText.color = 'white';
-        } else if (waveStatus === WaveStatus.Countdown) {
-            // Check if next wave is a milestone
-            const isNextMilestone = waveManager.isNextWaveMilestone();
-            const warningIcon = isNextMilestone ? '⚠️ ' : '⏱️ ';
-            
-            // Show simplified countdown (just the number of seconds)
-            const nextWaveTimeRemaining = waveManager.getTimeToNextWave();
-            timerText.text = `${warningIcon}${nextWaveTimeRemaining.toFixed(0)}s`;
-            timerText.color = isNextMilestone ? '#ff8800' : 'white';
-        } else {
-            // Ready for next wave
-            timerText.text = `⏱️ Ready!`;
-            timerText.color = 'green';
+        // Add milestone indicator for milestone waves
+        if (this.waveManager.isMilestoneWave()) {
+            waveDisplay += " 🔥🔥";
         }
+        
+        // Show the effective difficulty
+        const difficulty = this.waveManager.getDifficultyMultiplier().toFixed(1);
+        waveDisplay += ` (×${difficulty})`;
+        
+        // Show a boss icon for boss waves
+        if (this.waveManager.isBossWave()) {
+            waveDisplay += " 👑";
+        }
+        
+        waveText.text = waveDisplay;
     }
     
     /**
