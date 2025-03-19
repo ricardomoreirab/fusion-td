@@ -122,13 +122,19 @@ export class Map {
         buildableMaterial.diffuseColor = new Color3(0.4, 0.6, 0.3); // Slightly different green
         buildableMaterial.specularColor = new Color3(0.1, 0.1, 0.1);
         
+        // Calculate the center offset to position the ground at origin
+        const mapWidth = this.gridSize * this.cellSize;
+        const mapHeight = this.gridSize * this.cellSize;
+        const centerX = mapWidth / 2 - this.cellSize;
+        const centerZ = mapHeight / 2 - this.cellSize;
+        
         // Create a single large ground mesh
         const ground = MeshBuilder.CreateGround('mainGround', {
-            width: this.gridSize * this.cellSize,
-            height: this.gridSize * this.cellSize,
+            width: mapWidth,
+            height: mapHeight,
             subdivisions: 2
         }, this.scene);
-        ground.position = new Vector3(0, -0.1, 0);
+        ground.position = new Vector3(centerX, -0.1, centerZ);
         ground.material = groundMaterial;
         ground.receiveShadows = true;
         this.groundMeshes.push(ground);
@@ -574,9 +580,16 @@ export class Map {
      * @returns World position
      */
     public gridToWorld(gridX: number, gridY: number): Vector3 {
-        const worldX = (gridX - this.gridSize / 2 + 0.5) * this.cellSize;
-        const worldZ = (gridY - this.gridSize / 2 + 0.5) * this.cellSize;
-        return new Vector3(worldX, 0, worldZ);
+        // Calculate the center offset
+        const mapWidth = this.gridSize * this.cellSize;
+        const mapHeight = this.gridSize * this.cellSize;
+        const centerX = mapWidth / 2 - this.cellSize;
+        const centerZ = mapHeight / 2 - this.cellSize;
+        
+        // Convert from grid coordinates to world coordinates with centering
+        const x = gridX * this.cellSize + this.cellSize / 2;
+        const z = gridY * this.cellSize + this.cellSize / 2;
+        return new Vector3(x, 0, z);
     }
 
     /**
@@ -585,8 +598,9 @@ export class Map {
      * @returns Grid coordinates
      */
     public worldToGrid(position: Vector3): { x: number, y: number } {
-        const gridX = Math.floor((position.x / this.cellSize) + (this.gridSize / 2));
-        const gridY = Math.floor((position.z / this.cellSize) + (this.gridSize / 2));
+        // Convert from world coordinates to grid coordinates
+        const gridX = Math.floor(position.x / this.cellSize);
+        const gridY = Math.floor(position.z / this.cellSize);
         return { x: gridX, y: gridY };
     }
 

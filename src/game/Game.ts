@@ -85,35 +85,43 @@ export class Game {
         const light = new HemisphericLight('light', new Vector3(0, 1, 0), this.scene);
         light.intensity = 0.7;
         
-        // Create an arc rotate camera with user controls enabled
+        // Create an arc rotate camera with more top-down view
         const camera = new ArcRotateCamera(
             'camera',          // name
-            2.078,             // alpha (horizontal rotation)
-            1.012,             // beta (vertical rotation)
-            50.8,              // radius (distance)
-            new Vector3(10, 0, 10), // target position (center of the map)
+            Math.PI / 4,       // alpha (horizontal rotation) - 45 degrees
+            Math.PI / 4,       // beta (vertical rotation) - 45 degrees (slightly less top-down)
+            38,                // radius (distance) - slightly closer for better view
+            new Vector3(20, 0, 20), // target position (center of the 20x20 grid map)
             this.scene
         );
         
-        // Set camera limits to allow rotation while keeping a reasonable view
-        camera.lowerRadiusLimit = 30; // Minimum zoom distance
-        camera.upperRadiusLimit = 70; // Maximum zoom distance
-        camera.lowerBetaLimit = 0.5; // Minimum beta angle (up/down rotation)
-        camera.upperBetaLimit = 1.5; // Maximum beta angle
-        camera.lowerAlphaLimit = 0.5; // Minimum alpha angle (left/right rotation)
-        camera.upperAlphaLimit = 3.5; // Maximum alpha angle
+        // Set camera limits to favor a top-down perspective
+        camera.lowerRadiusLimit = 25; // Minimum zoom distance
+        camera.upperRadiusLimit = 60; // Maximum zoom distance
+        camera.lowerBetaLimit = 0.3; // Higher minimum beta angle (less from above)
+        camera.upperBetaLimit = 0.9; // Higher maximum beta angle (allow slightly lower views)
+        camera.lowerAlphaLimit = 0; // Allow full 360-degree rotation
+        camera.upperAlphaLimit = 2 * Math.PI; // Full circle rotation
         
         // Enable camera controls
         camera.attachControl(this.canvas, true);
         
         // Adjust control speeds for better user experience
-        camera.wheelPrecision = 50; // Reduce zoom speed (higher value = slower)
-        camera.panningSensibility = 1000; // Reduce panning sensitivity
-        camera.angularSensibilityX = 500; // Horizontal rotation sensitivity
-        camera.angularSensibilityY = 500; // Vertical rotation sensitivity
+        camera.wheelPrecision = 40; // Smoother zoom speed (lower value = more sensitive)
+        camera.panningSensibility = 0; // Disable panning to keep focus on center
+        camera.angularSensibilityX = 400; // Faster horizontal rotation (lower value = more sensitive)
+        camera.angularSensibilityY = 400; // Faster vertical rotation
         
-        // Set inertia for smoother camera movement
-        camera.inertia = 0.7;
+        // Set inertia for smoother camera movement with quick response
+        camera.inertia = 0.5; // Lower inertia for more responsive controls
+        
+        // Additional camera improvements
+        camera.checkCollisions = false; // No collision detection needed
+        camera.useBouncingBehavior = true; // Bounce when reaching limits
+        camera.useAutoRotationBehavior = true; // Enable auto-rotation when idle
+        camera.autoRotationBehavior!.idleRotationSpeed = 0.05; // Slow idle rotation
+        camera.autoRotationBehavior!.idleRotationWaitTime = 10000; // Wait 10 seconds before auto-rotation
+        camera.autoRotationBehavior!.idleRotationSpinupTime = 2000; // Take 2 seconds to reach full speed
     }
 
     /**
