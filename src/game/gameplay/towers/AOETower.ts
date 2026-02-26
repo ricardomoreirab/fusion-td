@@ -1,59 +1,85 @@
-import { Vector3, MeshBuilder, StandardMaterial, Color3 } from '@babylonjs/core';
+import { Vector3, MeshBuilder, Color3, Mesh } from '@babylonjs/core';
 import { Game } from '../../Game';
 import { Tower } from './Tower';
+import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../rendering/LowPolyMaterial';
+import { PALETTE } from '../../rendering/StyleConstants';
 
 export class AOETower extends Tower {
     constructor(game: Game, position: Vector3) {
-        // AOE tower has medium range, low damage, high fire rate, and high cost
         super(game, position, 15, 5, 2, 150);
     }
 
     protected createMesh(): void {
-        // Create a cylinder for the tower base
+        this.mesh = new Mesh("aoeTowerRoot", this.scene);
+        this.mesh.position = this.position.clone();
+
+        // Hex base
         const base = MeshBuilder.CreateCylinder('aoeBase', {
-            height: 1,
-            diameter: 2.5
+            height: 0.4, diameterTop: 1.8, diameterBottom: 2.0, tessellation: 6
         }, this.scene);
-        base.position = new Vector3(this.position.x, 0.5, this.position.z);
-        
-        // Create a sphere for the tower body
-        const body = MeshBuilder.CreateSphere('aoeBody', {
-            diameter: 1.5
+        base.position = new Vector3(0, 0.2, 0);
+        base.material = createLowPolyMaterial('aoeBaseMat', PALETTE.TOWER_AOE, this.scene);
+        makeFlatShaded(base);
+        base.parent = this.mesh;
+
+        // Central pillar
+        const pillar = MeshBuilder.CreateBox('aoePillar', {
+            width: 0.6, height: 1.6, depth: 0.6
         }, this.scene);
-        body.position = new Vector3(this.position.x, 1.75, this.position.z);
-        
-        // Create smaller spheres around the main sphere
-        const orbitRadius = 1;
-        const numOrbiters = 4;
-        
-        for (let i = 0; i < numOrbiters; i++) {
-            const angle = (i / numOrbiters) * Math.PI * 2;
-            const x = this.position.x + Math.cos(angle) * orbitRadius;
-            const z = this.position.z + Math.sin(angle) * orbitRadius;
-            
-            const orbiter = MeshBuilder.CreateSphere(`aoeOrbiter${i}`, {
-                diameter: 0.5
+        pillar.position = new Vector3(0, 1.2, 0);
+        pillar.material = createLowPolyMaterial('aoePillarMat', PALETTE.TOWER_AOE, this.scene);
+        makeFlatShaded(pillar);
+        pillar.parent = this.mesh;
+
+        // Crystal material (emissive)
+        const crystalMat = createEmissiveMaterial('aoeCrystalMat', PALETTE.TOWER_AOE_CRYSTAL, 0.7, this.scene);
+
+        // 5 angled crystal prisms around the pillar top
+        const crystalCount = 5;
+        for (let i = 0; i < crystalCount; i++) {
+            const angle = (i / crystalCount) * Math.PI * 2;
+            const radius = 0.5;
+
+            // Each crystal is a polyhedron (octahedron type = 1)
+            const crystal = MeshBuilder.CreatePolyhedron(`aoeCrystal${i}`, {
+                type: 1, size: 0.2
             }, this.scene);
-            orbiter.position = new Vector3(x, 1.75, z);
-            
-            // Create material for the orbiter
-            const orbiterMaterial = new StandardMaterial(`aoeOrbiterMaterial${i}`, this.scene);
-            orbiterMaterial.diffuseColor = new Color3(0, 0.8, 0.8);
-            orbiterMaterial.emissiveColor = new Color3(0, 0.4, 0.4);
-            orbiter.material = orbiterMaterial;
+
+            const x = Math.cos(angle) * radius;
+            const z = Math.sin(angle) * radius;
+            crystal.position = new Vector3(x, 2.1, z);
+
+            // Tilt crystals outward
+            crystal.rotation.x = Math.cos(angle) * 0.4;
+            crystal.rotation.z = -Math.sin(angle) * 0.4;
+            crystal.rotation.y = angle;
+
+            crystal.material = crystalMat;
+            makeFlatShaded(crystal);
+            crystal.parent = this.mesh;
         }
-        
-        // Create materials
-        const baseMaterial = new StandardMaterial('aoeBaseMaterial', this.scene);
-        baseMaterial.diffuseColor = new Color3(0.3, 0.3, 0.6);
-        base.material = baseMaterial;
-        
-        const bodyMaterial = new StandardMaterial('aoeBodyMaterial', this.scene);
-        bodyMaterial.diffuseColor = new Color3(0.1, 0.1, 0.8);
-        bodyMaterial.emissiveColor = new Color3(0, 0, 0.3);
-        body.material = bodyMaterial;
-        
-        // Set the main mesh for the tower (used for targeting)
-        this.mesh = body;
+
+        // Top crystal (larger, centered)
+        const topCrystal = MeshBuilder.CreatePolyhedron('aoeTopCrystal', {
+            type: 1, size: 0.3
+        }, this.scene);
+        topCrystal.position = new Vector3(0, 2.4, 0);
+        topCrystal.material = crystalMat;
+        makeFlatShaded(topCrystal);
+        topCrystal.parent = this.mesh;
+
+        // Small accent crystal on base
+        const accentCrystal = MeshBuilder.CreatePolyhedron('aoeAccentCrystal', {
+            type: 1, size: 0.12
+        }, this.scene);
+        accentCrystal.position = new Vector3(0.7, 0.5, 0.3);
+        accentCrystal.rotation.y = 0.8;
+        accentCrystal.material = crystalMat;
+        makeFlatShaded(accentCrystal);
+        accentCrystal.parent = this.mesh;
     }
-} 
+
+    protected updateVisuals(): void {
+        // Could intensify crystal glow on upgrade
+    }
+}

@@ -63,7 +63,7 @@ class ParallelWave {
             
             // Apply difficulty multiplier with special handling for boss type
             if (enemyType === 'boss') {
-                const bossMultiplier = 10.0;
+                const bossMultiplier = 4.0;
                 enemy.applyDifficultyMultiplier(this.difficultyMultiplier * bossMultiplier);
                 console.log(`Boss enemy created in parallel wave with ${(this.difficultyMultiplier * bossMultiplier).toFixed(2)}x difficulty`);
             } else {
@@ -118,18 +118,18 @@ export class WaveManager {
     private autoWaveTimer: number = 0; // Timer for auto-starting waves
     private autoWaveDelay: number = 5; // Delay in seconds before auto-starting next wave
     private parallelWaves: ParallelWave[] = []; // Array of parallel waves
-    
+
     // Speed-based difficulty system
     private waveStartTime: number = 0; // Time when the wave started
     private baseClearTime: number = 60; // Base time in seconds expected to clear a wave
-    private minClearTime: number = 15; // Minimum time to clear a wave for max multiplier
-    private speedMultiplierMax: number = 10.0; // Maximum multiplier based on speed
+    private minClearTime: number = 20; // Minimum time to clear a wave for max multiplier
+    private speedMultiplierMax: number = 3.0; // Maximum speed multiplier (was 10, now capped to avoid punishment)
     private speedMultiplier: number = 1.0; // Current speed-based multiplier
     private lastWaveClearTime: number = 0; // Time taken to clear the last wave
-    
+
     // Parallel wave difficulty system
     private parallelWaveMultiplier: number = 1.0; // Additional multiplier for parallel waves
-    private maxParallelMultiplier: number = 2.0; // Maximum parallel wave multiplier (2x)
+    private maxParallelMultiplier: number = 1.5; // Maximum parallel wave multiplier (was 2x)
 
     constructor(enemyManager: EnemyManager, playerStats: PlayerStats) {
         this.enemyManager = enemyManager;
@@ -144,107 +144,212 @@ export class WaveManager {
 
     /**
      * Generate all waves for the game
+     * 20 hand-crafted waves with a smooth difficulty curve:
+     * - Waves 1-5: Tutorial phase (learn enemy types)
+     * - Waves 6-10: Early game (mixed waves, first boss at 10)
+     * - Waves 11-15: Mid game (tougher compositions, boss at 15)
+     * - Waves 16-20: Late game (intense, final boss at 20)
+     * - Waves 21+: Endless mode (procedurally scaled)
      */
     private generateWaves(): void {
-        // Generate 10 predefined waves
         this.waves = [];
-        
-        // Wave 1: Basic enemies only
+
+        // === TUTORIAL PHASE (Waves 1-5) ===
+
+        // Wave 1: "First Contact" - gentle introduction
         this.waves.push({
-            enemies: [
-                { type: 'basic', count: 10, delay: 1.5 }
-            ],
+            enemies: [{ type: 'basic', count: 6, delay: 2.0 }],
+            reward: 40
+        });
+
+        // Wave 2: "The Trickle" - slightly more, slightly faster
+        this.waves.push({
+            enemies: [{ type: 'basic', count: 10, delay: 1.5 }],
             reward: 50
         });
-        
-        // Wave 2: More basic enemies
+
+        // Wave 3: "Swift Shadows" - introduce fast enemies
         this.waves.push({
             enemies: [
-                { type: 'basic', count: 15, delay: 1.2 }
+                { type: 'basic', count: 8, delay: 1.5 },
+                { type: 'fast', count: 4, delay: 1.2 }
             ],
-            reward: 75
+            reward: 60
         });
-        
-        // Wave 3: Basic and fast enemies
+
+        // Wave 4: "Speed Demons" - fast enemy focus
+        this.waves.push({
+            enemies: [
+                { type: 'basic', count: 6, delay: 1.4 },
+                { type: 'fast', count: 8, delay: 1.0 }
+            ],
+            reward: 70
+        });
+
+        // Wave 5: "The Wall" - introduce tank enemies (mini-boss wave)
         this.waves.push({
             enemies: [
                 { type: 'basic', count: 10, delay: 1.2 },
-                { type: 'fast', count: 5, delay: 1.0 }
+                { type: 'tank', count: 2, delay: 3.0 }
             ],
             reward: 100
         });
-        
-        // Wave 4: More fast enemies
+
+        // === EARLY GAME (Waves 6-10) ===
+
+        // Wave 6: "Mixed Assault" - all three types
         this.waves.push({
             enemies: [
-                { type: 'basic', count: 8, delay: 1.2 },
-                { type: 'fast', count: 10, delay: 0.8 }
+                { type: 'basic', count: 12, delay: 1.0 },
+                { type: 'fast', count: 6, delay: 0.9 },
+                { type: 'tank', count: 3, delay: 2.5 }
             ],
-            reward: 125
+            reward: 80
         });
-        
-        // Wave 5: Introduce tank enemies
+
+        // Wave 7: "Swarm" - lots of weak enemies
         this.waves.push({
             enemies: [
-                { type: 'basic', count: 10, delay: 1.0 },
-                { type: 'fast', count: 8, delay: 0.8 },
-                { type: 'tank', count: 3, delay: 3.0 }
+                { type: 'basic', count: 18, delay: 0.7 },
+                { type: 'fast', count: 10, delay: 0.6 }
             ],
-            reward: 150
+            reward: 90
         });
-        
-        // Wave 6: More of everything
+
+        // Wave 8: "Iron March" - tank-heavy
         this.waves.push({
             enemies: [
-                { type: 'basic', count: 15, delay: 0.8 },
-                { type: 'fast', count: 10, delay: 0.7 },
-                { type: 'tank', count: 5, delay: 2.5 }
+                { type: 'basic', count: 8, delay: 1.0 },
+                { type: 'tank', count: 6, delay: 2.0 }
             ],
-            reward: 175
+            reward: 100
         });
-        
-        // Wave 7: Harder mix
+
+        // Wave 9: "The Storm" - fast and furious pre-boss
         this.waves.push({
             enemies: [
-                { type: 'basic', count: 20, delay: 0.7 },
-                { type: 'fast', count: 15, delay: 0.6 },
-                { type: 'tank', count: 8, delay: 2.0 }
+                { type: 'basic', count: 14, delay: 0.8 },
+                { type: 'fast', count: 12, delay: 0.5 },
+                { type: 'tank', count: 4, delay: 2.0 }
+            ],
+            reward: 120
+        });
+
+        // Wave 10: "BOSS - The Warlord" - first boss encounter
+        this.waves.push({
+            enemies: [
+                { type: 'basic', count: 8, delay: 0.8 },
+                { type: 'fast', count: 6, delay: 0.7 },
+                { type: 'tank', count: 3, delay: 2.0 },
+                { type: 'boss', count: 1, delay: 0 }
             ],
             reward: 200
         });
-        
-        // Wave 8: Even harder
+
+        // === MID GAME (Waves 11-15) ===
+
+        // Wave 11: "Second Wind" - breather after boss, but harder base
         this.waves.push({
             enemies: [
-                { type: 'basic', count: 15, delay: 0.6 },
-                { type: 'fast', count: 20, delay: 0.5 },
-                { type: 'tank', count: 10, delay: 1.8 }
+                { type: 'basic', count: 16, delay: 0.9 },
+                { type: 'fast', count: 8, delay: 0.7 }
             ],
-            reward: 225
+            reward: 100
         });
-        
-        // Wave 9: Pre-boss wave
+
+        // Wave 12: "Armored Column" - tanks with escort
         this.waves.push({
             enemies: [
-                { type: 'basic', count: 20, delay: 0.5 },
+                { type: 'basic', count: 10, delay: 0.8 },
+                { type: 'fast', count: 10, delay: 0.6 },
+                { type: 'tank', count: 8, delay: 1.8 }
+            ],
+            reward: 120
+        });
+
+        // Wave 13: "Blitz" - fast enemies everywhere
+        this.waves.push({
+            enemies: [
                 { type: 'fast', count: 20, delay: 0.4 },
-                { type: 'tank', count: 15, delay: 1.5 }
+                { type: 'basic', count: 8, delay: 0.8 }
+            ],
+            reward: 130
+        });
+
+        // Wave 14: "Fortress Breakers" - heavy assault
+        this.waves.push({
+            enemies: [
+                { type: 'basic', count: 14, delay: 0.7 },
+                { type: 'fast', count: 12, delay: 0.5 },
+                { type: 'tank', count: 10, delay: 1.5 }
+            ],
+            reward: 150
+        });
+
+        // Wave 15: "BOSS - The Siege" - second boss with heavier escort
+        this.waves.push({
+            enemies: [
+                { type: 'basic', count: 12, delay: 0.6 },
+                { type: 'fast', count: 8, delay: 0.5 },
+                { type: 'tank', count: 6, delay: 1.5 },
+                { type: 'boss', count: 1, delay: 0 }
             ],
             reward: 250
         });
-        
-        // Wave 10: Boss wave
+
+        // === LATE GAME (Waves 16-20) ===
+
+        // Wave 16: "No Rest" - relentless mixed assault
         this.waves.push({
             enemies: [
-                { type: 'basic', count: 10, delay: 0.4 },
-                { type: 'fast', count: 10, delay: 0.3 },
-                { type: 'tank', count: 5, delay: 1.0 },
-                { type: 'boss', count: 1, delay: 0 }
+                { type: 'basic', count: 20, delay: 0.6 },
+                { type: 'fast', count: 14, delay: 0.4 },
+                { type: 'tank', count: 8, delay: 1.5 }
             ],
-            reward: 500
+            reward: 140
         });
-        
-        // Set total waves to infinity (we'll generate more as needed)
+
+        // Wave 17: "Tank Division" - maximum armor
+        this.waves.push({
+            enemies: [
+                { type: 'tank', count: 14, delay: 1.2 },
+                { type: 'basic', count: 10, delay: 0.8 }
+            ],
+            reward: 160
+        });
+
+        // Wave 18: "The Flood" - overwhelming numbers
+        this.waves.push({
+            enemies: [
+                { type: 'basic', count: 25, delay: 0.4 },
+                { type: 'fast', count: 20, delay: 0.3 },
+                { type: 'tank', count: 6, delay: 1.5 }
+            ],
+            reward: 180
+        });
+
+        // Wave 19: "Last Stand" - everything thrown at you
+        this.waves.push({
+            enemies: [
+                { type: 'basic', count: 20, delay: 0.5 },
+                { type: 'fast', count: 18, delay: 0.3 },
+                { type: 'tank', count: 12, delay: 1.2 }
+            ],
+            reward: 200
+        });
+
+        // Wave 20: "BOSS - The Final Siege" - ultimate challenge
+        this.waves.push({
+            enemies: [
+                { type: 'basic', count: 15, delay: 0.5 },
+                { type: 'fast', count: 12, delay: 0.4 },
+                { type: 'tank', count: 8, delay: 1.2 },
+                { type: 'boss', count: 2, delay: 5.0 }
+            ],
+            reward: 400
+        });
+
+        // Set total waves to infinity (procedural after wave 20)
         this.totalWaves = Infinity;
     }
 
@@ -481,17 +586,21 @@ export class WaveManager {
         // Store the wave start time for speed-based difficulty
         this.waveStartTime = performance.now() / 1000; // Convert to seconds
         
-        // Only increase difficulty on milestone waves (every 5 waves)
+        // Smooth difficulty scaling: small increase every wave, bigger bump at milestones
+        // Every wave: +10% base difficulty
+        this.difficultyMultiplier *= 1.1;
+
+        // Milestone waves (every 5): additional 40% bump (total ~54% increase that wave)
         if (this.currentWave % 5 === 0) {
-            // Apply a larger increase on milestone waves
-            this.difficultyMultiplier *= 2.5; // 150% increase
-            console.log(`%c MILESTONE WAVE ${this.currentWave}! Difficulty INCREASED TO ${this.difficultyMultiplier.toFixed(2)}x! %c`, 
+            this.difficultyMultiplier *= 1.4;
+            console.log(`%c MILESTONE WAVE ${this.currentWave}! Difficulty INCREASED TO ${this.difficultyMultiplier.toFixed(2)}x! %c`,
                 'background: #ff5500; color: #fff; font-size: 18px; font-weight: bold; padding: 4px 8px;',
                 'background: none; color: inherit;');
         }
-        
-        // Apply speed multiplier to the basic difficulty multiplier
-        const effectiveDifficulty = Math.min(this.difficultyMultiplier * this.speedMultiplier * this.parallelWaveMultiplier, 15.0);
+
+        // Cap effective difficulty to prevent impossible scaling
+        // Wave 5: ~2.1x, Wave 10: ~4.8x, Wave 15: ~11x, Wave 20: ~25x (before speed/parallel)
+        const effectiveDifficulty = Math.min(this.difficultyMultiplier * this.speedMultiplier * this.parallelWaveMultiplier, 30.0);
         console.log(`Wave ${this.currentWave}: Difficulty set to ${effectiveDifficulty.toFixed(2)}x (base: ${this.difficultyMultiplier.toFixed(2)}x, speed: ${this.speedMultiplier.toFixed(2)}x, parallel: ${this.parallelWaveMultiplier.toFixed(2)}x)`);
         
         // Get the current wave
@@ -708,7 +817,7 @@ export class WaveManager {
         
         // Apply additional 10x multiplier for boss-type enemies
         if (type === 'boss') {
-            const bossMultiplier = 10.0;
+            const bossMultiplier = 4.0;
             enemy.applyDifficultyMultiplier(effectiveDifficulty * bossMultiplier);
             console.log(`Boss enemy created with ${(effectiveDifficulty * bossMultiplier).toFixed(2)}x difficulty`);
         } else {
@@ -846,16 +955,18 @@ export class WaveManager {
     public incrementWaveCounter(): void {
         // Increment wave counter
         this.currentWave++;
-        
-        // Only increase difficulty on milestone waves
+
+        // Smooth scaling: +10% every wave
+        this.difficultyMultiplier *= 1.1;
+
+        // Milestone waves: additional 40% bump
         if (this.currentWave % 5 === 0) {
-            // Apply a larger increase on milestone waves
-            this.difficultyMultiplier *= 2.5; // 150% increase
-            console.log(`%c MILESTONE WAVE ${this.currentWave}! Difficulty INCREASED TO ${this.difficultyMultiplier.toFixed(2)}x! %c`, 
+            this.difficultyMultiplier *= 1.4;
+            console.log(`%c MILESTONE WAVE ${this.currentWave}! Difficulty INCREASED TO ${this.difficultyMultiplier.toFixed(2)}x! %c`,
                 'background: #ff5500; color: #fff; font-size: 18px; font-weight: bold; padding: 4px 8px;',
                 'background: none; color: inherit;');
         } else {
-            console.log(`Wave ${this.currentWave}: No difficulty change, still at ${this.difficultyMultiplier.toFixed(2)}x`);
+            console.log(`Wave ${this.currentWave}: Difficulty at ${this.difficultyMultiplier.toFixed(2)}x`);
         }
     }
 } 

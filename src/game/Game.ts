@@ -1,4 +1,4 @@
-import { Engine, Scene, Vector3, HemisphericLight, ArcRotateCamera, Color4, SceneLoader, Animation, AbstractMesh } from '@babylonjs/core';
+import { Engine, Scene, Vector3, HemisphericLight, ArcRotateCamera, Color3, Color4, SceneLoader, Animation, AbstractMesh, GlowLayer } from '@babylonjs/core';
 import { GameState } from './states/GameState';
 import { MenuState } from './states/MenuState';
 import { GameplayState } from './states/GameplayState';
@@ -6,6 +6,7 @@ import { GameOverState } from './states/GameOverState';
 import { AssetManager } from './managers/AssetManager';
 import { StateManager } from './managers/StateManager';
 import { PauseScreen } from './ui/PauseScreen';
+import { PALETTE } from './rendering/StyleConstants';
 
 export class Game {
     private canvas: HTMLCanvasElement;
@@ -15,6 +16,7 @@ export class Game {
     private assetManager: AssetManager;
     private _isPaused: boolean = false;
     private pauseScreen: PauseScreen;
+    private _timeScale: number = 1;
 
     constructor(canvasId: string) {
         // Get the canvas element
@@ -29,7 +31,7 @@ export class Game {
         
         // Create the main scene
         this.scene = new Scene(this.engine);
-        this.scene.clearColor = new Color4(0.1, 0.1, 0.1, 1);
+        this.scene.clearColor = PALETTE.SKY.clone();
         
         // Initialize managers
         this.assetManager = new AssetManager(this.scene);
@@ -81,47 +83,56 @@ export class Game {
     }
 
     private setupScene(): void {
-        // Create a basic light
+        // Warm hemisphere light for low-poly stylized look
         const light = new HemisphericLight('light', new Vector3(0, 1, 0), this.scene);
-        light.intensity = 0.7;
-        
-        // Create an arc rotate camera with more top-down view
+        light.diffuse = PALETTE.LIGHT_DIFFUSE.clone();
+        light.groundColor = PALETTE.LIGHT_GROUND.clone();
+        light.intensity = 0.65;
+
+        // Linear fog matching sky color for atmospheric depth
+        this.scene.fogMode = Scene.FOGMODE_LINEAR;
+        this.scene.fogColor = PALETTE.FOG.clone();
+        this.scene.fogStart = 40;
+        this.scene.fogEnd = 80;
+
+        // Glow layer for emissive elements (portals, tower effects)
+        const glowLayer = new GlowLayer('glowLayer', this.scene);
+        glowLayer.intensity = 0.4;
+
+        // Isometric camera setup
+        // True isometric: alpha=45° (PI/4), beta=35.264° (arctan(1/sqrt(2)) ≈ 0.6155 rad)
         const camera = new ArcRotateCamera(
-            'camera',          // name
-            Math.PI / 4,       // alpha (horizontal rotation) - 45 degrees
-            Math.PI / 4,       // beta (vertical rotation) - 45 degrees (slightly less top-down)
-            38,                // radius (distance) - slightly closer for better view
-            new Vector3(20, 0, 20), // target position (center of the 20x20 grid map)
+            'camera',
+            -Math.PI / 4,      // alpha: -45° for classic isometric angle
+            0.62,              // beta: ~35.264° for true isometric elevation
+            35,                // radius: tighter zoom for better detail
+            new Vector3(19, 0, 19), // target: center of 20x20 grid (cells are 2 units)
             this.scene
         );
-        
-        // Set camera limits to favor a top-down perspective
-        camera.lowerRadiusLimit = 25; // Minimum zoom distance
-        camera.upperRadiusLimit = 60; // Maximum zoom distance
-        camera.lowerBetaLimit = 0.3; // Higher minimum beta angle (less from above)
-        camera.upperBetaLimit = 0.9; // Higher maximum beta angle (allow slightly lower views)
-        camera.lowerAlphaLimit = 0; // Allow full 360-degree rotation
-        camera.upperAlphaLimit = 2 * Math.PI; // Full circle rotation
-        
-        // Setup camera control - we'll enable controls in GameplayState
+
+        // Camera limits tuned for isometric TD gameplay
+        camera.lowerRadiusLimit = 20;  // Close enough to see detail
+        camera.upperRadiusLimit = 55;  // Far enough to see whole map
+        camera.lowerBetaLimit = 0.4;   // Prevent too-low angle (near horizontal)
+        camera.upperBetaLimit = 1.2;   // Allow more top-down if player wants
+        // No alpha limits - allow full rotation for strategy viewing
+
+        // Attach controls
         camera.attachControl(this.canvas, true);
-        
-        // Configure control speeds
-        camera.wheelPrecision = 40; // Smoother zoom speed
-        camera.panningSensibility = 100; // Panning sensitivity
-        camera.angularSensibilityX = 400; // Horizontal rotation sensitivity
-        camera.angularSensibilityY = 400; // Vertical rotation sensitivity
-        
-        // Set inertia for smoother camera movement
-        camera.inertia = 0.5; // Lower inertia for more responsive controls
-        
-        // Additional camera improvements
-        camera.checkCollisions = false; // No collision detection needed
-        camera.useBouncingBehavior = true; // Bounce when reaching limits
-        camera.useAutoRotationBehavior = true; // Enable auto-rotation when idle
-        camera.autoRotationBehavior!.idleRotationSpeed = 0.05; // Slow idle rotation
-        camera.autoRotationBehavior!.idleRotationWaitTime = 10000; // Wait 10 seconds before auto-rotation
-        camera.autoRotationBehavior!.idleRotationSpinupTime = 2000; // Take 2 seconds to reach full speed
+
+        // Control sensitivity tuned for TD gameplay
+        camera.wheelPrecision = 35;
+        camera.panningSensibility = 80;
+        camera.angularSensibilityX = 500;
+        camera.angularSensibilityY = 500;
+
+        // Smooth camera with moderate inertia
+        camera.inertia = 0.6;
+        camera.checkCollisions = false;
+        camera.useBouncingBehavior = true;
+
+        // Disable auto-rotation (distracting during gameplay)
+        camera.useAutoRotationBehavior = false;
     }
 
     /**
@@ -318,12 +329,19 @@ export class Game {
         return this.assetManager;
     }
 
-    // Add this new method
     public togglePause(): void {
         if (this._isPaused) {
             this.resume();
         } else {
             this.pause();
         }
+    }
+
+    public getTimeScale(): number {
+        return this._timeScale;
+    }
+
+    public setTimeScale(scale: number): void {
+        this._timeScale = Math.max(0.5, Math.min(3, scale));
     }
 } 

@@ -4,9 +4,18 @@ export class PlayerStats {
     private won: boolean = false;
     private unlimitedMoney: boolean = false; // Disable unlimited money by default
 
-    constructor(health: number = 100, money: number = 200) {
+    // Tracking stats
+    private totalKills: number = 0;
+    private totalMoneyEarned: number = 0;
+    private towersBuilt: number = 0;
+    private wavesCompleted: number = 0;
+    private totalDamageDealt: number = 0;
+    private gameStartTime: number = 0;
+
+    constructor(health: number = 100, money: number = 250) { // Increased from 200 to allow 3 basic towers early
         this.health = health;
         this.money = money;
+        this.gameStartTime = performance.now();
     }
 
     /**
@@ -48,6 +57,7 @@ export class PlayerStats {
         if (!this.unlimitedMoney) {
             this.money += amount;
         }
+        this.totalMoneyEarned += amount;
     }
 
     /**
@@ -100,5 +110,46 @@ export class PlayerStats {
 
     public heal(amount: number): void {
         this.health = Math.min(100, this.health + amount);
+    }
+
+    // Tracking methods
+    public addKill(): void {
+        this.totalKills++;
+    }
+
+    public addTowerBuilt(): void {
+        this.towersBuilt++;
+    }
+
+    public addWaveCompleted(): void {
+        this.wavesCompleted++;
+    }
+
+    public addDamageDealt(amount: number): void {
+        this.totalDamageDealt += amount;
+    }
+
+    public getTotalKills(): number {
+        return this.totalKills;
+    }
+
+    public getTotalMoneyEarned(): number {
+        return this.totalMoneyEarned;
+    }
+
+    public getTowersBuilt(): number {
+        return this.towersBuilt;
+    }
+
+    public getWavesCompleted(): number {
+        return this.wavesCompleted;
+    }
+
+    public getTotalDamageDealt(): number {
+        return this.totalDamageDealt;
+    }
+
+    public getTimePlayed(): number {
+        return (performance.now() - this.gameStartTime) / 1000;
     }
 } 

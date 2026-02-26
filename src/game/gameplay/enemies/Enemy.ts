@@ -10,6 +10,7 @@ export class Enemy {
     protected mesh: Mesh | null = null;
     protected healthBarMesh: Mesh | null = null;
     protected healthBarBackgroundMesh: Mesh | null = null;
+    protected healthBarOutlineMesh: Mesh | null = null;
     protected position: Vector3;
     protected speed: number;
     protected originalSpeed: number; // Store original speed for status effects
@@ -96,45 +97,70 @@ export class Enemy {
      */
     protected createHealthBar(): void {
         if (!this.mesh) return;
-        
+
+        // Create dark outline border (slightly larger than background)
+        this.healthBarOutlineMesh = MeshBuilder.CreateBox('healthBarOutline', {
+            width: 1.08,
+            height: 0.14,
+            depth: 0.04
+        }, this.scene);
+
+        this.healthBarOutlineMesh.position = new Vector3(
+            this.position.x,
+            this.position.y + 1.0,
+            this.position.z
+        );
+
+        const outlineMaterial = new StandardMaterial('healthBarOutlineMaterial', this.scene);
+        outlineMaterial.diffuseColor = new Color3(0, 0, 0);
+        outlineMaterial.specularColor = Color3.Black();
+        this.healthBarOutlineMesh.material = outlineMaterial;
+
         // Create background bar (gray)
         this.healthBarBackgroundMesh = MeshBuilder.CreateBox('healthBarBg', {
             width: 1.0,
-            height: 0.15,
+            height: 0.08,
             depth: 0.05
         }, this.scene);
-        
+
         // Position above the enemy
         this.healthBarBackgroundMesh.position = new Vector3(
             this.position.x,
             this.position.y + 1.0,
             this.position.z
         );
-        
+
         // Create material for background
         const bgMaterial = new StandardMaterial('healthBarBgMaterial', this.scene);
         bgMaterial.diffuseColor = new Color3(0.3, 0.3, 0.3);
+        bgMaterial.specularColor = Color3.Black();
         this.healthBarBackgroundMesh.material = bgMaterial;
-        
+
         // Create health bar (green)
         this.healthBarMesh = MeshBuilder.CreateBox('healthBar', {
             width: 1.0,
-            height: 0.15,
+            height: 0.08,
             depth: 0.06 // Slightly in front of background
         }, this.scene);
-        
+
         // Position at the same place as background
         this.healthBarMesh.position = new Vector3(
             this.position.x,
             this.position.y + 1.0,
             this.position.z
         );
-        
+
         // Create material for health bar
         const healthMaterial = new StandardMaterial('healthBarMaterial', this.scene);
         healthMaterial.diffuseColor = new Color3(0.2, 0.8, 0.2); // Green
+        healthMaterial.specularColor = Color3.Black();
         this.healthBarMesh.material = healthMaterial;
-        
+
+        // Make health bars always face the camera
+        this.healthBarOutlineMesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
+        this.healthBarBackgroundMesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
+        this.healthBarMesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
+
         // Update health bar to match initial health
         this.updateHealthBar();
     }
@@ -144,17 +170,17 @@ export class Enemy {
      */
     protected updateHealthBar(): void {
         if (!this.mesh || !this.healthBarMesh || !this.healthBarBackgroundMesh) return;
-        
+
         // Calculate health percentage
         const healthPercent = Math.max(0, this.health / this.maxHealth);
-        
+
         // Update health bar width based on health percentage
         this.healthBarMesh.scaling.x = healthPercent;
-        
+
         // Adjust position to align left side
         const offset = (1 - healthPercent) * 0.5;
         this.healthBarMesh.position.x = this.position.x - offset;
-        
+
         // Update health bar color based on health percentage
         const material = this.healthBarMesh.material as StandardMaterial;
         if (healthPercent > 0.6) {
@@ -164,12 +190,19 @@ export class Enemy {
         } else {
             material.diffuseColor = new Color3(0.8, 0.2, 0.2); // Red
         }
-        
+
+        // Position outline behind everything
+        if (this.healthBarOutlineMesh && !this.healthBarOutlineMesh.isDisposed()) {
+            this.healthBarOutlineMesh.position.x = this.position.x;
+            this.healthBarOutlineMesh.position.y = this.position.y + 1.0;
+            this.healthBarOutlineMesh.position.z = this.position.z;
+        }
+
         // Position health bars above the enemy
         this.healthBarBackgroundMesh.position.x = this.position.x;
         this.healthBarBackgroundMesh.position.y = this.position.y + 1.0;
         this.healthBarBackgroundMesh.position.z = this.position.z;
-        
+
         this.healthBarMesh.position.y = this.position.y + 1.0;
         this.healthBarMesh.position.z = this.position.z;
     }
@@ -559,26 +592,24 @@ export class Enemy {
      * @param multiplier The multiplier to apply
      */
     public applyDifficultyMultiplier(multiplier: number): void {
-        // Apply stronger multiplier to health (increased from just multiplier to multiplier^1.5)
-        const healthMultiplier = Math.pow(multiplier, 1.5);
+        // Health scales linearly with multiplier (was multiplier^1.5 which made late game impossible)
+        const healthMultiplier = multiplier;
         this.maxHealth = Math.floor(this.maxHealth * healthMultiplier);
         this.health = this.maxHealth;
-        
-        // Apply multiplier to damage (increased from multiplier to multiplier*1.2)
-        this.damage = Math.floor(this.damage * multiplier * 1.2);
-        
-        // Apply multiplier to reward (slightly increased to compensate for difficulty)
-        this.reward = Math.floor(this.reward * multiplier * 1.1);
-        
-        // Add damage resistance based on difficulty - increased scaling
-        // Higher multiplier = more resistance (damage reduction)
-        // Previous formula: Math.min(0.5, (multiplier - 1) * 0.1)
-        // New formula: Increased scaling and higher cap at 70%
-        this.damageResistance = Math.min(0.7, (multiplier - 1) * 0.15);
-        
+
+        // Damage scales slightly less than linearly
+        this.damage = Math.floor(this.damage * Math.pow(multiplier, 0.8));
+
+        // Reward scales meaningfully with difficulty so economy keeps up
+        this.reward = Math.floor(this.reward * Math.pow(multiplier, 0.9));
+
+        // Damage resistance caps at 40% (was 70% which made enemies nearly invincible)
+        // Ramps slowly: at 5x multiplier = 24%, at 10x = 36%, approaches 40% asymptotically
+        this.damageResistance = Math.min(0.4, (multiplier - 1) * 0.08);
+
         // Update health bar
         this.updateHealthBar();
-        
+
         console.log(`Enemy stats multiplied by ${multiplier.toFixed(2)}, health: ${this.maxHealth} (×${healthMultiplier.toFixed(2)}), resistance: ${(this.damageResistance * 100).toFixed(0)}%`);
     }
     
@@ -632,10 +663,15 @@ export class Enemy {
             this.healthBarMesh.dispose();
             this.healthBarMesh = null;
         }
-        
+
         if (this.healthBarBackgroundMesh) {
             this.healthBarBackgroundMesh.dispose();
             this.healthBarBackgroundMesh = null;
+        }
+
+        if (this.healthBarOutlineMesh) {
+            this.healthBarOutlineMesh.dispose();
+            this.healthBarOutlineMesh = null;
         }
         
         // Remove status effect particles
@@ -698,7 +734,22 @@ export class Enemy {
             this.mesh.dispose();
             this.mesh = null;
         }
-        
+
+        if (this.healthBarMesh) {
+            this.healthBarMesh.dispose();
+            this.healthBarMesh = null;
+        }
+
+        if (this.healthBarBackgroundMesh) {
+            this.healthBarBackgroundMesh.dispose();
+            this.healthBarBackgroundMesh = null;
+        }
+
+        if (this.healthBarOutlineMesh) {
+            this.healthBarOutlineMesh.dispose();
+            this.healthBarOutlineMesh = null;
+        }
+
         // Dispose all particle systems
         this.statusEffectParticles.forEach(particleSystem => {
             particleSystem.dispose();

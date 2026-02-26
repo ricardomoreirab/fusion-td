@@ -1,6 +1,7 @@
 import { Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, Color4, Scene, ParticleSystem, Texture, Animation } from '@babylonjs/core';
 import { Game } from '../../Game';
 import { Enemy } from '../enemies/Enemy';
+import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../rendering/LowPolyMaterial';
 
 // Define element types
 export enum ElementType {
@@ -55,7 +56,7 @@ export abstract class Tower {
     protected fireRate: number; // Shots per second
     protected level: number = 1;
     protected cost: number;
-    protected upgradeMultiplier: number = 2.0;
+    protected upgradeMultiplier: number = 1.5; // Reduced from 2.0x to make upgrades more affordable
     protected upgradeCost: number;
     protected sellValue: number;
     protected lastFireTime: number = 0;
@@ -188,24 +189,37 @@ export abstract class Tower {
      */
     protected fire(): void {
         if (!this.targetEnemy || !this.isInitialized) return;
-        
+
         // Calculate damage based on elemental strengths/weaknesses
         let finalDamage = this.calculateDamage(this.targetEnemy);
-        
+
+        // Store target position before dealing damage (enemy might die)
+        const targetPosition = this.targetEnemy.getPosition().clone();
+
         // Deal damage to the target
         this.targetEnemy.takeDamage(finalDamage);
-        
+
+        // Emit damage event for floating numbers
+        const damageEvent = new CustomEvent('towerDamage', {
+            detail: {
+                position: targetPosition,
+                damage: finalDamage,
+                elementType: this.elementType
+            }
+        });
+        document.dispatchEvent(damageEvent);
+
         // Apply primary effect based on element type
         this.applyPrimaryEffect(this.targetEnemy);
-        
+
         // Check for secondary effect
         if (Math.random() < this.secondaryEffectChance) {
             this.applySecondaryEffect(this.targetEnemy);
         }
-        
+
         // Create projectile effect
-        this.createProjectileEffect(this.targetEnemy.getPosition());
-        
+        this.createProjectileEffect(targetPosition);
+
         // Play sound
         this.game.getAssetManager().playSound('towerShoot');
     }
@@ -268,130 +282,57 @@ export abstract class Tower {
      */
     protected createProjectileEffect(targetPosition: Vector3): void {
         if (!this.mesh) return;
-        
-        // Calculate direction and distance to target
+
         const direction = targetPosition.subtract(this.position);
         const distance = direction.length();
         direction.normalize();
-        
-        // Create a projectile mesh
-        const projectileMesh = MeshBuilder.CreateSphere('projectile', {
-            diameter: 0.3,
-            segments: 8
+
+        // Faceted icosphere projectile (diamond/low-poly look)
+        const projectileMesh = MeshBuilder.CreateIcoSphere('projectile', {
+            radius: 0.15,
+            subdivisions: 0
         }, this.scene);
-        
-        // Position the projectile at the top of the tower
+        makeFlatShaded(projectileMesh);
+
         const startPosition = new Vector3(
             this.position.x,
-            this.position.y + 1.5, // Adjust based on tower height
+            this.position.y + 1.5,
             this.position.z
         );
         projectileMesh.position = startPosition;
-        
-        // Create material for the projectile
-        const projectileMaterial = new StandardMaterial('projectileMaterial', this.scene);
-        
-        // Set material properties based on element type
+
+        // Element-colored emissive material
+        let color: Color3;
         switch (this.elementType) {
-            case ElementType.FIRE:
-                projectileMaterial.diffuseColor = new Color3(1, 0.3, 0);
-                projectileMaterial.emissiveColor = new Color3(0.8, 0.2, 0);
-                break;
-            case ElementType.WATER:
-                projectileMaterial.diffuseColor = new Color3(0, 0.5, 1);
-                projectileMaterial.emissiveColor = new Color3(0, 0.3, 0.8);
-                break;
-            case ElementType.WIND:
-                projectileMaterial.diffuseColor = new Color3(0.7, 1, 0.7);
-                projectileMaterial.emissiveColor = new Color3(0.4, 0.7, 0.4);
-                break;
-            case ElementType.EARTH:
-                projectileMaterial.diffuseColor = new Color3(0.6, 0.3, 0);
-                projectileMaterial.emissiveColor = new Color3(0.4, 0.2, 0);
-                break;
-            default:
-                projectileMaterial.diffuseColor = new Color3(0.8, 0.8, 0.8);
-                projectileMaterial.emissiveColor = new Color3(0.5, 0.5, 0.5);
-                break;
+            case ElementType.FIRE: color = new Color3(1, 0.3, 0); break;
+            case ElementType.WATER: color = new Color3(0, 0.5, 1); break;
+            case ElementType.WIND: color = new Color3(0.7, 1, 0.7); break;
+            case ElementType.EARTH: color = new Color3(0.6, 0.3, 0); break;
+            default: color = new Color3(0.8, 0.8, 0.8); break;
         }
-        
-        // Add glow effect
-        projectileMaterial.specularPower = 64;
-        projectileMaterial.specularColor = projectileMaterial.diffuseColor;
-        
-        // Apply material to projectile
+        const projectileMaterial = createEmissiveMaterial('projectileMat', color, 0.6, this.scene);
         projectileMesh.material = projectileMaterial;
-        
-        // Create a particle trail for the projectile
-        const particleSystem = new ParticleSystem('projectileTrail', 20, this.scene);
-        
-        // Set particle texture
-        particleSystem.particleTexture = new Texture('assets/textures/particle.png', this.scene);
-        
-        // Set emission properties
-        particleSystem.emitter = projectileMesh;
-        particleSystem.minEmitBox = new Vector3(0, 0, 0);
-        particleSystem.maxEmitBox = new Vector3(0, 0, 0);
-        
-        // Set particle properties
-        this.setProjectileColors(particleSystem);
-        
-        particleSystem.minSize = 0.1;
-        particleSystem.maxSize = 0.2;
-        
-        particleSystem.minLifeTime = 0.1;
-        particleSystem.maxLifeTime = 0.3;
-        
-        particleSystem.emitRate = 60;
-        
-        particleSystem.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-        
-        particleSystem.minEmitPower = 0.1;
-        particleSystem.maxEmitPower = 0.3;
-        
-        particleSystem.updateSpeed = 0.01;
-        
-        // Start the particle system
-        particleSystem.start();
-        
-        // Animate the projectile to the target
-        const animationSpeed = 15; // Units per second
+
+        // No particle trail - clean low-poly look
+
+        const animationSpeed = 15;
         const travelTime = distance / animationSpeed;
-        
-        // Create animation
         const frameRate = 30;
+
         const projectileAnimation = new Animation(
-            'projectileAnimation',
-            'position',
-            frameRate,
-            Animation.ANIMATIONTYPE_VECTOR3,
-            Animation.ANIMATIONLOOPMODE_CONSTANT
+            'projectileAnimation', 'position', frameRate,
+            Animation.ANIMATIONTYPE_VECTOR3, Animation.ANIMATIONLOOPMODE_CONSTANT
         );
-        
-        // Animation keys
-        const keyFrames = [];
-        keyFrames.push({
-            frame: 0,
-            value: startPosition
-        });
-        keyFrames.push({
-            frame: frameRate * travelTime,
-            value: targetPosition
-        });
-        
-        projectileAnimation.setKeys(keyFrames);
-        
-        // Attach animation to projectile
+        projectileAnimation.setKeys([
+            { frame: 0, value: startPosition },
+            { frame: frameRate * travelTime, value: targetPosition }
+        ]);
         projectileMesh.animations = [projectileAnimation];
-        
-        // Run animation
+
         this.scene.beginAnimation(projectileMesh, 0, frameRate * travelTime, false, 1, () => {
-            // Create impact effect at target
             this.createImpactEffect(targetPosition);
-            
-            // Dispose projectile and particles
             projectileMesh.dispose();
-            particleSystem.dispose();
+            projectileMaterial.dispose();
         });
     }
     
@@ -400,18 +341,12 @@ export abstract class Tower {
      * @param position The position to create the impact effect
      */
     protected createImpactEffect(position: Vector3): void {
-        // Create a particle system for the impact
-        const impactSystem = new ParticleSystem('impactParticles', 50, this.scene);
-        
-        // Set particle texture
-        impactSystem.particleTexture = new Texture('assets/textures/particle.png', this.scene);
-        
-        // Set emission properties
+        // Reduced impact burst: 15 larger particles
+        const impactSystem = new ParticleSystem('impactParticles', 15, this.scene);
         impactSystem.emitter = position;
         impactSystem.minEmitBox = new Vector3(-0.1, 0, -0.1);
         impactSystem.maxEmitBox = new Vector3(0.1, 0, 0.1);
-        
-        // Set particle colors based on element type
+
         switch (this.elementType) {
             case ElementType.FIRE:
                 impactSystem.color1 = new Color4(1, 0.5, 0, 1.0);
@@ -439,37 +374,24 @@ export abstract class Tower {
                 impactSystem.colorDead = new Color4(0, 0, 0, 0.0);
                 break;
         }
-        
-        // Set particle properties
-        impactSystem.minSize = 0.1;
-        impactSystem.maxSize = 0.4;
-        
-        impactSystem.minLifeTime = 0.2;
-        impactSystem.maxLifeTime = 0.5;
-        
-        impactSystem.emitRate = 100;
-        
+
+        impactSystem.minSize = 0.2;
+        impactSystem.maxSize = 0.5;
+        impactSystem.minLifeTime = 0.15;
+        impactSystem.maxLifeTime = 0.35;
+        impactSystem.emitRate = 80;
         impactSystem.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-        
-        // Emit in all directions
         impactSystem.direction1 = new Vector3(-1, -1, -1);
         impactSystem.direction2 = new Vector3(1, 1, 1);
-        
         impactSystem.minEmitPower = 1;
-        impactSystem.maxEmitPower = 3;
-        
+        impactSystem.maxEmitPower = 2.5;
         impactSystem.updateSpeed = 0.01;
-        
-        // Start the particle system
         impactSystem.start();
-        
-        // Stop and dispose after a short time
+
         setTimeout(() => {
             impactSystem.stop();
-            setTimeout(() => {
-                impactSystem.dispose();
-            }, 500);
-        }, 200);
+            setTimeout(() => impactSystem.dispose(), 400);
+        }, 150);
     }
     
     /**
@@ -578,114 +500,52 @@ export abstract class Tower {
      * Show the tower's range indicator
      */
     protected showRangeIndicator(): void {
-        // If we already have a range indicator, do nothing
         if (this.rangeIndicator) return;
-        
-        // Create a simple disc to show the tower's range
+
+        // Simple flat disc with solid color at alpha 0.2
         this.rangeIndicator = MeshBuilder.CreateDisc(
             'rangeIndicator' + this.mesh!.id,
-            { radius: this.range, tessellation: 64, sideOrientation: Mesh.DOUBLESIDE },
+            { radius: this.range, tessellation: 32, sideOrientation: Mesh.DOUBLESIDE },
             this.scene
         );
-        
-        // Position the range indicator just above the ground
-        this.rangeIndicator.position = new Vector3(this.position.x, 0.01, this.position.z);
-        this.rangeIndicator.rotation = new Vector3(Math.PI / 2, 0, 0); // Rotate to be horizontal
-        
-        // Set render mode to prevent z-fighting
+        this.rangeIndicator.position = new Vector3(this.position.x, 0.02, this.position.z);
+        this.rangeIndicator.rotation = new Vector3(Math.PI / 2, 0, 0);
         this.rangeIndicator.renderingGroupId = 1;
-        
-        // Create a material for the range indicator
-        const rangeMaterial = new StandardMaterial('rangeMaterial_' + this.mesh!.id, this.scene);
-        
-        // Default yellow color
+
         let rangeColor = new Color3(1.0, 0.8, 0.2);
-        
-        // Set color based on element type
         switch (this.elementType) {
-            case ElementType.FIRE:
-                rangeColor = new Color3(0.9, 0.3, 0.1); // Red for fire
-                break;
-            case ElementType.WATER:
-                rangeColor = new Color3(0.1, 0.4, 0.9); // Blue for water
-                break;
-            case ElementType.WIND:
-                rangeColor = new Color3(0.5, 0.9, 0.1); // Lime for wind
-                break;
-            case ElementType.EARTH:
-                rangeColor = new Color3(0.7, 0.5, 0.1); // Brown for earth
-                break;
+            case ElementType.FIRE: rangeColor = new Color3(0.9, 0.3, 0.1); break;
+            case ElementType.WATER: rangeColor = new Color3(0.1, 0.4, 0.9); break;
+            case ElementType.WIND: rangeColor = new Color3(0.5, 0.9, 0.1); break;
+            case ElementType.EARTH: rangeColor = new Color3(0.7, 0.5, 0.1); break;
         }
-        
-        // Configure material for clean rendering
+
+        const rangeMaterial = new StandardMaterial('rangeMaterial_' + this.mesh!.id, this.scene);
         rangeMaterial.diffuseColor = rangeColor;
-        rangeMaterial.specularColor = new Color3(0, 0, 0); // No specular
-        rangeMaterial.emissiveColor = rangeColor.scale(0.5); // Medium glow
-        rangeMaterial.alpha = 0.5; // Semi-transparent
+        rangeMaterial.specularColor = Color3.Black();
+        rangeMaterial.emissiveColor = rangeColor.scale(0.3);
+        rangeMaterial.alpha = 0.2;
         rangeMaterial.disableLighting = true;
-        
-        // Apply the material
         this.rangeIndicator.material = rangeMaterial;
-        
-        // Create a simple ring outline 
-        const ringPoints = [];
-        const numPoints = 60;
-        
-        // Create a circle of points
-        for (let i = 0; i < numPoints; i++) {
-            const angle = (i / numPoints) * Math.PI * 2;
-            ringPoints.push(new Vector3(
-                Math.cos(angle) * this.range,
-                0,
-                Math.sin(angle) * this.range
-            ));
-        }
-        
-        // Close the loop
-        ringPoints.push(ringPoints[0].clone());
-        
-        // Create a tube for the ring
-        const outerRing = MeshBuilder.CreateTube(
+
+        // Thin torus ring at perimeter
+        const outerRing = MeshBuilder.CreateTorus(
             'rangeRing' + this.mesh!.id,
-            { path: ringPoints, radius: 0.1, tessellation: 3 },
+            { diameter: this.range * 2, thickness: 0.08, tessellation: 32 },
             this.scene
         );
-        
-        // Position it just above the disc
-        outerRing.position = new Vector3(this.position.x, 0.02, this.position.z);
+        outerRing.position = new Vector3(this.position.x, 0.03, this.position.z);
         outerRing.parent = this.rangeIndicator;
-        
-        // Create ring material
+
         const ringMaterial = new StandardMaterial('ringMaterial_' + this.mesh!.id, this.scene);
         ringMaterial.diffuseColor = rangeColor;
-        ringMaterial.emissiveColor = rangeColor;
-        ringMaterial.alpha = 0.8;
+        ringMaterial.emissiveColor = rangeColor.scale(0.5);
+        ringMaterial.specularColor = Color3.Black();
+        ringMaterial.alpha = 0.6;
         ringMaterial.disableLighting = true;
         outerRing.material = ringMaterial;
-        
-        // Simple animation that just alternates the alpha value
-        const animationCallback = () => {
-            if (this.rangeIndicator && this.showingRange) {
-                const sinWave = (Math.sin(performance.now() * 0.002) + 1) * 0.5;
-                
-                // Animate the disc
-                if (this.rangeIndicator?.material) {
-                    const discMat = this.rangeIndicator.material as StandardMaterial;
-                    discMat.alpha = 0.4 + sinWave * 0.2;
-                }
-                
-                // Animate the ring
-                if (outerRing?.material) {
-                    const ringMat = outerRing.material as StandardMaterial;
-                    ringMat.alpha = 0.7 + sinWave * 0.3;
-                }
-            }
-        };
-        
-        // Store the callback for cleanup
-        this.rangeIndicator.metadata = { animationCallback };
-        this.scene.registerBeforeRender(animationCallback);
-        
+
+        this.rangeIndicator.metadata = {};
         this.showingRange = true;
     }
 
@@ -694,12 +554,7 @@ export abstract class Tower {
      */
     protected hideRangeIndicator(): void {
         if (this.rangeIndicator) {
-            // Remove the animation callback to prevent memory leaks
-            if (this.rangeIndicator.metadata && this.rangeIndicator.metadata.animationCallback) {
-                this.scene.unregisterBeforeRender(this.rangeIndicator.metadata.animationCallback);
-            }
-            
-            this.rangeIndicator.dispose(); // Dispose includes all children automatically
+            this.rangeIndicator.dispose();
             this.rangeIndicator = null;
             this.showingRange = false;
         }
@@ -839,48 +694,19 @@ export abstract class Tower {
      */
     protected createSelectionIndicator(): void {
         if (this.selectionIndicator) return;
-        
-        // Create a ring around the tower to indicate selection
+
+        // Simple pulsing torus ring
         this.selectionIndicator = MeshBuilder.CreateTorus('selectionIndicator', {
             diameter: 2.2,
-            thickness: 0.2,
-            tessellation: 32
+            thickness: 0.12,
+            tessellation: 16
         }, this.scene);
-        
-        // Position it at the base of the tower
-        this.selectionIndicator.position = new Vector3(
-            this.position.x,
-            0.1, // Slightly above ground
-            this.position.z
-        );
-        
-        // Create a glowing material with direct Color3 initialization
-        const material = new StandardMaterial('selectionMaterial', this.scene);
-        
-        // Use explicit color values to avoid any undefined issues
+        this.selectionIndicator.position = new Vector3(this.position.x, 0.1, this.position.z);
+
         const selectionColor = new Color3(0.3, 0.8, 1.0);
-        material.diffuseColor = selectionColor;
-        material.emissiveColor = selectionColor;
-        material.specularColor = new Color3(0, 0, 0); // No specular
+        const material = createEmissiveMaterial('selectionMat', selectionColor, 0.8, this.scene);
         material.alpha = 0.7;
         this.selectionIndicator.material = material;
-        
-        // Add a simple rotation animation
-        const rotationAnimation = new Animation(
-            'selectionRotation',
-            'rotation.y',
-            30,
-            Animation.ANIMATIONTYPE_FLOAT,
-            Animation.ANIMATIONLOOPMODE_CYCLE
-        );
-        
-        const keyFrames = [];
-        keyFrames.push({ frame: 0, value: 0 });
-        keyFrames.push({ frame: 100, value: Math.PI * 2 });
-        rotationAnimation.setKeys(keyFrames);
-        
-        this.selectionIndicator.animations = [rotationAnimation];
-        this.scene.beginAnimation(this.selectionIndicator, 0, 100, true);
     }
     
     /**

@@ -53,21 +53,22 @@ export class EnemyManager {
         for (const enemy of enemiesToUpdate) {
             // Update enemy and check if it reached the end
             const reachedEnd = enemy.update(deltaTime);
-            
+
             if (reachedEnd) {
                 // Enemy reached the end, damage player
                 if (this.playerStats) {
                     this.playerStats.takeDamage(enemy.getDamage());
                 }
-                
+
                 // Remove from enemies list
                 this.removeEnemy(enemy);
             } else if (!enemy.isAlive()) {
                 // Enemy died, give reward to player
                 if (this.playerStats) {
                     this.playerStats.addMoney(enemy.getReward());
+                    this.playerStats.addKill();
                 }
-                
+
                 // Remove from enemies list
                 this.removeEnemy(enemy);
             }

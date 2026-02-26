@@ -1,11 +1,13 @@
-import { Vector3, MeshBuilder, StandardMaterial, Color3, Mesh, ParticleSystem, Color4, Animation } from '@babylonjs/core';
+import { Vector3, MeshBuilder, Color3, Mesh, ParticleSystem, Color4, Animation } from '@babylonjs/core';
 import { Game } from '../../Game';
 import { ElementalTower } from './ElementalTower';
 import { ElementType, StatusEffect, EnemyType } from './Tower';
 import { Enemy } from '../enemies/Enemy';
+import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../rendering/LowPolyMaterial';
+import { PALETTE } from '../../rendering/StyleConstants';
 
 /**
- * Wind Tower - Deals wind damage and can push or stun enemies
+ * Wind Tower - Spinning windmill with low-poly stylized visuals
  * - Primary Effect: Push enemies back
  * - Secondary Effect: Chance to stun
  * - Strong against: Water, Flying
@@ -14,7 +16,7 @@ import { Enemy } from '../enemies/Enemy';
 export class WindTower extends ElementalTower {
     private windParticles: ParticleSystem | null = null;
     private windmill: Mesh | null = null;
-    
+
     /**
      * Constructor for the WindTower
      * @param game The game instance
@@ -26,343 +28,223 @@ export class WindTower extends ElementalTower {
         const range = 7;
         const fireRate = 2.0;
         const cost = 100;
-        
+
         super(game, position, range, damage, fireRate, cost, ElementType.WIND);
-        
+
         // Set wind-specific properties
         this.secondaryEffectChance = 0.2; // 20% chance to stun
         this.statusEffectDuration = 1.0; // 1 second of push/stun
         this.statusEffectStrength = 0.5; // 50% push strength
-        
+
         // Set targeting priorities
         this.targetPriorities = [
             EnemyType.WATER,
             EnemyType.FLYING,
             EnemyType.LIGHT
         ];
-        
+
         // Set weaknesses
         this.weakAgainst = [
             EnemyType.EARTH,
             EnemyType.HEAVY
         ];
-        
+
         // Update visuals to apply wind appearance
         this.updateVisuals();
     }
-    
+
     /**
-     * Create the tower mesh
+     * Create the tower mesh - Spinning windmill
+     * Small base -> tall thin pentagon column -> hub + 3 triangle blades
      */
     protected createMesh(): void {
         // Create root mesh for the wind tower
         this.mesh = new Mesh("windTowerRoot", this.scene);
         this.mesh.position = this.position.clone();
-        
-        // Create medieval base using the base class method
-        const base = this.createMedievalBase();
-        base.parent = this.mesh;
-        base.position.y = 0.6; // Position relative to root
-        
-        // Create middle section - slender tower with open-air design
-        const middle = MeshBuilder.CreateCylinder(
-            'windTowerMiddle',
+
+        // --- 1. Small pentagonal base ---
+        const base = MeshBuilder.CreateCylinder(
+            'windTowerBase',
             {
-                height: 3.0,
-                diameterTop: 1.0,
-                diameterBottom: 1.6,
-                tessellation: 8
+                height: 0.6,
+                diameterTop: 1.6,
+                diameterBottom: 1.9,
+                tessellation: 5
             },
             this.scene
         );
-        middle.parent = this.mesh;
-        middle.position.y = 2.2; // Position relative to root
-        
-        // Create middle material - light gray with green tint
-        const middleMaterial = new StandardMaterial('windTowerMiddleMaterial', this.scene);
-        middleMaterial.diffuseColor = new Color3(0.7, 0.8, 0.7);
-        middleMaterial.specularColor = new Color3(0.3, 0.4, 0.3);
-        middle.material = middleMaterial;
-        
-        // Create open-air platform at the top
+        makeFlatShaded(base);
+        base.parent = this.mesh;
+        base.position.y = 0.3;
+        base.material = createLowPolyMaterial('windBaseMat', PALETTE.ROCK, this.scene);
+
+        // --- 2. Base cap (thin disc on top of base for visual transition) ---
+        const baseCap = MeshBuilder.CreateCylinder(
+            'windTowerBaseCap',
+            {
+                height: 0.15,
+                diameterTop: 1.3,
+                diameterBottom: 1.5,
+                tessellation: 5
+            },
+            this.scene
+        );
+        makeFlatShaded(baseCap);
+        baseCap.parent = this.mesh;
+        baseCap.position.y = 0.7;
+        baseCap.material = createLowPolyMaterial('windBaseCapMat', PALETTE.ROCK_DARK, this.scene);
+
+        // --- 3. Tall thin pentagon column ---
+        const column = MeshBuilder.CreateCylinder(
+            'windTowerColumn',
+            {
+                height: 3.2,
+                diameterTop: 0.6,
+                diameterBottom: 1.1,
+                tessellation: 5
+            },
+            this.scene
+        );
+        makeFlatShaded(column);
+        column.parent = this.mesh;
+        column.position.y = 2.3;
+        column.material = createLowPolyMaterial('windColumnMat', PALETTE.TOWER_WIND, this.scene);
+
+        // --- 4. Platform ring at top ---
         const platform = MeshBuilder.CreateCylinder(
             'windTowerPlatform',
             {
-                height: 0.2,
-                diameter: 1.4,
-                tessellation: 8
+                height: 0.15,
+                diameterTop: 0.9,
+                diameterBottom: 0.7,
+                tessellation: 5
             },
             this.scene
         );
+        makeFlatShaded(platform);
         platform.parent = this.mesh;
-        platform.position.y = 3.7; // Position relative to root
-        
-        // Create platform material
-        const platformMaterial = new StandardMaterial('platformMaterial', this.scene);
-        platformMaterial.diffuseColor = new Color3(0.6, 0.7, 0.6);
-        platform.material = platformMaterial;
-        
-        // Create central wind column - a translucent cyclone
-        const cyclone = MeshBuilder.CreateCylinder(
-            'windColumn',
-            {
-                height: 2.0,
-                diameterTop: 0.2, // Narrows at top
-                diameterBottom: 0.8,
-                tessellation: 16
-            },
-            this.scene
-        );
-        cyclone.parent = this.mesh;
-        cyclone.position.y = 4.3; // Position relative to root
-        
-        // Create cyclone material - translucent with swirl
-        const cycloneMaterial = new StandardMaterial('cycloneMaterial', this.scene);
-        cycloneMaterial.diffuseColor = new Color3(0.7, 0.9, 0.7);
-        cycloneMaterial.alpha = 0.5; // Translucent
-        cycloneMaterial.specularColor = new Color3(0.8, 1.0, 0.8);
-        cycloneMaterial.emissiveColor = new Color3(0.2, 0.3, 0.2);
-        cyclone.material = cycloneMaterial;
-        
-        // Create wind vanes/blades around the tower
-        this.createWindmillBlades();
-        
-        // Add ring of pillars around the top to suggest air flowing through
-        for (let i = 0; i < 6; i++) {
-            const angle = (i / 6) * Math.PI * 2;
-            
-            // Create a pillar
-            const pillar = MeshBuilder.CreateCylinder(
-                `windPillar${i}`,
-                {
-                    height: 1.0,
-                    diameter: 0.15,
-                    tessellation: 8
-                },
-                this.scene
-            );
-            
-            // Position pillar in a circle
-            pillar.parent = this.mesh;
-            pillar.position.x = Math.sin(angle) * 0.6;
-            pillar.position.z = Math.cos(angle) * 0.6;
-            pillar.position.y = 4.2; // Position at top
-            
-            // Create leaf/wind-catcher at top of each pillar
-            const leaf = MeshBuilder.CreateBox(
-                `windLeaf${i}`,
-                {
-                    width: 0.3,
-                    height: 0.05,
-                    depth: 0.4
-                },
-                this.scene
-            );
-            leaf.parent = this.mesh;
-            leaf.position.x = Math.sin(angle) * 0.6;
-            leaf.position.z = Math.cos(angle) * 0.6;
-            leaf.position.y = 4.8;
-            leaf.rotation.y = angle + Math.PI / 4; // Offset rotation for better visual
-            
-            // Create pillar and leaf materials
-            const pillarMaterial = new StandardMaterial(`pillarMaterial${i}`, this.scene);
-            pillarMaterial.diffuseColor = new Color3(0.6, 0.7, 0.6);
-            pillar.material = pillarMaterial;
-            
-            const leafMaterial = new StandardMaterial(`leafMaterial${i}`, this.scene);
-            leafMaterial.diffuseColor = new Color3(0.5, 0.8, 0.5);
-            leaf.material = leafMaterial;
-        }
-        
-        // Create air spiral at the top
-        const spiral = MeshBuilder.CreateTorus(
-            'airSpiral',
-            {
-                diameter: 0.8,
-                thickness: 0.1,
-                tessellation: 24
-            },
-            this.scene
-        );
-        spiral.parent = this.mesh;
-        spiral.position.y = 4.0;
-        spiral.rotation.x = Math.PI / 2; // Horizontal orientation
-        
-        // Create spiral material
-        const spiralMaterial = new StandardMaterial('spiralMaterial', this.scene);
-        spiralMaterial.diffuseColor = new Color3(0.6, 0.9, 0.6);
-        spiralMaterial.alpha = 0.6;
-        spiralMaterial.emissiveColor = new Color3(0.2, 0.3, 0.2);
-        spiral.material = spiralMaterial;
-        
-        // Create elemental banner
-        // this.createElementalBanner(this.mesh, new Vector3(0, 2.0, 1.0));
-        
-        // Add wind particle effect
-        this.createWindEffect();
-        
-        // Create elemental aura - disabled
-        // this.createElementalAura();
-        
-        // Add circling wind elements - disabled
-        // this.createCirclingElements(5, 2.5);
-    }
-    
-    /**
-     * Create windmill blades attached to the tower
-     */
-    private createWindmillBlades(): void {
-        // Create a central hub for the blades
+        platform.position.y = 3.95;
+        platform.material = createLowPolyMaterial('windPlatformMat', new Color3(0.50, 0.72, 0.52), this.scene);
+
+        // --- 5. Hub (small sphere) ---
         const hub = MeshBuilder.CreateSphere(
             'windmillHub',
             {
-                diameter: 0.4,
-                segments: 12
+                diameter: 0.35,
+                segments: 4
             },
             this.scene
         );
+        makeFlatShaded(hub);
         hub.parent = this.mesh;
-        hub.position.y = 4.5; // Position higher at tower top
-        
-        // Create hub material
-        const hubMaterial = new StandardMaterial('hubMaterial', this.scene);
-        hubMaterial.diffuseColor = new Color3(0.7, 0.8, 0.7);
-        hub.material = hubMaterial;
-        
-        // Create rod connecting hub to tower
-        const rod = MeshBuilder.CreateCylinder(
-            'windmillRod',
-            {
-                height: 0.6,
-                diameter: 0.15,
-                tessellation: 8
-            },
-            this.scene
-        );
-        rod.parent = this.mesh;
-        rod.position.y = 4.5;
-        rod.rotation.x = Math.PI / 2; // Make horizontal
-        
-        // Create rod material
-        const rodMaterial = new StandardMaterial('rodMaterial', this.scene);
-        rodMaterial.diffuseColor = new Color3(0.6, 0.7, 0.6);
-        rod.material = rodMaterial;
-        
-        // Create main windmill blades (4)
-        for (let i = 0; i < 4; i++) {
-            // Angle for the current blade
-            const angle = (i / 4) * Math.PI * 2;
-            
-            // Create a blade
+        hub.position.y = 4.3;
+        hub.material = createLowPolyMaterial('windHubMat', PALETTE.TOWER_WIND_BLADE, this.scene);
+
+        // Store reference for rotation
+        this.windmill = hub;
+
+        // --- 6, 7, 8. Three triangle blades ---
+        for (let i = 0; i < 3; i++) {
+            const angle = (i / 3) * Math.PI * 2;
+
+            // Create a triangular blade using a thin box
             const blade = MeshBuilder.CreateBox(
-                `windmillBlade${i}`,
+                `windBlade${i}`,
                 {
-                    width: 0.1,
-                    height: 1.4,
-                    depth: 0.3
+                    width: 0.08,
+                    height: 1.2,
+                    depth: 0.35
                 },
                 this.scene
             );
-            
-            // Position and rotate blade
+            makeFlatShaded(blade);
+
+            // Position blade extending outward from hub
             blade.parent = hub;
-            
-            // Position the blades horizontally to extend outward from the hub
-            blade.position.x = Math.sin(angle) * 0.7;
-            blade.position.z = Math.cos(angle) * 0.7;
-            
-            // Rotate blade to face the wind direction
-            blade.rotation.y = angle + Math.PI / 2; // Perpendicular to radius
-            
-            // Create blade material
-            const bladeMaterial = new StandardMaterial(`bladeMaterial${i}`, this.scene);
-            bladeMaterial.diffuseColor = new Color3(0.8, 0.9, 0.8);
-            blade.material = bladeMaterial;
+            blade.position.x = Math.sin(angle) * 0.6;
+            blade.position.z = Math.cos(angle) * 0.6;
+            blade.rotation.y = angle + Math.PI / 2;
+            blade.material = createLowPolyMaterial(`windBladeMat${i}`, PALETTE.TOWER_WIND_BLADE, this.scene);
         }
-        
-        // Store reference to windmill for rotation
-        this.windmill = hub;
-        
-        // Create a simple animation for the hub rotation
+
+        // Create blade rotation animation
         const frameRate = 30;
         const rotateAnimation = new Animation(
-            "windmillRotation", 
-            "rotation.y", // Change to y axis rotation for horizontal blades
-            frameRate, 
-            Animation.ANIMATIONTYPE_FLOAT, 
+            "windmillRotation",
+            "rotation.y",
+            frameRate,
+            Animation.ANIMATIONTYPE_FLOAT,
             Animation.ANIMATIONLOOPMODE_CYCLE
         );
-        
-        // Create animation keys - rotate 360 degrees over 60 frames
-        const keys = [];
-        keys.push({ frame: 0, value: 0 });
-        keys.push({ frame: 60, value: Math.PI * 2 });
+        const keys = [
+            { frame: 0, value: 0 },
+            { frame: 60, value: Math.PI * 2 }
+        ];
         rotateAnimation.setKeys(keys);
-        
-        // Attach animation to hub and play it
-        hub.animations = [];
-        hub.animations.push(rotateAnimation);
+        hub.animations = [rotateAnimation];
         this.scene.beginAnimation(hub, 0, 60, true);
+
+        // Add wind particle effect
+        this.createWindEffect();
     }
-    
+
     /**
      * Create wind particle effect for the tower
+     * Reduced from 200 to 50 particles, size increased 2x
      */
     private createWindEffect(): void {
-        // Create particle system for wind
-        this.windParticles = new ParticleSystem("windParticles", 200, this.scene);
+        this.windParticles = new ParticleSystem("windParticles", 50, this.scene);
         this.windParticles.emitter = new Vector3(
             this.position.x,
-            this.position.y + 4.0, // Higher to match the windmill position
+            this.position.y + 4.0,
             this.position.z
         );
-        
-        // Particles configuration - more dynamic
-        this.windParticles.minSize = 0.08;
-        this.windParticles.maxSize = 0.25;
+
+        // Particles configuration - larger, fewer
+        this.windParticles.minSize = 0.16;
+        this.windParticles.maxSize = 0.50;
         this.windParticles.minLifeTime = 0.5;
         this.windParticles.maxLifeTime = 2.0;
-        this.windParticles.emitRate = 60; // More particles
-        
-        // Define direct colors (avoid Color3 to Color4 conversion issues)
-        this.windParticles.color1 = new Color4(0.7, 1.0, 0.7, 0.7); // More visible
+        this.windParticles.emitRate = 30;
+
+        // Define direct colors
+        this.windParticles.color1 = new Color4(0.7, 1.0, 0.7, 0.7);
         this.windParticles.color2 = new Color4(0.8, 1.0, 0.8, 0.7);
         this.windParticles.colorDead = new Color4(1.0, 1.0, 1.0, 0.0);
-        
-        // Direction and behavior - more dynamic swirling wind
+
+        // Direction and behavior - swirling wind
         this.windParticles.direction1 = new Vector3(-1.5, 0.1, -1.5);
         this.windParticles.direction2 = new Vector3(1.5, 0.5, 1.5);
         this.windParticles.minEmitPower = 1.5;
         this.windParticles.maxEmitPower = 3.5;
         this.windParticles.updateSpeed = 0.015;
-        
-        // Create stronger swirling effect
+
+        // Swirling effect
         this.windParticles.minAngularSpeed = 2.0;
         this.windParticles.maxAngularSpeed = 4.0;
-        
-        // Add some random circular motion
+
         this.windParticles.addVelocityGradient(0, 0.5);
         this.windParticles.addVelocityGradient(0.1, 1.0);
         this.windParticles.addVelocityGradient(0.7, 1.0);
         this.windParticles.addVelocityGradient(1.0, 0.5);
-        
+
         // Start the wind effect
         this.windParticles.start();
     }
-    
+
     /**
      * Update the tower each frame
      * @param deltaTime Time since last update
      */
     public update(deltaTime: number): void {
         super.update(deltaTime);
-        
+
         // Rotate the windmill blades
         if (this.windmill) {
-            this.windmill.rotation.y += deltaTime * 1.5; // Rotate based on time
+            this.windmill.rotation.y += deltaTime * 1.5;
         }
     }
-    
+
     /**
      * Apply the primary elemental effect to the target
      * @param enemy The target enemy
@@ -376,7 +258,7 @@ export class WindTower extends ElementalTower {
             this.statusEffectStrength
         );
     }
-    
+
     /**
      * Apply the secondary elemental effect to the target
      * @param enemy The target enemy
@@ -390,7 +272,7 @@ export class WindTower extends ElementalTower {
             1.0 // 100% stun (complete stop)
         );
     }
-    
+
     /**
      * Dispose of tower resources
      */
@@ -398,7 +280,7 @@ export class WindTower extends ElementalTower {
         if (this.windParticles) {
             this.windParticles.dispose();
         }
-        
+
         super.dispose();
     }
-} 
+}

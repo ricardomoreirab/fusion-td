@@ -1,5 +1,7 @@
-import { Vector3, MeshBuilder, StandardMaterial, Color3, Mesh, Scene, Texture, Color4, ParticleSystem, ShadowGenerator, DirectionalLight } from '@babylonjs/core';
+import { Vector3, MeshBuilder, Mesh, Scene, Color4, ParticleSystem, ShadowGenerator, DirectionalLight } from '@babylonjs/core';
 import { Game } from '../Game';
+import { PALETTE } from '../rendering/StyleConstants';
+import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../rendering/LowPolyMaterial';
 
 // Define grid cell types
 enum CellType {
@@ -15,14 +17,13 @@ enum CellType {
 interface PathNode {
     x: number;
     y: number;
-    f: number; // Total cost (g + h)
-    g: number; // Cost from start
-    h: number; // Heuristic (estimated cost to end)
+    f: number;
+    g: number;
+    h: number;
     parent: PathNode | null;
 }
 
 interface TerrainType {
-    material: StandardMaterial;
     heightOffset: number;
     scale: { width: number, height: number, depth: number };
 }
@@ -30,10 +31,10 @@ interface TerrainType {
 export class Map {
     private game: Game;
     private scene: Scene;
-    private gridSize: number = 20; // 20x20 grid
-    private cellSize: number = 2; // 2 units per cell
+    private gridSize: number = 20;
+    private cellSize: number = 2;
     private grid: CellType[][] = [];
-    private path: Vector3[] = []; // The path enemies will follow
+    private path: Vector3[] = [];
     private startPosition: { x: number, y: number } = { x: 0, y: 0 };
     private endPosition: { x: number, y: number } = { x: 19, y: 10 };
     private groundMeshes: Mesh[] = [];
@@ -44,8 +45,7 @@ export class Map {
     constructor(game: Game) {
         this.game = game;
         this.scene = game.getScene();
-        
-        // Initialize grid with empty cells
+
         for (let x = 0; x < this.gridSize; x++) {
             this.grid[x] = [];
             for (let y = 0; y < this.gridSize; y++) {
@@ -54,161 +54,123 @@ export class Map {
         }
     }
 
-    /**
-     * Initialize the map
-     */
     public initialize(): void {
-        // Add directional light for shadows
         this.setupLighting();
-        
-        // Create the ground
         this.createGround();
-        
-        // Set start and end positions
+
         this.startPosition = { x: 0, y: Math.floor(this.gridSize / 2) };
         this.endPosition = { x: 19, y: 10 };
-        
-        // Mark start and end on the grid
+
         this.grid[this.startPosition.x][this.startPosition.y] = CellType.START;
         this.grid[this.endPosition.x][this.endPosition.y] = CellType.END;
-        
-        // Generate a path from start to end with turns
+
         this.generatePathWithTurns();
-        
-        // Create visual representation of the path
         this.createPathVisuals();
-        
-        // Add decorations around the map
         this.addDecorations();
-        
-        // Add particles for start/end
+        this.addWaterFeature();
+        this.addMapBorder();
+        this.addCellIndicators();
+        this.addPathBorders();
         this.addParticleEffects();
     }
 
-    /**
-     * Setup lighting for the map
-     */
     private setupLighting(): void {
-        // Add a directional light for shadows
         const light = new DirectionalLight("mapLight", new Vector3(-0.5, -1, -0.5), this.scene);
         light.intensity = 0.7;
         light.position = new Vector3(10, 30, 10);
-        
-        // Create shadow generator
+
         this.shadowGenerator = new ShadowGenerator(1024, light);
         this.shadowGenerator.useBlurExponentialShadowMap = true;
         this.shadowGenerator.blurKernel = 8;
     }
 
     /**
-     * Create the ground mesh
+     * Create ground with subdivided mesh and flat shading for organic terrain feel
      */
     private createGround(): void {
-        // Create a material for the ground
-        const groundMaterial = new StandardMaterial('groundMaterial', this.scene);
-        groundMaterial.diffuseColor = new Color3(0.3, 0.5, 0.2); // Green color for grass
-        groundMaterial.specularColor = new Color3(0.1, 0.1, 0.1);
-        
-        // Add grass texture
-        const grassTexture = new Texture("assets/textures/grass.jpg", this.scene);
-        grassTexture.uScale = 2;
-        grassTexture.vScale = 2;
-        groundMaterial.diffuseTexture = grassTexture;
-        groundMaterial.bumpTexture = grassTexture;
-        groundMaterial.bumpTexture.level = 0.1;
-        
-        // Create a material for the buildable area
-        const buildableMaterial = new StandardMaterial('buildableMaterial', this.scene);
-        buildableMaterial.diffuseColor = new Color3(0.4, 0.6, 0.3); // Slightly different green
-        buildableMaterial.specularColor = new Color3(0.1, 0.1, 0.1);
-        
-        // Calculate the center offset to position the ground at origin
         const mapWidth = this.gridSize * this.cellSize;
         const mapHeight = this.gridSize * this.cellSize;
         const centerX = mapWidth / 2 - this.cellSize;
         const centerZ = mapHeight / 2 - this.cellSize;
-        
-        // Create a single large ground mesh
-        const ground = MeshBuilder.CreateGround('mainGround', {
-            width: mapWidth,
-            height: mapHeight,
-            subdivisions: 2
+
+        // Single large ground with subdivisions for vertex displacement
+        const ground = MeshBuilder.CreateGround('ground_main', {
+            width: mapWidth + 8,
+            height: mapHeight + 8,
+            subdivisions: 32
         }, this.scene);
         ground.position = new Vector3(centerX, -0.1, centerZ);
-        ground.material = groundMaterial;
+
+        // Subtle vertex displacement for organic terrain feel
+        const positions = ground.getVerticesData('position');
+        if (positions) {
+            for (let i = 1; i < positions.length; i += 3) {
+                positions[i] += (Math.random() - 0.5) * 0.4;
+            }
+            ground.updateVerticesData('position', positions);
+        }
+
+        makeFlatShaded(ground);
+
+        const groundMat = createLowPolyMaterial('groundMat', PALETTE.GROUND, this.scene);
+        ground.material = groundMat;
         ground.receiveShadows = true;
         this.groundMeshes.push(ground);
-        
-        // Create grid cells for buildable areas
-        for (let x = 0; x < this.gridSize; x++) {
-            for (let y = 0; y < this.gridSize; y++) {
-                const position = this.gridToWorld(x, y);
-                
-                // Create slightly elevated tiles for buildable areas
-                const tile = MeshBuilder.CreateBox(`ground_${x}_${y}`, {
-                    width: this.cellSize * 0.9,
-                    height: 0.15,
-                    depth: this.cellSize * 0.9
-                }, this.scene);
-                
-                tile.position = new Vector3(position.x, 0.05, position.z);
-                tile.material = buildableMaterial;
-                tile.receiveShadows = true;
-                
-                // Mark tile as a child of a specific area
-                tile.metadata = { gridX: x, gridY: y };
-                
-                this.groundMeshes.push(tile);
-            }
+
+        // Scatter dark grass patches for ground variation
+        const numPatches = 8 + Math.floor(Math.random() * 5);
+        const grassMat = createLowPolyMaterial('grassPatchMat', PALETTE.GROUND.scale(0.85), this.scene);
+        grassMat.alpha = 0.25;
+        for (let i = 0; i < numPatches; i++) {
+            const radius = 1.5 + Math.random() * 1.5;
+            const patch = MeshBuilder.CreateDisc(`grassPatch_${i}`, {
+                radius: radius,
+                tessellation: 6
+            }, this.scene);
+            const px = Math.random() * mapWidth;
+            const pz = Math.random() * mapHeight;
+            patch.position = new Vector3(px, 0.02, pz);
+            patch.rotation.x = Math.PI / 2;
+            patch.material = grassMat;
+            this.groundMeshes.push(patch);
         }
     }
 
-    /**
-     * Generate a path with turns that makes more sense for a tower defense game
-     */
     private generatePathWithTurns(): void {
-        // Define waypoints for a strategic path with various twists and open areas for tower placement
         const waypoints = [
-            this.startPosition,                   // Start at the left edge
-            { x: 2, y: Math.floor(this.gridSize / 2) },   // First horizontal segment
-            { x: 2, y: 5 },                       // Turn up
-            { x: 6, y: 5 },                       // Turn right
-            { x: 6, y: 15 },                      // Go up
-            { x: 10, y: 15 },                     // Turn right
-            { x: 10, y: 2 },                      // Go down (large area to target)
-            { x: 14, y: 2 },                      // Turn right
-            { x: 14, y: 10 },                     // Go up to middle
-            { x: 15, y: 10 },                     // Small horizontal segment
-            { x: 19, y: 10 },                     // Final segment to the right edge
-            this.endPosition                      // End position
+            this.startPosition,
+            { x: 2, y: Math.floor(this.gridSize / 2) },
+            { x: 2, y: 5 },
+            { x: 6, y: 5 },
+            { x: 6, y: 15 },
+            { x: 10, y: 15 },
+            { x: 10, y: 2 },
+            { x: 14, y: 2 },
+            { x: 14, y: 10 },
+            { x: 15, y: 10 },
+            { x: 19, y: 10 },
+            this.endPosition
         ];
-        
-        // Clear the path array
+
         this.path = [];
-        
-        // Connect waypoints to create a path
+
         for (let i = 0; i < waypoints.length - 1; i++) {
             const start = waypoints[i];
             const end = waypoints[i + 1];
-            
-            // Connect horizontally or vertically with ordered points
+
             if (start.x === end.x) {
-                // Vertical connection
                 const step = start.y < end.y ? 1 : -1;
                 for (let y = start.y; step > 0 ? y <= end.y : y >= end.y; y += step) {
                     this.grid[start.x][y] = CellType.PATH;
-                    // Only add to path if it's not already there
                     const worldPos = this.gridToWorld(start.x, y);
                     if (!this.path.some(p => p.x === worldPos.x && p.z === worldPos.z)) {
                         this.path.push(worldPos);
                     }
                 }
             } else if (start.y === end.y) {
-                // Horizontal connection
                 const step = start.x < end.x ? 1 : -1;
                 for (let x = start.x; step > 0 ? x <= end.x : x >= end.x; x += step) {
                     this.grid[x][start.y] = CellType.PATH;
-                    // Only add to path if it's not already there
                     const worldPos = this.gridToWorld(x, start.y);
                     if (!this.path.some(p => p.x === worldPos.x && p.z === worldPos.z)) {
                         this.path.push(worldPos);
@@ -216,466 +178,594 @@ export class Map {
                 }
             }
         }
-        
-        // Make sure start and end positions are properly marked
+
         this.grid[this.startPosition.x][this.startPosition.y] = CellType.START;
         this.grid[this.endPosition.x][this.endPosition.y] = CellType.END;
-        
-        console.log(`Generated path with ${this.path.length} points and ${waypoints.length} waypoints`);
+
+        console.log(`Generated path with ${this.path.length} points`);
     }
 
     /**
-     * Create visual representation of the path
+     * Create flat-shaded sandstone path tiles with slight height variation
      */
     private createPathVisuals(): void {
-        // Create a material for the path
-        const pathMaterial = new StandardMaterial('pathMaterial', this.scene);
-        pathMaterial.diffuseColor = new Color3(0.6, 0.6, 0.6); // Stone gray color
-        
-        // Add stone texture
-        const stoneTexture = new Texture("assets/textures/stone.jpg", this.scene);
-        stoneTexture.uScale = 5;
-        stoneTexture.vScale = 0.5;
-        pathMaterial.diffuseTexture = stoneTexture;
-        pathMaterial.bumpTexture = stoneTexture;
-        pathMaterial.bumpTexture.level = 0.4;
-        pathMaterial.specularColor = new Color3(0.2, 0.2, 0.2);
-        
-        // Create path tiles
+        const pathMat = createLowPolyMaterial('pathMat', PALETTE.PATH, this.scene);
+
         for (let x = 0; x < this.gridSize; x++) {
             for (let y = 0; y < this.gridSize; y++) {
-                if (this.grid[x][y] === CellType.PATH || 
-                    this.grid[x][y] === CellType.START || 
+                if (this.grid[x][y] === CellType.PATH ||
+                    this.grid[x][y] === CellType.START ||
                     this.grid[x][y] === CellType.END) {
-                    
-                    // Remove any existing ground tiles at this position
-                    const groundTile = this.groundMeshes.find(m => 
-                        m.metadata && m.metadata.gridX === x && m.metadata.gridY === y
-                    );
-                    if (groundTile) {
-                        const index = this.groundMeshes.indexOf(groundTile);
-                        if (index !== -1) {
-                            this.groundMeshes.splice(index, 1);
-                        }
-                        groundTile.dispose();
-                    }
-                    
+
                     const position = this.gridToWorld(x, y);
-                    position.y = 0.05; // Slightly above ground
-                    
-                    // Make the path visually interesting with beveled edges
+                    // Slight random height variation for cobblestone feel
+                    const heightVar = Math.random() * 0.04;
+                    position.y = 0.06 + heightVar;
+
+                    // Minimal size variation for organic look
+                    const sizeVar = 0.92 + Math.random() * 0.06;
+
                     const pathTile = MeshBuilder.CreateBox(`path_${x}_${y}`, {
-                        width: this.cellSize * 0.95,
-                        height: 0.12,
-                        depth: this.cellSize * 0.95
+                        width: this.cellSize * sizeVar,
+                        height: 0.14,
+                        depth: this.cellSize * sizeVar
                     }, this.scene);
-                    
+
                     pathTile.position = position;
-                    pathTile.material = pathMaterial;
+                    pathTile.material = pathMat;
                     pathTile.receiveShadows = true;
-                    
-                    // Add beveled edges by adding smaller boxes on top
-                    const innerTile = MeshBuilder.CreateBox(`pathInner_${x}_${y}`, {
-                        width: this.cellSize * 0.85,
-                        height: 0.13,
-                        depth: this.cellSize * 0.85
-                    }, this.scene);
-                    
-                    innerTile.position = new Vector3(position.x, position.y + 0.01, position.z);
-                    innerTile.material = pathMaterial;
-                    innerTile.receiveShadows = true;
-                    
+                    makeFlatShaded(pathTile);
+
                     this.groundMeshes.push(pathTile);
-                    this.groundMeshes.push(innerTile);
-                    
-                    // Add path border decorations
-                    this.addPathBorder(x, y);
                 }
             }
         }
-        
-        // Create start marker (green portal)
-        const startPosition = this.gridToWorld(this.startPosition.x, this.startPosition.y);
-        startPosition.y = 0.2; // Above path
-        
-        const startMaterial = new StandardMaterial('startMaterial', this.scene);
-        startMaterial.diffuseColor = new Color3(0, 0.8, 0.2); // Green
-        startMaterial.emissiveColor = new Color3(0, 0.5, 0.1); // Glow effect
-        startMaterial.alpha = 0.9;
-        
+
+        // Start marker - rotating torus with emissive glow
+        const startPos = this.gridToWorld(this.startPosition.x, this.startPosition.y);
+        startPos.y = 0.3;
+
+        const startMat = createEmissiveMaterial('startMat', PALETTE.PORTAL_START, 0.6, this.scene);
+        startMat.alpha = 0.9;
+
         const startMarker = MeshBuilder.CreateTorus('startMarker', {
             diameter: this.cellSize * 0.8,
-            thickness: this.cellSize * 0.15,
-            tessellation: 32
+            thickness: this.cellSize * 0.12,
+            tessellation: 8
         }, this.scene);
-        
-        startMarker.position = startPosition;
-        startMarker.material = startMaterial;
-        if (this.shadowGenerator) {
-            this.shadowGenerator.addShadowCaster(startMarker);
-        }
+        startMarker.position = startPos;
+        startMarker.material = startMat;
+        makeFlatShaded(startMarker);
+        if (this.shadowGenerator) this.shadowGenerator.addShadowCaster(startMarker);
         this.groundMeshes.push(startMarker);
-        
-        // Add rotating animation to start marker
+
+        // Ground disc beneath start portal
+        const startDisc = MeshBuilder.CreateDisc('startDisc', {
+            radius: this.cellSize * 0.6,
+            tessellation: 8
+        }, this.scene);
+        startDisc.position = new Vector3(startPos.x, 0.02, startPos.z);
+        startDisc.rotation.x = Math.PI / 2;
+        const startDiscMat = createEmissiveMaterial('startDiscMat', PALETTE.PORTAL_START, 0.8, this.scene);
+        startDiscMat.alpha = 0.5;
+        startDisc.material = startDiscMat;
+        this.groundMeshes.push(startDisc);
+
+        // Vertical pillar at start portal
+        const startPillar = MeshBuilder.CreateCylinder('startPillar', {
+            height: 2.5,
+            diameter: 0.2,
+            tessellation: 6
+        }, this.scene);
+        startPillar.position = new Vector3(startPos.x, 1.25, startPos.z);
+        const startPillarMat = createEmissiveMaterial('startPillarMat', PALETTE.PORTAL_START, 0.4, this.scene);
+        startPillarMat.alpha = 0.7;
+        startPillar.material = startPillarMat;
+        makeFlatShaded(startPillar);
+        if (this.shadowGenerator) this.shadowGenerator.addShadowCaster(startPillar);
+        this.groundMeshes.push(startPillar);
+
         this.scene.registerBeforeRender(() => {
-            startMarker.rotation.y += 0.01;
+            startMarker.rotation.y += 0.015;
         });
-        
-        // Create end marker (red portal)
-        const endPosition = this.gridToWorld(this.endPosition.x, this.endPosition.y);
-        endPosition.y = 0.2; // Above path
-        
-        const endMaterial = new StandardMaterial('endMaterial', this.scene);
-        endMaterial.diffuseColor = new Color3(0.8, 0, 0); // Red
-        endMaterial.emissiveColor = new Color3(0.5, 0, 0); // Glow effect
-        endMaterial.alpha = 0.9;
-        
+
+        // End marker
+        const endPos = this.gridToWorld(this.endPosition.x, this.endPosition.y);
+        endPos.y = 0.3;
+
+        const endMat = createEmissiveMaterial('endMat', PALETTE.PORTAL_END, 0.6, this.scene);
+        endMat.alpha = 0.9;
+
         const endMarker = MeshBuilder.CreateTorus('endMarker', {
             diameter: this.cellSize * 0.8,
-            thickness: this.cellSize * 0.15,
-            tessellation: 32
+            thickness: this.cellSize * 0.12,
+            tessellation: 8
         }, this.scene);
-        
-        endMarker.position = endPosition;
-        endMarker.material = endMaterial;
-        if (this.shadowGenerator) {
-            this.shadowGenerator.addShadowCaster(endMarker);
-        }
+        endMarker.position = endPos;
+        endMarker.material = endMat;
+        makeFlatShaded(endMarker);
+        if (this.shadowGenerator) this.shadowGenerator.addShadowCaster(endMarker);
         this.groundMeshes.push(endMarker);
-        
-        // Add rotating animation to end marker
+
+        // Ground disc beneath end portal
+        const endDisc = MeshBuilder.CreateDisc('endDisc', {
+            radius: this.cellSize * 0.6,
+            tessellation: 8
+        }, this.scene);
+        endDisc.position = new Vector3(endPos.x, 0.02, endPos.z);
+        endDisc.rotation.x = Math.PI / 2;
+        const endDiscMat = createEmissiveMaterial('endDiscMat', PALETTE.PORTAL_END, 0.8, this.scene);
+        endDiscMat.alpha = 0.5;
+        endDisc.material = endDiscMat;
+        this.groundMeshes.push(endDisc);
+
+        // Vertical pillar at end portal
+        const endPillar = MeshBuilder.CreateCylinder('endPillar', {
+            height: 2.5,
+            diameter: 0.2,
+            tessellation: 6
+        }, this.scene);
+        endPillar.position = new Vector3(endPos.x, 1.25, endPos.z);
+        const endPillarMat = createEmissiveMaterial('endPillarMat', PALETTE.PORTAL_END, 0.4, this.scene);
+        endPillarMat.alpha = 0.7;
+        endPillar.material = endPillarMat;
+        makeFlatShaded(endPillar);
+        if (this.shadowGenerator) this.shadowGenerator.addShadowCaster(endPillar);
+        this.groundMeshes.push(endPillar);
+
         this.scene.registerBeforeRender(() => {
-            endMarker.rotation.y -= 0.01;
+            endMarker.rotation.y -= 0.015;
         });
     }
-    
+
     /**
-     * Add borders and details along the path edges
-     */
-    private addPathBorder(x: number, y: number): void {
-        // Check adjacent cells to see if they're not part of the path
-        const adjacentCells = [
-            { dx: -1, dy: 0 }, // Left
-            { dx: 1, dy: 0 },  // Right
-            { dx: 0, dy: -1 }, // Top
-            { dx: 0, dy: 1 }   // Bottom
-        ];
-        
-        for (const adj of adjacentCells) {
-            const nx = x + adj.dx;
-            const ny = y + adj.dy;
-            
-            // Skip if out of bounds
-            if (nx < 0 || nx >= this.gridSize || ny < 0 || ny >= this.gridSize) {
-                continue;
-            }
-            
-            // If the adjacent cell is not a path, add a border
-            if (this.grid[nx][ny] !== CellType.PATH && 
-                this.grid[nx][ny] !== CellType.START && 
-                this.grid[nx][ny] !== CellType.END) {
-                
-                // Position at the edge between cells
-                const position = this.gridToWorld(x, y);
-                const edgePosition = new Vector3(
-                    position.x + adj.dx * this.cellSize * 0.475,
-                    0.1,
-                    position.z + adj.dy * this.cellSize * 0.475
-                );
-                
-                // Determine orientation
-                const isHorizontal = adj.dy === 0;
-                const width = isHorizontal ? 0.1 : this.cellSize * 0.95;
-                const depth = isHorizontal ? this.cellSize * 0.95 : 0.1;
-                
-                // Create a small border wall
-                const border = MeshBuilder.CreateBox(
-                    `border_${x}_${y}_${adj.dx}_${adj.dy}`,
-                    { width, height: 0.2, depth },
-                    this.scene
-                );
-                
-                border.position = edgePosition;
-                
-                // Create a stone material for the border
-                const borderMaterial = new StandardMaterial(`borderMat_${x}_${y}`, this.scene);
-                borderMaterial.diffuseColor = new Color3(0.4, 0.4, 0.4);
-                borderMaterial.specularColor = new Color3(0.2, 0.2, 0.2);
-                border.material = borderMaterial;
-                
-                if (this.shadowGenerator) {
-                    this.shadowGenerator.addShadowCaster(border);
-                }
-                
-                this.groundMeshes.push(border);
-            }
-        }
-    }
-    
-    /**
-     * Add decorative elements around the map
+     * Low-poly decorations: triangular trees, faceted rocks, icosphere bushes, flowers
      */
     private addDecorations(): void {
-        // Create different types of decorations
         const decorations = [
-            // Trees
-            { 
-                mesh: (position: Vector3) => {
-                    const tree = MeshBuilder.CreateCylinder('treeTrunk', { 
-                        height: 0.8, 
-                        diameter: 0.3 
-                    }, this.scene);
-                    tree.position = new Vector3(position.x, 0.4, position.z);
-                    
-                    const trunkMat = new StandardMaterial('trunkMat', this.scene);
-                    trunkMat.diffuseColor = new Color3(0.5, 0.3, 0.1);
-                    trunkMat.specularColor = new Color3(0.1, 0.1, 0.1);
-                    tree.material = trunkMat;
-                    
-                    const leaves = MeshBuilder.CreateSphere('treeLeaves', { 
-                        segments: 8, 
-                        diameter: 1.2 
-                    }, this.scene);
-                    leaves.position = new Vector3(position.x, 1.0, position.z);
-                    
-                    const leavesMat = new StandardMaterial('leavesMat', this.scene);
-                    leavesMat.diffuseColor = new Color3(0.1, 0.5, 0.1);
-                    leavesMat.specularColor = new Color3(0.1, 0.1, 0.1);
-                    leaves.material = leavesMat;
-                    
-                    if (this.shadowGenerator) {
-                        this.shadowGenerator.addShadowCaster(tree);
-                        this.shadowGenerator.addShadowCaster(leaves);
-                    }
-                    
-                    return [tree, leaves];
-                },
-                probability: 0.15  // Higher probability for trees
-            },
-            // Rocks
+            // Trees - tapered cylinder trunk + 2-3 stacked cones
             {
                 mesh: (position: Vector3) => {
-                    const rock = MeshBuilder.CreateSphere('rock', { 
-                        segments: 4, 
-                        diameter: 0.7 
+                    const meshes: Mesh[] = [];
+
+                    // Trunk - tapered cylinder
+                    const trunk = MeshBuilder.CreateCylinder('treeTrunk', {
+                        height: 1.0,
+                        diameterTop: 0.15,
+                        diameterBottom: 0.3,
+                        tessellation: 6
                     }, this.scene);
-                    
-                    rock.scaling.y = 0.5;
-                    rock.position = new Vector3(position.x, 0.18, position.z);
-                    rock.rotation.y = Math.random() * Math.PI * 2;
-                    
-                    const rockMat = new StandardMaterial('rockMat', this.scene);
-                    rockMat.diffuseColor = new Color3(0.5, 0.5, 0.5);
-                    rockMat.specularColor = new Color3(0.2, 0.2, 0.2);
-                    rock.material = rockMat;
-                    
-                    if (this.shadowGenerator) {
-                        this.shadowGenerator.addShadowCaster(rock);
+                    trunk.position = new Vector3(position.x, 0.5, position.z);
+                    trunk.material = createLowPolyMaterial('trunkMat', PALETTE.TREE_TRUNK, this.scene);
+                    makeFlatShaded(trunk);
+                    meshes.push(trunk);
+
+                    // 2-3 stacked cones for Christmas tree / triangular foliage
+                    const numCones = 2 + Math.floor(Math.random() * 2);
+                    for (let i = 0; i < numCones; i++) {
+                        const coneHeight = 1.0 - i * 0.15;
+                        const coneDiam = 1.4 - i * 0.35;
+                        const cone = MeshBuilder.CreateCylinder(`treeLeaves_${i}`, {
+                            height: coneHeight,
+                            diameterTop: 0,
+                            diameterBottom: coneDiam,
+                            tessellation: 5 + Math.floor(Math.random() * 3)
+                        }, this.scene);
+                        cone.position = new Vector3(position.x, 1.0 + i * 0.6, position.z);
+                        cone.material = createLowPolyMaterial(`leavesMat_${i}`,
+                            i === 0 ? PALETTE.TREE_FOLIAGE_DARK : PALETTE.TREE_FOLIAGE, this.scene);
+                        makeFlatShaded(cone);
+                        meshes.push(cone);
                     }
-                    
+
+                    if (this.shadowGenerator) {
+                        for (const m of meshes) this.shadowGenerator.addShadowCaster(m);
+                    }
+
+                    return meshes;
+                },
+                probability: 0.15
+            },
+            // Rocks - polyhedrons with faceted look
+            {
+                mesh: (position: Vector3) => {
+                    const rock = MeshBuilder.CreatePolyhedron('rock', {
+                        type: Math.floor(Math.random() * 4),
+                        size: 0.25 + Math.random() * 0.2
+                    }, this.scene);
+
+                    rock.scaling.y = 0.5 + Math.random() * 0.3;
+                    rock.position = new Vector3(position.x, 0.2, position.z);
+                    rock.rotation.y = Math.random() * Math.PI * 2;
+                    rock.rotation.x = Math.random() * 0.3;
+                    rock.material = createLowPolyMaterial('rockMat',
+                        Math.random() > 0.5 ? PALETTE.ROCK : PALETTE.ROCK_DARK, this.scene);
+                    makeFlatShaded(rock);
+
+                    if (this.shadowGenerator) this.shadowGenerator.addShadowCaster(rock);
+
                     return [rock];
                 },
                 probability: 0.08
             },
-            // Bushes
+            // Bushes - very low-poly icospheres
             {
                 mesh: (position: Vector3) => {
-                    const bush = MeshBuilder.CreateSphere('bush', { 
-                        segments: 8, 
-                        diameter: 0.6 
+                    const bush = MeshBuilder.CreateIcoSphere('bush', {
+                        subdivisions: 1,
+                        radius: 0.3 + Math.random() * 0.15
                     }, this.scene);
-                    
-                    bush.position = new Vector3(position.x, 0.3, position.z);
-                    
-                    const bushMat = new StandardMaterial('bushMat', this.scene);
-                    bushMat.diffuseColor = new Color3(0.2, 0.6, 0.2);
-                    bushMat.specularColor = new Color3(0.1, 0.1, 0.1);
-                    bush.material = bushMat;
-                    
-                    if (this.shadowGenerator) {
-                        this.shadowGenerator.addShadowCaster(bush);
-                    }
-                    
+
+                    bush.position = new Vector3(position.x, 0.25, position.z);
+                    bush.material = createLowPolyMaterial('bushMat', PALETTE.BUSH, this.scene);
+                    makeFlatShaded(bush);
+
+                    if (this.shadowGenerator) this.shadowGenerator.addShadowCaster(bush);
+
                     return [bush];
                 },
-                probability: 0.12
+                probability: 0.10
+            },
+            // Flowers - small stem + disc petal
+            {
+                mesh: (position: Vector3) => {
+                    const meshes: Mesh[] = [];
+
+                    const stem = MeshBuilder.CreateCylinder('flowerStem', {
+                        height: 0.5,
+                        diameter: 0.06,
+                        tessellation: 4
+                    }, this.scene);
+                    stem.position = new Vector3(position.x, 0.25, position.z);
+                    stem.material = createLowPolyMaterial('stemMat', PALETTE.FLOWER_STEM, this.scene);
+                    meshes.push(stem);
+
+                    const petalColors = [PALETTE.FLOWER_PETAL_RED, PALETTE.FLOWER_PETAL_YELLOW, PALETTE.FLOWER_PETAL_PURPLE];
+                    const petal = MeshBuilder.CreateDisc('flowerPetal', {
+                        radius: 0.18,
+                        tessellation: 5
+                    }, this.scene);
+                    petal.position = new Vector3(position.x, 0.52, position.z);
+                    petal.rotation.x = -Math.PI / 6;
+                    petal.material = createLowPolyMaterial('petalMat',
+                        petalColors[Math.floor(Math.random() * petalColors.length)], this.scene);
+                    meshes.push(petal);
+
+                    return meshes;
+                },
+                probability: 0.06
             }
         ];
-        
-        // Add decorations to empty areas
+
         for (let x = 0; x < this.gridSize; x++) {
             for (let y = 0; y < this.gridSize; y++) {
-                // Only add decoration to empty cells
                 if (this.grid[x][y] === CellType.EMPTY) {
-                    // Choose decoration based on probability
                     for (const decType of decorations) {
                         if (Math.random() < decType.probability) {
                             const position = this.gridToWorld(x, y);
-                            
-                            // Create the decoration at this position
                             const decorMeshes = decType.mesh(position);
                             this.decorationMeshes.push(...decorMeshes);
-                            
-                            // Mark the cell as decoration
                             this.grid[x][y] = CellType.DECORATION;
-                            break; // Only place one decoration per cell
+                            break;
                         }
                     }
                 }
             }
         }
     }
-    
+
     /**
-     * Add particle effects to start and end positions
+     * Reduced particle effects for portals (50-80 particles instead of 500)
      */
     private addParticleEffects(): void {
-        // Create start position particles (green portal)
         const startPos = this.gridToWorld(this.startPosition.x, this.startPosition.y);
-        const startParticles = new ParticleSystem("startParticles", 500, this.scene);
-        startParticles.particleTexture = new Texture("assets/textures/particle.png", this.scene);
+        const startParticles = new ParticleSystem("startParticles", 60, this.scene);
         startParticles.emitter = new Vector3(startPos.x, 0.5, startPos.z);
         startParticles.minEmitBox = new Vector3(-0.5, 0, -0.5);
         startParticles.maxEmitBox = new Vector3(0.5, 0, 0.5);
-        startParticles.color1 = new Color4(0.1, 1.0, 0.1, 1.0);
-        startParticles.color2 = new Color4(0.1, 0.5, 0.1, 1.0);
+        startParticles.color1 = new Color4(0.15, 0.85, 0.35, 0.9);
+        startParticles.color2 = new Color4(0.1, 0.6, 0.2, 0.7);
         startParticles.colorDead = new Color4(0, 0.3, 0, 0.0);
-        startParticles.minSize = 0.1;
-        startParticles.maxSize = 0.3;
-        startParticles.minLifeTime = 0.5;
-        startParticles.maxLifeTime = 1.5;
-        startParticles.emitRate = 50;
-        startParticles.direction1 = new Vector3(-0.5, 1, -0.5);
-        startParticles.direction2 = new Vector3(0.5, 1, 0.5);
+        startParticles.minSize = 0.15;
+        startParticles.maxSize = 0.4;
+        startParticles.minLifeTime = 0.4;
+        startParticles.maxLifeTime = 1.2;
+        startParticles.emitRate = 20;
+        startParticles.direction1 = new Vector3(-0.3, 1, -0.3);
+        startParticles.direction2 = new Vector3(0.3, 1.5, 0.3);
         startParticles.gravity = new Vector3(0, -0.5, 0);
         startParticles.start();
         this.pathParticles.push(startParticles);
-        
-        // Create end position particles (red portal)
+
         const endPos = this.gridToWorld(this.endPosition.x, this.endPosition.y);
-        const endParticles = new ParticleSystem("endParticles", 500, this.scene);
-        endParticles.particleTexture = new Texture("assets/textures/particle.png", this.scene);
+        const endParticles = new ParticleSystem("endParticles", 60, this.scene);
         endParticles.emitter = new Vector3(endPos.x, 0.5, endPos.z);
         endParticles.minEmitBox = new Vector3(-0.5, 0, -0.5);
         endParticles.maxEmitBox = new Vector3(0.5, 0, 0.5);
-        endParticles.color1 = new Color4(1.0, 0.1, 0.1, 1.0);
-        endParticles.color2 = new Color4(0.5, 0.1, 0.1, 1.0);
+        endParticles.color1 = new Color4(0.90, 0.20, 0.20, 0.9);
+        endParticles.color2 = new Color4(0.60, 0.10, 0.10, 0.7);
         endParticles.colorDead = new Color4(0.3, 0, 0, 0.0);
-        endParticles.minSize = 0.1;
-        endParticles.maxSize = 0.3;
-        endParticles.minLifeTime = 0.5;
-        endParticles.maxLifeTime = 1.5;
-        endParticles.emitRate = 50;
-        endParticles.direction1 = new Vector3(-0.5, 1, -0.5);
-        endParticles.direction2 = new Vector3(0.5, 1, 0.5);
+        endParticles.minSize = 0.15;
+        endParticles.maxSize = 0.4;
+        endParticles.minLifeTime = 0.4;
+        endParticles.maxLifeTime = 1.2;
+        endParticles.emitRate = 20;
+        endParticles.direction1 = new Vector3(-0.3, 1, -0.3);
+        endParticles.direction2 = new Vector3(0.3, 1.5, 0.3);
         endParticles.gravity = new Vector3(0, -0.5, 0);
         endParticles.start();
         this.pathParticles.push(endParticles);
     }
 
-    /**
-     * Convert grid coordinates to world position
-     * @param gridX Grid X coordinate
-     * @param gridY Grid Y coordinate
-     * @returns World position
-     */
     public gridToWorld(gridX: number, gridY: number): Vector3 {
-        // Calculate the center offset
-        const mapWidth = this.gridSize * this.cellSize;
-        const mapHeight = this.gridSize * this.cellSize;
-        const centerX = mapWidth / 2 - this.cellSize;
-        const centerZ = mapHeight / 2 - this.cellSize;
-        
-        // Convert from grid coordinates to world coordinates with centering
         const x = gridX * this.cellSize + this.cellSize / 2;
         const z = gridY * this.cellSize + this.cellSize / 2;
         return new Vector3(x, 0, z);
     }
 
-    /**
-     * Convert world position to grid coordinates
-     * @param position World position
-     * @returns Grid coordinates
-     */
     public worldToGrid(position: Vector3): { x: number, y: number } {
-        // Convert from world coordinates to grid coordinates
         const gridX = Math.floor(position.x / this.cellSize);
         const gridY = Math.floor(position.z / this.cellSize);
         return { x: gridX, y: gridY };
     }
 
-    /**
-     * Check if a tower can be placed at the given grid coordinates
-     * @param gridX Grid X coordinate
-     * @param gridY Grid Y coordinate
-     * @returns Whether a tower can be placed
-     */
     public canPlaceTower(gridX: number, gridY: number): boolean {
-        // Out of bounds check
         if (gridX < 0 || gridX >= this.gridSize || gridY < 0 || gridY >= this.gridSize) {
             return false;
         }
-        
-        // Check if the cell is empty (not path, tower, start, end, or decoration)
         return this.grid[gridX][gridY] === CellType.EMPTY;
     }
 
-    /**
-     * Set a tower as placed or removed from a grid position
-     * @param gridX Grid X coordinate
-     * @param gridY Grid Y coordinate
-     * @param placed Whether a tower is placed or removed
-     */
     public setTowerPlaced(gridX: number, gridY: number, placed: boolean): void {
         if (gridX >= 0 && gridX < this.gridSize && gridY >= 0 && gridY < this.gridSize) {
             this.grid[gridX][gridY] = placed ? CellType.TOWER : CellType.EMPTY;
         }
     }
 
-    /**
-     * Get the path that enemies will follow
-     * @returns The path as world positions
-     */
     public getPath(): Vector3[] {
         return this.path;
     }
 
-    /**
-     * Get the start position in world coordinates
-     * @returns Start position
-     */
     public getStartPosition(): Vector3 {
         return this.gridToWorld(this.startPosition.x, this.startPosition.y);
     }
 
-    /**
-     * Get the end position in world coordinates
-     * @returns End position
-     */
     public getEndPosition(): Vector3 {
         return this.gridToWorld(this.endPosition.x, this.endPosition.y);
     }
 
     /**
-     * Dispose of all resources
+     * Add semi-transparent cell indicators on buildable (EMPTY) cells.
+     * Named 'ground_cell_x_y' so they match the startsWith('ground_') predicate.
      */
+    private addCellIndicators(): void {
+        const cellMat = createLowPolyMaterial('cellIndicatorMat', PALETTE.GROUND.scale(1.15), this.scene);
+        cellMat.alpha = 0.15;
+
+        for (let x = 0; x < this.gridSize; x++) {
+            for (let y = 0; y < this.gridSize; y++) {
+                if (this.grid[x][y] === CellType.EMPTY) {
+                    const position = this.gridToWorld(x, y);
+                    const cell = MeshBuilder.CreateBox(`ground_cell_${x}_${y}`, {
+                        width: 1.9,
+                        height: 0.02,
+                        depth: 1.9
+                    }, this.scene);
+                    cell.position = new Vector3(position.x, 0.01, position.z);
+                    cell.material = cellMat;
+                    cell.receiveShadows = true;
+                    this.groundMeshes.push(cell);
+                }
+            }
+        }
+    }
+
+    /**
+     * Add border strips along path edges where path meets non-path terrain.
+     */
+    private addPathBorders(): void {
+        const borderMat = createLowPolyMaterial('pathBorderMat', PALETTE.PATH_BORDER, this.scene);
+        const borderWidth = 0.12;
+        const borderHeight = 0.16;
+
+        for (let x = 0; x < this.gridSize; x++) {
+            for (let y = 0; y < this.gridSize; y++) {
+                const cell = this.grid[x][y];
+                if (cell === CellType.PATH || cell === CellType.START || cell === CellType.END) {
+                    const position = this.gridToWorld(x, y);
+
+                    // Check 4 adjacent cells: [dx, dy]
+                    const neighbors: [number, number][] = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+
+                    for (const [dx, dy] of neighbors) {
+                        const nx = x + dx;
+                        const ny = y + dy;
+
+                        let isPathCell = false;
+                        if (nx >= 0 && nx < this.gridSize && ny >= 0 && ny < this.gridSize) {
+                            const adj = this.grid[nx][ny];
+                            isPathCell = adj === CellType.PATH || adj === CellType.START || adj === CellType.END;
+                        }
+
+                        if (!isPathCell) {
+                            const border = MeshBuilder.CreateBox(`pathBorder_${x}_${y}_${dx}_${dy}`, {
+                                width: dx !== 0 ? borderWidth : this.cellSize,
+                                height: borderHeight,
+                                depth: dy !== 0 ? borderWidth : this.cellSize
+                            }, this.scene);
+
+                            const offset = this.cellSize / 2;
+                            border.position = new Vector3(
+                                position.x + dx * offset,
+                                borderHeight / 2,
+                                position.z + dy * offset
+                            );
+                            border.material = borderMat;
+                            border.receiveShadows = true;
+                            this.groundMeshes.push(border);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Add a small water pond in an empty area of the map for visual interest.
+     * Uses transparent blue material with subtle vertex displacement for ripple effect.
+     */
+    private addWaterFeature(): void {
+        // Find a good spot for a pond (look for a cluster of empty cells)
+        // Place it in the upper-right quadrant which tends to be open
+        const pondCenter = { x: 16, y: 4 };
+        const pondRadius = 2;
+
+        // Check if area is actually empty
+        let canPlace = true;
+        for (let dx = -pondRadius; dx <= pondRadius; dx++) {
+            for (let dy = -pondRadius; dy <= pondRadius; dy++) {
+                const gx = pondCenter.x + dx;
+                const gy = pondCenter.y + dy;
+                if (gx >= 0 && gx < this.gridSize && gy >= 0 && gy < this.gridSize) {
+                    if (this.grid[gx][gy] !== CellType.EMPTY && this.grid[gx][gy] !== CellType.DECORATION) {
+                        canPlace = false;
+                        break;
+                    }
+                }
+            }
+            if (!canPlace) break;
+        }
+
+        if (!canPlace) return;
+
+        const worldPos = this.gridToWorld(pondCenter.x, pondCenter.y);
+
+        // Water surface - translucent blue disc
+        const waterSurface = MeshBuilder.CreateGround('waterSurface', {
+            width: pondRadius * this.cellSize * 1.5,
+            height: pondRadius * this.cellSize * 1.5,
+            subdivisions: 8
+        }, this.scene);
+        waterSurface.position = new Vector3(worldPos.x, 0.05, worldPos.z);
+
+        // Subtle vertex displacement for ripple effect
+        const positions = waterSurface.getVerticesData('position');
+        if (positions) {
+            for (let i = 1; i < positions.length; i += 3) {
+                positions[i] += (Math.random() - 0.5) * 0.08;
+            }
+            waterSurface.updateVerticesData('position', positions);
+        }
+        makeFlatShaded(waterSurface);
+
+        const waterMat = createLowPolyMaterial('waterMat', PALETTE.TOWER_WATER_CRYSTAL, this.scene);
+        waterMat.alpha = 0.55;
+        waterSurface.material = waterMat;
+        this.groundMeshes.push(waterSurface);
+
+        // Mark cells as decoration so towers can't be placed on water
+        for (let dx = -1; dx <= 1; dx++) {
+            for (let dy = -1; dy <= 1; dy++) {
+                const gx = pondCenter.x + dx;
+                const gy = pondCenter.y + dy;
+                if (gx >= 0 && gx < this.gridSize && gy >= 0 && gy < this.gridSize) {
+                    if (this.grid[gx][gy] === CellType.EMPTY) {
+                        this.grid[gx][gy] = CellType.DECORATION;
+                    }
+                }
+            }
+        }
+
+        // Pond border rocks
+        const rockCount = 6 + Math.floor(Math.random() * 4);
+        for (let i = 0; i < rockCount; i++) {
+            const angle = (i / rockCount) * Math.PI * 2;
+            const dist = pondRadius * 1.1 + Math.random() * 0.5;
+            const rx = worldPos.x + Math.cos(angle) * dist;
+            const rz = worldPos.z + Math.sin(angle) * dist;
+
+            const rock = MeshBuilder.CreatePolyhedron(`pondRock_${i}`, {
+                type: Math.floor(Math.random() * 3),
+                size: 0.15 + Math.random() * 0.12
+            }, this.scene);
+            rock.position = new Vector3(rx, 0.1, rz);
+            rock.rotation.y = Math.random() * Math.PI * 2;
+            rock.scaling.y = 0.6;
+            rock.material = createLowPolyMaterial(`pondRockMat_${i}`, PALETTE.ROCK, this.scene);
+            makeFlatShaded(rock);
+            if (this.shadowGenerator) this.shadowGenerator.addShadowCaster(rock);
+            this.decorationMeshes.push(rock);
+        }
+    }
+
+    /**
+     * Add a stone wall border around the playable area to frame the map.
+     */
+    private addMapBorder(): void {
+        const mapWidth = this.gridSize * this.cellSize;
+        const borderHeight = 0.6;
+        const borderThickness = 0.8;
+        const borderMat = createLowPolyMaterial('mapBorderMat', PALETTE.ROCK_DARK, this.scene);
+
+        // Four walls around the perimeter
+        const walls = [
+            // North wall
+            { w: mapWidth + borderThickness * 2, d: borderThickness, x: mapWidth / 2, z: -borderThickness / 2 },
+            // South wall
+            { w: mapWidth + borderThickness * 2, d: borderThickness, x: mapWidth / 2, z: mapWidth + borderThickness / 2 },
+            // West wall (leave gap for start portal)
+            { w: borderThickness, d: mapWidth + borderThickness * 2, x: -borderThickness / 2, z: mapWidth / 2 },
+            // East wall (leave gap for end portal)
+            { w: borderThickness, d: mapWidth + borderThickness * 2, x: mapWidth + borderThickness / 2, z: mapWidth / 2 }
+        ];
+
+        for (let i = 0; i < walls.length; i++) {
+            const wall = MeshBuilder.CreateBox(`mapBorder_${i}`, {
+                width: walls[i].w,
+                height: borderHeight,
+                depth: walls[i].d
+            }, this.scene);
+            wall.position = new Vector3(walls[i].x, borderHeight / 2, walls[i].z);
+            wall.material = borderMat;
+            wall.receiveShadows = true;
+            makeFlatShaded(wall);
+            this.groundMeshes.push(wall);
+        }
+
+        // Corner pillars for visual polish
+        const corners = [
+            { x: -borderThickness / 2, z: -borderThickness / 2 },
+            { x: mapWidth + borderThickness / 2, z: -borderThickness / 2 },
+            { x: -borderThickness / 2, z: mapWidth + borderThickness / 2 },
+            { x: mapWidth + borderThickness / 2, z: mapWidth + borderThickness / 2 }
+        ];
+
+        for (let i = 0; i < corners.length; i++) {
+            const pillar = MeshBuilder.CreateCylinder(`cornerPillar_${i}`, {
+                height: borderHeight * 1.8,
+                diameter: borderThickness * 1.2,
+                tessellation: 6
+            }, this.scene);
+            pillar.position = new Vector3(corners[i].x, borderHeight * 0.9, corners[i].z);
+            pillar.material = createLowPolyMaterial(`cornerPillarMat_${i}`, PALETTE.ROCK, this.scene);
+            makeFlatShaded(pillar);
+            if (this.shadowGenerator) this.shadowGenerator.addShadowCaster(pillar);
+            this.groundMeshes.push(pillar);
+        }
+    }
+
     public dispose(): void {
-        // Dispose of all meshes
         for (const mesh of this.groundMeshes) {
             mesh.dispose();
         }
-        
         for (const mesh of this.decorationMeshes) {
             mesh.dispose();
         }
-        
-        // Dispose of particle systems
         for (const particles of this.pathParticles) {
             particles.dispose();
         }
-        
         this.groundMeshes = [];
         this.decorationMeshes = [];
         this.pathParticles = [];
     }
-} 
+}
