@@ -9,6 +9,9 @@ export class FastEnemy extends Enemy {
     private leftWing: Mesh | null = null;
     private rightWing: Mesh | null = null;
     private head: Mesh | null = null;
+    private cloakLeft: Mesh | null = null;
+    private cloakRight: Mesh | null = null;
+    private tailWisp: Mesh | null = null;
 
     constructor(game: Game, position: Vector3, path: Vector3[]) {
         // Fast enemy has 2x speed, low health, low damage, and medium reward
@@ -19,93 +22,174 @@ export class FastEnemy extends Enemy {
     }
 
     /**
-     * Create the enemy mesh - low-poly stylized flying creature
-     * ~8 parts: thin box body, 2 flat box wings, small box head, 2 emissive eye dots, tail box, back fin
+     * Create the enemy mesh - low-poly Spectral Wraith
+     * Ethereal floating figure: hooded head, no legs (cloak trails away),
+     * bony arms reaching forward, ghostly wisp trails, eerie glowing eyes
      */
     protected createMesh(): void {
-        // Main body - thin box
-        this.mesh = MeshBuilder.CreateBox('fastEnemyBody', {
-            width: 0.4,
-            height: 0.9,
-            depth: 0.35
+        // --- Core body: tall narrow cone tapering downward (spectral cloak shape) ---
+        this.mesh = MeshBuilder.CreateCylinder('fastEnemyBody', {
+            height: 1.1,
+            diameterTop: 0.50,
+            diameterBottom: 0.08,
+            tessellation: 5
         }, this.scene);
         makeFlatShaded(this.mesh);
 
         // Position at starting position, raised for flying
         this.mesh.position = this.position.clone();
-        this.mesh.position.y += 1.2;
+        this.mesh.position.y += 1.3;
 
         const bodyMat = createLowPolyMaterial('fastBodyMat', PALETTE.ENEMY_FAST, this.scene);
+        bodyMat.alpha = 0.85; // Slightly translucent for ghostly feel
         this.mesh.material = bodyMat;
 
-        // Head - small box
-        this.head = MeshBuilder.CreateBox('fastHead', {
-            width: 0.3,
-            height: 0.3,
-            depth: 0.35
+        // --- Hood / Head: slightly squashed sphere-like shape ---
+        this.head = MeshBuilder.CreatePolyhedron('fastHead', {
+            type: 2, // Icosahedron for faceted look
+            size: 0.22
         }, this.scene);
         makeFlatShaded(this.head);
         this.head.parent = this.mesh;
         this.head.position = new Vector3(0, 0.55, 0.05);
-        this.head.material = createLowPolyMaterial('fastHeadMat', PALETTE.ENEMY_FAST, this.scene);
+        this.head.scaling = new Vector3(1.0, 0.85, 1.1); // Slightly flattened, elongated
+        this.head.material = createLowPolyMaterial('fastHeadMat', PALETTE.ENEMY_FAST_CLOAK, this.scene);
 
-        // Left eye - small emissive box
+        // --- Hood cowl: half-cylinder draping behind the head ---
+        const cowl = MeshBuilder.CreateCylinder('fastCowl', {
+            height: 0.35,
+            diameterTop: 0.48,
+            diameterBottom: 0.55,
+            tessellation: 5
+        }, this.scene);
+        makeFlatShaded(cowl);
+        cowl.parent = this.head;
+        cowl.position = new Vector3(0, 0.10, -0.08);
+        cowl.material = createLowPolyMaterial('fastCowlMat', PALETTE.ENEMY_FAST_CLOAK, this.scene);
+
+        // --- Left Eye: eerie pale glow ---
         const leftEye = MeshBuilder.CreateBox('fastLeftEye', {
-            width: 0.08,
-            height: 0.06,
+            width: 0.12,
+            height: 0.04,
             depth: 0.04
         }, this.scene);
         makeFlatShaded(leftEye);
         leftEye.parent = this.head;
-        leftEye.position = new Vector3(-0.1, 0.04, 0.18);
-        leftEye.material = createEmissiveMaterial('fastLeftEyeMat', new Color3(1, 0.2, 0.2), 0.9, this.scene);
+        leftEye.position = new Vector3(-0.10, 0.0, 0.20);
+        leftEye.material = createEmissiveMaterial('fastLeftEyeMat', PALETTE.ENEMY_FAST_EYE, 1.2, this.scene);
 
-        // Right eye - small emissive box
+        // --- Right Eye: eerie pale glow ---
         const rightEye = MeshBuilder.CreateBox('fastRightEye', {
-            width: 0.08,
-            height: 0.06,
+            width: 0.12,
+            height: 0.04,
             depth: 0.04
         }, this.scene);
         makeFlatShaded(rightEye);
         rightEye.parent = this.head;
-        rightEye.position = new Vector3(0.1, 0.04, 0.18);
-        rightEye.material = createEmissiveMaterial('fastRightEyeMat', new Color3(1, 0.2, 0.2), 0.9, this.scene);
+        rightEye.position = new Vector3(0.10, 0.0, 0.20);
+        rightEye.material = createEmissiveMaterial('fastRightEyeMat', PALETTE.ENEMY_FAST_EYE, 1.2, this.scene);
 
-        // Left wing - flat box
-        this.leftWing = MeshBuilder.CreateBox('fastLeftWing', {
-            width: 0.8,
+        // --- Left Arm: thin bony reaching limb ---
+        this.leftWing = MeshBuilder.CreateBox('fastLeftArm', {
+            width: 0.55,
             height: 0.06,
-            depth: 0.5
+            depth: 0.08
         }, this.scene);
         makeFlatShaded(this.leftWing);
         this.leftWing.parent = this.mesh;
-        this.leftWing.position = new Vector3(-0.55, 0.15, 0);
-        this.leftWing.rotation.z = Math.PI / 8;
-        this.leftWing.material = createLowPolyMaterial('fastLeftWingMat', PALETTE.ENEMY_FAST_WING, this.scene);
+        this.leftWing.position = new Vector3(-0.38, 0.25, 0.12);
+        this.leftWing.rotation.z = Math.PI / 6;
+        this.leftWing.rotation.y = -0.3;
+        this.leftWing.material = createLowPolyMaterial('fastLeftArmMat', PALETTE.ENEMY_FAST_CLOAK, this.scene);
 
-        // Right wing - flat box
-        this.rightWing = MeshBuilder.CreateBox('fastRightWing', {
-            width: 0.8,
+        // Left claw: small cone
+        const leftClaw = MeshBuilder.CreateCylinder('fastLeftClaw', {
+            height: 0.12,
+            diameterTop: 0.0,
+            diameterBottom: 0.06,
+            tessellation: 3
+        }, this.scene);
+        makeFlatShaded(leftClaw);
+        leftClaw.parent = this.leftWing;
+        leftClaw.position = new Vector3(-0.28, 0, 0.02);
+        leftClaw.rotation.z = Math.PI / 2;
+        leftClaw.material = createLowPolyMaterial('fastLeftClawMat', PALETTE.ENEMY_FAST_WISP, this.scene);
+
+        // --- Right Arm: thin bony reaching limb ---
+        this.rightWing = MeshBuilder.CreateBox('fastRightArm', {
+            width: 0.55,
             height: 0.06,
-            depth: 0.5
+            depth: 0.08
         }, this.scene);
         makeFlatShaded(this.rightWing);
         this.rightWing.parent = this.mesh;
-        this.rightWing.position = new Vector3(0.55, 0.15, 0);
-        this.rightWing.rotation.z = -Math.PI / 8;
-        this.rightWing.material = createLowPolyMaterial('fastRightWingMat', PALETTE.ENEMY_FAST_WING, this.scene);
+        this.rightWing.position = new Vector3(0.38, 0.25, 0.12);
+        this.rightWing.rotation.z = -Math.PI / 6;
+        this.rightWing.rotation.y = 0.3;
+        this.rightWing.material = createLowPolyMaterial('fastRightArmMat', PALETTE.ENEMY_FAST_CLOAK, this.scene);
 
-        // Tail fin - small angled box
-        const tail = MeshBuilder.CreateBox('fastTail', {
-            width: 0.15,
-            height: 0.3,
-            depth: 0.25
+        // Right claw: small cone
+        const rightClaw = MeshBuilder.CreateCylinder('fastRightClaw', {
+            height: 0.12,
+            diameterTop: 0.0,
+            diameterBottom: 0.06,
+            tessellation: 3
         }, this.scene);
-        makeFlatShaded(tail);
-        tail.parent = this.mesh;
-        tail.position = new Vector3(0, -0.35, -0.22);
-        tail.rotation.x = -0.3;
-        tail.material = createLowPolyMaterial('fastTailMat', PALETTE.ENEMY_FAST_WING, this.scene);
+        makeFlatShaded(rightClaw);
+        rightClaw.parent = this.rightWing;
+        rightClaw.position = new Vector3(0.28, 0, 0.02);
+        rightClaw.rotation.z = -Math.PI / 2;
+        rightClaw.material = createLowPolyMaterial('fastRightClawMat', PALETTE.ENEMY_FAST_WISP, this.scene);
+
+        // --- Cloak flare left: flat triangle trailing behind ---
+        this.cloakLeft = MeshBuilder.CreateCylinder('fastCloakLeft', {
+            height: 0.5,
+            diameterTop: 0.30,
+            diameterBottom: 0.0,
+            tessellation: 3
+        }, this.scene);
+        makeFlatShaded(this.cloakLeft);
+        this.cloakLeft.parent = this.mesh;
+        this.cloakLeft.position = new Vector3(-0.18, -0.45, -0.15);
+        this.cloakLeft.rotation.x = 0.3;
+        const cloakMatL = createLowPolyMaterial('fastCloakLeftMat', PALETTE.ENEMY_FAST, this.scene);
+        cloakMatL.alpha = 0.7;
+        this.cloakLeft.material = cloakMatL;
+
+        // --- Cloak flare right ---
+        this.cloakRight = MeshBuilder.CreateCylinder('fastCloakRight', {
+            height: 0.5,
+            diameterTop: 0.30,
+            diameterBottom: 0.0,
+            tessellation: 3
+        }, this.scene);
+        makeFlatShaded(this.cloakRight);
+        this.cloakRight.parent = this.mesh;
+        this.cloakRight.position = new Vector3(0.18, -0.45, -0.15);
+        this.cloakRight.rotation.x = 0.3;
+        const cloakMatR = createLowPolyMaterial('fastCloakRightMat', PALETTE.ENEMY_FAST, this.scene);
+        cloakMatR.alpha = 0.7;
+        this.cloakRight.material = cloakMatR;
+
+        // --- Tail Wisp: glowing small emissive shape trailing below ---
+        this.tailWisp = MeshBuilder.CreatePolyhedron('fastTailWisp', {
+            type: 1, // Octahedron
+            size: 0.08
+        }, this.scene);
+        makeFlatShaded(this.tailWisp);
+        this.tailWisp.parent = this.mesh;
+        this.tailWisp.position = new Vector3(0, -0.65, -0.08);
+        this.tailWisp.material = createEmissiveMaterial('fastTailWispMat', PALETTE.ENEMY_FAST_WISP, 1.0, this.scene);
+
+        // --- Core glow: small emissive sphere in chest area ---
+        const coreGlow = MeshBuilder.CreateSphere('fastCoreGlow', {
+            diameter: 0.14,
+            segments: 4
+        }, this.scene);
+        makeFlatShaded(coreGlow);
+        coreGlow.parent = this.mesh;
+        coreGlow.position = new Vector3(0, 0.20, 0.12);
+        coreGlow.material = createEmissiveMaterial('fastCoreGlowMat', PALETTE.ENEMY_FAST_EYE, 1.5, this.scene);
 
         // Store original scale
         this.originalScale = 1.0;
@@ -198,7 +282,7 @@ export class FastEnemy extends Enemy {
     }
 
     /**
-     * Update the enemy with flying animation
+     * Update the enemy with ghostly swooping flight animation
      * @param deltaTime Time elapsed since last update in seconds
      * @returns True if the enemy reached the end of the path
      */
@@ -208,28 +292,55 @@ export class FastEnemy extends Enemy {
         // Get the result from the parent update method
         const result = super.update(deltaTime);
 
-        // Update flying animation
+        // Update spectral floating animation
         if (!this.isFrozen && !this.isStunned && this.currentPathIndex < this.path.length) {
-            this.flyTime += deltaTime * 8; // Control animation speed
+            this.flyTime += deltaTime * 6;
 
-            // Floating movement - make it hover up and down
             if (this.mesh) {
-                this.mesh.position.y = this.position.y + 1.2 + Math.sin(this.flyTime * 0.5) * 0.2;
+                // Ethereal floating: slow sinusoidal hover with slight figure-8
+                const hoverY = Math.sin(this.flyTime * 0.6) * 0.25;
+                const hoverX = Math.sin(this.flyTime * 0.3) * 0.08;
+                this.mesh.position.y = this.position.y + 1.3 + hoverY;
+
+                // Gentle body tilt as it sways
+                this.mesh.rotation.z = Math.sin(this.flyTime * 0.4) * 0.12;
+                this.mesh.rotation.x = Math.sin(this.flyTime * 0.3) * 0.06;
             }
 
-            // Flap wings
+            // Arms: slow eerie reaching motion, slightly out of phase
             if (this.leftWing && this.rightWing) {
-                this.leftWing.rotation.z = Math.PI / 8 + Math.sin(this.flyTime) * 0.5;
-                this.rightWing.rotation.z = -Math.PI / 8 - Math.sin(this.flyTime) * 0.5;
+                // Arms drift up and down like they're beckoning
+                this.leftWing.rotation.z = Math.PI / 6 + Math.sin(this.flyTime * 0.8) * 0.25;
+                this.leftWing.rotation.x = Math.sin(this.flyTime * 0.6 + 0.5) * 0.15;
+                this.rightWing.rotation.z = -Math.PI / 6 - Math.sin(this.flyTime * 0.8 + Math.PI * 0.3) * 0.25;
+                this.rightWing.rotation.x = Math.sin(this.flyTime * 0.6 + 2.0) * 0.15;
             }
 
-            // Move head slightly
+            // Head: slow ominous scanning
             if (this.head) {
-                this.head.rotation.x = Math.sin(this.flyTime * 0.3) * 0.1;
-                this.head.rotation.y = Math.sin(this.flyTime * 0.5) * 0.1;
+                this.head.rotation.y = Math.sin(this.flyTime * 0.4) * 0.20;
+                this.head.rotation.x = Math.sin(this.flyTime * 0.25) * 0.08;
             }
 
-            // If we're moving, rotate the mesh to face the direction of movement
+            // Cloak tails: wave like cloth in wind
+            if (this.cloakLeft && this.cloakRight) {
+                this.cloakLeft.rotation.x = 0.3 + Math.sin(this.flyTime * 1.2) * 0.20;
+                this.cloakLeft.rotation.z = Math.sin(this.flyTime * 0.9) * 0.10;
+                this.cloakRight.rotation.x = 0.3 + Math.sin(this.flyTime * 1.2 + Math.PI * 0.5) * 0.20;
+                this.cloakRight.rotation.z = Math.sin(this.flyTime * 0.9 + 1.0) * 0.10;
+            }
+
+            // Tail wisp: orbit and pulse
+            if (this.tailWisp) {
+                this.tailWisp.position.x = Math.sin(this.flyTime * 1.5) * 0.10;
+                this.tailWisp.position.z = Math.cos(this.flyTime * 1.5) * 0.10 - 0.08;
+                this.tailWisp.position.y = -0.65 + Math.sin(this.flyTime * 2.0) * 0.05;
+                // Pulsing scale
+                const pulse = 0.9 + Math.sin(this.flyTime * 3.0) * 0.3;
+                this.tailWisp.scaling = new Vector3(pulse, pulse, pulse);
+            }
+
+            // Face direction of movement
             if (this.currentPathIndex < this.path.length) {
                 const targetPoint = this.path[this.currentPathIndex];
                 const direction = targetPoint.subtract(this.position);

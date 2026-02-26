@@ -1,4 +1,4 @@
-import { Engine, Scene, Vector3, HemisphericLight, ArcRotateCamera, Color3, Color4, SceneLoader, Animation, AbstractMesh, GlowLayer } from '@babylonjs/core';
+import { Engine, Scene, Vector3, HemisphericLight, ArcRotateCamera, Camera, Color3, Color4, SceneLoader, Animation, AbstractMesh, GlowLayer } from '@babylonjs/core';
 import { GameState } from './states/GameState';
 import { MenuState } from './states/MenuState';
 import { GameplayState } from './states/GameplayState';
@@ -80,6 +80,38 @@ export class Game {
 
     public resize(): void {
         this.engine.resize();
+        this.updateOrthoBounds();
+    }
+
+    /**
+     * Recalculate orthographic bounds to fit the map in the viewport.
+     * If camera.metadata.orthoZoom is set, uses that fixed value.
+     * Otherwise, auto-computes optimal zoom to fill the screen with the isometric map.
+     */
+    public updateOrthoBounds(): void {
+        const camera = this.scene.activeCamera as ArcRotateCamera;
+        if (!camera || camera.mode !== Camera.ORTHOGRAPHIC_CAMERA) return;
+
+        const aspect = this.engine.getAspectRatio(camera);
+        let zoom: number;
+
+        if (camera.metadata?.orthoZoom != null) {
+            zoom = camera.metadata.orthoZoom;
+        } else {
+            // Auto-fit: compute zoom so the 40x40 isometric diamond fills the screen.
+            // In isometric projection (alpha=-45°, beta=atan(√2)):
+            //   screen half-width  = mapSize / √2   (diamond extends left/right)
+            //   screen half-height = mapSize / √6   (diamond extends up/down, compressed)
+            const mapSize = 40;
+            const screenHalfW = mapSize / Math.SQRT2 + 3; // +margin for borders
+            const screenHalfH = mapSize / Math.sqrt(6) + 5; // +margin for towers/portals height
+            zoom = Math.max(screenHalfH, screenHalfW / aspect);
+        }
+
+        camera.orthoTop = zoom;
+        camera.orthoBottom = -zoom;
+        camera.orthoLeft = -zoom * aspect;
+        camera.orthoRight = zoom * aspect;
     }
 
     private setupScene(): void {
@@ -89,50 +121,38 @@ export class Game {
         light.groundColor = PALETTE.LIGHT_GROUND.clone();
         light.intensity = 0.65;
 
-        // Linear fog matching sky color for atmospheric depth
-        this.scene.fogMode = Scene.FOGMODE_LINEAR;
-        this.scene.fogColor = PALETTE.FOG.clone();
-        this.scene.fogStart = 40;
-        this.scene.fogEnd = 80;
+        // Fog disabled -- doesn't work properly with orthographic projection
+        this.scene.fogMode = Scene.FOGMODE_NONE;
 
         // Glow layer for emissive elements (portals, tower effects)
         const glowLayer = new GlowLayer('glowLayer', this.scene);
         glowLayer.intensity = 0.4;
 
-        // Isometric camera setup
-        // True isometric: alpha=45° (PI/4), beta=35.264° (arctan(1/sqrt(2)) ≈ 0.6155 rad)
+        // True isometric beta angle: arctan(sqrt(2)) ≈ 54.736° from horizontal,
+        // which in Babylon's coordinate system is measured from pole: ~0.6155 rad
+        const isoBeta = Math.atan(Math.sqrt(2));
+
+        // Fixed isometric camera with orthographic projection
         const camera = new ArcRotateCamera(
             'camera',
             -Math.PI / 4,      // alpha: -45° for classic isometric angle
-            0.62,              // beta: ~35.264° for true isometric elevation
-            35,                // radius: tighter zoom for better detail
-            new Vector3(19, 0, 19), // target: center of 20x20 grid (cells are 2 units)
+            isoBeta,            // beta: true isometric elevation
+            50,                 // radius: camera distance (doesn't affect ortho zoom)
+            new Vector3(20, 0, 20), // target: center of 20x20 grid (cells are 2 units)
             this.scene
         );
 
-        // Camera limits tuned for isometric TD gameplay
-        camera.lowerRadiusLimit = 20;  // Close enough to see detail
-        camera.upperRadiusLimit = 55;  // Far enough to see whole map
-        camera.lowerBetaLimit = 0.4;   // Prevent too-low angle (near horizontal)
-        camera.upperBetaLimit = 1.2;   // Allow more top-down if player wants
-        // No alpha limits - allow full rotation for strategy viewing
+        // Switch to orthographic projection
+        camera.mode = Camera.ORTHOGRAPHIC_CAMERA;
 
-        // Attach controls
-        camera.attachControl(this.canvas, true);
+        // Auto-compute ortho zoom to fit the map (null = auto)
+        camera.metadata = { orthoZoom: null };
 
-        // Control sensitivity tuned for TD gameplay
-        camera.wheelPrecision = 35;
-        camera.panningSensibility = 80;
-        camera.angularSensibilityX = 500;
-        camera.angularSensibilityY = 500;
+        // Set initial ortho bounds
+        this.updateOrthoBounds();
 
-        // Smooth camera with moderate inertia
-        camera.inertia = 0.6;
-        camera.checkCollisions = false;
-        camera.useBouncingBehavior = true;
-
-        // Disable auto-rotation (distracting during gameplay)
-        camera.useAutoRotationBehavior = false;
+        // No user controls -- camera is fully fixed
+        camera.inputs.clear();
     }
 
     /**

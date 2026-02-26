@@ -18,127 +18,269 @@ export class BasicEnemy extends Enemy {
     }
 
     /**
-     * Create the enemy mesh - low-poly stylized humanoid monster
-     * ~10 parts: box body, box head, 2 emissive eye boxes, 2 cone horns, 2 arm boxes, 2 leg boxes
+     * Create the enemy mesh - low-poly Goblin Warrior
+     * Stocky proportions, pointy ears, crude shield on left arm, jagged sword on right,
+     * big nose, underbite jaw, leather chest armor
      */
     protected createMesh(): void {
-        // Main body - box torso
+        // --- Torso: wide, squat box (goblins are stocky) ---
         this.mesh = MeshBuilder.CreateBox('basicEnemyBody', {
-            width: 0.7,
-            height: 1.0,
+            width: 0.75,
+            height: 0.65,
             depth: 0.5
         }, this.scene);
         makeFlatShaded(this.mesh);
-
-        // Position at starting position, raised for height
         this.mesh.position = this.position.clone();
-        this.mesh.position.y += 0.7;
+        this.mesh.position.y += 0.65;
+        this.mesh.material = createLowPolyMaterial('basicBodyMat', PALETTE.ENEMY_BASIC, this.scene);
 
-        const bodyMat = createLowPolyMaterial('basicBodyMat', PALETTE.ENEMY_BASIC, this.scene);
-        this.mesh.material = bodyMat;
+        // --- Belly patch: lighter green box on the front ---
+        const belly = MeshBuilder.CreateBox('basicBelly', {
+            width: 0.45,
+            height: 0.40,
+            depth: 0.08
+        }, this.scene);
+        makeFlatShaded(belly);
+        belly.parent = this.mesh;
+        belly.position = new Vector3(0, -0.05, 0.26);
+        belly.material = createLowPolyMaterial('basicBellyMat', PALETTE.ENEMY_BASIC_BELLY, this.scene);
 
-        // Head - box
+        // --- Leather armor: thin box over torso front ---
+        const armor = MeshBuilder.CreateBox('basicArmor', {
+            width: 0.65,
+            height: 0.30,
+            depth: 0.06
+        }, this.scene);
+        makeFlatShaded(armor);
+        armor.parent = this.mesh;
+        armor.position = new Vector3(0, 0.15, 0.28);
+        armor.material = createLowPolyMaterial('basicArmorMat', PALETTE.ENEMY_BASIC_ARMOR, this.scene);
+
+        // --- Belt: thin horizontal box ---
+        const belt = MeshBuilder.CreateBox('basicBelt', {
+            width: 0.78,
+            height: 0.08,
+            depth: 0.52
+        }, this.scene);
+        makeFlatShaded(belt);
+        belt.parent = this.mesh;
+        belt.position = new Vector3(0, -0.28, 0);
+        belt.material = createLowPolyMaterial('basicBeltMat', PALETTE.ENEMY_BASIC_ARMOR, this.scene);
+
+        // --- Head: slightly oversized sphere-like box (goblins have big heads) ---
         this.head = MeshBuilder.CreateBox('basicHead', {
-            width: 0.55,
-            height: 0.55,
-            depth: 0.55
+            width: 0.58,
+            height: 0.50,
+            depth: 0.52
         }, this.scene);
         makeFlatShaded(this.head);
         this.head.parent = this.mesh;
-        this.head.position = new Vector3(0, 0.75, 0);
+        this.head.position = new Vector3(0, 0.58, 0.04);
         this.head.material = createLowPolyMaterial('basicHeadMat', PALETTE.ENEMY_BASIC, this.scene);
 
-        // Left eye - emissive box
-        const leftEye = MeshBuilder.CreateBox('basicLeftEye', {
-            width: 0.12,
+        // --- Big Nose: cone pointing forward ---
+        const nose = MeshBuilder.CreateCylinder('basicNose', {
+            height: 0.22,
+            diameterTop: 0.0,
+            diameterBottom: 0.14,
+            tessellation: 4
+        }, this.scene);
+        makeFlatShaded(nose);
+        nose.parent = this.head;
+        nose.position = new Vector3(0, -0.04, 0.30);
+        nose.rotation.x = Math.PI / 2;
+        nose.material = createLowPolyMaterial('basicNoseMat', PALETTE.ENEMY_BASIC_BELLY, this.scene);
+
+        // --- Underbite Jaw: small box jutting forward ---
+        const jaw = MeshBuilder.CreateBox('basicJaw', {
+            width: 0.38,
+            height: 0.12,
+            depth: 0.20
+        }, this.scene);
+        makeFlatShaded(jaw);
+        jaw.parent = this.head;
+        jaw.position = new Vector3(0, -0.22, 0.18);
+        jaw.material = createLowPolyMaterial('basicJawMat', PALETTE.ENEMY_BASIC, this.scene);
+
+        // --- Teeth: two small white boxes (snaggle teeth) ---
+        const leftTooth = MeshBuilder.CreateBox('basicLeftTooth', {
+            width: 0.06,
+            height: 0.08,
+            depth: 0.05
+        }, this.scene);
+        makeFlatShaded(leftTooth);
+        leftTooth.parent = jaw;
+        leftTooth.position = new Vector3(-0.08, 0.08, 0.08);
+        leftTooth.material = createLowPolyMaterial('basicToothMat1', new Color3(0.92, 0.88, 0.72), this.scene);
+
+        const rightTooth = MeshBuilder.CreateBox('basicRightTooth', {
+            width: 0.06,
             height: 0.10,
+            depth: 0.05
+        }, this.scene);
+        makeFlatShaded(rightTooth);
+        rightTooth.parent = jaw;
+        rightTooth.position = new Vector3(0.10, 0.10, 0.08);
+        rightTooth.material = createLowPolyMaterial('basicToothMat2', new Color3(0.92, 0.88, 0.72), this.scene);
+
+        // --- Left Eye: emissive yellow ---
+        const leftEye = MeshBuilder.CreateBox('basicLeftEye', {
+            width: 0.13,
+            height: 0.09,
             depth: 0.06
         }, this.scene);
         makeFlatShaded(leftEye);
         leftEye.parent = this.head;
-        leftEye.position = new Vector3(-0.15, 0.08, 0.28);
-        leftEye.material = createEmissiveMaterial('basicLeftEyeMat', new Color3(1, 0.9, 0.2), 0.8, this.scene);
+        leftEye.position = new Vector3(-0.15, 0.08, 0.27);
+        leftEye.material = createEmissiveMaterial('basicLeftEyeMat', PALETTE.ENEMY_BASIC_EYE, 0.8, this.scene);
 
-        // Right eye - emissive box
+        // --- Right Eye: emissive yellow ---
         const rightEye = MeshBuilder.CreateBox('basicRightEye', {
-            width: 0.12,
-            height: 0.10,
+            width: 0.13,
+            height: 0.09,
             depth: 0.06
         }, this.scene);
         makeFlatShaded(rightEye);
         rightEye.parent = this.head;
-        rightEye.position = new Vector3(0.15, 0.08, 0.28);
-        rightEye.material = createEmissiveMaterial('basicRightEyeMat', new Color3(1, 0.9, 0.2), 0.8, this.scene);
+        rightEye.position = new Vector3(0.15, 0.08, 0.27);
+        rightEye.material = createEmissiveMaterial('basicRightEyeMat', PALETTE.ENEMY_BASIC_EYE, 0.8, this.scene);
 
-        // Left horn - cone (triangle shape)
-        const leftHorn = MeshBuilder.CreateCylinder('basicLeftHorn', {
-            height: 0.35,
+        // --- Left Ear: pointy cone ---
+        const leftEar = MeshBuilder.CreateCylinder('basicLeftEar', {
+            height: 0.30,
             diameterTop: 0.0,
-            diameterBottom: 0.12,
-            tessellation: 4
+            diameterBottom: 0.10,
+            tessellation: 3
         }, this.scene);
-        makeFlatShaded(leftHorn);
-        leftHorn.parent = this.head;
-        leftHorn.position = new Vector3(-0.22, 0.32, 0);
-        leftHorn.rotation.z = -0.3;
-        leftHorn.material = createLowPolyMaterial('basicLeftHornMat', PALETTE.ENEMY_BASIC_HORN, this.scene);
+        makeFlatShaded(leftEar);
+        leftEar.parent = this.head;
+        leftEar.position = new Vector3(-0.32, 0.08, 0);
+        leftEar.rotation.z = Math.PI / 2.5;
+        leftEar.material = createLowPolyMaterial('basicLeftEarMat', PALETTE.ENEMY_BASIC_BELLY, this.scene);
 
-        // Right horn - cone (triangle shape)
-        const rightHorn = MeshBuilder.CreateCylinder('basicRightHorn', {
-            height: 0.35,
+        // --- Right Ear: pointy cone ---
+        const rightEar = MeshBuilder.CreateCylinder('basicRightEar', {
+            height: 0.30,
             diameterTop: 0.0,
-            diameterBottom: 0.12,
-            tessellation: 4
+            diameterBottom: 0.10,
+            tessellation: 3
         }, this.scene);
-        makeFlatShaded(rightHorn);
-        rightHorn.parent = this.head;
-        rightHorn.position = new Vector3(0.22, 0.32, 0);
-        rightHorn.rotation.z = 0.3;
-        rightHorn.material = createLowPolyMaterial('basicRightHornMat', PALETTE.ENEMY_BASIC_HORN, this.scene);
+        makeFlatShaded(rightEar);
+        rightEar.parent = this.head;
+        rightEar.position = new Vector3(0.32, 0.08, 0);
+        rightEar.rotation.z = -Math.PI / 2.5;
+        rightEar.material = createLowPolyMaterial('basicRightEarMat', PALETTE.ENEMY_BASIC_BELLY, this.scene);
 
-        // Left arm - box limb
+        // --- Left Arm (shield arm): short box arm ---
         this.leftArm = MeshBuilder.CreateBox('basicLeftArm', {
-            width: 0.18,
-            height: 0.7,
-            depth: 0.18
+            width: 0.16,
+            height: 0.55,
+            depth: 0.16
         }, this.scene);
         makeFlatShaded(this.leftArm);
         this.leftArm.parent = this.mesh;
-        this.leftArm.position = new Vector3(-0.45, 0.1, 0);
-        this.leftArm.material = createLowPolyMaterial('basicLeftArmMat', PALETTE.ENEMY_BASIC_HORN, this.scene);
+        this.leftArm.position = new Vector3(-0.48, 0.05, 0);
+        this.leftArm.material = createLowPolyMaterial('basicLeftArmMat', PALETTE.ENEMY_BASIC, this.scene);
 
-        // Right arm - box limb
+        // --- Shield on left arm: flat wide box ---
+        const shield = MeshBuilder.CreateBox('basicShield', {
+            width: 0.06,
+            height: 0.40,
+            depth: 0.30
+        }, this.scene);
+        makeFlatShaded(shield);
+        shield.parent = this.leftArm;
+        shield.position = new Vector3(-0.10, -0.10, 0.08);
+        shield.material = createLowPolyMaterial('basicShieldMat', PALETTE.ENEMY_BASIC_METAL, this.scene);
+
+        // --- Shield boss (center knob): small box ---
+        const shieldBoss = MeshBuilder.CreateBox('basicShieldBoss', {
+            width: 0.04,
+            height: 0.10,
+            depth: 0.10
+        }, this.scene);
+        makeFlatShaded(shieldBoss);
+        shieldBoss.parent = shield;
+        shieldBoss.position = new Vector3(-0.04, 0, 0);
+        shieldBoss.material = createLowPolyMaterial('basicShieldBossMat', PALETTE.ENEMY_BASIC_ARMOR, this.scene);
+
+        // --- Right Arm (sword arm): short box arm ---
         this.rightArm = MeshBuilder.CreateBox('basicRightArm', {
-            width: 0.18,
-            height: 0.7,
-            depth: 0.18
+            width: 0.16,
+            height: 0.55,
+            depth: 0.16
         }, this.scene);
         makeFlatShaded(this.rightArm);
         this.rightArm.parent = this.mesh;
-        this.rightArm.position = new Vector3(0.45, 0.1, 0);
-        this.rightArm.material = createLowPolyMaterial('basicRightArmMat', PALETTE.ENEMY_BASIC_HORN, this.scene);
+        this.rightArm.position = new Vector3(0.48, 0.05, 0);
+        this.rightArm.material = createLowPolyMaterial('basicRightArmMat', PALETTE.ENEMY_BASIC, this.scene);
 
-        // Left leg - box limb
+        // --- Sword blade: tall thin box ---
+        const sword = MeshBuilder.CreateBox('basicSword', {
+            width: 0.05,
+            height: 0.55,
+            depth: 0.12
+        }, this.scene);
+        makeFlatShaded(sword);
+        sword.parent = this.rightArm;
+        sword.position = new Vector3(0.08, -0.45, 0);
+        sword.material = createLowPolyMaterial('basicSwordMat', PALETTE.ENEMY_BASIC_METAL, this.scene);
+
+        // --- Sword point: small cone on top of blade ---
+        const swordTip = MeshBuilder.CreateCylinder('basicSwordTip', {
+            height: 0.15,
+            diameterTop: 0.0,
+            diameterBottom: 0.12,
+            tessellation: 3
+        }, this.scene);
+        makeFlatShaded(swordTip);
+        swordTip.parent = sword;
+        swordTip.position = new Vector3(0, -0.35, 0);
+        swordTip.material = createLowPolyMaterial('basicSwordTipMat', PALETTE.ENEMY_BASIC_METAL, this.scene);
+
+        // --- Left Leg ---
         this.leftLeg = MeshBuilder.CreateBox('basicLeftLeg', {
-            width: 0.2,
-            height: 0.7,
-            depth: 0.2
+            width: 0.20,
+            height: 0.50,
+            depth: 0.20
         }, this.scene);
         makeFlatShaded(this.leftLeg);
         this.leftLeg.parent = this.mesh;
-        this.leftLeg.position = new Vector3(-0.2, -0.8, 0);
-        this.leftLeg.material = createLowPolyMaterial('basicLeftLegMat', PALETTE.ENEMY_BASIC_HORN, this.scene);
+        this.leftLeg.position = new Vector3(-0.20, -0.55, 0);
+        this.leftLeg.material = createLowPolyMaterial('basicLeftLegMat', PALETTE.ENEMY_BASIC_ARMOR, this.scene);
 
-        // Right leg - box limb
+        // --- Left Foot ---
+        const leftFoot = MeshBuilder.CreateBox('basicLeftFoot', {
+            width: 0.22,
+            height: 0.08,
+            depth: 0.28
+        }, this.scene);
+        makeFlatShaded(leftFoot);
+        leftFoot.parent = this.leftLeg;
+        leftFoot.position = new Vector3(0, -0.28, 0.06);
+        leftFoot.material = createLowPolyMaterial('basicLeftFootMat', PALETTE.ENEMY_BASIC_ARMOR, this.scene);
+
+        // --- Right Leg ---
         this.rightLeg = MeshBuilder.CreateBox('basicRightLeg', {
-            width: 0.2,
-            height: 0.7,
-            depth: 0.2
+            width: 0.20,
+            height: 0.50,
+            depth: 0.20
         }, this.scene);
         makeFlatShaded(this.rightLeg);
         this.rightLeg.parent = this.mesh;
-        this.rightLeg.position = new Vector3(0.2, -0.8, 0);
-        this.rightLeg.material = createLowPolyMaterial('basicRightLegMat', PALETTE.ENEMY_BASIC_HORN, this.scene);
+        this.rightLeg.position = new Vector3(0.20, -0.55, 0);
+        this.rightLeg.material = createLowPolyMaterial('basicRightLegMat', PALETTE.ENEMY_BASIC_ARMOR, this.scene);
+
+        // --- Right Foot ---
+        const rightFoot = MeshBuilder.CreateBox('basicRightFoot', {
+            width: 0.22,
+            height: 0.08,
+            depth: 0.28
+        }, this.scene);
+        makeFlatShaded(rightFoot);
+        rightFoot.parent = this.rightLeg;
+        rightFoot.position = new Vector3(0, -0.28, 0.06);
+        rightFoot.material = createLowPolyMaterial('basicRightFootMat', PALETTE.ENEMY_BASIC_ARMOR, this.scene);
 
         // Store original scale
         this.originalScale = 1.0;
@@ -231,7 +373,7 @@ export class BasicEnemy extends Enemy {
     }
 
     /**
-     * Update the enemy with walking animation
+     * Update the enemy with goblin waddle-march animation
      * @param deltaTime Time elapsed since last update in seconds
      * @returns True if the enemy reached the end of the path
      */
@@ -243,29 +385,39 @@ export class BasicEnemy extends Enemy {
 
         // Update walking animation
         if (!this.isFrozen && !this.isStunned && this.currentPathIndex < this.path.length && this.mesh) {
-            this.walkTime += deltaTime * 5; // Control animation speed
+            this.walkTime += deltaTime * 6; // Slightly faster for a frantic goblin waddle
 
-            // Bob up and down slightly
-            this.mesh.position.y = this.position.y + 0.7 + Math.abs(Math.sin(this.walkTime)) * 0.05;
+            // Goblin waddle: body sways side-to-side AND bobs up/down
+            const bobAmount = Math.abs(Math.sin(this.walkTime)) * 0.06;
+            const swayAmount = Math.sin(this.walkTime * 0.5) * 0.04;
+            this.mesh.position.y = this.position.y + 0.65 + bobAmount;
+            this.mesh.rotation.z = Math.sin(this.walkTime) * 0.08; // Torso lean
 
-            // Move legs
+            // Legs: alternating stride with bent-knee feel
             if (this.leftLeg && this.rightLeg) {
-                this.leftLeg.rotation.x = Math.sin(this.walkTime) * 0.4;
-                this.rightLeg.rotation.x = Math.sin(this.walkTime + Math.PI) * 0.4;
+                this.leftLeg.rotation.x = Math.sin(this.walkTime) * 0.5;
+                this.rightLeg.rotation.x = Math.sin(this.walkTime + Math.PI) * 0.5;
             }
 
-            // Swing arms
-            if (this.leftArm && this.rightArm) {
-                this.leftArm.rotation.x = Math.sin(this.walkTime + Math.PI) * 0.4;
-                this.rightArm.rotation.x = Math.sin(this.walkTime) * 0.4;
+            // Shield arm: held out to the side, slight sway
+            if (this.leftArm) {
+                this.leftArm.rotation.x = Math.sin(this.walkTime + Math.PI) * 0.15;
+                this.leftArm.rotation.z = -0.2 + Math.sin(this.walkTime * 0.7) * 0.05;
             }
 
-            // Slight head movement
+            // Sword arm: swings more aggressively
+            if (this.rightArm) {
+                this.rightArm.rotation.x = Math.sin(this.walkTime) * 0.55;
+                this.rightArm.rotation.z = 0.1;
+            }
+
+            // Head: looks around nervously, quick twitches
             if (this.head) {
-                this.head.rotation.y = Math.sin(this.walkTime * 0.5) * 0.1;
+                this.head.rotation.y = Math.sin(this.walkTime * 1.3) * 0.15;
+                this.head.rotation.x = Math.sin(this.walkTime * 0.8) * 0.05;
             }
 
-            // If we're moving, rotate the mesh to face the direction of movement
+            // Face direction of movement
             if (this.currentPathIndex < this.path.length) {
                 const targetPoint = this.path[this.currentPathIndex];
                 const direction = targetPoint.subtract(this.position);
@@ -298,10 +450,10 @@ export class BasicEnemy extends Enemy {
         particleSystem.minEmitBox = new Vector3(-0.2, 0, -0.2);
         particleSystem.maxEmitBox = new Vector3(0.2, 0, 0.2);
 
-        // Set particle properties
-        particleSystem.color1 = new Color4(1, 0.5, 0, 1.0);
-        particleSystem.color2 = new Color4(1, 0, 0, 1.0);
-        particleSystem.colorDead = new Color4(0, 0, 0, 0.0);
+        // Set particle properties - greenish-yellow goblin poof
+        particleSystem.color1 = new Color4(0.6, 0.8, 0.2, 1.0);
+        particleSystem.color2 = new Color4(0.9, 0.7, 0.1, 1.0);
+        particleSystem.colorDead = new Color4(0.3, 0.2, 0.0, 0.0);
 
         particleSystem.minSize = 0.1;
         particleSystem.maxSize = 0.5;

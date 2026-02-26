@@ -1,5 +1,40 @@
+/**
+ * PlayerStats - Manages player economy, health, and tracking statistics.
+ *
+ * === BALANCE DESIGN NOTES ===
+ *
+ * Starting Money: 300
+ *   - Allows 6 basic towers (50 each) for a wide defense, OR
+ *   - 2 elemental towers (125 each) + 1 basic for a focused strategy, OR
+ *   - 1 sniper (200) + 2 basic (100) for a single strong anchor
+ *   - This gives players meaningful first choices without being overwhelming
+ *
+ * Starting Health: 120
+ *   - Forgiving enough to survive a few early mistakes during the tutorial phase
+ *   - Each basic enemy deals 10 damage, so 12 leaked basics = death
+ *   - Each fast enemy deals 5 damage, so 24 leaked fasts = death
+ *   - Each tank deals 20 damage, so 6 leaked tanks = death
+ *   - Bosses deal 50 damage, so leaking even 2 bosses is critical
+ *
+ * Max Health: 120
+ *   - Health cannot be healed above this value
+ *   - Perfect wave bonuses heal 5 HP per wave, giving sustain without overhealing
+ *   - This keeps tension: health is a finite resource that rewards careful play
+ *
+ * Sell Value: 50% of total investment (set in Tower.ts)
+ *   - Repositioning costs about half your investment
+ *   - Not so punishing that players are afraid to experiment
+ *   - Not so generous that constant repositioning is optimal
+ *
+ * Upgrade Multiplier: 1.5x per level (set in Tower.ts)
+ *   - Level 1 upgrade costs 100% of tower cost
+ *   - Level 2 upgrade costs 150% of tower cost
+ *   - Level 3 upgrade costs 225% of tower cost
+ *   - Encourages upgrading existing towers rather than always buying new ones
+ */
 export class PlayerStats {
     private health: number;
+    private maxHealth: number;
     private money: number;
     private won: boolean = false;
     private unlimitedMoney: boolean = false; // Disable unlimited money by default
@@ -10,10 +45,13 @@ export class PlayerStats {
     private towersBuilt: number = 0;
     private wavesCompleted: number = 0;
     private totalDamageDealt: number = 0;
+    private totalDamageTaken: number = 0;
+    private perfectWaves: number = 0;
     private gameStartTime: number = 0;
 
-    constructor(health: number = 100, money: number = 250) { // Increased from 200 to allow 3 basic towers early
+    constructor(health: number = 120, money: number = 300) {
         this.health = health;
+        this.maxHealth = health; // Max health equals starting health
         this.money = money;
         this.gameStartTime = performance.now();
     }
@@ -26,11 +64,18 @@ export class PlayerStats {
     }
 
     /**
-     * Set the health to a new value
+     * Get the maximum health
+     */
+    public getMaxHealth(): number {
+        return this.maxHealth;
+    }
+
+    /**
+     * Set the health to a new value (clamped between 0 and maxHealth)
      * @param health The new health value
      */
     public setHealth(health: number): void {
-        this.health = Math.max(0, health);
+        this.health = Math.max(0, Math.min(health, this.maxHealth));
     }
 
     /**
@@ -38,7 +83,9 @@ export class PlayerStats {
      * @param damage The amount to reduce health by
      */
     public takeDamage(damage: number): void {
-        this.health = Math.max(0, this.health - damage);
+        const actualDamage = Math.max(0, damage);
+        this.health = Math.max(0, this.health - actualDamage);
+        this.totalDamageTaken += actualDamage;
     }
 
     /**
@@ -70,7 +117,7 @@ export class PlayerStats {
         if (this.unlimitedMoney) {
             return true;
         }
-        
+
         if (this.money >= amount) {
             this.money -= amount;
             return true;
@@ -108,11 +155,18 @@ export class PlayerStats {
         this.won = won;
     }
 
+    /**
+     * Heal the player by a specified amount, capped at maxHealth.
+     * @param amount The amount to heal
+     */
     public heal(amount: number): void {
-        this.health = Math.min(100, this.health + amount);
+        this.health = Math.min(this.maxHealth, this.health + amount);
     }
 
-    // Tracking methods
+    // =====================================================================
+    // === TRACKING METHODS ===
+    // =====================================================================
+
     public addKill(): void {
         this.totalKills++;
     }
@@ -123,6 +177,10 @@ export class PlayerStats {
 
     public addWaveCompleted(): void {
         this.wavesCompleted++;
+    }
+
+    public addPerfectWave(): void {
+        this.perfectWaves++;
     }
 
     public addDamageDealt(amount: number): void {
@@ -145,11 +203,19 @@ export class PlayerStats {
         return this.wavesCompleted;
     }
 
+    public getPerfectWaves(): number {
+        return this.perfectWaves;
+    }
+
     public getTotalDamageDealt(): number {
         return this.totalDamageDealt;
+    }
+
+    public getTotalDamageTaken(): number {
+        return this.totalDamageTaken;
     }
 
     public getTimePlayed(): number {
         return (performance.now() - this.gameStartTime) / 1000;
     }
-} 
+}

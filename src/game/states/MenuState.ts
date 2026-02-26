@@ -65,13 +65,14 @@ export class MenuState implements GameState {
     private createBackground(): void {
         const scene = this.game.getScene();
 
-        // Set up camera for menu view
+        // Set up camera for menu view (orthographic)
         const camera = scene.activeCamera as ArcRotateCamera;
         if (camera) {
             camera.target = new Vector3(10, 0, 10);
             camera.alpha = Math.PI / 4;
-            camera.beta = Math.PI / 3.5;
-            camera.radius = 25;
+            // Beta is locked by limits, no need to set it
+            camera.metadata = { ...camera.metadata, orthoZoom: 15 };
+            this.game.updateOrthoBounds();
         }
 
         // Create a ground plane with PALETTE.GROUND color

@@ -7,6 +7,10 @@ import { PALETTE } from '../../rendering/StyleConstants';
 export class TankEnemy extends Enemy {
     private stompTime: number = 0;
     private rocks: Mesh[] = [];
+    private legs: Mesh[] = [];
+    private mandibleLeft: Mesh | null = null;
+    private mandibleRight: Mesh | null = null;
+    private shellTop: Mesh | null = null;
 
     constructor(game: Game, position: Vector3, path: Vector3[]) {
         // Tank enemy has low speed, 5x health, high damage, and high reward
@@ -17,113 +21,204 @@ export class TankEnemy extends Enemy {
     }
 
     /**
-     * Create the enemy mesh - low-poly stylized rock golem
-     * ~12 parts: large box body, 4-5 polyhedron rocks on surface, 2 emissive crack boxes, shoulder spike polyhedrons, eyes
+     * Create the enemy mesh - low-poly Ironclad Beetle
+     * Massive armored insect: domed shell on top, segmented body underneath,
+     * 6 short legs, two large mandibles, glowing amber thorax vents, armored plates
      */
     protected createMesh(): void {
         // Ensure arrays are initialized
         this.rocks = [];
+        this.legs = [];
 
-        // Main body - large box
+        // --- Main body: wide squat box (beetle thorax) ---
         this.mesh = MeshBuilder.CreateBox('tankEnemyBody', {
-            width: 1.2,
-            height: 1.0,
-            depth: 1.3
+            width: 1.30,
+            height: 0.55,
+            depth: 1.10
         }, this.scene);
         makeFlatShaded(this.mesh);
-
-        // Position at starting position
         this.mesh.position = this.position.clone();
+        this.mesh.position.y += 0.35;
+        this.mesh.material = createLowPolyMaterial('tankBodyMat', PALETTE.ENEMY_TANK, this.scene);
 
-        const bodyMat = createLowPolyMaterial('tankBodyMat', PALETTE.ENEMY_TANK, this.scene);
-        this.mesh.material = bodyMat;
+        // --- Domed shell: large flattened polyhedron on top ---
+        this.shellTop = MeshBuilder.CreatePolyhedron('tankShell', {
+            type: 2, // Icosahedron
+            size: 0.55
+        }, this.scene);
+        makeFlatShaded(this.shellTop);
+        this.shellTop.parent = this.mesh;
+        this.shellTop.position = new Vector3(0, 0.35, -0.05);
+        this.shellTop.scaling = new Vector3(1.20, 0.50, 1.05); // Wide and flat dome
+        this.shellTop.material = createLowPolyMaterial('tankShellMat', PALETTE.ENEMY_TANK_SHELL, this.scene);
 
-        // Surface rocks (4-5 polyhedrons)
-        const rockPositions = [
-            new Vector3(-0.5, 0.45, 0.3),
-            new Vector3(0.4, 0.5, -0.2),
-            new Vector3(-0.3, 0.48, -0.5),
-            new Vector3(0.5, 0.3, 0.4),
-            new Vector3(0, 0.52, 0.5)
-        ];
-
-        for (let i = 0; i < rockPositions.length; i++) {
-            const rock = MeshBuilder.CreatePolyhedron(`tankRock${i}`, {
-                type: 1, // Octahedron - chunky look
-                size: 0.12 + Math.random() * 0.08
+        // --- Shell ridge plates: 3 boxes along the top of the shell ---
+        for (let i = 0; i < 3; i++) {
+            const ridge = MeshBuilder.CreateBox(`tankRidge${i}`, {
+                width: 0.12,
+                height: 0.10,
+                depth: 0.28
             }, this.scene);
-            makeFlatShaded(rock);
-            rock.parent = this.mesh;
-            rock.position = rockPositions[i];
-            rock.rotation = new Vector3(
-                Math.random() * Math.PI,
-                Math.random() * Math.PI,
-                Math.random() * Math.PI
-            );
-            rock.material = createLowPolyMaterial(`tankRockMat${i}`, PALETTE.ENEMY_TANK_ROCK, this.scene);
-            this.rocks.push(rock);
+            makeFlatShaded(ridge);
+            ridge.parent = this.shellTop;
+            ridge.position = new Vector3(0, 0.28, -0.25 + i * 0.25);
+            ridge.material = createLowPolyMaterial(`tankRidgeMat${i}`, PALETTE.ENEMY_TANK, this.scene);
+            this.rocks.push(ridge);
         }
 
-        // Glowing crack boxes (2 emissive)
-        const crackPositions = [
-            { pos: new Vector3(0.2, 0.1, 0.65), rot: new Vector3(0, 0.3, 0.1) },
-            { pos: new Vector3(-0.4, -0.1, 0.6), rot: new Vector3(0.2, -0.1, 0.3) }
-        ];
-
-        for (let i = 0; i < crackPositions.length; i++) {
-            const crack = MeshBuilder.CreateBox(`tankCrack${i}`, {
-                width: 0.3 + Math.random() * 0.15,
-                height: 0.04,
-                depth: 0.06
-            }, this.scene);
-            makeFlatShaded(crack);
-            crack.parent = this.mesh;
-            crack.position = crackPositions[i].pos;
-            crack.rotation = crackPositions[i].rot;
-            crack.material = createEmissiveMaterial(`tankCrackMat${i}`, new Color3(0.9, 0.4, 0.05), 0.7, this.scene);
-        }
-
-        // Shoulder spike polyhedrons (left and right)
-        const leftSpike = MeshBuilder.CreatePolyhedron('tankLeftSpike', {
-            type: 2, // Icosahedron
-            size: 0.15
+        // --- Head: smaller box protruding forward ---
+        const head = MeshBuilder.CreateBox('tankHead', {
+            width: 0.60,
+            height: 0.35,
+            depth: 0.40
         }, this.scene);
-        makeFlatShaded(leftSpike);
-        leftSpike.parent = this.mesh;
-        leftSpike.position = new Vector3(-0.65, 0.35, 0);
-        leftSpike.scaling = new Vector3(0.6, 1.4, 0.6); // Stretch vertically into spike shape
-        leftSpike.material = createLowPolyMaterial('tankLeftSpikeMat', PALETTE.ENEMY_TANK_ROCK, this.scene);
+        makeFlatShaded(head);
+        head.parent = this.mesh;
+        head.position = new Vector3(0, 0.05, 0.65);
+        head.material = createLowPolyMaterial('tankHeadMat', PALETTE.ENEMY_TANK, this.scene);
 
-        const rightSpike = MeshBuilder.CreatePolyhedron('tankRightSpike', {
-            type: 2, // Icosahedron
-            size: 0.15
-        }, this.scene);
-        makeFlatShaded(rightSpike);
-        rightSpike.parent = this.mesh;
-        rightSpike.position = new Vector3(0.65, 0.35, 0);
-        rightSpike.scaling = new Vector3(0.6, 1.4, 0.6);
-        rightSpike.material = createLowPolyMaterial('tankRightSpikeMat', PALETTE.ENEMY_TANK_ROCK, this.scene);
-
-        // Eyes - emissive
-        const leftEye = MeshBuilder.CreateBox('tankLeftEye', {
-            width: 0.15,
-            height: 0.10,
-            depth: 0.06
+        // --- Eyes: two emissive amber orbs ---
+        const leftEye = MeshBuilder.CreateSphere('tankLeftEye', {
+            diameter: 0.12,
+            segments: 4
         }, this.scene);
         makeFlatShaded(leftEye);
-        leftEye.parent = this.mesh;
-        leftEye.position = new Vector3(-0.3, 0.2, 0.66);
-        leftEye.material = createEmissiveMaterial('tankLeftEyeMat', new Color3(1, 0.5, 0), 0.9, this.scene);
+        leftEye.parent = head;
+        leftEye.position = new Vector3(-0.20, 0.08, 0.18);
+        leftEye.material = createEmissiveMaterial('tankLeftEyeMat', PALETTE.ENEMY_TANK_AMBER, 1.0, this.scene);
 
-        const rightEye = MeshBuilder.CreateBox('tankRightEye', {
-            width: 0.15,
-            height: 0.10,
-            depth: 0.06
+        const rightEye = MeshBuilder.CreateSphere('tankRightEye', {
+            diameter: 0.12,
+            segments: 4
         }, this.scene);
         makeFlatShaded(rightEye);
-        rightEye.parent = this.mesh;
-        rightEye.position = new Vector3(0.3, 0.2, 0.66);
-        rightEye.material = createEmissiveMaterial('tankRightEyeMat', new Color3(1, 0.5, 0), 0.9, this.scene);
+        rightEye.parent = head;
+        rightEye.position = new Vector3(0.20, 0.08, 0.18);
+        rightEye.material = createEmissiveMaterial('tankRightEyeMat', PALETTE.ENEMY_TANK_AMBER, 1.0, this.scene);
+
+        // --- Mandibles: two curved cone shapes flanking the head ---
+        this.mandibleLeft = MeshBuilder.CreateCylinder('tankMandibleL', {
+            height: 0.40,
+            diameterTop: 0.0,
+            diameterBottom: 0.12,
+            tessellation: 4
+        }, this.scene);
+        makeFlatShaded(this.mandibleLeft);
+        this.mandibleLeft.parent = head;
+        this.mandibleLeft.position = new Vector3(-0.28, -0.08, 0.25);
+        this.mandibleLeft.rotation.x = Math.PI / 2.2;
+        this.mandibleLeft.rotation.z = 0.4;
+        this.mandibleLeft.material = createLowPolyMaterial('tankMandibleLMat', PALETTE.ENEMY_TANK_MANDIBLE, this.scene);
+
+        this.mandibleRight = MeshBuilder.CreateCylinder('tankMandibleR', {
+            height: 0.40,
+            diameterTop: 0.0,
+            diameterBottom: 0.12,
+            tessellation: 4
+        }, this.scene);
+        makeFlatShaded(this.mandibleRight);
+        this.mandibleRight.parent = head;
+        this.mandibleRight.position = new Vector3(0.28, -0.08, 0.25);
+        this.mandibleRight.rotation.x = Math.PI / 2.2;
+        this.mandibleRight.rotation.z = -0.4;
+        this.mandibleRight.material = createLowPolyMaterial('tankMandibleRMat', PALETTE.ENEMY_TANK_MANDIBLE, this.scene);
+
+        // --- Antennae: two thin cones on top of head ---
+        const leftAntenna = MeshBuilder.CreateCylinder('tankAntennaL', {
+            height: 0.35,
+            diameterTop: 0.0,
+            diameterBottom: 0.04,
+            tessellation: 3
+        }, this.scene);
+        makeFlatShaded(leftAntenna);
+        leftAntenna.parent = head;
+        leftAntenna.position = new Vector3(-0.15, 0.18, 0.10);
+        leftAntenna.rotation.x = -0.4;
+        leftAntenna.rotation.z = -0.3;
+        leftAntenna.material = createLowPolyMaterial('tankAntennaLMat', PALETTE.ENEMY_TANK_LEG, this.scene);
+
+        const rightAntenna = MeshBuilder.CreateCylinder('tankAntennaR', {
+            height: 0.35,
+            diameterTop: 0.0,
+            diameterBottom: 0.04,
+            tessellation: 3
+        }, this.scene);
+        makeFlatShaded(rightAntenna);
+        rightAntenna.parent = head;
+        rightAntenna.position = new Vector3(0.15, 0.18, 0.10);
+        rightAntenna.rotation.x = -0.4;
+        rightAntenna.rotation.z = 0.3;
+        rightAntenna.material = createLowPolyMaterial('tankAntennaRMat', PALETTE.ENEMY_TANK_LEG, this.scene);
+
+        // --- 6 Legs: 3 per side, box segments ---
+        const legSide = [-1, 1]; // Left (-1) and Right (1)
+        const legZOffsets = [0.30, 0.0, -0.30]; // Front, Mid, Back
+
+        for (const side of legSide) {
+            for (let i = 0; i < legZOffsets.length; i++) {
+                // Upper leg segment
+                const upperLeg = MeshBuilder.CreateBox(`tankLeg_${side}_${i}`, {
+                    width: 0.35,
+                    height: 0.10,
+                    depth: 0.10
+                }, this.scene);
+                makeFlatShaded(upperLeg);
+                upperLeg.parent = this.mesh;
+                upperLeg.position = new Vector3(
+                    side * 0.65,
+                    -0.15,
+                    legZOffsets[i]
+                );
+                upperLeg.rotation.z = side * 0.3; // Angle outward
+                upperLeg.material = createLowPolyMaterial(`tankLegMat_${side}_${i}`, PALETTE.ENEMY_TANK_LEG, this.scene);
+
+                // Lower leg segment (foot)
+                const foot = MeshBuilder.CreateBox(`tankFoot_${side}_${i}`, {
+                    width: 0.08,
+                    height: 0.20,
+                    depth: 0.08
+                }, this.scene);
+                makeFlatShaded(foot);
+                foot.parent = upperLeg;
+                foot.position = new Vector3(side * 0.18, -0.12, 0);
+                foot.material = createLowPolyMaterial(`tankFootMat_${side}_${i}`, PALETTE.ENEMY_TANK_LEG, this.scene);
+
+                this.legs.push(upperLeg);
+            }
+        }
+
+        // --- Thorax glow vents: 2 emissive amber slits on the sides ---
+        const leftVent = MeshBuilder.CreateBox('tankVentL', {
+            width: 0.06,
+            height: 0.06,
+            depth: 0.35
+        }, this.scene);
+        makeFlatShaded(leftVent);
+        leftVent.parent = this.mesh;
+        leftVent.position = new Vector3(-0.66, 0.10, 0);
+        leftVent.material = createEmissiveMaterial('tankVentLMat', PALETTE.ENEMY_TANK_AMBER, 0.8, this.scene);
+
+        const rightVent = MeshBuilder.CreateBox('tankVentR', {
+            width: 0.06,
+            height: 0.06,
+            depth: 0.35
+        }, this.scene);
+        makeFlatShaded(rightVent);
+        rightVent.parent = this.mesh;
+        rightVent.position = new Vector3(0.66, 0.10, 0);
+        rightVent.material = createEmissiveMaterial('tankVentRMat', PALETTE.ENEMY_TANK_AMBER, 0.8, this.scene);
+
+        // --- Rear plate: angled box at the back ---
+        const rearPlate = MeshBuilder.CreateBox('tankRear', {
+            width: 0.80,
+            height: 0.25,
+            depth: 0.10
+        }, this.scene);
+        makeFlatShaded(rearPlate);
+        rearPlate.parent = this.mesh;
+        rearPlate.position = new Vector3(0, 0.10, -0.58);
+        rearPlate.rotation.x = -0.3;
+        rearPlate.material = createLowPolyMaterial('tankRearMat', PALETTE.ENEMY_TANK_SHELL, this.scene);
 
         // Store original scale
         this.originalScale = 1.0;
@@ -216,7 +311,7 @@ export class TankEnemy extends Enemy {
     }
 
     /**
-     * Update the enemy with stomping animation
+     * Update the enemy with beetle scuttling animation
      * @param deltaTime Time elapsed since last update in seconds
      * @returns True if the enemy reached the end of the path
      */
@@ -226,31 +321,52 @@ export class TankEnemy extends Enemy {
         // Get the result from the parent update method
         const result = super.update(deltaTime);
 
-        // Update stomping animation
+        // Update scuttling animation
         if (!this.isFrozen && !this.isStunned && this.currentPathIndex < this.path.length) {
-            this.stompTime += deltaTime * 3; // Control animation speed - slower for tank
+            this.stompTime += deltaTime * 4; // Moderate speed for heavy scuttling
 
-            // Heavy stomping movement
             if (this.mesh) {
-                // Vertical movement - heavy up and down
-                const verticalOffset = Math.abs(Math.sin(this.stompTime)) * 0.15;
-                this.mesh.position.y = this.position.y + verticalOffset;
+                // Heavy body: slow vertical stomp with slight forward pitch
+                const verticalStomp = Math.abs(Math.sin(this.stompTime * 2)) * 0.08;
+                this.mesh.position.y = this.position.y + 0.35 + verticalStomp;
 
-                // Slight tilt as it walks
-                this.mesh.rotation.z = Math.sin(this.stompTime * 0.5) * 0.05;
+                // Slight body pitch forward and back (like a charging beetle)
+                this.mesh.rotation.x = Math.sin(this.stompTime) * 0.04;
 
-                // Slight rotation as it walks
-                this.mesh.rotation.x = Math.sin(this.stompTime) * 0.03;
+                // Minimal side-to-side rock
+                this.mesh.rotation.z = Math.sin(this.stompTime * 0.5) * 0.03;
             }
 
-            // Animate rocks - make them shake slightly
+            // Animate 6 legs: alternating tripod gait (left-front, right-mid, left-back move together)
+            for (let i = 0; i < this.legs.length; i++) {
+                const leg = this.legs[i];
+                // Even-indexed legs (left-front, right-mid, left-back) vs odd-indexed
+                const phase = (i % 2 === 0) ? 0 : Math.PI;
+                // Legs pump up and down and rotate slightly
+                leg.rotation.z = leg.position.x > 0
+                    ? -0.3 + Math.sin(this.stompTime * 3 + phase) * 0.20
+                    : 0.3 + Math.sin(this.stompTime * 3 + phase) * 0.20;
+            }
+
+            // Mandibles: open-close clacking
+            if (this.mandibleLeft && this.mandibleRight) {
+                const clack = Math.sin(this.stompTime * 2.5) * 0.15;
+                this.mandibleLeft.rotation.z = 0.4 + clack;
+                this.mandibleRight.rotation.z = -0.4 - clack;
+            }
+
+            // Shell ridge plates: subtle vibration
             for (let i = 0; i < this.rocks.length; i++) {
-                const rock = this.rocks[i];
-                rock.position.y += Math.sin(this.stompTime * 2 + i) * 0.002;
-                rock.rotation.y += Math.sin(this.stompTime + i) * 0.01;
+                const ridge = this.rocks[i];
+                ridge.position.y = 0.28 + Math.sin(this.stompTime * 3 + i * 1.5) * 0.008;
             }
 
-            // If we're moving, rotate the mesh to face the direction of movement
+            // Shell: very subtle breathing
+            if (this.shellTop) {
+                this.shellTop.scaling.y = 0.50 + Math.sin(this.stompTime * 1.5) * 0.02;
+            }
+
+            // Face direction of movement
             if (this.currentPathIndex < this.path.length) {
                 const targetPoint = this.path[this.currentPathIndex];
                 const direction = targetPoint.subtract(this.position);

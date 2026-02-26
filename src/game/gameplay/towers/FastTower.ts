@@ -1,4 +1,4 @@
-import { Vector3, MeshBuilder, Color3, Mesh, Space, ParticleSystem, Color4 } from '@babylonjs/core';
+import { Vector3, MeshBuilder, Color3, Mesh, Space, ParticleSystem, Color4, Animation } from '@babylonjs/core';
 import { Game } from '../../Game';
 import { Tower } from './Tower';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../rendering/LowPolyMaterial';
@@ -13,67 +13,128 @@ export class FastTower extends Tower {
         this.mesh = new Mesh("fastTowerRoot", this.scene);
         this.mesh.position = this.position.clone();
 
-        // Small hex base
+        // --- 1. Slim hexagonal base ---
         const base = MeshBuilder.CreateCylinder('fastBase', {
-            height: 0.3, diameterTop: 1.4, diameterBottom: 1.6, tessellation: 6
+            height: 0.3, diameterTop: 1.5, diameterBottom: 1.7, tessellation: 6
         }, this.scene);
         base.position = new Vector3(0, 0.15, 0);
-        base.material = createLowPolyMaterial('fastBaseMat', PALETTE.TOWER_FAST, this.scene);
+        base.material = createLowPolyMaterial('fastBaseMat', PALETTE.ROCK_DARK, this.scene);
         makeFlatShaded(base);
         base.parent = this.mesh;
 
-        // Twin thin pillars
-        const leftPillar = MeshBuilder.CreateBox('fastLeftPillar', {
-            width: 0.3, height: 1.4, depth: 0.3
+        // --- 2. Mechanical housing body ---
+        const body = MeshBuilder.CreateBox('fastBody', {
+            width: 0.9, height: 0.9, depth: 0.9
         }, this.scene);
-        leftPillar.position = new Vector3(-0.35, 1.0, 0);
-        leftPillar.material = createLowPolyMaterial('fastLPillarMat', PALETTE.TOWER_FAST, this.scene);
-        makeFlatShaded(leftPillar);
-        leftPillar.parent = this.mesh;
+        body.position = new Vector3(0, 0.8, 0);
+        body.rotation.y = Math.PI / 4;
+        body.material = createLowPolyMaterial('fastBodyMat', PALETTE.TOWER_FAST, this.scene);
+        makeFlatShaded(body);
+        body.parent = this.mesh;
 
-        const rightPillar = MeshBuilder.CreateBox('fastRightPillar', {
-            width: 0.3, height: 1.4, depth: 0.3
+        // --- 3. Side armor plates ---
+        for (let i = 0; i < 4; i++) {
+            const angle = (i / 4) * Math.PI * 2 + Math.PI / 4;
+            const plate = MeshBuilder.CreateBox(`plate${i}`, {
+                width: 0.6, height: 0.5, depth: 0.08
+            }, this.scene);
+            plate.position = new Vector3(
+                Math.sin(angle) * 0.52,
+                0.8,
+                Math.cos(angle) * 0.52
+            );
+            plate.rotation.y = angle;
+            plate.material = createLowPolyMaterial(`plateMat${i}`, PALETTE.TOWER_FAST_BARREL, this.scene);
+            makeFlatShaded(plate);
+            plate.parent = this.mesh;
+        }
+
+        // --- 4. Elevated turret platform ---
+        const turretBase = MeshBuilder.CreateCylinder('turretBase', {
+            height: 0.15, diameterTop: 0.8, diameterBottom: 0.7, tessellation: 6
         }, this.scene);
-        rightPillar.position = new Vector3(0.35, 1.0, 0);
-        rightPillar.material = createLowPolyMaterial('fastRPillarMat', PALETTE.TOWER_FAST, this.scene);
-        makeFlatShaded(rightPillar);
-        rightPillar.parent = this.mesh;
+        turretBase.position = new Vector3(0, 1.32, 0);
+        turretBase.material = createLowPolyMaterial('turretBaseMat', PALETTE.TOWER_FAST, this.scene);
+        makeFlatShaded(turretBase);
+        turretBase.parent = this.mesh;
 
-        // Turret group for rotation
+        // --- 5. Turret group for rotation ---
         const turret = new Mesh("fastTurret", this.scene);
         turret.position = new Vector3(0, 0, 0);
         turret.parent = this.mesh;
 
-        // Connecting crossbar between pillars at top
-        const crossbar = MeshBuilder.CreateBox('fastCrossbar', {
-            width: 1.0, height: 0.2, depth: 0.3
+        // Turret head (box)
+        const turretHead = MeshBuilder.CreateBox('turretHead', {
+            width: 0.6, height: 0.35, depth: 0.7
         }, this.scene);
-        crossbar.position = new Vector3(0, 1.7, 0);
-        crossbar.material = createLowPolyMaterial('fastCrossbarMat', PALETTE.TOWER_FAST, this.scene);
-        makeFlatShaded(crossbar);
-        crossbar.parent = turret;
+        turretHead.position = new Vector3(0, 1.57, 0.05);
+        turretHead.material = createLowPolyMaterial('turretHeadMat', PALETTE.TOWER_FAST, this.scene);
+        makeFlatShaded(turretHead);
+        turretHead.parent = turret;
 
-        // Left barrel (cylinder pointing forward)
-        const leftBarrel = MeshBuilder.CreateCylinder('fastLeftBarrel', {
-            height: 1.0, diameter: 0.2, tessellation: 6
+        // --- 6. Spinning barrel assembly (3 barrels around central axis) ---
+        const barrelHub = new Mesh("barrelHub", this.scene);
+        barrelHub.position = new Vector3(0, 1.57, 0.6);
+        barrelHub.parent = turret;
+
+        // Central hub disc
+        const hubDisc = MeshBuilder.CreateCylinder('hubDisc', {
+            height: 0.08, diameter: 0.4, tessellation: 6
         }, this.scene);
-        leftBarrel.rotation.x = Math.PI / 2;
-        leftBarrel.position = new Vector3(-0.3, 1.7, 0.5);
-        leftBarrel.material = createLowPolyMaterial('fastLBarrelMat', PALETTE.TOWER_FAST_BARREL, this.scene);
-        makeFlatShaded(leftBarrel);
-        leftBarrel.parent = turret;
+        hubDisc.rotation.x = Math.PI / 2;
+        hubDisc.material = createEmissiveMaterial('hubDiscMat', PALETTE.TOWER_FAST, 0.3, this.scene);
+        makeFlatShaded(hubDisc);
+        hubDisc.parent = barrelHub;
 
-        // Right barrel (cylinder pointing forward)
-        const rightBarrel = MeshBuilder.CreateCylinder('fastRightBarrel', {
-            height: 1.0, diameter: 0.2, tessellation: 6
+        // Three barrels arranged in a triangle
+        const barrelCount = 3;
+        for (let i = 0; i < barrelCount; i++) {
+            const angle = (i / barrelCount) * Math.PI * 2;
+            const barrel = MeshBuilder.CreateCylinder(`barrel${i}`, {
+                height: 0.8, diameter: 0.12, tessellation: 6
+            }, this.scene);
+            barrel.rotation.x = Math.PI / 2;
+            barrel.position = new Vector3(
+                Math.sin(angle) * 0.12,
+                Math.cos(angle) * 0.12,
+                0.4
+            );
+            barrel.material = createLowPolyMaterial(`barrelMat${i}`, PALETTE.TOWER_FAST_BARREL, this.scene);
+            makeFlatShaded(barrel);
+            barrel.parent = barrelHub;
+        }
+
+        // Barrel spin animation (idle)
+        const spinAnim = new Animation("barrelSpin", "rotation.z", 30,
+            Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CYCLE);
+        spinAnim.setKeys([
+            { frame: 0, value: 0 },
+            { frame: 60, value: Math.PI * 2 }
+        ]);
+        barrelHub.animations = [spinAnim];
+        this.scene.beginAnimation(barrelHub, 0, 60, true);
+
+        // --- 7. Emissive energy core (visible through top) ---
+        const core = MeshBuilder.CreateIcoSphere('core', {
+            radius: 0.12, subdivisions: 0
         }, this.scene);
-        rightBarrel.rotation.x = Math.PI / 2;
-        rightBarrel.position = new Vector3(0.3, 1.7, 0.5);
-        rightBarrel.material = createLowPolyMaterial('fastRBarrelMat', PALETTE.TOWER_FAST_BARREL, this.scene);
-        makeFlatShaded(rightBarrel);
-        rightBarrel.parent = turret;
+        core.position = new Vector3(0, 1.57, -0.1);
+        core.material = createEmissiveMaterial('coreMat', PALETTE.TOWER_FAST, 0.8, this.scene);
+        makeFlatShaded(core);
+        core.parent = turret;
 
-        // Bullet template (small IcoSphere)
+        // Core pulse animation
+        const pulseAnim = new Animation("corePulse", "scaling", 30,
+            Animation.ANIMATIONTYPE_VECTOR3, Animation.ANIMATIONLOOPMODE_CYCLE);
+        pulseAnim.setKeys([
+            { frame: 0, value: new Vector3(1, 1, 1) },
+            { frame: 15, value: new Vector3(1.3, 1.3, 1.3) },
+            { frame: 30, value: new Vector3(1, 1, 1) }
+        ]);
+        core.animations = [pulseAnim];
+        this.scene.beginAnimation(core, 0, 30, true);
+
+        // --- 8. Bullet template & projectile system ---
         const bulletTemplate = MeshBuilder.CreateIcoSphere('fastBulletTemplate', {
             radius: 0.08, subdivisions: 0
         }, this.scene);
@@ -81,7 +142,6 @@ export class FastTower extends Tower {
         bulletTemplate.material = createEmissiveMaterial('fastBulletMat', PALETTE.TOWER_FAST, 0.5, this.scene);
         bulletTemplate.isVisible = false;
 
-        // Track active bullets (visual only -- damage is handled by base fire())
         const activeBullets: { mesh: Mesh, distance: number, maxDistance: number, targetEnemy: any, targetPosition: Vector3 }[] = [];
         let lastFireTime = 0;
         let isInitialized = false;
@@ -97,13 +157,12 @@ export class FastTower extends Tower {
                     const bullet = bulletTemplate.clone("fastBullet_" + currentTime);
                     bullet.isVisible = true;
 
-                    // Alternate between left and right barrel
-                    const xOffset = alternateBarrel ? -0.3 : 0.3;
+                    const xOffset = alternateBarrel ? -0.12 : 0.12;
                     alternateBarrel = !alternateBarrel;
 
                     const startPos = new Vector3(
                         this.position.x + xOffset,
-                        this.position.y + 1.7,
+                        this.position.y + 1.57,
                         this.position.z
                     );
                     bullet.position = startPos;
@@ -122,7 +181,6 @@ export class FastTower extends Tower {
                 }
             }
 
-            // Animate bullets
             for (let i = activeBullets.length - 1; i >= 0; i--) {
                 const info = activeBullets[i];
                 const moveDistance = 0.7;

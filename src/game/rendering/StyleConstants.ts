@@ -54,15 +54,56 @@ export const PALETTE = {
     TOWER_AOE: new Color3(0.70, 0.30, 0.80),
     TOWER_AOE_CRYSTAL: new Color3(0.85, 0.50, 0.95),
 
-    // Enemies
-    ENEMY_BASIC: new Color3(0.82, 0.28, 0.28),
-    ENEMY_BASIC_HORN: new Color3(0.55, 0.18, 0.18),
-    ENEMY_FAST: new Color3(0.28, 0.55, 0.82),
-    ENEMY_FAST_WING: new Color3(0.40, 0.68, 0.90),
-    ENEMY_TANK: new Color3(0.55, 0.55, 0.52),
-    ENEMY_TANK_ROCK: new Color3(0.42, 0.42, 0.40),
-    ENEMY_BOSS: new Color3(0.50, 0.15, 0.55),
-    ENEMY_BOSS_SPIKE: new Color3(0.72, 0.22, 0.78),
+    // Hybrid Towers
+    TOWER_STEAM_COPPER: new Color3(0.72, 0.45, 0.20),
+    TOWER_STEAM_PIPE: new Color3(0.50, 0.50, 0.55),
+    TOWER_STEAM_CLOUD: new Color3(0.80, 0.82, 0.88),
+    TOWER_LAVA_ROCK: new Color3(0.30, 0.18, 0.10),
+    TOWER_LAVA_GLOW: new Color3(1.00, 0.40, 0.05),
+    TOWER_LAVA_CRUST: new Color3(0.50, 0.22, 0.08),
+    TOWER_ICE_CRYSTAL: new Color3(0.70, 0.88, 1.00),
+    TOWER_ICE_FROST: new Color3(0.85, 0.92, 1.00),
+    TOWER_ICE_DEEP: new Color3(0.25, 0.45, 0.80),
+    TOWER_STORM_DARK: new Color3(0.25, 0.25, 0.38),
+    TOWER_STORM_LIGHTNING: new Color3(0.70, 0.70, 1.00),
+    TOWER_STORM_ORB: new Color3(0.45, 0.45, 0.95),
+    TOWER_MUD_DARK: new Color3(0.32, 0.22, 0.12),
+    TOWER_MUD_WET: new Color3(0.42, 0.32, 0.18),
+    TOWER_MUD_POOL: new Color3(0.38, 0.28, 0.15),
+    TOWER_DUST_SAND: new Color3(0.78, 0.68, 0.48),
+    TOWER_DUST_ROCK: new Color3(0.62, 0.52, 0.38),
+    TOWER_DUST_VORTEX: new Color3(0.72, 0.62, 0.45),
+
+    // Enemies - Basic (Goblin Warrior: earthy greens and browns)
+    ENEMY_BASIC: new Color3(0.45, 0.58, 0.28),           // Olive-green skin
+    ENEMY_BASIC_HORN: new Color3(0.55, 0.18, 0.18),      // Dark red (kept for accents)
+    ENEMY_BASIC_BELLY: new Color3(0.58, 0.68, 0.38),     // Lighter green belly
+    ENEMY_BASIC_ARMOR: new Color3(0.50, 0.38, 0.22),     // Brown leather armor
+    ENEMY_BASIC_METAL: new Color3(0.62, 0.60, 0.55),     // Dull metal for sword/shield
+    ENEMY_BASIC_EYE: new Color3(1.0, 0.85, 0.15),        // Bright yellow eyes
+
+    // Enemies - Fast (Spectral Wraith: ethereal cyans and ghostly whites)
+    ENEMY_FAST: new Color3(0.25, 0.72, 0.78),            // Ghostly cyan
+    ENEMY_FAST_WING: new Color3(0.40, 0.68, 0.90),       // (kept for compatibility)
+    ENEMY_FAST_CLOAK: new Color3(0.15, 0.48, 0.62),      // Darker teal cloak
+    ENEMY_FAST_WISP: new Color3(0.55, 0.90, 0.95),       // Pale wisp trails
+    ENEMY_FAST_EYE: new Color3(0.80, 0.95, 1.0),         // Icy white glow
+
+    // Enemies - Tank (Ironclad Beetle: dark iron and amber)
+    ENEMY_TANK: new Color3(0.35, 0.32, 0.38),            // Dark iron carapace
+    ENEMY_TANK_ROCK: new Color3(0.42, 0.42, 0.40),       // (kept for compatibility)
+    ENEMY_TANK_SHELL: new Color3(0.28, 0.26, 0.32),      // Darker shell plates
+    ENEMY_TANK_AMBER: new Color3(0.90, 0.65, 0.12),      // Amber glow vents
+    ENEMY_TANK_LEG: new Color3(0.48, 0.42, 0.38),        // Brownish leg chitin
+    ENEMY_TANK_MANDIBLE: new Color3(0.55, 0.48, 0.35),   // Bone-colored mandibles
+
+    // Enemies - Boss (Abyssal Titan: deep purple, obsidian, and magenta fire)
+    ENEMY_BOSS: new Color3(0.35, 0.10, 0.42),            // Deep dark purple
+    ENEMY_BOSS_SPIKE: new Color3(0.72, 0.22, 0.78),      // (kept for compatibility)
+    ENEMY_BOSS_BONE: new Color3(0.75, 0.68, 0.58),       // Pale bone/skull
+    ENEMY_BOSS_CRYSTAL: new Color3(0.85, 0.18, 0.55),    // Magenta crystals
+    ENEMY_BOSS_FIRE: new Color3(1.0, 0.30, 0.65),        // Hot magenta fire
+    ENEMY_BOSS_DARK: new Color3(0.18, 0.05, 0.22),       // Near-black dark energy
 
     // UI
     UI_PANEL: 'rgba(28, 32, 40, 0.88)',

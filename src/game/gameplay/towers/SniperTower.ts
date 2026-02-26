@@ -1,4 +1,4 @@
-import { Vector3, MeshBuilder, Color3, Mesh, Space, ParticleSystem, Color4 } from '@babylonjs/core';
+import { Vector3, MeshBuilder, Color3, Mesh, Space, ParticleSystem, Color4, Animation } from '@babylonjs/core';
 import { Game } from '../../Game';
 import { Tower } from './Tower';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../rendering/LowPolyMaterial';
@@ -13,43 +13,123 @@ export class SniperTower extends Tower {
         this.mesh = new Mesh("sniperTowerRoot", this.scene);
         this.mesh.position = this.position.clone();
 
-        // Narrow hex base
+        // --- 1. Narrow hexagonal base ---
         const base = MeshBuilder.CreateCylinder('sniperBase', {
-            height: 0.4, diameterTop: 1.4, diameterBottom: 1.6, tessellation: 6
+            height: 0.3, diameterTop: 1.3, diameterBottom: 1.5, tessellation: 6
         }, this.scene);
-        base.position = new Vector3(0, 0.2, 0);
-        base.material = createLowPolyMaterial('sniperBaseMat', PALETTE.TOWER_SNIPER, this.scene);
+        base.position = new Vector3(0, 0.15, 0);
+        base.material = createLowPolyMaterial('sniperBaseMat', PALETTE.ROCK_DARK, this.scene);
         makeFlatShaded(base);
         base.parent = this.mesh;
 
-        // Very tall thin pillar
-        const pillar = MeshBuilder.CreateBox('sniperPillar', {
-            width: 0.5, height: 3, depth: 0.5
+        // --- 2. First tier -- wider lower section ---
+        const lowerTier = MeshBuilder.CreateCylinder('lowerTier', {
+            height: 0.8, diameterTop: 0.7, diameterBottom: 1.0, tessellation: 6
         }, this.scene);
-        pillar.position = new Vector3(0, 1.9, 0);
+        lowerTier.position = new Vector3(0, 0.7, 0);
+        lowerTier.material = createLowPolyMaterial('lowerTierMat', PALETTE.TOWER_SNIPER, this.scene);
+        makeFlatShaded(lowerTier);
+        lowerTier.parent = this.mesh;
+
+        // Decorative ring between tiers
+        const tierRing = MeshBuilder.CreateTorus('tierRing', {
+            diameter: 0.8, thickness: 0.08, tessellation: 8
+        }, this.scene);
+        tierRing.position = new Vector3(0, 1.15, 0);
+        tierRing.material = createLowPolyMaterial('tierRingMat', PALETTE.ROCK, this.scene);
+        makeFlatShaded(tierRing);
+        tierRing.parent = this.mesh;
+
+        // --- 3. Tall thin pillar (spire) ---
+        const pillar = MeshBuilder.CreateCylinder('sniperPillar', {
+            height: 2.2, diameterTop: 0.35, diameterBottom: 0.6, tessellation: 6
+        }, this.scene);
+        pillar.position = new Vector3(0, 2.3, 0);
         pillar.material = createLowPolyMaterial('sniperPillarMat', PALETTE.TOWER_SNIPER, this.scene);
         makeFlatShaded(pillar);
         pillar.parent = this.mesh;
 
-        // Small platform near top
-        const platform = MeshBuilder.CreateBox('sniperPlatform', {
-            width: 0.8, height: 0.1, depth: 0.8
+        // --- 4. Observation platform (small widening near top) ---
+        const obsRing = MeshBuilder.CreateCylinder('obsRing', {
+            height: 0.12, diameterTop: 0.7, diameterBottom: 0.5, tessellation: 6
         }, this.scene);
-        platform.position = new Vector3(0, 3.3, 0);
-        platform.material = createLowPolyMaterial('sniperPlatMat', PALETTE.TOWER_SNIPER, this.scene);
-        makeFlatShaded(platform);
-        platform.parent = this.mesh;
+        obsRing.position = new Vector3(0, 3.45, 0);
+        obsRing.material = createLowPolyMaterial('obsRingMat', PALETTE.TOWER_SNIPER, this.scene);
+        makeFlatShaded(obsRing);
+        obsRing.parent = this.mesh;
 
-        // Emissive lens sphere at top (IcoSphere subdivisions: 1)
-        const lens = MeshBuilder.CreateIcoSphere('sniperLens', {
-            radius: 0.3, subdivisions: 1
+        // Small railing posts
+        for (let i = 0; i < 4; i++) {
+            const angle = (i / 4) * Math.PI * 2;
+            const post = MeshBuilder.CreateBox(`post${i}`, {
+                width: 0.06, height: 0.2, depth: 0.06
+            }, this.scene);
+            post.position = new Vector3(
+                Math.sin(angle) * 0.3,
+                3.62,
+                Math.cos(angle) * 0.3
+            );
+            post.material = createLowPolyMaterial(`postMat${i}`, PALETTE.ROCK_DARK, this.scene);
+            makeFlatShaded(post);
+            post.parent = this.mesh;
+        }
+
+        // --- 5. Rotating focus ring around the lens ---
+        const focusRing = MeshBuilder.CreateTorus('focusRing', {
+            diameter: 0.65, thickness: 0.05, tessellation: 8
         }, this.scene);
-        lens.position = new Vector3(0, 3.65, 0);
-        lens.material = createEmissiveMaterial('sniperLensMat', PALETTE.TOWER_SNIPER_LENS, 0.8, this.scene);
+        focusRing.position = new Vector3(0, 3.85, 0);
+        focusRing.material = createEmissiveMaterial('focusRingMat', PALETTE.TOWER_SNIPER_LENS, 0.4, this.scene);
+        makeFlatShaded(focusRing);
+        focusRing.parent = this.mesh;
+
+        // Focus ring rotation
+        const ringSpinAnim = new Animation("focusRingSpin", "rotation.y", 30,
+            Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CYCLE);
+        ringSpinAnim.setKeys([
+            { frame: 0, value: 0 },
+            { frame: 120, value: Math.PI * 2 }
+        ]);
+        focusRing.animations = [ringSpinAnim];
+        this.scene.beginAnimation(focusRing, 0, 120, true);
+
+        // --- 6. Emissive crimson lens at top ---
+        const lens = MeshBuilder.CreateIcoSphere('sniperLens', {
+            radius: 0.25, subdivisions: 1
+        }, this.scene);
+        lens.position = new Vector3(0, 3.85, 0);
+        lens.material = createEmissiveMaterial('sniperLensMat', PALETTE.TOWER_SNIPER_LENS, 0.9, this.scene);
         makeFlatShaded(lens);
         lens.parent = this.mesh;
 
-        // Bullet template (IcoSphere)
+        // Lens pulse animation
+        const lensPulse = new Animation("lensPulse", "scaling", 30,
+            Animation.ANIMATIONTYPE_VECTOR3, Animation.ANIMATIONLOOPMODE_CYCLE);
+        lensPulse.setKeys([
+            { frame: 0, value: new Vector3(1, 1, 1) },
+            { frame: 30, value: new Vector3(1.15, 1.15, 1.15) },
+            { frame: 60, value: new Vector3(1, 1, 1) }
+        ]);
+        lens.animations = [lensPulse];
+        this.scene.beginAnimation(lens, 0, 60, true);
+
+        // --- 7. Small antenna/spike on very top ---
+        const antenna = MeshBuilder.CreateCylinder('antenna', {
+            height: 0.5, diameterTop: 0, diameterBottom: 0.06, tessellation: 4
+        }, this.scene);
+        antenna.position = new Vector3(0, 4.35, 0);
+        antenna.material = createLowPolyMaterial('antennaMat', PALETTE.ROCK_DARK, this.scene);
+        antenna.parent = this.mesh;
+
+        // Tiny emissive tip
+        const tip = MeshBuilder.CreateIcoSphere('antennaTip', {
+            radius: 0.04, subdivisions: 0
+        }, this.scene);
+        tip.position = new Vector3(0, 4.6, 0);
+        tip.material = createEmissiveMaterial('tipMat', PALETTE.TOWER_SNIPER_LENS, 0.7, this.scene);
+        tip.parent = this.mesh;
+
+        // --- 8. Bullet template & projectile system ---
         const bulletTemplate = MeshBuilder.CreateIcoSphere('sniperBulletTemplate', {
             radius: 0.12, subdivisions: 0
         }, this.scene);
@@ -58,7 +138,6 @@ export class SniperTower extends Tower {
         bulletTemplate.material = bulletMat;
         bulletTemplate.isVisible = false;
 
-        // Track active bullets (visual only -- damage is handled by base fire())
         const activeBullets: { mesh: Mesh, distance: number, maxDistance: number, targetEnemy: any, targetPosition: Vector3 }[] = [];
         let lastFireTime = 0;
         let isInitialized = false;
@@ -74,7 +153,7 @@ export class SniperTower extends Tower {
                     bullet.isVisible = true;
                     const startPos = new Vector3(
                         this.position.x,
-                        this.position.y + 3.65,
+                        this.position.y + 3.85,
                         this.position.z
                     );
                     bullet.position = startPos;
@@ -93,7 +172,6 @@ export class SniperTower extends Tower {
                 }
             }
 
-            // Animate bullets
             for (let i = activeBullets.length - 1; i >= 0; i--) {
                 const info = activeBullets[i];
                 const moveDistance = 0.9;

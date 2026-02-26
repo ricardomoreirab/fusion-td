@@ -63,8 +63,14 @@ export class GameplayState implements GameState {
             return;
         }
 
-        // Setup camera control based on Shift key
-        this.setupCameraControls();
+        // Reset camera to gameplay view (fixed isometric, auto-fit to screen)
+        const camera = this.scene.activeCamera as ArcRotateCamera;
+        if (camera) {
+            camera.target = new Vector3(20, 0, 20);
+            camera.alpha = -Math.PI / 4;
+            camera.metadata = { ...camera.metadata, orthoZoom: null };
+            this.game.updateOrthoBounds();
+        }
 
         // Reset all state variables to ensure a clean start
         this.ui = null;
@@ -541,63 +547,6 @@ export class GameplayState implements GameState {
         // Register wave button to update its state
         this.registerWaveButtonUpdate(waveButton);
 
-        // Info help button
-        const toggleHelpButton = Button.CreateSimpleButton('toggleHelpButton', '?');
-        toggleHelpButton.width = '40px';
-        toggleHelpButton.height = '36px';
-        toggleHelpButton.color = '#FFFFFF';
-        toggleHelpButton.background = '#3A3F4B';
-        toggleHelpButton.cornerRadius = 18;
-        toggleHelpButton.thickness = 0;
-        toggleHelpButton.fontFamily = 'Arial';
-        toggleHelpButton.fontSize = 18;
-        toggleHelpButton.fontWeight = 'bold';
-        toggleHelpButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        toggleHelpButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-        toggleHelpButton.left = '-8px';
-        toggleHelpButton.zIndex = 100;
-
-        toggleHelpButton.onPointerEnterObservable.add(() => {
-            toggleHelpButton.background = '#555';
-        });
-        toggleHelpButton.onPointerOutObservable.add(() => {
-            toggleHelpButton.background = '#3A3F4B';
-        });
-        controlsPanel.addControl(toggleHelpButton);
-
-        // Camera help panel (hidden by default)
-        const cameraHelpContainer = new Rectangle('cameraHelpContainer');
-        cameraHelpContainer.width = '280px';
-        cameraHelpContainer.height = '90px';
-        cameraHelpContainer.background = 'rgba(28, 32, 40, 0.95)';
-        cameraHelpContainer.cornerRadius = 12;
-        cameraHelpContainer.thickness = 1;
-        cameraHelpContainer.color = '#3A3F4B';
-        cameraHelpContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        cameraHelpContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        cameraHelpContainer.left = '-10px';
-        cameraHelpContainer.top = '70px';
-        this.ui.addControl(cameraHelpContainer);
-
-        const cameraHelpText = new TextBlock('cameraHelpText');
-        if (this.isMobileDevice()) {
-            cameraHelpText.text = 'One finger to rotate camera\nPinch to zoom in/out\nUse control pad to move map';
-        } else {
-            cameraHelpText.text = 'Hold Shift for camera controls\nShift+Mouse drag to rotate/move\nShift+Mouse wheel to zoom\nShift+WASD/Arrows also work';
-        }
-        cameraHelpText.color = '#B0B8C8';
-        cameraHelpText.fontSize = 12;
-        cameraHelpText.fontFamily = 'Arial';
-        cameraHelpContainer.addControl(cameraHelpText);
-
-        // Initially hide the help text
-        cameraHelpContainer.isVisible = false;
-
-        // Toggle visibility on click
-        toggleHelpButton.onPointerClickObservable.add(() => {
-            cameraHelpContainer.isVisible = !cameraHelpContainer.isVisible;
-        });
-
         // === Speed Control Buttons ===
         const speedPanel = new Rectangle('speedPanel');
         speedPanel.width = '140px';
@@ -940,55 +889,6 @@ export class GameplayState implements GameState {
                             this.cancelTowerPlacement();
                         }
                         return;
-                    }
-
-                    // Check if Shift key is pressed for camera controls
-                    const isShiftPressed = kbInfo.event.shiftKey;
-
-                    if (isShiftPressed) {
-                        // Camera movement with Shift+WASD
-                        switch (kbInfo.event.key) {
-                            case 'w':
-                            case 'W':
-                                this.moveCamera(0, 0, 1); // Move forward
-                                break;
-                            case 's':
-                            case 'S':
-                                this.moveCamera(0, 0, -1); // Move backward
-                                break;
-                            case 'a':
-                            case 'A':
-                                this.moveCamera(-1, 0, 0); // Move left
-                                break;
-                            case 'd':
-                            case 'D':
-                                this.moveCamera(1, 0, 0); // Move right
-                                break;
-
-                            // Camera zoom with Shift+E/Q
-                            case 'e':
-                            case 'E':
-                                this.zoomCamera(-1); // Zoom in
-                                break;
-                            case 'q':
-                            case 'Q':
-                                this.zoomCamera(1); // Zoom out
-                                break;
-
-                            // Camera rotation with Shift+Arrow keys
-                            case 'ArrowLeft':
-                                this.rotateCamera(-1, 0); // Rotate left
-                                break;
-                            case 'ArrowRight':
-                                this.rotateCamera(1, 0); // Rotate right
-                                break;
-                            case 'ArrowUp':
-                                this.rotateCamera(0, -1); // Rotate up
-                                break;
-                            case 'ArrowDown':
-                                this.rotateCamera(0, 1); // Rotate down
-                                break;
-                        }
                     }
                     break;
             }
@@ -2598,37 +2498,6 @@ export class GameplayState implements GameState {
     // ========================================================================
 
     /**
-     * Move the camera in the specified direction
-     */
-    private moveCamera(x: number, y: number, z: number): void {
-        if (!this.scene || !this.scene.activeCamera) return;
-
-        const camera = this.scene.activeCamera as ArcRotateCamera;
-        const speed = 3;
-
-        const forward = new Vector3(0, 0, 1);
-        const right = new Vector3(1, 0, 0);
-
-        const matrix = new Matrix();
-        Matrix.RotationYawPitchRollToRef(camera.alpha, 0, 0, matrix);
-
-        const transformedForward = Vector3.TransformNormal(forward, matrix);
-        const transformedRight = Vector3.TransformNormal(right, matrix);
-
-        const movementDirection = new Vector3(0, 0, 0);
-
-        if (x !== 0) {
-            movementDirection.addInPlace(transformedRight.scale(x * speed));
-        }
-
-        if (z !== 0) {
-            movementDirection.addInPlace(transformedForward.scale(z * speed));
-        }
-
-        camera.target.addInPlace(movementDirection);
-    }
-
-    /**
      * Hide the tower selector UI
      */
     private hideTowerSelector(): void {
@@ -2637,231 +2506,6 @@ export class GameplayState implements GameState {
             this.ui.removeControl(this.towerSelectorPanel);
             this.towerSelectorPanel = null;
         }
-    }
-
-    /**
-     * Zoom the camera in or out
-     */
-    private zoomCamera(direction: number): void {
-        if (!this.scene || !this.scene.activeCamera) return;
-
-        const camera = this.scene.activeCamera as ArcRotateCamera;
-        const zoomSpeed = 5;
-
-        camera.radius += direction * zoomSpeed;
-
-        camera.radius = Math.max(camera.lowerRadiusLimit || 25, camera.radius);
-        camera.radius = Math.min(camera.upperRadiusLimit || 60, camera.radius);
-    }
-
-    /**
-     * Rotate the camera horizontally or vertically
-     */
-    private rotateCamera(horizontalDirection: number, verticalDirection: number): void {
-        if (!this.scene || !this.scene.activeCamera) return;
-
-        const camera = this.scene.activeCamera as ArcRotateCamera;
-        const rotationSpeed = 0.05;
-
-        if (horizontalDirection !== 0) {
-            camera.alpha += horizontalDirection * rotationSpeed;
-        }
-
-        if (verticalDirection !== 0) {
-            camera.beta += verticalDirection * rotationSpeed;
-
-            camera.beta = Math.max(camera.lowerBetaLimit || 0.1, camera.beta);
-            camera.beta = Math.min(camera.upperBetaLimit || Math.PI - 0.1, camera.beta);
-        }
-    }
-
-    /**
-     * Setup camera controls to only work when Shift key is pressed on desktop,
-     * and with touch gestures on mobile
-     */
-    private setupCameraControls(): void {
-        if (!this.scene) return;
-
-        const camera = this.scene.activeCamera as ArcRotateCamera;
-        if (!camera) return;
-
-        // Track shift key state
-        let isShiftPressed = false;
-
-        // Detect if we're on a mobile device
-        const isMobile = this.isMobileDevice();
-
-        // Setup for desktop controls
-        if (!isMobile) {
-            // Disable all inputs initially
-            if (camera.inputs.attached.keyboard) {
-                camera.inputs.attached.keyboard.detachControl();
-            }
-            if (camera.inputs.attached.pointers) {
-                camera.inputs.attached.pointers.detachControl();
-            }
-            if (camera.inputs.attached.mousewheel) {
-                camera.inputs.attached.mousewheel.detachControl();
-            }
-
-            // Add listeners for shift key
-            this.scene.onKeyboardObservable.add((kbInfo) => {
-                if (kbInfo.event.key === 'Shift') {
-                    if (kbInfo.type === KeyboardEventTypes.KEYDOWN && !isShiftPressed) {
-                        isShiftPressed = true;
-                        // Enable inputs when shift is pressed
-                        if (camera.inputs.attached.pointers) {
-                            camera.inputs.attached.pointers.attachControl(true);
-                        }
-                        if (camera.inputs.attached.mousewheel) {
-                            camera.inputs.attached.mousewheel.attachControl(true);
-                        }
-                    } else if (kbInfo.type === KeyboardEventTypes.KEYUP && isShiftPressed) {
-                        isShiftPressed = false;
-                        // Disable inputs when shift is released
-                        if (camera.inputs.attached.pointers) {
-                            camera.inputs.attached.pointers.detachControl();
-                        }
-                        if (camera.inputs.attached.mousewheel) {
-                            camera.inputs.attached.mousewheel.detachControl();
-                        }
-                    }
-                }
-            });
-        }
-        // Setup for mobile controls
-        else {
-            // Use built-in multitouch camera for pinch-to-zoom
-            camera.useAutoRotationBehavior = false;
-
-            // Enable touch camera controls
-            if (camera.inputs.attached.pointers) {
-                camera.inputs.attached.pointers.attachControl();
-            }
-
-            // Set up touch helper UI for mobile
-            this.setupMobileTouchHelpers();
-        }
-    }
-
-    /**
-     * Add mobile touch helper UI elements
-     */
-    private setupMobileTouchHelpers(): void {
-        if (!this.ui) return;
-
-        // Create mobile camera control buttons
-        const controlsContainer = new Rectangle("mobileCameraControls");
-        controlsContainer.width = "120px";
-        controlsContainer.height = "120px";
-        controlsContainer.background = "rgba(28, 32, 40, 0.6)";
-        controlsContainer.cornerRadius = 60;
-        controlsContainer.thickness = 0;
-        controlsContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        controlsContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        controlsContainer.left = "20px";
-        controlsContainer.top = "-20px";
-        controlsContainer.zIndex = 10;
-        this.ui.addControl(controlsContainer);
-
-        // Add control buttons - arrows in a directional pad layout
-        const directions = [
-            { name: "up", icon: "^", x: 0, y: -1, left: "0px", top: "-35px" },
-            { name: "down", icon: "v", x: 0, y: 1, left: "0px", top: "35px" },
-            { name: "left", icon: "<", x: -1, y: 0, left: "-35px", top: "0px" },
-            { name: "right", icon: ">", x: 1, y: 0, left: "35px", top: "0px" }
-        ];
-
-        directions.forEach(dir => {
-            const button = Button.CreateSimpleButton(dir.name + "Button", dir.icon);
-            button.width = "40px";
-            button.height = "40px";
-            button.color = '#FFFFFF';
-            button.background = 'rgba(28, 32, 40, 0.7)';
-            button.cornerRadius = 20;
-            button.thickness = 0;
-            button.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-            button.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-            button.left = dir.left;
-            button.top = dir.top;
-
-            // Make the button move the camera when pressed/held
-            button.onPointerDownObservable.add(() => {
-                // Start continuous movement
-                const moveInterval = setInterval(() => {
-                    this.moveCamera(dir.x, 0, dir.y);
-                }, 50);
-
-                // Stop movement when button is released
-                button.onPointerUpObservable.add(() => {
-                    clearInterval(moveInterval);
-                });
-
-                // Also stop if pointer leaves the button
-                button.onPointerOutObservable.add(() => {
-                    clearInterval(moveInterval);
-                });
-            });
-
-            controlsContainer.addControl(button);
-        });
-
-        // Add zoom buttons
-        const zoomIn = Button.CreateSimpleButton("zoomInButton", "+");
-        zoomIn.width = "40px";
-        zoomIn.height = "40px";
-        zoomIn.color = '#FFFFFF';
-        zoomIn.background = 'rgba(28, 32, 40, 0.7)';
-        zoomIn.cornerRadius = 20;
-        zoomIn.thickness = 0;
-        zoomIn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        zoomIn.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        zoomIn.left = "-20px";
-        zoomIn.top = "-70px";
-
-        zoomIn.onPointerDownObservable.add(() => {
-            const zoomInterval = setInterval(() => {
-                this.zoomCamera(-1);
-            }, 50);
-
-            zoomIn.onPointerUpObservable.add(() => {
-                clearInterval(zoomInterval);
-            });
-
-            zoomIn.onPointerOutObservable.add(() => {
-                clearInterval(zoomInterval);
-            });
-        });
-
-        this.ui.addControl(zoomIn);
-
-        const zoomOut = Button.CreateSimpleButton("zoomOutButton", "-");
-        zoomOut.width = "40px";
-        zoomOut.height = "40px";
-        zoomOut.color = '#FFFFFF';
-        zoomOut.background = 'rgba(28, 32, 40, 0.7)';
-        zoomOut.cornerRadius = 20;
-        zoomOut.thickness = 0;
-        zoomOut.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        zoomOut.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        zoomOut.left = "-20px";
-        zoomOut.top = "-20px";
-
-        zoomOut.onPointerDownObservable.add(() => {
-            const zoomInterval = setInterval(() => {
-                this.zoomCamera(1);
-            }, 50);
-
-            zoomOut.onPointerUpObservable.add(() => {
-                clearInterval(zoomInterval);
-            });
-
-            zoomOut.onPointerOutObservable.add(() => {
-                clearInterval(zoomInterval);
-            });
-        });
-
-        this.ui.addControl(zoomOut);
     }
 
     /**
