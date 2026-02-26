@@ -129,6 +129,8 @@ export class WaveManager {
     private autoWaveTimer: number = 0; // Timer for auto-starting waves
     private autoWaveDelay: number = 5; // Delay in seconds before auto-starting next wave
     private parallelWaves: ParallelWave[] = []; // Array of parallel waves
+    private wavesPerLevel: number = 10;
+    private levelIndex: number = 0;
 
     // Speed-based difficulty system
     private waveStartTime: number = 0; // Time when the wave started
@@ -146,76 +148,63 @@ export class WaveManager {
     private healthAtWaveStart: number = 0; // Health when wave started, for perfect wave detection
     private consecutivePerfectWaves: number = 0; // Track streaks for bonus rewards
 
-    constructor(enemyManager: EnemyManager, playerStats: PlayerStats) {
+    constructor(enemyManager: EnemyManager, playerStats: PlayerStats, wavesPerLevel: number = 10, levelIndex: number = 0) {
         this.enemyManager = enemyManager;
         this.playerStats = playerStats;
-        
+        this.wavesPerLevel = wavesPerLevel;
+        this.levelIndex = levelIndex;
+
         // Set player stats in enemy manager for rewards
         this.enemyManager.setPlayerStats(playerStats);
-        
+
         // Generate initial waves
         this.generateWaves();
     }
 
     /**
-     * Generate all 20 hand-crafted waves with a carefully designed difficulty curve.
-     *
-     * Design philosophy:
-     * - Each wave has a distinct strategic identity and thematic name
-     * - Difficulty ramps smoothly within phases, with breather waves after bosses
-     * - Economy is tuned so players can afford meaningful upgrades between phases
-     * - Boss waves are spectacles that test everything the player has learned
-     *
-     * Phase breakdown:
-     *   TUTORIAL (1-3):   One enemy type at a time. Teach basics. Generous rewards.
-     *   LEARNING (4-7):   Introduce combinations. Teach tower synergies.
-     *   CHALLENGE (8-12): Real difficulty begins. First boss at wave 10.
-     *   MASTERY (13-17):  Complex compositions. Second boss at wave 15.
-     *   ENDGAME (18-20):  Epic final battles. Double boss at wave 20.
-     *   ENDLESS (21+):    Procedural generation with rotating themes.
+     * Generate waves based on the current level index.
+     * Each level has wavesPerLevel (10) hand-crafted waves.
      */
     private generateWaves(): void {
         this.waves = [];
 
-        // =====================================================================
-        // === TUTORIAL PHASE (Waves 1-3): Gentle intro, one type at a time ===
-        // =====================================================================
+        if (this.levelIndex === 0) {
+            this.generateLevel1Waves();
+        } else if (this.levelIndex === 1) {
+            this.generateLevel2Waves();
+        } else {
+            this.generateLevel3Waves();
+        }
 
-        // Wave 1: "First Contact" - Just 5 basic enemies, very spread out.
-        // Player should comfortably handle this with their starting towers.
-        // Teaches: basic tower placement, enemy pathing.
+        this.totalWaves = this.wavesPerLevel;
+    }
+
+    // =================================================================
+    // Level 1: "The Enchanted Forest" (tutorial → first boss)
+    // =================================================================
+    private generateLevel1Waves(): void {
+        // Wave 1: First Contact
         this.waves.push({
             enemies: [{ type: 'basic', count: 5, delay: 2.5 }],
             reward: 50,
             name: 'First Contact',
             description: 'A small scouting party approaches. Place your first defenses.'
         });
-
-        // Wave 2: "The Trickle" - More basics, slightly faster.
-        // Teaches: tower positioning matters when enemies come faster.
+        // Wave 2: The Trickle
         this.waves.push({
             enemies: [{ type: 'basic', count: 8, delay: 1.8 }],
             reward: 55,
             name: 'The Trickle',
             description: 'They keep coming. Make sure your towers cover the path.'
         });
-
-        // Wave 3: "Swift Shadows" - Introduce fast enemies alone first.
-        // Only fast enemies so the player learns they move differently.
-        // Teaches: fast enemies exist and require different tower placement.
+        // Wave 3: Swift Shadows
         this.waves.push({
             enemies: [{ type: 'fast', count: 6, delay: 1.5 }],
             reward: 60,
             name: 'Swift Shadows',
             description: 'These ones are fast! You may need towers that can keep up.'
         });
-
-        // =====================================================================
-        // === LEARNING PHASE (Waves 4-7): Combinations, teach tower types ===
-        // =====================================================================
-
-        // Wave 4: "First Mix" - Basic + fast together for the first time.
-        // Teaches: you need to handle multiple enemy types simultaneously.
+        // Wave 4: First Mix
         this.waves.push({
             enemies: [
                 { type: 'basic', count: 8, delay: 1.5 },
@@ -225,10 +214,7 @@ export class WaveManager {
             name: 'First Mix',
             description: 'Different enemy types working together. Diversify your defenses.'
         });
-
-        // Wave 5: "The Wall" - Introduce tank enemies with basic escorts.
-        // Only 2 tanks so the player can learn they are tough. Milestone wave.
-        // Teaches: tanks are durable and require focused firepower.
+        // Wave 5: The Wall
         this.waves.push({
             enemies: [
                 { type: 'basic', count: 6, delay: 1.4 },
@@ -238,10 +224,7 @@ export class WaveManager {
             name: 'The Wall',
             description: 'Armored enemies! They are slow but very tough. Focus fire on them.'
         });
-
-        // Wave 6: "Speed Demons" - Fast-heavy wave with basic padding.
-        // Pushes the player to think about AOE vs single target.
-        // Teaches: sometimes you get overwhelmed by speed, not HP.
+        // Wave 6: Speed Demons
         this.waves.push({
             enemies: [
                 { type: 'fast', count: 10, delay: 0.9 },
@@ -251,10 +234,7 @@ export class WaveManager {
             name: 'Speed Demons',
             description: 'A swarm of fast enemies! Slow towers and area damage shine here.'
         });
-
-        // Wave 7: "Combined Arms" - All three types together for the first time.
-        // Moderate counts of each. This is the graduation exam of the learning phase.
-        // Teaches: balanced defense is essential.
+        // Wave 7: Combined Arms
         this.waves.push({
             enemies: [
                 { type: 'basic', count: 10, delay: 1.2 },
@@ -265,14 +245,7 @@ export class WaveManager {
             name: 'Combined Arms',
             description: 'All enemy types at once. A balanced defense is your best weapon.'
         });
-
-        // =====================================================================
-        // === CHALLENGE PHASE (Waves 8-12): Ramp up, first boss at wave 10 ===
-        // =====================================================================
-
-        // Wave 8: "The Swarm" - Lots of weak enemies, fast spawn rate.
-        // Tests AOE capability and lane coverage.
-        // Teaches: sometimes quantity is the real threat.
+        // Wave 8: The Swarm
         this.waves.push({
             enemies: [
                 { type: 'basic', count: 16, delay: 0.7 },
@@ -282,10 +255,7 @@ export class WaveManager {
             name: 'The Swarm',
             description: 'Overwhelming numbers! Area damage towers earn their keep here.'
         });
-
-        // Wave 9: "Iron March" - Tank-focused pre-boss warmup.
-        // Tests single-target DPS and sniper positioning.
-        // Teaches: preparation for the boss - you need heavy hitters.
+        // Wave 9: Iron March
         this.waves.push({
             enemies: [
                 { type: 'basic', count: 8, delay: 1.0 },
@@ -296,10 +266,7 @@ export class WaveManager {
             name: 'Iron March',
             description: 'Heavy armor incoming. Build up your strongest towers - a boss approaches.'
         });
-
-        // Wave 10: "THE WARLORD" - First boss encounter. Boss appears LAST.
-        // Light escort first to drain resources, then the boss arrives.
-        // Teaches: save your cooldowns and strongest defenses for the boss.
+        // Wave 10: THE WARLORD (boss)
         this.waves.push({
             enemies: [
                 { type: 'basic', count: 6, delay: 0.9 },
@@ -309,150 +276,233 @@ export class WaveManager {
             ],
             reward: 200,
             name: 'THE WARLORD',
-            description: 'A massive boss enemy appears! It can destroy your towers - keep your distance!'
+            description: 'A massive boss enemy appears! Defeat it to advance to the next realm!'
         });
+    }
 
-        // Wave 11: "Second Wind" - Breather wave after the boss.
-        // Lighter composition to let the player rebuild and reposition.
-        // Economy reward is generous to fund upgrades for the next phase.
+    // =================================================================
+    // Level 2: "The Scorched Highlands" (tank-heavy, harder)
+    // =================================================================
+    private generateLevel2Waves(): void {
+        // Wave 1: Highland Scouts
         this.waves.push({
             enemies: [
-                { type: 'basic', count: 12, delay: 1.0 },
-                { type: 'fast', count: 6, delay: 0.9 }
+                { type: 'basic', count: 10, delay: 1.5 },
+                { type: 'fast', count: 4, delay: 1.2 }
             ],
-            reward: 110,
-            name: 'Second Wind',
-            description: 'A brief respite. Rebuild, upgrade, and prepare for what comes next.'
+            reward: 70,
+            name: 'Highland Scouts',
+            description: 'Enemies probe the scorched highlands. Set up your new defenses.'
         });
-
-        // Wave 12: "Armored Column" - Tanks with fast escort. Tests adaptability.
-        // The fast enemies distract while tanks push through.
+        // Wave 2: Armored Vanguard
+        this.waves.push({
+            enemies: [
+                { type: 'tank', count: 4, delay: 2.5 },
+                { type: 'basic', count: 6, delay: 1.0 }
+            ],
+            reward: 80,
+            name: 'Armored Vanguard',
+            description: 'Tanks lead the advance through the rocky terrain.'
+        });
+        // Wave 3: Blitz Runners
+        this.waves.push({
+            enemies: [
+                { type: 'fast', count: 14, delay: 0.6 },
+                { type: 'basic', count: 4, delay: 1.0 }
+            ],
+            reward: 75,
+            name: 'Blitz Runners',
+            description: 'Fast enemies exploit the new paths. Cover every angle!'
+        });
+        // Wave 4: Steel Tide
         this.waves.push({
             enemies: [
                 { type: 'tank', count: 6, delay: 1.8 },
-                { type: 'fast', count: 10, delay: 0.6 },
-                { type: 'basic', count: 8, delay: 0.9 }
-            ],
-            reward: 120,
-            name: 'Armored Column',
-            description: 'Tanks with a fast escort. Do not let the speedsters distract you from the real threat.'
-        });
-
-        // =====================================================================
-        // === MASTERY PHASE (Waves 13-17): Complex compositions, second boss ===
-        // =====================================================================
-
-        // Wave 13: "Blitz" - Extremely fast-heavy. Tests reaction and coverage.
-        // The challenge is the sheer speed at which enemies cross the map.
-        this.waves.push({
-            enemies: [
-                { type: 'fast', count: 18, delay: 0.4 },
-                { type: 'basic', count: 6, delay: 0.8 }
-            ],
-            reward: 130,
-            name: 'Blitz',
-            description: 'Lightning-fast assault! Every second counts - maximize your coverage.'
-        });
-
-        // Wave 14: "Fortress Breakers" - Heavy mixed assault. Full spectrum test.
-        // High counts of everything. This is the difficulty floor for mastery.
-        this.waves.push({
-            enemies: [
-                { type: 'basic', count: 14, delay: 0.7 },
-                { type: 'fast', count: 10, delay: 0.5 },
-                { type: 'tank', count: 8, delay: 1.5 }
-            ],
-            reward: 150,
-            name: 'Fortress Breakers',
-            description: 'A full-scale invasion. Only the strongest defenses will hold.'
-        });
-
-        // Wave 15: "THE SIEGE" - Second boss with a real escort.
-        // Tougher than wave 10. Escort includes tanks that absorb damage meant for boss.
-        this.waves.push({
-            enemies: [
-                { type: 'tank', count: 4, delay: 2.0 },
-                { type: 'basic', count: 10, delay: 0.7 },
-                { type: 'fast', count: 8, delay: 0.5 },
-                { type: 'boss', count: 1, delay: 0 }
-            ],
-            reward: 275,
-            name: 'THE SIEGE',
-            description: 'A powerful boss leads an armored assault. Break the tanks, then focus the boss!'
-        });
-
-        // Wave 16: "Recovery Ops" - Breather after second boss. Moderate difficulty.
-        // Player needs money to prep for the endgame.
-        this.waves.push({
-            enemies: [
-                { type: 'basic', count: 14, delay: 0.8 },
                 { type: 'fast', count: 8, delay: 0.7 },
-                { type: 'tank', count: 4, delay: 2.0 }
+                { type: 'basic', count: 6, delay: 1.0 }
             ],
-            reward: 150,
-            name: 'Recovery Ops',
-            description: 'Catch your breath and upgrade. The final waves will test everything you have.'
+            reward: 100,
+            name: 'Steel Tide',
+            description: 'A combined force pushes hard through the highlands.'
         });
-
-        // Wave 17: "Tank Division" - Pure tank onslaught with basic cannon fodder.
-        // Tests maximum sustained DPS output.
-        this.waves.push({
-            enemies: [
-                { type: 'tank', count: 12, delay: 1.2 },
-                { type: 'basic', count: 8, delay: 0.8 }
-            ],
-            reward: 170,
-            name: 'Tank Division',
-            description: 'An entire division of armored enemies. You need raw firepower to survive this.'
-        });
-
-        // =====================================================================
-        // === ENDGAME (Waves 18-20): Epic final battles, multiple bosses ===
-        // =====================================================================
-
-        // Wave 18: "The Flood" - Overwhelming numbers from every type.
-        // The sheer volume is the challenge. AOE is essential.
-        this.waves.push({
-            enemies: [
-                { type: 'basic', count: 22, delay: 0.4 },
-                { type: 'fast', count: 16, delay: 0.3 },
-                { type: 'tank', count: 6, delay: 1.5 }
-            ],
-            reward: 200,
-            name: 'The Flood',
-            description: 'A tidal wave of enemies. If your defenses have any gaps, they will find them.'
-        });
-
-        // Wave 19: "Last Stand" - The toughest non-boss wave. Everything at maximum intensity.
-        // This wave should push even veteran players to their limits.
+        // Wave 5: Scorched Earth
         this.waves.push({
             enemies: [
                 { type: 'basic', count: 18, delay: 0.5 },
-                { type: 'fast', count: 14, delay: 0.3 },
-                { type: 'tank', count: 10, delay: 1.2 }
+                { type: 'fast', count: 10, delay: 0.4 }
+            ],
+            reward: 110,
+            name: 'Scorched Earth',
+            description: 'Masses of enemies pour in. Area damage is critical!'
+        });
+        // Wave 6: Iron Fortress
+        this.waves.push({
+            enemies: [
+                { type: 'tank', count: 10, delay: 1.5 },
+                { type: 'basic', count: 8, delay: 0.8 }
+            ],
+            reward: 120,
+            name: 'Iron Fortress',
+            description: 'A wall of armored enemies. You need heavy firepower.'
+        });
+        // Wave 7: Lightning Assault
+        this.waves.push({
+            enemies: [
+                { type: 'fast', count: 18, delay: 0.35 },
+                { type: 'tank', count: 4, delay: 2.0 }
+            ],
+            reward: 130,
+            name: 'Lightning Assault',
+            description: 'Speed and armor in deadly combination.'
+        });
+        // Wave 8: Full Assault
+        this.waves.push({
+            enemies: [
+                { type: 'basic', count: 14, delay: 0.6 },
+                { type: 'fast', count: 12, delay: 0.4 },
+                { type: 'tank', count: 8, delay: 1.2 }
+            ],
+            reward: 150,
+            name: 'Full Assault',
+            description: 'Everything at once. Only the strongest defenses will hold.'
+        });
+        // Wave 9: Siege Preparations
+        this.waves.push({
+            enemies: [
+                { type: 'tank', count: 12, delay: 1.0 },
+                { type: 'fast', count: 10, delay: 0.5 },
+                { type: 'basic', count: 10, delay: 0.7 }
+            ],
+            reward: 160,
+            name: 'Siege Preparations',
+            description: 'The enemy amasses its forces. The siege engine approaches...'
+        });
+        // Wave 10: THE SIEGE ENGINE (boss)
+        this.waves.push({
+            enemies: [
+                { type: 'tank', count: 6, delay: 1.5 },
+                { type: 'basic', count: 10, delay: 0.6 },
+                { type: 'fast', count: 8, delay: 0.5 },
+                { type: 'boss', count: 1, delay: 0 }
+            ],
+            reward: 300,
+            name: 'THE SIEGE ENGINE',
+            description: 'A massive siege engine leads the assault! Destroy it to descend deeper!'
+        });
+    }
+
+    // =================================================================
+    // Level 3: "The Crystal Abyss" (maximum intensity, double boss)
+    // =================================================================
+    private generateLevel3Waves(): void {
+        // Wave 1: Abyssal Scouts
+        this.waves.push({
+            enemies: [
+                { type: 'basic', count: 14, delay: 1.0 },
+                { type: 'fast', count: 8, delay: 0.8 },
+                { type: 'tank', count: 3, delay: 2.5 }
+            ],
+            reward: 100,
+            name: 'Abyssal Scouts',
+            description: 'Enemies emerge from the crystal depths. The final battle begins.'
+        });
+        // Wave 2: Crystal Swarm
+        this.waves.push({
+            enemies: [
+                { type: 'fast', count: 20, delay: 0.35 },
+                { type: 'basic', count: 8, delay: 0.7 }
+            ],
+            reward: 110,
+            name: 'Crystal Swarm',
+            description: 'A crystalline swarm of speed. Cover every path!'
+        });
+        // Wave 3: Abyssal Tanks
+        this.waves.push({
+            enemies: [
+                { type: 'tank', count: 10, delay: 1.5 },
+                { type: 'basic', count: 10, delay: 0.8 }
+            ],
+            reward: 120,
+            name: 'Abyssal Tanks',
+            description: 'Heavily armored crystal beasts push through the abyss.'
+        });
+        // Wave 4: Dual Threat
+        this.waves.push({
+            enemies: [
+                { type: 'fast', count: 16, delay: 0.3 },
+                { type: 'tank', count: 8, delay: 1.2 },
+                { type: 'basic', count: 10, delay: 0.6 }
+            ],
+            reward: 140,
+            name: 'Dual Threat',
+            description: 'Speed and armor attack simultaneously from the crystal corridors.'
+        });
+        // Wave 5: The Flood
+        this.waves.push({
+            enemies: [
+                { type: 'basic', count: 24, delay: 0.35 },
+                { type: 'fast', count: 16, delay: 0.25 },
+                { type: 'tank', count: 4, delay: 2.0 }
+            ],
+            reward: 160,
+            name: 'The Flood',
+            description: 'A tidal wave of enemies. If your defenses have gaps, they will find them.'
+        });
+        // Wave 6: Crystal Guard
+        this.waves.push({
+            enemies: [
+                { type: 'tank', count: 14, delay: 1.0 },
+                { type: 'fast', count: 10, delay: 0.5 },
+                { type: 'basic', count: 8, delay: 0.7 }
+            ],
+            reward: 170,
+            name: 'Crystal Guard',
+            description: 'The abyss sends its elite guard. Maximum firepower required.'
+        });
+        // Wave 7: Abyssal Blitz
+        this.waves.push({
+            enemies: [
+                { type: 'fast', count: 24, delay: 0.2 },
+                { type: 'basic', count: 12, delay: 0.5 }
+            ],
+            reward: 150,
+            name: 'Abyssal Blitz',
+            description: 'Unstoppable speed. Every tower must be perfectly placed.'
+        });
+        // Wave 8: Annihilation
+        this.waves.push({
+            enemies: [
+                { type: 'basic', count: 20, delay: 0.4 },
+                { type: 'fast', count: 16, delay: 0.3 },
+                { type: 'tank', count: 12, delay: 1.0 }
+            ],
+            reward: 200,
+            name: 'Annihilation',
+            description: 'The full might of the abyss. Everything comes at once.'
+        });
+        // Wave 9: Last Stand
+        this.waves.push({
+            enemies: [
+                { type: 'basic', count: 18, delay: 0.4 },
+                { type: 'fast', count: 14, delay: 0.25 },
+                { type: 'tank', count: 14, delay: 0.9 }
             ],
             reward: 225,
             name: 'Last Stand',
             description: 'One final test before the end. Hold the line at all costs.'
         });
-
-        // Wave 20: "THE FINAL SIEGE" - Ultimate challenge. Two bosses with full escort.
-        // First boss arrives with the escort, second boss arrives after a delay.
-        // This should feel like a climactic final battle.
+        // Wave 10: THE FINAL SIEGE (double boss)
         this.waves.push({
             enemies: [
-                { type: 'basic', count: 12, delay: 0.5 },
-                { type: 'fast', count: 10, delay: 0.4 },
-                { type: 'tank', count: 6, delay: 1.5 },
+                { type: 'basic', count: 14, delay: 0.5 },
+                { type: 'fast', count: 12, delay: 0.3 },
+                { type: 'tank', count: 8, delay: 1.2 },
                 { type: 'boss', count: 2, delay: 8.0 }
             ],
             reward: 500,
             name: 'THE FINAL SIEGE',
             description: 'Two bosses lead the ultimate assault. This is it - give everything you have!'
         });
-
-        // Set total waves to infinity (procedural after wave 20)
-        this.totalWaves = Infinity;
     }
 
     /**
@@ -794,22 +844,12 @@ export class WaveManager {
         // Record health at wave start for perfect wave detection
         this.healthAtWaveStart = this.playerStats.getHealth();
 
-        // === NEW DIFFICULTY SCALING SYSTEM ===
-        // Uses a smooth logarithmic + linear blend instead of compounding multipliers.
-        // This gives a predictable, fair curve that never hits sudden spikes.
-        //
-        // Target difficulty curve (base multiplier only, before speed/parallel):
-        //   Wave 1:  1.0x   (tutorial)
-        //   Wave 5:  1.5x   (learning milestone)
-        //   Wave 10: 2.5x   (first boss)
-        //   Wave 15: 3.8x   (second boss)
-        //   Wave 20: 5.5x   (final boss)
-        //   Wave 30: 8.5x   (endless)
-        //   Wave 50: 13.0x  (deep endless)
-        //
-        // Formula: base = 1.0 + 0.12 * (wave - 1) + 0.004 * (wave - 1)^2
-        // This is quadratic with a gentle linear base, giving smooth acceleration.
-        const w = this.currentWave - 1;
+        // Difficulty scales across levels using a wave offset.
+        // Level 0 waves 1-10 => global wave 1-10
+        // Level 1 waves 1-10 => global wave 11-20
+        // Level 2 waves 1-10 => global wave 21-30
+        const waveOffset = this.levelIndex * this.wavesPerLevel;
+        const w = this.currentWave - 1 + waveOffset;
         this.difficultyMultiplier = 1.0 + 0.12 * w + 0.004 * w * w;
 
         // Milestone waves (every 5): apply a small bump (+15% on top of the formula)
@@ -997,8 +1037,7 @@ export class WaveManager {
      * @returns True if all waves are complete
      */
     public isAllWavesCompleted(): boolean {
-        // We now have infinite waves, so this will always return false
-        return false;
+        return this.currentWave >= this.wavesPerLevel && !this.waveInProgress;
     }
 
     /**
@@ -1240,8 +1279,9 @@ export class WaveManager {
         // Increment wave counter
         this.currentWave++;
 
-        // Apply the same formula-based difficulty scaling
-        const w = this.currentWave - 1;
+        // Apply the same formula-based difficulty scaling with level offset
+        const waveOffset = this.levelIndex * this.wavesPerLevel;
+        const w = this.currentWave - 1 + waveOffset;
         this.difficultyMultiplier = 1.0 + 0.12 * w + 0.004 * w * w;
 
         // Milestone waves: +15% bump

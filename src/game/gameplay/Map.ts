@@ -2,6 +2,7 @@ import { Vector3, MeshBuilder, Mesh, Scene, Color3, Color4, ParticleSystem, Shad
 import { Game } from '../Game';
 import { PALETTE } from '../rendering/StyleConstants';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../rendering/LowPolyMaterial';
+import { LevelConfig, LEVEL_1 } from './LevelConfig';
 
 // Define grid cell types
 enum CellType {
@@ -53,10 +54,14 @@ export class Map {
     private pathParticles: ParticleSystem[] = [];
     private terrainZones: TerrainZone[][] = [];
     private heightMap: number[][] = [];
+    private config: LevelConfig;
+    private zOffset: number;
 
-    constructor(game: Game) {
+    constructor(game: Game, config?: LevelConfig, zOffset?: number) {
         this.game = game;
         this.scene = game.getScene();
+        this.config = config || LEVEL_1;
+        this.zOffset = zOffset || 0;
 
         for (let x = 0; x < this.gridSize; x++) {
             this.grid[x] = [];
@@ -76,8 +81,8 @@ export class Map {
         this.generateHeightMap();
         this.createGround();
 
-        this.startPosition = { x: 0, y: 3 };
-        this.endPosition = { x: 19, y: 16 };
+        this.startPosition = { ...this.config.startPosition };
+        this.endPosition = { ...this.config.endPosition };
 
         this.grid[this.startPosition.x][this.startPosition.y] = CellType.START;
         this.grid[this.endPosition.x][this.endPosition.y] = CellType.END;
@@ -98,7 +103,7 @@ export class Map {
     private setupLighting(): void {
         const light = new DirectionalLight("mapLight", new Vector3(-0.4, -1, -0.6), this.scene);
         light.intensity = 0.75;
-        light.position = new Vector3(20, 40, 20);
+        light.position = new Vector3(20, 40, 20 + this.zOffset);
 
         this.shadowGenerator = new ShadowGenerator(1024, light);
         this.shadowGenerator.useBlurExponentialShadowMap = true;
@@ -116,25 +121,20 @@ export class Map {
     private defineTerrainZones(): void {
         for (let x = 0; x < this.gridSize; x++) {
             for (let y = 0; y < this.gridSize; y++) {
-                // Forest zone: top-left corner where enemies enter
-                if (x < 5 && y < 8) {
-                    this.terrainZones[x][y] = TerrainZone.FOREST;
+                let assigned = false;
+                for (const rule of this.config.terrainZoneRules) {
+                    if (rule.condition(x, y)) {
+                        this.terrainZones[x][y] = rule.zone as TerrainZone;
+                        assigned = true;
+                        break;
+                    }
                 }
-                // Rocky highlands: upper-right area with elevation
-                else if (x > 12 && y < 7) {
-                    this.terrainZones[x][y] = TerrainZone.ROCKY_HIGHLANDS;
-                }
-                // Crystal grove: bottom-right near exit
-                else if (x > 15 && y > 13) {
-                    this.terrainZones[x][y] = TerrainZone.CRYSTAL_GROVE;
-                }
-                // Riverside: cells adjacent to the river path
-                else if (this.isNearRiver(x, y)) {
-                    this.terrainZones[x][y] = TerrainZone.RIVERSIDE;
-                }
-                // Default: meadow
-                else {
-                    this.terrainZones[x][y] = TerrainZone.MEADOW;
+                if (!assigned) {
+                    if (this.isNearRiver(x, y)) {
+                        this.terrainZones[x][y] = TerrainZone.RIVERSIDE;
+                    } else {
+                        this.terrainZones[x][y] = TerrainZone.MEADOW;
+                    }
                 }
             }
         }
@@ -144,16 +144,21 @@ export class Map {
      * Check if a cell is near the river diagonal
      */
     private isNearRiver(x: number, y: number): boolean {
-        // River runs from approximately (3, 18) to (17, 2) diagonally
-        // Check distance from the river line
-        const riverStartX = 3;
-        const riverStartY = 18;
-        const riverEndX = 17;
-        const riverEndY = 2;
+        if (!this.config.river) return false;
+
+        const points = this.config.river.points;
+        if (points.length < 2) return false;
+
+        // Use first and last river points to define the line
+        const riverStartX = points[0].x;
+        const riverStartY = points[0].y;
+        const riverEndX = points[points.length - 1].x;
+        const riverEndY = points[points.length - 1].y;
 
         const dx = riverEndX - riverStartX;
         const dy = riverEndY - riverStartY;
         const len = Math.sqrt(dx * dx + dy * dy);
+        if (len === 0) return false;
         const dist = Math.abs(dy * x - dx * y + riverEndX * riverStartY - riverEndY * riverStartX) / len;
 
         return dist < 2.5;
@@ -213,7 +218,7 @@ export class Map {
             height: mapHeight + 10,
             subdivisions: 40
         }, this.scene);
-        ground.position = new Vector3(centerX, -0.15, centerZ);
+        ground.position = new Vector3(centerX, -0.15, centerZ + this.zOffset);
 
         // Apply terrain vertex displacement
         const positions = ground.getVerticesData('position');
@@ -342,26 +347,7 @@ export class Map {
      * - Crystal grove approach (final defense zone)
      */
     private generatePathWithTurns(): void {
-        const waypoints = [
-            this.startPosition,         // Start: forest entrance (0, 3)
-            { x: 3, y: 3 },            // Through the forest
-            { x: 3, y: 7 },            // Forest edge, turning south
-            { x: 7, y: 7 },            // Into the meadow
-            { x: 7, y: 12 },           // Meadow crossing southward
-            { x: 4, y: 12 },           // Curve back west
-            { x: 4, y: 16 },           // Down to lower meadow
-            { x: 9, y: 16 },           // Across the bottom
-            { x: 9, y: 13 },           // Up toward river crossing
-            { x: 12, y: 13 },          // Approach the river bridge
-            { x: 12, y: 8 },           // Cross river, enter highlands
-            { x: 15, y: 8 },           // Into the rocky highlands
-            { x: 15, y: 4 },           // Highland switchback up
-            { x: 17, y: 4 },           // Across the highlands
-            { x: 17, y: 10 },          // Descend from highlands
-            { x: 19, y: 10 },          // Approach crystal grove
-            { x: 19, y: 16 },          // Into crystal grove
-            this.endPosition            // End: crystal grove exit (19, 16)
-        ];
+        const waypoints = this.config.waypoints;
 
         this.path = [];
 
@@ -458,48 +444,32 @@ export class Map {
      * that the path must cross via bridges.
      */
     private createRiver(): void {
-        // River path: a series of water cells running diagonally
-        // From approximately (16, 1) to (2, 19)
-        const riverCells: { x: number, y: number }[] = [];
+        if (!this.config.river) return;
 
-        // Define river centerline with some organic curves
-        const riverPoints = [
-            { x: 17, y: 0 },
-            { x: 16, y: 1 },
-            { x: 15, y: 2 },
-            { x: 14, y: 3 },
-            { x: 14, y: 4 },
-            { x: 13, y: 5 },
-            { x: 13, y: 6 },
-            { x: 12, y: 7 },
-            { x: 11, y: 8 },
-            { x: 11, y: 9 },
-            { x: 10, y: 10 },
-            { x: 10, y: 11 },
-            { x: 9, y: 12 },
-            { x: 8, y: 13 },
-            { x: 8, y: 14 },
-            { x: 7, y: 15 },
-            { x: 6, y: 16 },
-            { x: 6, y: 17 },
-            { x: 5, y: 18 },
-            { x: 4, y: 19 }
-        ];
+        const riverCells: { x: number, y: number }[] = [];
+        const riverPoints = this.config.river.points;
+        const widenDir = this.config.river.widenDirection;
 
         // Mark river cells and their width (1-2 cells wide)
         for (const rp of riverPoints) {
             if (rp.x >= 0 && rp.x < this.gridSize && rp.y >= 0 && rp.y < this.gridSize) {
-                // Only place water if cell is empty (don't overwrite path)
                 if (this.grid[rp.x][rp.y] === CellType.EMPTY || this.grid[rp.x][rp.y] === CellType.DECORATION) {
                     this.grid[rp.x][rp.y] = CellType.WATER;
                     riverCells.push({ x: rp.x, y: rp.y });
                 }
-                // Add width - one cell to the side
-                const sideX = rp.x - 1;
-                if (sideX >= 0 && sideX < this.gridSize) {
-                    if (this.grid[sideX][rp.y] === CellType.EMPTY || this.grid[sideX][rp.y] === CellType.DECORATION) {
-                        this.grid[sideX][rp.y] = CellType.WATER;
-                        riverCells.push({ x: sideX, y: rp.y });
+                // Widen the river: for diagonal rivers widen on x, for horizontal on y
+                const isHorizontal = riverPoints.length > 1 &&
+                    riverPoints[0].y === riverPoints[riverPoints.length - 1].y;
+                let sideX = rp.x, sideY = rp.y;
+                if (isHorizontal) {
+                    sideY = rp.y + widenDir;
+                } else {
+                    sideX = rp.x + widenDir;
+                }
+                if (sideX >= 0 && sideX < this.gridSize && sideY >= 0 && sideY < this.gridSize) {
+                    if (this.grid[sideX][sideY] === CellType.EMPTY || this.grid[sideX][sideY] === CellType.DECORATION) {
+                        this.grid[sideX][sideY] = CellType.WATER;
+                        riverCells.push({ x: sideX, y: sideY });
                     }
                 }
             }
@@ -1641,13 +1611,13 @@ export class Map {
 
     public gridToWorld(gridX: number, gridY: number): Vector3 {
         const x = gridX * this.cellSize + this.cellSize / 2;
-        const z = gridY * this.cellSize + this.cellSize / 2;
+        const z = gridY * this.cellSize + this.cellSize / 2 + this.zOffset;
         return new Vector3(x, 0, z);
     }
 
     public worldToGrid(position: Vector3): { x: number, y: number } {
         const gridX = Math.floor(position.x / this.cellSize);
-        const gridY = Math.floor(position.z / this.cellSize);
+        const gridY = Math.floor((position.z - this.zOffset) / this.cellSize);
         return { x: gridX, y: gridY };
     }
 
@@ -1674,6 +1644,10 @@ export class Map {
 
     public getEndPosition(): Vector3 {
         return this.gridToWorld(this.endPosition.x, this.endPosition.y);
+    }
+
+    public getZOffsetValue(): number {
+        return this.zOffset;
     }
 
     /**
@@ -1763,12 +1737,13 @@ export class Map {
         const borderMat = createLowPolyMaterial('mapBorderMat', PALETTE.ROCK_DARK, this.scene);
         const borderTopMat = createLowPolyMaterial('mapBorderTopMat', PALETTE.ROCK, this.scene);
 
-        // Four walls around the perimeter
+        // Four walls around the perimeter (zOffset applied to all Z positions)
+        const zo = this.zOffset;
         const walls = [
-            { w: mapWidth + borderThickness * 2, d: borderThickness, x: mapWidth / 2, z: -borderThickness / 2 },
-            { w: mapWidth + borderThickness * 2, d: borderThickness, x: mapWidth / 2, z: mapWidth + borderThickness / 2 },
-            { w: borderThickness, d: mapWidth + borderThickness * 2, x: -borderThickness / 2, z: mapWidth / 2 },
-            { w: borderThickness, d: mapWidth + borderThickness * 2, x: mapWidth + borderThickness / 2, z: mapWidth / 2 }
+            { w: mapWidth + borderThickness * 2, d: borderThickness, x: mapWidth / 2, z: -borderThickness / 2 + zo },
+            { w: mapWidth + borderThickness * 2, d: borderThickness, x: mapWidth / 2, z: mapWidth + borderThickness / 2 + zo },
+            { w: borderThickness, d: mapWidth + borderThickness * 2, x: -borderThickness / 2, z: mapWidth / 2 + zo },
+            { w: borderThickness, d: mapWidth + borderThickness * 2, x: mapWidth + borderThickness / 2, z: mapWidth / 2 + zo }
         ];
 
         for (let i = 0; i < walls.length; i++) {
@@ -1796,10 +1771,10 @@ export class Map {
 
         // Corner watchtowers - more elaborate than simple pillars
         const corners = [
-            { x: -borderThickness / 2, z: -borderThickness / 2 },
-            { x: mapWidth + borderThickness / 2, z: -borderThickness / 2 },
-            { x: -borderThickness / 2, z: mapWidth + borderThickness / 2 },
-            { x: mapWidth + borderThickness / 2, z: mapWidth + borderThickness / 2 }
+            { x: -borderThickness / 2, z: -borderThickness / 2 + zo },
+            { x: mapWidth + borderThickness / 2, z: -borderThickness / 2 + zo },
+            { x: -borderThickness / 2, z: mapWidth + borderThickness / 2 + zo },
+            { x: mapWidth + borderThickness / 2, z: mapWidth + borderThickness / 2 + zo }
         ];
 
         for (let i = 0; i < corners.length; i++) {
@@ -1839,10 +1814,10 @@ export class Map {
             const t = angle - side;
 
             switch (side) {
-                case 0: sx = t * mapWidth; sz = -borderThickness; break;
-                case 1: sx = mapWidth + borderThickness; sz = t * mapWidth; break;
-                case 2: sx = (1 - t) * mapWidth; sz = mapWidth + borderThickness; break;
-                default: sx = -borderThickness; sz = (1 - t) * mapWidth; break;
+                case 0: sx = t * mapWidth; sz = -borderThickness + zo; break;
+                case 1: sx = mapWidth + borderThickness; sz = t * mapWidth + zo; break;
+                case 2: sx = (1 - t) * mapWidth; sz = mapWidth + borderThickness + zo; break;
+                default: sx = -borderThickness; sz = (1 - t) * mapWidth + zo; break;
             }
 
             const stone = MeshBuilder.CreatePolyhedron(`borderStone_${i}`, {

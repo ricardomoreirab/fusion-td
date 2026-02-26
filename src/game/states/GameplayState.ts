@@ -10,6 +10,7 @@ import { PlayerStats } from '../gameplay/PlayerStats';
 import { Tower, ElementType } from '../gameplay/towers/Tower';
 import { WaveStatus } from '../gameplay/WaveStatus';
 import { DamageNumberManager } from '../gameplay/DamageNumberManager';
+import { LevelManager } from '../gameplay/LevelManager';
 
 export class GameplayState implements GameState {
     private game: Game;
@@ -48,6 +49,9 @@ export class GameplayState implements GameState {
     private damageNumberManager: DamageNumberManager | null = null;
     private damageEventHandler: ((e: Event) => void) | null = null;
     private towerTooltip: Rectangle | null = null;
+    private levelManager: LevelManager | null = null;
+    private levelTransitioning: boolean = false;
+    private levelTransitionOverlay: Rectangle | null = null;
 
     constructor(game: Game) {
         this.game = game;
@@ -66,7 +70,7 @@ export class GameplayState implements GameState {
         // Reset camera to gameplay view (fixed isometric, auto-fit to screen)
         const camera = this.scene.activeCamera as ArcRotateCamera;
         if (camera) {
-            camera.target = new Vector3(20, 0, 20);
+            camera.target = new Vector3(20, 0, 20); // Will be updated after levelManager created
             camera.alpha = -Math.PI / 4;
             camera.beta = 1.05;  // tilted isometric: ~60° from pole
             camera.metadata = { ...camera.metadata, orthoZoom: null };
@@ -100,11 +104,12 @@ export class GameplayState implements GameState {
         this.towerRangeText = null;
         this.towerRateText = null;
 
-        // Setup the map
-        this.map = new Map(this.game);
+        // Create level manager
+        this.levelManager = new LevelManager(this.game);
+        this.levelTransitioning = false;
 
-        // Initialize the map
-        this.map.initialize();
+        // Setup the map via level manager (level 0)
+        this.map = this.levelManager.createMapForLevel(0);
 
         // Create enemy manager
         this.enemyManager = new EnemyManager(this.game, this.map);
@@ -124,8 +129,8 @@ export class GameplayState implements GameState {
         // Connect managers for tower destruction (new)
         this.enemyManager.setTowerManager(this.towerManager);
 
-        // Create wave manager
-        this.waveManager = new WaveManager(this.enemyManager, this.playerStats);
+        // Create wave manager (10 waves, level 0)
+        this.waveManager = new WaveManager(this.enemyManager, this.playerStats, 10, 0);
 
         // Create UI
         this.createUI();
@@ -169,7 +174,7 @@ export class GameplayState implements GameState {
         }
 
         // Dispose game components
-        this.map?.dispose();
+        this.levelManager?.dispose(); // disposes all maps
         this.towerManager?.dispose();
         this.enemyManager?.dispose();
         this.waveManager?.dispose();
@@ -205,12 +210,14 @@ export class GameplayState implements GameState {
         this.enemyManager = null;
         this.waveManager = null;
         this.playerStats = null;
+        this.levelManager = null;
+        this.levelTransitioning = false;
         this.confirmationButtons.container = null;
         this.confirmationButtons.position = null;
     }
 
     public update(deltaTime: number): void {
-        if (this.isPaused) return;
+        if (this.isPaused || this.levelTransitioning) return;
 
         // Apply time scale
         const scaledDelta = deltaTime * this.game.getTimeScale();
@@ -228,15 +235,105 @@ export class GameplayState implements GameState {
             this.game.getStateManager().changeState('gameOver');
         }
 
-        // Check for win condition
+        // Check for level completion (all waves done + no enemies alive)
         if (this.waveManager?.isAllWavesCompleted() && this.enemyManager?.getEnemyCount() === 0) {
-            // Player won
-            this.playerStats?.setWon(true);
-            this.game.getStateManager().changeState('gameOver');
+            if (this.levelManager && this.levelManager.isLastLevel()) {
+                // Final level complete — victory!
+                this.playerStats?.setWon(true);
+                this.game.getStateManager().changeState('gameOver');
+            } else {
+                // Transition to next level
+                this.startLevelTransition();
+            }
         }
 
         // Update UI
         this.updateUI();
+    }
+
+    // ========================================================================
+    // LEVEL TRANSITION
+    // ========================================================================
+
+    private startLevelTransition(): void {
+        if (!this.levelManager || !this.ui || !this.playerStats) return;
+
+        this.levelTransitioning = true;
+
+        // Deselect any selected tower
+        if (this.selectedTower) {
+            this.deselectTower();
+        }
+        this.hideTowerSelector();
+        this.hidePlacementOutline();
+
+        // Dispose towers, enemies, wave manager (keep map visible for scroll effect)
+        this.towerManager?.dispose();
+        this.enemyManager?.dispose();
+        this.waveManager?.dispose();
+
+        // Show "Level Complete!" overlay
+        const overlay = new Rectangle('levelTransitionOverlay');
+        overlay.width = '100%';
+        overlay.height = '100%';
+        overlay.background = 'rgba(0, 0, 0, 0.7)';
+        overlay.thickness = 0;
+        overlay.zIndex = 100;
+        this.ui.addControl(overlay);
+        this.levelTransitionOverlay = overlay;
+
+        const titleText = new TextBlock('transitionTitle');
+        titleText.text = 'Level Complete!';
+        titleText.color = '#F5A623';
+        titleText.fontSize = 36;
+        titleText.fontFamily = 'Arial';
+        titleText.fontWeight = 'bold';
+        titleText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        titleText.top = '-40px';
+        overlay.addControl(titleText);
+
+        const subtitleText = new TextBlock('transitionSubtitle');
+        subtitleText.text = `Descending to next realm...`;
+        subtitleText.color = '#FFFFFF';
+        subtitleText.fontSize = 20;
+        subtitleText.fontFamily = 'Arial';
+        subtitleText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        subtitleText.top = '10px';
+        overlay.addControl(subtitleText);
+
+        // After 2 seconds, animate camera and set up next level
+        setTimeout(() => {
+            const newLevelIndex = this.levelManager!.advanceLevel();
+            const newConfig = this.levelManager!.getCurrentLevelConfig();
+
+            // Add money bonus for the new level
+            this.playerStats!.addMoney(newConfig.moneyBonus);
+
+            // Animate camera to next level
+            this.levelManager!.animateCameraToLevel(newLevelIndex).then(() => {
+                // Create new map
+                this.map = this.levelManager!.createMapForLevel(newLevelIndex);
+
+                // Create new managers for the new level
+                this.enemyManager = new EnemyManager(this.game, this.map);
+                this.enemyManager.setPlayerStats(this.playerStats!);
+
+                this.towerManager = new TowerManager(this.game, this.map);
+                this.towerManager.setEnemyManager(this.enemyManager);
+                this.enemyManager.setTowerManager(this.towerManager);
+
+                this.waveManager = new WaveManager(this.enemyManager, this.playerStats!, 10, newLevelIndex);
+
+                // Remove overlay and resume gameplay
+                if (this.levelTransitionOverlay) {
+                    this.ui!.removeControl(this.levelTransitionOverlay);
+                    this.levelTransitionOverlay = null;
+                }
+                this.levelTransitioning = false;
+
+                console.log(`Transitioned to Level ${newLevelIndex + 1}: ${newConfig.name}`);
+            });
+        }, 2000);
     }
 
     // ========================================================================
@@ -702,9 +799,11 @@ export class GameplayState implements GameState {
         // Update money display (number only)
         moneyText.text = `${this.playerStats.getMoney()}`;
 
-        // Update wave display - simplified, no emoji
+        // Update wave display with level info
         const currentWave = this.waveManager.getCurrentWave();
-        let waveDisplay = `${currentWave}`;
+        const levelNum = this.levelManager ? this.levelManager.getCurrentLevelIndex() + 1 : 1;
+        const totalWaves = this.waveManager.getTotalWaves();
+        let waveDisplay = `L${levelNum} - ${currentWave}/${totalWaves}`;
 
         // Show the effective difficulty
         const difficulty = this.waveManager.getDifficultyMultiplier().toFixed(1);
@@ -836,6 +935,13 @@ export class GameplayState implements GameState {
 
             if (groundPickResult.hit && groundPickResult.pickedPoint) {
                 const position = groundPickResult.pickedPoint;
+                // Filter picks to current level's Z range
+                if (this.map) {
+                    const zOff = this.map.getZOffsetValue();
+                    if (position.z < zOff - 1 || position.z > zOff + 41) {
+                        return; // Click was on a different level's ground
+                    }
+                }
                 if (this.map) {
                     const gridPosition = this.map.worldToGrid(position);
                     if (this.map.canPlaceTower(gridPosition.x, gridPosition.y)) {
