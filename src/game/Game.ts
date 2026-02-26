@@ -99,12 +99,13 @@ export class Game {
             zoom = camera.metadata.orthoZoom;
         } else {
             // Auto-fit: compute zoom so the 40x40 isometric diamond fills the screen.
-            // In isometric projection (alpha=-45°, beta=atan(√2)):
-            //   screen half-width  = mapSize / √2   (diamond extends left/right)
-            //   screen half-height = mapSize / √6   (diamond extends up/down, compressed)
+            // With tilted isometric (alpha=-45°, beta=1.15):
+            //   horizontal extent = mapSize / √2 (diamond left/right, unchanged)
+            //   vertical extent uses sin(beta) for the tilt compression
             const mapSize = 40;
-            const screenHalfW = mapSize / Math.SQRT2 + 3; // +margin for borders
-            const screenHalfH = mapSize / Math.sqrt(6) + 5; // +margin for towers/portals height
+            const sinBeta = Math.sin(camera.beta);
+            const screenHalfW = mapSize / Math.SQRT2 + 3;
+            const screenHalfH = (mapSize / Math.SQRT2) * sinBeta * 0.55 + 6;
             zoom = Math.max(screenHalfH, screenHalfW / aspect);
         }
 
@@ -128,15 +129,15 @@ export class Game {
         const glowLayer = new GlowLayer('glowLayer', this.scene);
         glowLayer.intensity = 0.4;
 
-        // True isometric beta angle: arctan(sqrt(2)) ≈ 54.736° from horizontal,
-        // which in Babylon's coordinate system is measured from pole: ~0.6155 rad
-        const isoBeta = Math.atan(Math.sqrt(2));
+        // Tilted isometric beta angle: ~60° from pole (30° above horizon)
+        // gives a dramatic 3/4 view that shows tower sides clearly
+        const isoBeta = 1.05;
 
         // Fixed isometric camera with orthographic projection
         const camera = new ArcRotateCamera(
             'camera',
             -Math.PI / 4,      // alpha: -45° for classic isometric angle
-            isoBeta,            // beta: true isometric elevation
+            isoBeta,            // beta: tilted isometric elevation
             50,                 // radius: camera distance (doesn't affect ortho zoom)
             new Vector3(20, 0, 20), // target: center of 20x20 grid (cells are 2 units)
             this.scene

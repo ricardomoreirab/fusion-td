@@ -5,6 +5,8 @@ import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '.
 import { PALETTE } from '../../rendering/StyleConstants';
 
 export class HeavyTower extends Tower {
+    private levelMeshes: Mesh[] = [];
+
     constructor(game: Game, position: Vector3) {
         super(game, position, 12, 40, 0.3, 125);
     }
@@ -13,131 +15,130 @@ export class HeavyTower extends Tower {
         this.mesh = new Mesh("heavyTowerRoot", this.scene);
         this.mesh.position = this.position.clone();
 
-        // --- 1. Massive octagonal base with reinforced look ---
-        const baseOuter = MeshBuilder.CreateCylinder('heavyBaseOuter', {
-            height: 0.35, diameterTop: 2.4, diameterBottom: 2.6, tessellation: 8
+        // --- 1. Wide stone siege platform base ---
+        const base = MeshBuilder.CreateCylinder('siegeBase', {
+            height: 0.35, diameterTop: 2.5, diameterBottom: 2.7, tessellation: 8
         }, this.scene);
-        baseOuter.position = new Vector3(0, 0.175, 0);
-        baseOuter.material = createLowPolyMaterial('heavyBaseOuterMat', PALETTE.ROCK_DARK, this.scene);
-        makeFlatShaded(baseOuter);
-        baseOuter.parent = this.mesh;
+        base.position = new Vector3(0, 0.175, 0);
+        base.material = createLowPolyMaterial('siegeBaseMat', PALETTE.TOWER_HEAVY_SIEGE, this.scene);
+        makeFlatShaded(base);
+        base.parent = this.mesh;
 
-        const baseInner = MeshBuilder.CreateCylinder('heavyBaseInner', {
-            height: 0.25, diameterTop: 2.2, diameterBottom: 2.4, tessellation: 8
+        // --- 2. Low stone wall ring around platform ---
+        const wallRing = MeshBuilder.CreateCylinder('wallRing', {
+            height: 0.4, diameterTop: 2.2, diameterBottom: 2.4, tessellation: 8
         }, this.scene);
-        baseInner.position = new Vector3(0, 0.47, 0);
-        baseInner.material = createLowPolyMaterial('heavyBaseInnerMat', PALETTE.TOWER_HEAVY, this.scene);
-        makeFlatShaded(baseInner);
-        baseInner.parent = this.mesh;
+        wallRing.position = new Vector3(0, 0.55, 0);
+        wallRing.material = createLowPolyMaterial('wallRingMat', PALETTE.TOWER_HEAVY_SIEGE, this.scene);
+        makeFlatShaded(wallRing);
+        wallRing.parent = this.mesh;
 
-        // --- 2. Squat fortress body ---
-        const body = MeshBuilder.CreateBox('heavyBody', {
-            width: 1.7, height: 0.8, depth: 1.7
-        }, this.scene);
-        body.position = new Vector3(0, 1.0, 0);
-        body.material = createLowPolyMaterial('heavyBodyMat', PALETTE.TOWER_HEAVY, this.scene);
-        makeFlatShaded(body);
-        body.parent = this.mesh;
-
-        // Corner buttresses
+        // --- 3. 4 low merlons on platform edge ---
         for (let i = 0; i < 4; i++) {
-            const angle = (i / 4) * Math.PI * 2 + Math.PI / 4;
-            const buttress = MeshBuilder.CreateBox(`buttress${i}`, {
-                width: 0.3, height: 1.0, depth: 0.3
+            const angle = (i / 4) * Math.PI * 2;
+            const merlon = MeshBuilder.CreateBox(`merlon${i}`, {
+                width: 0.3, height: 0.25, depth: 0.18
             }, this.scene);
-            buttress.position = new Vector3(
-                Math.sin(angle) * 0.85,
-                0.85,
-                Math.cos(angle) * 0.85
+            merlon.position = new Vector3(
+                Math.sin(angle) * 1.05,
+                0.88,
+                Math.cos(angle) * 1.05
             );
-            buttress.rotation.y = angle;
-            buttress.material = createLowPolyMaterial(`buttressMat${i}`, PALETTE.ROCK_DARK, this.scene);
-            makeFlatShaded(buttress);
-            buttress.parent = this.mesh;
+            merlon.rotation.y = angle;
+            merlon.material = createLowPolyMaterial(`merlonMat${i}`, PALETTE.TOWER_HEAVY_SIEGE, this.scene);
+            makeFlatShaded(merlon);
+            merlon.parent = this.mesh;
         }
 
-        // --- 3. Turret group for rotation ---
+        // --- 4. Trebuchet support frame (2 tall wooden A-frame posts) ---
         const turret = new Mesh("heavyTurret", this.scene);
-        turret.position = new Vector3(0, 0, 0);
         turret.parent = this.mesh;
 
-        // Turret housing (rotates with cannon)
-        const turretBox = MeshBuilder.CreateBox('turretBox', {
-            width: 1.1, height: 0.5, depth: 1.1
-        }, this.scene);
-        turretBox.position = new Vector3(0, 1.65, 0);
-        turretBox.material = createLowPolyMaterial('turretBoxMat', PALETTE.TOWER_HEAVY, this.scene);
-        makeFlatShaded(turretBox);
-        turretBox.parent = turret;
-
-        // Angled armor plate on front
-        const armorPlate = MeshBuilder.CreateBox('armorPlate', {
-            width: 0.8, height: 0.45, depth: 0.12
-        }, this.scene);
-        armorPlate.position = new Vector3(0, 1.65, 0.6);
-        armorPlate.rotation.x = 0.2;
-        armorPlate.material = createLowPolyMaterial('armorPlateMat', PALETTE.TOWER_HEAVY_BARREL, this.scene);
-        makeFlatShaded(armorPlate);
-        armorPlate.parent = turret;
-
-        // --- 4. Heavy cannon barrel (thick with reinforcement rings) ---
-        const barrel = MeshBuilder.CreateCylinder('heavyBarrel', {
-            height: 1.6, diameterTop: 0.3, diameterBottom: 0.4, tessellation: 8
-        }, this.scene);
-        barrel.rotation.x = Math.PI / 2;
-        barrel.position = new Vector3(0, 1.65, 0.9);
-        barrel.material = createLowPolyMaterial('heavyBarrelMat', PALETTE.TOWER_HEAVY_BARREL, this.scene);
-        makeFlatShaded(barrel);
-        barrel.parent = turret;
-
-        // Barrel reinforcement rings
-        for (let i = 0; i < 3; i++) {
-            const ring = MeshBuilder.CreateTorus(`barrelRing${i}`, {
-                diameter: 0.48, thickness: 0.06, tessellation: 8
+        for (let i = 0; i < 2; i++) {
+            const side = i === 0 ? -0.4 : 0.4;
+            const supportPost = MeshBuilder.CreateBox(`supportPost${i}`, {
+                width: 0.14, height: 1.2, depth: 0.14
             }, this.scene);
-            ring.rotation.x = Math.PI / 2;
-            ring.position = new Vector3(0, 1.65, 0.3 + i * 0.45);
-            ring.material = createLowPolyMaterial(`ringMat${i}`, PALETTE.ROCK_DARK, this.scene);
-            makeFlatShaded(ring);
-            ring.parent = turret;
+            supportPost.position = new Vector3(side, 1.35, 0);
+            supportPost.material = createLowPolyMaterial(`supportPostMat${i}`, PALETTE.TOWER_HEAVY_ARM, this.scene);
+            makeFlatShaded(supportPost);
+            supportPost.parent = turret;
         }
 
-        // Muzzle flare cap
-        const muzzle = MeshBuilder.CreateCylinder('muzzleCap', {
-            height: 0.12, diameterTop: 0.5, diameterBottom: 0.38, tessellation: 8
+        // Crossbeam axle between posts
+        const axle = MeshBuilder.CreateCylinder('axle', {
+            height: 0.95, diameter: 0.1, tessellation: 5
         }, this.scene);
-        muzzle.rotation.x = Math.PI / 2;
-        muzzle.position = new Vector3(0, 1.65, 1.7);
-        muzzle.material = createLowPolyMaterial('muzzleCapMat', PALETTE.TOWER_HEAVY_BARREL, this.scene);
-        makeFlatShaded(muzzle);
-        muzzle.parent = turret;
+        axle.rotation.z = Math.PI / 2;
+        axle.position = new Vector3(0, 1.7, 0);
+        axle.material = createLowPolyMaterial('axleMat', PALETTE.TOWER_HEAVY_IRON, this.scene);
+        makeFlatShaded(axle);
+        axle.parent = turret;
 
-        // --- 5. Idle smoke wisps from barrel ---
-        const smokePS = new ParticleSystem("barrelSmoke", 8, this.scene);
-        smokePS.emitter = new Vector3(this.position.x, this.position.y + 1.65, this.position.z);
-        smokePS.minEmitBox = new Vector3(-0.1, 0, 0.7);
-        smokePS.maxEmitBox = new Vector3(0.1, 0.1, 0.9);
-        smokePS.color1 = new Color4(0.5, 0.5, 0.5, 0.3);
-        smokePS.color2 = new Color4(0.4, 0.4, 0.4, 0.2);
+        // --- 5. Trebuchet arm (long wooden beam, angled) ---
+        const arm = MeshBuilder.CreateBox('trebArm', {
+            width: 0.1, height: 0.1, depth: 2.2
+        }, this.scene);
+        arm.position = new Vector3(0, 1.85, 0.2);
+        arm.rotation.x = -0.25;
+        arm.material = createLowPolyMaterial('trebArmMat', PALETTE.TOWER_HEAVY_ARM, this.scene);
+        makeFlatShaded(arm);
+        arm.parent = turret;
+
+        // Counterweight ball on short end
+        const counterweight = MeshBuilder.CreateIcoSphere('counterweight', {
+            radius: 0.2, subdivisions: 1
+        }, this.scene);
+        counterweight.position = new Vector3(0, 1.55, -0.85);
+        counterweight.material = createLowPolyMaterial('counterweightMat', PALETTE.TOWER_HEAVY_IRON, this.scene);
+        makeFlatShaded(counterweight);
+        counterweight.parent = turret;
+
+        // Sling rope at long end (thin box)
+        const sling = MeshBuilder.CreateBox('sling', {
+            width: 0.04, height: 0.4, depth: 0.04
+        }, this.scene);
+        sling.position = new Vector3(0, 1.7, 1.15);
+        sling.material = createLowPolyMaterial('slingMat', PALETTE.TOWER_HEAVY_ARM, this.scene);
+        sling.parent = turret;
+
+        // --- 6. Idle arm rock animation ---
+        const rockAnim = new Animation("armRock", "rotation.x", 30,
+            Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CYCLE);
+        rockAnim.setKeys([
+            { frame: 0, value: -0.25 },
+            { frame: 45, value: -0.15 },
+            { frame: 90, value: -0.25 }
+        ]);
+        arm.animations = [rockAnim];
+        this.scene.beginAnimation(arm, 0, 90, true);
+
+        // --- 7. Smoke wisps from arm pivot ---
+        const smokePS = new ParticleSystem("barrelSmoke", 6, this.scene);
+        smokePS.emitter = new Vector3(this.position.x, this.position.y + 1.7, this.position.z);
+        smokePS.minEmitBox = new Vector3(-0.15, 0, -0.15);
+        smokePS.maxEmitBox = new Vector3(0.15, 0.1, 0.15);
+        smokePS.color1 = new Color4(0.5, 0.5, 0.5, 0.25);
+        smokePS.color2 = new Color4(0.4, 0.4, 0.4, 0.15);
         smokePS.colorDead = new Color4(0.3, 0.3, 0.3, 0);
         smokePS.minSize = 0.2;
         smokePS.maxSize = 0.5;
         smokePS.minLifeTime = 1.0;
         smokePS.maxLifeTime = 2.0;
-        smokePS.emitRate = 3;
-        smokePS.direction1 = new Vector3(-0.1, 0.3, 0.1);
-        smokePS.direction2 = new Vector3(0.1, 0.5, 0.2);
+        smokePS.emitRate = 2;
+        smokePS.direction1 = new Vector3(-0.1, 0.4, -0.1);
+        smokePS.direction2 = new Vector3(0.1, 0.6, 0.1);
         smokePS.minEmitPower = 0.1;
-        smokePS.maxEmitPower = 0.3;
+        smokePS.maxEmitPower = 0.25;
         smokePS.updateSpeed = 0.01;
         smokePS.start();
 
-        // --- 6. Cannonball template & projectile system ---
+        // --- 8. Projectile system (arcing boulder) ---
         const ballTemplate = MeshBuilder.CreateIcoSphere('heavyBallTemplate', {
             radius: 0.18, subdivisions: 1
         }, this.scene);
         makeFlatShaded(ballTemplate);
-        ballTemplate.material = createLowPolyMaterial('heavyBallMat', new Color3(0.1, 0.1, 0.1), this.scene);
+        ballTemplate.material = createLowPolyMaterial('heavyBallMat', new Color3(0.35, 0.28, 0.18), this.scene);
         ballTemplate.isVisible = false;
 
         const activeProjectiles: { mesh: Mesh, distance: number, maxDistance: number, targetEnemy: any, startPos: Vector3, direction: Vector3 }[] = [];
@@ -156,7 +157,7 @@ export class HeavyTower extends Tower {
 
                     const startPos = new Vector3(
                         this.position.x,
-                        this.position.y + 1.65,
+                        this.position.y + 1.85,
                         this.position.z
                     );
                     const forward = new Vector3(
@@ -164,7 +165,7 @@ export class HeavyTower extends Tower {
                         0,
                         Math.cos(turret.rotation.y)
                     );
-                    const muzzlePos = startPos.add(forward.scale(1.7));
+                    const muzzlePos = startPos.add(forward.scale(1.15));
                     ball.position = muzzlePos;
 
                     if (this.targetEnemy) {
@@ -192,7 +193,7 @@ export class HeavyTower extends Tower {
                 info.distance += speed;
 
                 const t = info.distance / info.maxDistance;
-                const arcHeight = Math.sin(Math.PI * t) * 1.2;
+                const arcHeight = Math.sin(Math.PI * t) * 1.5;
                 const newPos = info.startPos.add(info.direction.scale(info.distance));
                 newPos.y += arcHeight;
                 info.mesh.position = newPos;
@@ -260,11 +261,131 @@ export class HeavyTower extends Tower {
     }
 
     protected createProjectileEffect(targetPosition: Vector3): void {
-        // Custom cannonball system handles visuals
+        // Custom trebuchet projectile system handles visuals
     }
 
     protected updateVisuals(): void {
-        // Could scale barrel on upgrade
+        this.levelMeshes.forEach(m => m.dispose());
+        this.levelMeshes = [];
+
+        if (this.level >= 2) {
+            // Reinforced stone battlements — 4 more merlons
+            for (let i = 0; i < 4; i++) {
+                const angle = (i / 4) * Math.PI * 2 + Math.PI / 4;
+                const merlon = MeshBuilder.CreateBox(`siegeMerlon_l2_${i}`, {
+                    width: 0.25, height: 0.28, depth: 0.16
+                }, this.scene);
+                merlon.position = new Vector3(
+                    Math.sin(angle) * 1.05,
+                    0.88,
+                    Math.cos(angle) * 1.05
+                );
+                merlon.rotation.y = angle;
+                merlon.material = createLowPolyMaterial(`siegeMerlonMat_l2_${i}`, PALETTE.TOWER_HEAVY_SIEGE, this.scene);
+                makeFlatShaded(merlon);
+                merlon.parent = this.mesh;
+                this.levelMeshes.push(merlon);
+            }
+
+            // Iron counterweight box (heavier, visible)
+            const ironBox = MeshBuilder.CreateBox('ironBox_l2', {
+                width: 0.32, height: 0.32, depth: 0.32
+            }, this.scene);
+            ironBox.position = new Vector3(0, 1.4, -1.0);
+            ironBox.material = createLowPolyMaterial('ironBoxMat_l2', PALETTE.TOWER_HEAVY_IRON, this.scene);
+            makeFlatShaded(ironBox);
+            ironBox.parent = this.mesh;
+            this.levelMeshes.push(ironBox);
+
+            // Chain torus at pivot
+            const chain = MeshBuilder.CreateTorus('chain_l2', {
+                diameter: 0.5, thickness: 0.04, tessellation: 8
+            }, this.scene);
+            chain.position = new Vector3(0, 1.7, 0);
+            chain.material = createLowPolyMaterial('chainMat_l2', PALETTE.TOWER_HEAVY_IRON, this.scene);
+            makeFlatShaded(chain);
+            chain.parent = this.mesh;
+            this.levelMeshes.push(chain);
+
+            // Arm guide rail posts (2 upright stone pillars flanking arm)
+            for (let i = 0; i < 2; i++) {
+                const side = i === 0 ? -0.55 : 0.55;
+                const rail = MeshBuilder.CreateBox(`rail_l2_${i}`, {
+                    width: 0.12, height: 0.6, depth: 0.12
+                }, this.scene);
+                rail.position = new Vector3(side, 1.65, 0.4);
+                rail.material = createLowPolyMaterial(`railMat_l2_${i}`, PALETTE.TOWER_HEAVY_SIEGE, this.scene);
+                makeFlatShaded(rail);
+                rail.parent = this.mesh;
+                this.levelMeshes.push(rail);
+            }
+        }
+
+        if (this.level >= 3) {
+            // 4 corner mini towers with conical caps
+            for (let i = 0; i < 4; i++) {
+                const angle = (i / 4) * Math.PI * 2 + Math.PI / 4;
+                const miniTower = MeshBuilder.CreateCylinder(`cornerTower_l3_${i}`, {
+                    height: 0.8, diameter: 0.4, tessellation: 5
+                }, this.scene);
+                miniTower.position = new Vector3(
+                    Math.sin(angle) * 1.3,
+                    0.55,
+                    Math.cos(angle) * 1.3
+                );
+                miniTower.material = createLowPolyMaterial(`cornerTowerMat_l3_${i}`, PALETTE.TOWER_HEAVY_SIEGE, this.scene);
+                makeFlatShaded(miniTower);
+                miniTower.parent = this.mesh;
+                this.levelMeshes.push(miniTower);
+
+                const cap = MeshBuilder.CreateCylinder(`cornerCap_l3_${i}`, {
+                    height: 0.25, diameterTop: 0, diameterBottom: 0.44, tessellation: 5
+                }, this.scene);
+                cap.position = new Vector3(
+                    Math.sin(angle) * 1.3,
+                    1.07,
+                    Math.cos(angle) * 1.3
+                );
+                cap.material = createLowPolyMaterial(`cornerCapMat_l3_${i}`, PALETTE.TOWER_HEAVY_ARM, this.scene);
+                makeFlatShaded(cap);
+                cap.parent = this.mesh;
+                this.levelMeshes.push(cap);
+            }
+
+            // Greek fire orb (emissive orange-green)
+            const fireOrb = MeshBuilder.CreateIcoSphere('fireOrb_l3', {
+                radius: 0.2, subdivisions: 1
+            }, this.scene);
+            fireOrb.position = new Vector3(0, 2.3, 1.0);
+            fireOrb.material = createEmissiveMaterial('fireOrbMat_l3', new Color3(0.85, 0.55, 0.12), 0.85, this.scene);
+            makeFlatShaded(fireOrb);
+            fireOrb.parent = this.mesh;
+            this.levelMeshes.push(fireOrb);
+
+            // Iron-reinforced arm bar
+            const ironArm = MeshBuilder.CreateBox('ironArm_l3', {
+                width: 0.14, height: 0.06, depth: 2.0
+            }, this.scene);
+            ironArm.position = new Vector3(0, 1.92, 0.2);
+            ironArm.rotation.x = -0.2;
+            ironArm.material = createLowPolyMaterial('ironArmMat_l3', PALETTE.TOWER_HEAVY_IRON, this.scene);
+            makeFlatShaded(ironArm);
+            ironArm.parent = this.mesh;
+            this.levelMeshes.push(ironArm);
+
+            // Crossed chains on base
+            for (let i = 0; i < 2; i++) {
+                const cross = MeshBuilder.CreateBox(`chainCross_l3_${i}`, {
+                    width: 1.8, height: 0.04, depth: 0.05
+                }, this.scene);
+                cross.position = new Vector3(0, 0.56, 0);
+                cross.rotation.y = i * Math.PI / 4;
+                cross.material = createLowPolyMaterial(`chainCrossMat_l3_${i}`, PALETTE.TOWER_HEAVY_IRON, this.scene);
+                makeFlatShaded(cross);
+                cross.parent = this.mesh;
+                this.levelMeshes.push(cross);
+            }
+        }
     }
 
     public override dispose(): void {

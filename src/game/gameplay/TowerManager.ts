@@ -6,6 +6,7 @@ import { BasicTower } from './towers/BasicTower';
 import { FastTower } from './towers/FastTower';
 import { HeavyTower } from './towers/HeavyTower';
 import { SniperTower } from './towers/SniperTower';
+import { AOETower } from './towers/AOETower';
 import { FireTower } from './towers/FireTower';
 import { WaterTower } from './towers/WaterTower';
 import { WindTower } from './towers/WindTower';
@@ -92,6 +93,9 @@ export class TowerManager {
                 break;
             case 'sniperTower':
                 tower = new SniperTower(this.game, position);
+                break;
+            case 'aoeTower':
+                tower = new AOETower(this.game, position);
                 break;
             // Add elemental tower types
             case 'fireTower':

@@ -68,6 +68,7 @@ export class GameplayState implements GameState {
         if (camera) {
             camera.target = new Vector3(20, 0, 20);
             camera.alpha = -Math.PI / 4;
+            camera.beta = 1.05;  // tilted isometric: ~60° from pole
             camera.metadata = { ...camera.metadata, orthoZoom: null };
             this.game.updateOrthoBounds();
         }
@@ -1199,6 +1200,7 @@ export class GameplayState implements GameState {
             case 'fastTower': return 100;
             case 'heavyTower': return 150;
             case 'sniperTower': return 200;
+            case 'aoeTower': return 150;
             case 'fireTower': return 125;
             case 'waterTower': return 125;
             case 'windTower': return 125;
@@ -1669,20 +1671,33 @@ export class GameplayState implements GameState {
             sellValueEl.text = `$${this.selectedTower.getSellValue()}`;
         }
 
-        // Update upgrade cost
-        const upgradeCostEl = this.upgradeButton?.getChildByName('upgradeCostText') as TextBlock;
-        if (upgradeCostEl) {
-            upgradeCostEl.text = `$${this.selectedTower.getUpgradeCost()}`;
-        }
+        // Update upgrade button state based on level and affordability
+        if (this.upgradeButton) {
+            const upgradeTextEl = this.upgradeButton.getChildByName('upgradeText') as TextBlock;
+            const upgradeCostEl = this.upgradeButton.getChildByName('upgradeCostText') as TextBlock;
 
-        // Check if player can afford upgrade
-        if (this.playerStats && this.upgradeButton) {
-            if (this.playerStats.getMoney() >= this.selectedTower.getUpgradeCost()) {
-                this.upgradeButton.background = '#4CAF50';
-                this.upgradeButton.alpha = 1.0;
+            if (this.selectedTower.getLevel() >= this.selectedTower.getMaxLevel()) {
+                // Tower is at max level — gray out and disable
+                this.upgradeButton.background = '#888888';
+                this.upgradeButton.alpha = 0.8;
+                this.upgradeButton.isEnabled = false;
+                if (upgradeTextEl) upgradeTextEl.text = 'MAX LEVEL';
+                if (upgradeCostEl) upgradeCostEl.text = '';
             } else {
-                this.upgradeButton.background = '#3A3F4B';
-                this.upgradeButton.alpha = 0.6;
+                // Tower can still be upgraded
+                this.upgradeButton.isEnabled = true;
+                if (upgradeTextEl) upgradeTextEl.text = 'UPGRADE';
+                if (upgradeCostEl) upgradeCostEl.text = `$${this.selectedTower.getUpgradeCost()}`;
+
+                if (this.playerStats) {
+                    if (this.playerStats.getMoney() >= this.selectedTower.getUpgradeCost()) {
+                        this.upgradeButton.background = '#4CAF50';
+                        this.upgradeButton.alpha = 1.0;
+                    } else {
+                        this.upgradeButton.background = '#3A3F4B';
+                        this.upgradeButton.alpha = 0.6;
+                    }
+                }
             }
         }
     }
@@ -2257,6 +2272,7 @@ export class GameplayState implements GameState {
             { id: 'fastTower', name: 'Fast', cost: '100', color: '#2196F3' },
             { id: 'heavyTower', name: 'Heavy', cost: '150', color: '#FF9800' },
             { id: 'sniperTower', name: 'Sniper', cost: '200', color: '#9C27B0' },
+            { id: 'aoeTower', name: 'Mage', cost: '150', color: '#7E57C2' },
             { id: 'fireTower', name: 'Fire', cost: '125', color: '#FF5722' },
             { id: 'waterTower', name: 'Water', cost: '125', color: '#03A9F4' },
             { id: 'windTower', name: 'Wind', cost: '125', color: '#8BC34A' },
@@ -2448,6 +2464,7 @@ export class GameplayState implements GameState {
             case 'fastTower': return { damage: 5, range: 4, fireRate: 3, description: 'Rapid fire, low damage' };
             case 'heavyTower': return { damage: 30, range: 4, fireRate: 0.5, description: 'High damage, slow' };
             case 'sniperTower': return { damage: 50, range: 10, fireRate: 0.3, description: 'Long range, very slow' };
+            case 'aoeTower': return { damage: 15, range: 5, fireRate: 2, description: 'Arcane AOE damage' };
             case 'fireTower': return { damage: 12, range: 5, fireRate: 1, description: 'Burns enemies over time' };
             case 'waterTower': return { damage: 8, range: 5, fireRate: 1.2, description: 'Slows enemies' };
             case 'windTower': return { damage: 6, range: 6, fireRate: 1.5, description: 'Pushes enemies back' };

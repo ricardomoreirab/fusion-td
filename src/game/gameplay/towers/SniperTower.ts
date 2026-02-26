@@ -5,6 +5,8 @@ import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '.
 import { PALETTE } from '../../rendering/StyleConstants';
 
 export class SniperTower extends Tower {
+    private levelMeshes: Mesh[] = [];
+
     constructor(game: Game, position: Vector3) {
         super(game, position, 20, 30, 0.5, 100);
     }
@@ -13,123 +15,100 @@ export class SniperTower extends Tower {
         this.mesh = new Mesh("sniperTowerRoot", this.scene);
         this.mesh.position = this.position.clone();
 
-        // --- 1. Narrow hexagonal base ---
+        // --- 1. Narrow round stone base ---
         const base = MeshBuilder.CreateCylinder('sniperBase', {
-            height: 0.3, diameterTop: 1.3, diameterBottom: 1.5, tessellation: 6
+            height: 0.3, diameterTop: 1.35, diameterBottom: 1.5, tessellation: 6
         }, this.scene);
         base.position = new Vector3(0, 0.15, 0);
-        base.material = createLowPolyMaterial('sniperBaseMat', PALETTE.ROCK_DARK, this.scene);
+        base.material = createLowPolyMaterial('sniperBaseMat', PALETTE.TOWER_BASIC_MERLON, this.scene);
         makeFlatShaded(base);
         base.parent = this.mesh;
 
-        // --- 2. First tier -- wider lower section ---
+        // --- 2. Lower limestone tier ---
         const lowerTier = MeshBuilder.CreateCylinder('lowerTier', {
             height: 0.8, diameterTop: 0.7, diameterBottom: 1.0, tessellation: 6
         }, this.scene);
         lowerTier.position = new Vector3(0, 0.7, 0);
-        lowerTier.material = createLowPolyMaterial('lowerTierMat', PALETTE.TOWER_SNIPER, this.scene);
+        lowerTier.material = createLowPolyMaterial('lowerTierMat', PALETTE.TOWER_SNIPER_LIMESTONE, this.scene);
         makeFlatShaded(lowerTier);
         lowerTier.parent = this.mesh;
 
-        // Decorative ring between tiers
+        // Stone band ring between tiers
         const tierRing = MeshBuilder.CreateTorus('tierRing', {
             diameter: 0.8, thickness: 0.08, tessellation: 8
         }, this.scene);
         tierRing.position = new Vector3(0, 1.15, 0);
-        tierRing.material = createLowPolyMaterial('tierRingMat', PALETTE.ROCK, this.scene);
+        tierRing.material = createLowPolyMaterial('tierRingMat', PALETTE.TOWER_BASIC_MERLON, this.scene);
         makeFlatShaded(tierRing);
         tierRing.parent = this.mesh;
 
-        // --- 3. Tall thin pillar (spire) ---
-        const pillar = MeshBuilder.CreateCylinder('sniperPillar', {
-            height: 2.2, diameterTop: 0.35, diameterBottom: 0.6, tessellation: 6
+        // --- 3. Tall thin stone spire ---
+        const spire = MeshBuilder.CreateCylinder('spire', {
+            height: 2.2, diameterTop: 0.32, diameterBottom: 0.6, tessellation: 6
         }, this.scene);
-        pillar.position = new Vector3(0, 2.3, 0);
-        pillar.material = createLowPolyMaterial('sniperPillarMat', PALETTE.TOWER_SNIPER, this.scene);
-        makeFlatShaded(pillar);
-        pillar.parent = this.mesh;
+        spire.position = new Vector3(0, 2.3, 0);
+        spire.material = createLowPolyMaterial('spireMat', PALETTE.TOWER_SNIPER_LIMESTONE, this.scene);
+        makeFlatShaded(spire);
+        spire.parent = this.mesh;
 
-        // --- 4. Observation platform (small widening near top) ---
-        const obsRing = MeshBuilder.CreateCylinder('obsRing', {
-            height: 0.12, diameterTop: 0.7, diameterBottom: 0.5, tessellation: 6
+        // --- 4. Arrow slit cutouts on spire ---
+        for (let i = 0; i < 3; i++) {
+            const angle = (i / 3) * Math.PI * 2;
+            const slit = MeshBuilder.CreateBox(`slit${i}`, {
+                width: 0.04, height: 0.35, depth: 0.04
+            }, this.scene);
+            slit.position = new Vector3(
+                Math.sin(angle) * 0.28,
+                2.0,
+                Math.cos(angle) * 0.28
+            );
+            slit.material = createLowPolyMaterial(`slitMat${i}`, PALETTE.TOWER_SNIPER_SLATE, this.scene);
+            slit.parent = this.mesh;
+        }
+
+        // --- 5. Pointed conical roof ---
+        const roof = MeshBuilder.CreateCylinder('roof', {
+            height: 0.6, diameterTop: 0, diameterBottom: 0.55, tessellation: 6
         }, this.scene);
-        obsRing.position = new Vector3(0, 3.45, 0);
-        obsRing.material = createLowPolyMaterial('obsRingMat', PALETTE.TOWER_SNIPER, this.scene);
-        makeFlatShaded(obsRing);
-        obsRing.parent = this.mesh;
+        roof.position = new Vector3(0, 3.7, 0);
+        roof.material = createLowPolyMaterial('roofMat', PALETTE.TOWER_SNIPER_SLATE, this.scene);
+        makeFlatShaded(roof);
+        roof.parent = this.mesh;
 
-        // Small railing posts
+        // --- 6. Simple longbow arm at top ---
+        const bow = MeshBuilder.CreateBox('bow', {
+            width: 0.5, height: 0.06, depth: 0.06
+        }, this.scene);
+        bow.position = new Vector3(0, 3.4, 0.22);
+        bow.material = createLowPolyMaterial('bowMat', PALETTE.TOWER_BASIC_WOOD, this.scene);
+        makeFlatShaded(bow);
+        bow.parent = this.mesh;
+
+        // Bowstring (thin vertical strip)
+        const bowstring = MeshBuilder.CreateBox('bowstring', {
+            width: 0.02, height: 0.02, depth: 0.35
+        }, this.scene);
+        bowstring.position = new Vector3(0, 3.4, 0.05);
+        bowstring.material = createLowPolyMaterial('bowstringMat', PALETTE.TOWER_SNIPER_SLATE, this.scene);
+        bowstring.parent = this.mesh;
+
+        // --- 7. Small railing posts around top of spire ---
         for (let i = 0; i < 4; i++) {
             const angle = (i / 4) * Math.PI * 2;
             const post = MeshBuilder.CreateBox(`post${i}`, {
-                width: 0.06, height: 0.2, depth: 0.06
+                width: 0.05, height: 0.18, depth: 0.05
             }, this.scene);
             post.position = new Vector3(
-                Math.sin(angle) * 0.3,
-                3.62,
-                Math.cos(angle) * 0.3
+                Math.sin(angle) * 0.25,
+                3.48,
+                Math.cos(angle) * 0.25
             );
-            post.material = createLowPolyMaterial(`postMat${i}`, PALETTE.ROCK_DARK, this.scene);
+            post.material = createLowPolyMaterial(`postMat${i}`, PALETTE.TOWER_SNIPER_LIMESTONE, this.scene);
             makeFlatShaded(post);
             post.parent = this.mesh;
         }
 
-        // --- 5. Rotating focus ring around the lens ---
-        const focusRing = MeshBuilder.CreateTorus('focusRing', {
-            diameter: 0.65, thickness: 0.05, tessellation: 8
-        }, this.scene);
-        focusRing.position = new Vector3(0, 3.85, 0);
-        focusRing.material = createEmissiveMaterial('focusRingMat', PALETTE.TOWER_SNIPER_LENS, 0.4, this.scene);
-        makeFlatShaded(focusRing);
-        focusRing.parent = this.mesh;
-
-        // Focus ring rotation
-        const ringSpinAnim = new Animation("focusRingSpin", "rotation.y", 30,
-            Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CYCLE);
-        ringSpinAnim.setKeys([
-            { frame: 0, value: 0 },
-            { frame: 120, value: Math.PI * 2 }
-        ]);
-        focusRing.animations = [ringSpinAnim];
-        this.scene.beginAnimation(focusRing, 0, 120, true);
-
-        // --- 6. Emissive crimson lens at top ---
-        const lens = MeshBuilder.CreateIcoSphere('sniperLens', {
-            radius: 0.25, subdivisions: 1
-        }, this.scene);
-        lens.position = new Vector3(0, 3.85, 0);
-        lens.material = createEmissiveMaterial('sniperLensMat', PALETTE.TOWER_SNIPER_LENS, 0.9, this.scene);
-        makeFlatShaded(lens);
-        lens.parent = this.mesh;
-
-        // Lens pulse animation
-        const lensPulse = new Animation("lensPulse", "scaling", 30,
-            Animation.ANIMATIONTYPE_VECTOR3, Animation.ANIMATIONLOOPMODE_CYCLE);
-        lensPulse.setKeys([
-            { frame: 0, value: new Vector3(1, 1, 1) },
-            { frame: 30, value: new Vector3(1.15, 1.15, 1.15) },
-            { frame: 60, value: new Vector3(1, 1, 1) }
-        ]);
-        lens.animations = [lensPulse];
-        this.scene.beginAnimation(lens, 0, 60, true);
-
-        // --- 7. Small antenna/spike on very top ---
-        const antenna = MeshBuilder.CreateCylinder('antenna', {
-            height: 0.5, diameterTop: 0, diameterBottom: 0.06, tessellation: 4
-        }, this.scene);
-        antenna.position = new Vector3(0, 4.35, 0);
-        antenna.material = createLowPolyMaterial('antennaMat', PALETTE.ROCK_DARK, this.scene);
-        antenna.parent = this.mesh;
-
-        // Tiny emissive tip
-        const tip = MeshBuilder.CreateIcoSphere('antennaTip', {
-            radius: 0.04, subdivisions: 0
-        }, this.scene);
-        tip.position = new Vector3(0, 4.6, 0);
-        tip.material = createEmissiveMaterial('tipMat', PALETTE.TOWER_SNIPER_LENS, 0.7, this.scene);
-        tip.parent = this.mesh;
-
-        // --- 8. Bullet template & projectile system ---
+        // --- 8. Projectile system ---
         const bulletTemplate = MeshBuilder.CreateIcoSphere('sniperBulletTemplate', {
             radius: 0.12, subdivisions: 0
         }, this.scene);
@@ -153,7 +132,7 @@ export class SniperTower extends Tower {
                     bullet.isVisible = true;
                     const startPos = new Vector3(
                         this.position.x,
-                        this.position.y + 3.85,
+                        this.position.y + 3.4,
                         this.position.z
                     );
                     bullet.position = startPos;
@@ -221,7 +200,112 @@ export class SniperTower extends Tower {
     }
 
     protected updateVisuals(): void {
-        // Could scale parts on upgrade
+        this.levelMeshes.forEach(m => m.dispose());
+        this.levelMeshes = [];
+
+        if (this.level >= 2) {
+            // Wider crow's nest observation platform
+            const crowsNest = MeshBuilder.CreateCylinder('crowsNest_l2', {
+                height: 0.12, diameterTop: 0.9, diameterBottom: 0.7, tessellation: 6
+            }, this.scene);
+            crowsNest.position = new Vector3(0, 3.46, 0);
+            crowsNest.material = createLowPolyMaterial('crowsNestMat_l2', PALETTE.TOWER_SNIPER_LIMESTONE, this.scene);
+            makeFlatShaded(crowsNest);
+            crowsNest.parent = this.mesh;
+            this.levelMeshes.push(crowsNest);
+
+            // Nest railing torus
+            const nestRail = MeshBuilder.CreateTorus('nestRail_l2', {
+                diameter: 0.9, thickness: 0.04, tessellation: 8
+            }, this.scene);
+            nestRail.position = new Vector3(0, 3.54, 0);
+            nestRail.material = createLowPolyMaterial('nestRailMat_l2', PALETTE.TOWER_SNIPER_SLATE, this.scene);
+            makeFlatShaded(nestRail);
+            nestRail.parent = this.mesh;
+            this.levelMeshes.push(nestRail);
+
+            // Crystal scope sight
+            const scope = MeshBuilder.CreateIcoSphere('scope_l2', {
+                radius: 0.08, subdivisions: 1
+            }, this.scene);
+            scope.position = new Vector3(0, 3.4, 0.38);
+            scope.material = createEmissiveMaterial('scopeMat_l2', new Color3(0.5, 0.8, 1.0), 0.85, this.scene);
+            makeFlatShaded(scope);
+            scope.parent = this.mesh;
+            this.levelMeshes.push(scope);
+
+            // Mid-tower emissive window
+            const glowWin = MeshBuilder.CreateBox('glowWin_l2', {
+                width: 0.04, height: 0.22, depth: 0.04
+            }, this.scene);
+            glowWin.position = new Vector3(0.3, 2.0, 0);
+            glowWin.material = createEmissiveMaterial('glowWinMat_l2', new Color3(1.0, 0.6, 0.2), 0.7, this.scene);
+            glowWin.parent = this.mesh;
+            this.levelMeshes.push(glowWin);
+
+            // Recurve bow detail (wider arms)
+            const recurve = MeshBuilder.CreateBox('recurve_l2', {
+                width: 0.65, height: 0.06, depth: 0.06
+            }, this.scene);
+            recurve.position = new Vector3(0, 3.4, 0.22);
+            recurve.material = createLowPolyMaterial('recurveMat_l2', PALETTE.TOWER_BASIC_WOOD, this.scene);
+            makeFlatShaded(recurve);
+            recurve.parent = this.mesh;
+            this.levelMeshes.push(recurve);
+        }
+
+        if (this.level >= 3) {
+            // Golden weather vane arrow at apex
+            const vane = MeshBuilder.CreateCylinder('vane_l3', {
+                height: 0.35, diameter: 0.04, tessellation: 4
+            }, this.scene);
+            vane.rotation.z = Math.PI / 2;
+            vane.position = new Vector3(0, 4.15, 0);
+            vane.material = createEmissiveMaterial('vaneMat_l3', PALETTE.TOWER_BASIC_BANNER, 0.5, this.scene);
+            vane.parent = this.mesh;
+            this.levelMeshes.push(vane);
+
+            // Eagle nest ring (twig boxes around top)
+            for (let i = 0; i < 6; i++) {
+                const angle = (i / 6) * Math.PI * 2;
+                const twig = MeshBuilder.CreateBox(`twig_l3_${i}`, {
+                    width: 0.05, height: 0.05, depth: 0.25
+                }, this.scene);
+                twig.position = new Vector3(
+                    Math.sin(angle) * 0.32,
+                    3.92,
+                    Math.cos(angle) * 0.32
+                );
+                twig.rotation.y = angle;
+                twig.rotation.x = 0.3;
+                twig.material = createLowPolyMaterial(`twigMat_l3_${i}`, PALETTE.TOWER_BASIC_WOOD, this.scene);
+                makeFlatShaded(twig);
+                twig.parent = this.mesh;
+                this.levelMeshes.push(twig);
+            }
+
+            // Crystal lens elements (2 emissive blue-white)
+            for (let i = 0; i < 2; i++) {
+                const side = i === 0 ? -0.25 : 0.25;
+                const lens = MeshBuilder.CreateIcoSphere(`lens_l3_${i}`, {
+                    radius: 0.065, subdivisions: 1
+                }, this.scene);
+                lens.position = new Vector3(side, 3.4, 0.35);
+                lens.material = createEmissiveMaterial(`lensMat_l3_${i}`, new Color3(0.6, 0.85, 1.0), 0.9, this.scene);
+                makeFlatShaded(lens);
+                lens.parent = this.mesh;
+                this.levelMeshes.push(lens);
+            }
+
+            // Golden emissive crown trim
+            const crown = MeshBuilder.CreateTorus('crown_l3', {
+                diameter: 0.65, thickness: 0.06, tessellation: 8
+            }, this.scene);
+            crown.position = new Vector3(0, 3.92, 0);
+            crown.material = createEmissiveMaterial('crownMat_l3', PALETTE.TOWER_BASIC_BANNER, 0.6, this.scene);
+            crown.parent = this.mesh;
+            this.levelMeshes.push(crown);
+        }
     }
 
     public override dispose(): void {

@@ -127,4 +127,20 @@ export const PALETTE = {
     ELEMENT_WIND: '#99FF66',
     ELEMENT_EARTH: '#CC9933',
     ELEMENT_NONE: '#FFFFFF',
+
+    // Medieval non-elemental tower palette
+    TOWER_BASIC_STONE: new Color3(0.72, 0.68, 0.62),      // Limestone
+    TOWER_BASIC_MERLON: new Color3(0.60, 0.56, 0.50),     // Dark stone
+    TOWER_BASIC_WOOD: new Color3(0.55, 0.38, 0.22),       // Timber
+    TOWER_BASIC_BANNER: new Color3(0.85, 0.68, 0.18),     // Heraldic gold
+    TOWER_FAST_TIMBER: new Color3(0.48, 0.32, 0.16),      // Dark log
+    TOWER_FAST_TORSION: new Color3(0.65, 0.55, 0.35),     // Bronze spring
+    TOWER_HEAVY_SIEGE: new Color3(0.58, 0.52, 0.45),      // Weathered stone
+    TOWER_HEAVY_ARM: new Color3(0.55, 0.40, 0.22),        // Trebuchet wood
+    TOWER_HEAVY_IRON: new Color3(0.35, 0.33, 0.35),       // Iron fittings
+    TOWER_SNIPER_LIMESTONE: new Color3(0.80, 0.76, 0.70), // Pale spire stone
+    TOWER_SNIPER_SLATE: new Color3(0.35, 0.32, 0.38),     // Roof slate
+    TOWER_AOE_RUNE: new Color3(0.60, 0.28, 0.85),         // Purple rune glow
+    TOWER_AOE_STONE: new Color3(0.45, 0.42, 0.48),        // Dark arcane stone
+    TOWER_AOE_ORB: new Color3(0.72, 0.40, 0.95),          // Conjurer orb
 } as const;

@@ -56,7 +56,7 @@ export abstract class Tower {
     protected fireRate: number; // Shots per second
     protected level: number = 1;
     protected cost: number;
-    protected upgradeMultiplier: number = 1.5; // Reduced from 2.0x to make upgrades more affordable
+    protected upgradeMultiplier: number = 3.0; // High cost multiplier for capped upgrade system
     protected upgradeCost: number;
     protected sellValue: number;
     protected lastFireTime: number = 0;
@@ -66,6 +66,7 @@ export abstract class Tower {
     protected isInitialized: boolean = false;
     protected isSelected: boolean = false;
     protected selectionIndicator: Mesh | null = null;
+    protected maxLevel: number = 3;
     protected towerId: string;
     
     // Elemental properties
@@ -447,17 +448,28 @@ export abstract class Tower {
     }
 
     /**
+     * Get the tower's max level
+     * @returns The tower's max level
+     */
+    public getMaxLevel(): number {
+        return this.maxLevel;
+    }
+
+    /**
      * Upgrade the tower
      * @returns True if upgrade was successful
      */
     public upgrade(): boolean {
+        // Can't upgrade beyond max level
+        if (this.level >= this.maxLevel) return false;
+
         // Increase level
         this.level++;
-        
-        // Increase stats (reduced improvements)
-        this.range *= 1.1;  // Reduced from 1.2 to 1.1
-        this.damage *= 1.25; // Reduced from 1.5 to 1.25
-        this.fireRate *= 1.1; // Reduced from 1.2 to 1.1
+
+        // Significantly improved stats per upgrade (level 3 = ~3× base damage, ~1.56× range/fireRate)
+        this.range *= 1.25;
+        this.damage *= 1.75;
+        this.fireRate *= 1.25;
         
         // Update costs
         this.upgradeCost = Math.floor(this.upgradeCost * this.upgradeMultiplier);
