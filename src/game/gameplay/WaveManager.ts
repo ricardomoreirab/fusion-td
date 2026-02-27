@@ -986,8 +986,8 @@ export class WaveManager {
         // Debug log to confirm wave completion
         console.log(`Wave ${this.absoluteWave} (segment ${this.segmentIndex + 1}, wave ${this.segmentWave}/10) completed in ${this.lastWaveClearTime.toFixed(2)} seconds. Speed multiplier: ${this.speedMultiplier.toFixed(2)}x.`);
 
-        // Check if we've completed waves in this segment (1 wave per segment for testing)
-        if (this.segmentWave >= 1 && this.onSegmentComplete) {
+        // Check if we've completed 10 waves in this segment to unlock new zone
+        if (this.segmentWave >= 10 && this.onSegmentComplete) {
             this.segmentWave = 0;
             this.segmentIndex++;
             this.onSegmentComplete();

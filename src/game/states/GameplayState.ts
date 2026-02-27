@@ -370,23 +370,22 @@ export class GameplayState implements GameState {
 
         // Apply device-specific UI scaling
         if (isMobile) {
-            this.ui.idealWidth = 1024;
+            this.ui.idealWidth = 600;
             this.ui.useSmallestIdeal = true;
-            this.ui.renderScale = 1.5;
         }
 
         // ====== STATS BAR (top-left): compact horizontal bar ======
         const statsBar = new Rectangle('statsContainer');
-        statsBar.width = isMobile ? '320px' : '400px';
-        statsBar.height = '44px';
+        statsBar.width = isMobile ? '250px' : '400px';
+        statsBar.height = isMobile ? '36px' : '44px';
         statsBar.background = PALETTE.UI_PANEL_BG;
-        statsBar.cornerRadius = 16;
+        statsBar.cornerRadius = isMobile ? 10 : 16;
         statsBar.thickness = 1;
         statsBar.color = PALETTE.UI_BORDER;
         statsBar.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         statsBar.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        statsBar.left = '10px';
-        statsBar.top = '10px';
+        statsBar.left = '6px';
+        statsBar.top = '6px';
         statsBar.shadowColor = 'rgba(0,0,0,0.3)';
         statsBar.shadowBlur = 8;
         statsBar.shadowOffsetY = 2;
@@ -400,7 +399,7 @@ export class GameplayState implements GameState {
             // Container that clips its contents
             const group = new Rectangle(`${valueName}Group`);
             group.width = groupWidth + 'px';
-            group.height = '36px';
+            group.height = isMobile ? '30px' : '36px';
             group.thickness = 0;
             group.background = 'transparent';
             group.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
@@ -409,10 +408,11 @@ export class GameplayState implements GameState {
             statsBar.addControl(group);
 
             // Icon circle
+            const circleSize = isMobile ? 20 : 26;
             const circle = new Rectangle(`${valueName}Dot`);
-            circle.width = '26px';
-            circle.height = '26px';
-            circle.cornerRadius = 13;
+            circle.width = circleSize + 'px';
+            circle.height = circleSize + 'px';
+            circle.cornerRadius = circleSize / 2;
             circle.background = circleColor;
             circle.thickness = 0;
             circle.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
@@ -422,7 +422,7 @@ export class GameplayState implements GameState {
 
             const circleLabel = new TextBlock(`${valueName}Label`, label);
             circleLabel.color = '#FFFFFF';
-            circleLabel.fontSize = 9;
+            circleLabel.fontSize = isMobile ? 7 : 9;
             circleLabel.fontFamily = 'Arial';
             circleLabel.fontWeight = 'bold';
             circle.addControl(circleLabel);
@@ -431,25 +431,25 @@ export class GameplayState implements GameState {
             const valueText = new TextBlock(valueName);
             valueText.text = defaultValue;
             valueText.color = '#FFFFFF';
-            valueText.fontSize = 14;
+            valueText.fontSize = isMobile ? 11 : 14;
             valueText.fontFamily = 'Arial';
             valueText.fontWeight = 'bold';
             valueText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
             valueText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            valueText.left = '30px';
-            valueText.width = (groupWidth - 34) + 'px';
+            valueText.left = (circleSize + 4) + 'px';
+            valueText.width = (groupWidth - circleSize - 6) + 'px';
             valueText.resizeToFit = true;
             group.addControl(valueText);
         };
 
         // Stat groups with explicit widths — HP short, $ medium, Wave long
-        const hpWidth = isMobile ? 70 : 80;
-        const goldWidth = isMobile ? 80 : 90;
-        const waveWidth = isMobile ? 130 : 160;
+        const hpWidth = isMobile ? 52 : 80;
+        const goldWidth = isMobile ? 60 : 90;
+        const waveWidth = isMobile ? 100 : 160;
 
-        createStatGroup('#E53935', 'HP', 'healthText', '100', 8, hpWidth);
-        createStatGroup('#F5A623', '$', 'moneyText', '200', 8 + hpWidth + 4, goldWidth);
-        createStatGroup('#42A5F5', 'W', 'waveText', 'S1-1/10', 8 + hpWidth + 4 + goldWidth + 4, waveWidth);
+        createStatGroup('#E53935', 'HP', 'healthText', '100', isMobile ? 6 : 8, hpWidth);
+        createStatGroup('#F5A623', '$', 'moneyText', '200', (isMobile ? 6 : 8) + hpWidth + (isMobile ? 2 : 4), goldWidth);
+        createStatGroup('#42A5F5', 'W', 'waveText', 'S1-1/10', (isMobile ? 6 : 8) + hpWidth + (isMobile ? 2 : 4) + goldWidth + (isMobile ? 2 : 4), waveWidth);
 
         // Rename the health circle to 'healthDot' for updateUI compat
         // The dot is nested inside the group container, so search recursively via the UI texture
@@ -463,12 +463,12 @@ export class GameplayState implements GameState {
         const killText = new TextBlock('killText');
         killText.text = '0';
         killText.color = '#B0B8C8';
-        killText.fontSize = 11;
+        killText.fontSize = isMobile ? 9 : 11;
         killText.fontFamily = 'Arial';
         killText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         killText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        killText.left = '-10px';
-        killText.width = '40px';
+        killText.left = '-6px';
+        killText.width = '30px';
         statsBar.addControl(killText);
 
         // Fade-in animation for stats bar
@@ -480,99 +480,132 @@ export class GameplayState implements GameState {
             if (fadeIn >= 1) this.scene?.onBeforeRenderObservable.remove(fadeObs);
         });
 
-        // ====== WAVE INFO BAR (below stats bar) ======
+        // ====== WAVE INFO BAR (below stats bar on desktop, merged into second row on mobile) ======
         const waveInfoBar = new Rectangle('waveInfoContainer');
-        waveInfoBar.width = isMobile ? '320px' : '400px';
-        waveInfoBar.height = '28px';
+        waveInfoBar.width = isMobile ? '250px' : '400px';
+        waveInfoBar.height = isMobile ? '22px' : '28px';
         waveInfoBar.background = PALETTE.UI_PANEL_BG;
-        waveInfoBar.cornerRadius = 10;
+        waveInfoBar.cornerRadius = isMobile ? 7 : 10;
         waveInfoBar.thickness = 1;
         waveInfoBar.color = PALETTE.UI_BORDER;
         waveInfoBar.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         waveInfoBar.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        waveInfoBar.left = '10px';
-        waveInfoBar.top = '58px';
+        waveInfoBar.left = '6px';
+        waveInfoBar.top = isMobile ? '44px' : '58px';
         this.ui.addControl(waveInfoBar);
 
         const countdownText = new TextBlock('countdownText');
         countdownText.text = '';
         countdownText.color = '#F5A623';
-        countdownText.fontSize = 12;
+        countdownText.fontSize = isMobile ? 10 : 12;
         countdownText.fontFamily = 'Arial';
         countdownText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         countdownText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        countdownText.left = '10px';
+        countdownText.left = '8px';
         waveInfoBar.addControl(countdownText);
 
         const enemiesText = new TextBlock('enemiesText');
         enemiesText.text = '';
         enemiesText.color = '#B0B8C8';
-        enemiesText.fontSize = 12;
+        enemiesText.fontSize = isMobile ? 10 : 12;
         enemiesText.fontFamily = 'Arial';
         enemiesText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         enemiesText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        enemiesText.left = '-10px';
+        enemiesText.left = '-8px';
         waveInfoBar.addControl(enemiesText);
 
-        // ====== CONTROLS STRIP (top-right): vertical stack ======
+        // ====== CONTROLS STRIP ======
         const controlStrip = new Rectangle('controlsPanel');
-        controlStrip.width = '52px';
-        controlStrip.height = '220px';
+        if (isMobile) {
+            // Mobile: compact horizontal bar at top-right
+            controlStrip.width = '180px';
+            controlStrip.height = '36px';
+            controlStrip.cornerRadius = 10;
+            controlStrip.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+            controlStrip.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            controlStrip.top = '6px';
+            controlStrip.left = '-6px';
+        } else {
+            // Desktop: vertical strip at top-right
+            controlStrip.width = '52px';
+            controlStrip.height = '220px';
+            controlStrip.cornerRadius = 16;
+            controlStrip.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+            controlStrip.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            controlStrip.top = '10px';
+            controlStrip.left = '-10px';
+        }
         controlStrip.background = PALETTE.UI_PANEL_BG;
-        controlStrip.cornerRadius = 16;
         controlStrip.thickness = 1;
         controlStrip.color = PALETTE.UI_BORDER;
-        controlStrip.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        controlStrip.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        controlStrip.top = '10px';
-        controlStrip.left = '-10px';
         controlStrip.shadowColor = 'rgba(0,0,0,0.3)';
         controlStrip.shadowBlur = 8;
         controlStrip.shadowOffsetY = 2;
         this.ui.addControl(controlStrip);
 
         // Pause button
+        const mBtnSize = 28; // mobile button size in ideal px
+        const pauseBtnSize = isMobile ? mBtnSize + 'px' : '40px';
         const pauseButton = Button.CreateSimpleButton('pauseButton', 'II');
-        pauseButton.width = '40px';
-        pauseButton.height = '40px';
+        pauseButton.width = pauseBtnSize;
+        pauseButton.height = pauseBtnSize;
         pauseButton.color = '#FFFFFF';
         pauseButton.background = '#2196F3';
         pauseButton.cornerRadius = 20;
         pauseButton.thickness = 0;
         pauseButton.fontFamily = 'Arial';
-        pauseButton.fontSize = 16;
+        pauseButton.fontSize = isMobile ? 12 : 16;
         pauseButton.fontWeight = 'bold';
-        pauseButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        pauseButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        pauseButton.top = '8px';
         pauseButton.zIndex = 100;
 
-        pauseButton.onPointerEnterObservable.add(() => { pauseButton.background = '#42A5F5'; });
-        pauseButton.onPointerOutObservable.add(() => {
-            pauseButton.background = this.game.getIsPaused() ? '#4CAF50' : '#2196F3';
-        });
+        if (isMobile) {
+            pauseButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            pauseButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+            pauseButton.left = '4px';
+        } else {
+            pauseButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            pauseButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            pauseButton.top = '8px';
+        }
+
+        if (!isMobile) {
+            pauseButton.onPointerEnterObservable.add(() => { pauseButton.background = '#42A5F5'; });
+            pauseButton.onPointerOutObservable.add(() => {
+                pauseButton.background = this.game.getIsPaused() ? '#4CAF50' : '#2196F3';
+            });
+        }
         pauseButton.onPointerClickObservable.add(() => { this.game.togglePause(); });
         controlStrip.addControl(pauseButton);
         this.registerPauseButtonUpdate(pauseButton);
 
         // Next wave button
+        const waveBtnSize = isMobile ? mBtnSize + 'px' : '40px';
         const waveButton = Button.CreateSimpleButton('waveButton', '>');
-        waveButton.width = '40px';
-        waveButton.height = '40px';
+        waveButton.width = waveBtnSize;
+        waveButton.height = waveBtnSize;
         waveButton.color = '#FFFFFF';
         waveButton.background = '#E53935';
         waveButton.cornerRadius = 20;
         waveButton.thickness = 0;
         waveButton.fontFamily = 'Arial';
-        waveButton.fontSize = 18;
+        waveButton.fontSize = isMobile ? 14 : 18;
         waveButton.fontWeight = 'bold';
-        waveButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        waveButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        waveButton.top = '56px';
         waveButton.zIndex = 100;
 
-        waveButton.onPointerEnterObservable.add(() => { waveButton.background = '#EF5350'; });
-        waveButton.onPointerOutObservable.add(() => { waveButton.background = '#E53935'; });
+        if (isMobile) {
+            waveButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            waveButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+            waveButton.left = (4 + mBtnSize + 4) + 'px';
+        } else {
+            waveButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            waveButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            waveButton.top = '56px';
+        }
+
+        if (!isMobile) {
+            waveButton.onPointerEnterObservable.add(() => { waveButton.background = '#EF5350'; });
+            waveButton.onPointerOutObservable.add(() => { waveButton.background = '#E53935'; });
+        }
 
         waveButton.onPointerUpObservable.add(() => {
             if (this.waveManager) {
@@ -602,32 +635,49 @@ export class GameplayState implements GameState {
 
         // Separator line
         const separator = new Rectangle('controlsSep');
-        separator.width = '32px';
-        separator.height = '1px';
+        if (isMobile) {
+            separator.width = '1px';
+            separator.height = '22px';
+            separator.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            separator.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+            separator.left = (4 + mBtnSize * 2 + 8) + 'px';
+        } else {
+            separator.width = '32px';
+            separator.height = '1px';
+            separator.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            separator.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            separator.top = '104px';
+        }
         separator.background = 'rgba(80,90,110,0.4)';
         separator.thickness = 0;
-        separator.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        separator.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        separator.top = '104px';
         controlStrip.addControl(separator);
 
         // Speed buttons
         const speeds = [1, 2, 3];
+        const mSpeedSize = 26;
         speeds.forEach((speed, index) => {
             const speedBtn = Button.CreateSimpleButton(`speed${speed}Btn`, `${speed}x`);
-            speedBtn.width = '36px';
-            speedBtn.height = '36px';
+            const speedBtnSize = isMobile ? mSpeedSize + 'px' : '36px';
+            speedBtn.width = speedBtnSize;
+            speedBtn.height = speedBtnSize;
             speedBtn.color = '#FFFFFF';
             speedBtn.background = speed === 1 ? '#4CAF50' : '#3A3F4B';
             speedBtn.cornerRadius = 18;
             speedBtn.thickness = 0;
-            speedBtn.fontSize = 13;
+            speedBtn.fontSize = isMobile ? 9 : 13;
             speedBtn.fontFamily = 'Arial';
             speedBtn.fontWeight = 'bold';
-            speedBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-            speedBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-            speedBtn.top = (112 + index * 36) + 'px';
             speedBtn.zIndex = 100;
+
+            if (isMobile) {
+                speedBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+                speedBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+                speedBtn.left = (4 + mBtnSize * 2 + 12 + index * (mSpeedSize + 4)) + 'px';
+            } else {
+                speedBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+                speedBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+                speedBtn.top = (112 + index * 36) + 'px';
+            }
 
             speedBtn.onPointerUpObservable.add(() => {
                 this.game.setTimeScale(speed);
@@ -815,9 +865,12 @@ export class GameplayState implements GameState {
             camera.detachControl();
         }
 
+        const isMobile = this.isMobileDevice();
+
         // --- Camera drag state ---
         // Drag threshold in pixels: movement below this is a tap, above is a drag
-        const DRAG_THRESHOLD = 8;
+        // Higher threshold on mobile to prevent accidental drags from taps
+        const DRAG_THRESHOLD = isMobile ? 15 : 8;
         let pointerDown = false;
         let isDragging = false;
         let downX = 0;
@@ -825,12 +878,18 @@ export class GameplayState implements GameState {
         let lastX = 0;
         let lastY = 0;
 
-        // Rail camera: lock X to map center, only allow Z panning along the map
+        // Camera clamping: rail on desktop, free pan on mobile
         const MAP_CENTER_X = 20;
         const clampTarget = (target: Vector3) => {
             if (!this.levelManager) return;
             const maxZ = this.levelManager.getMaxZ() + 5;
-            target.x = MAP_CENTER_X;
+            if (isMobile) {
+                // Free pan: allow X movement within map bounds
+                target.x = Math.max(0, Math.min(40, target.x));
+            } else {
+                // Rail: lock X to center
+                target.x = MAP_CENTER_X;
+            }
             target.z = Math.max(5, Math.min(maxZ, target.z));
         };
 
@@ -882,13 +941,24 @@ export class GameplayState implements GameState {
                 lastX = evt.clientX;
                 lastY = evt.clientY;
 
-                // Convert screen drag to Z-rail movement only
-                // Dragging up (negative moveY) = scroll toward lower Z, dragging down = higher Z
                 const orthoHeight = (camera.orthoTop ?? 1) - (camera.orthoBottom ?? -1);
                 const pixelToWorld = orthoHeight / canvas.clientHeight;
 
                 const target = camera.target.clone();
-                target.z += moveY * pixelToWorld;
+
+                if (isMobile) {
+                    // Free pan: map screen drag to world X/Z using isometric projection
+                    // Camera is at alpha=-45deg, so screen X maps to a diagonal in world space
+                    const cosA = Math.cos(camera.alpha);
+                    const sinA = Math.sin(camera.alpha);
+                    const worldDx = moveX * pixelToWorld;
+                    const worldDy = -moveY * pixelToWorld;
+                    target.x += worldDx * cosA + worldDy * sinA;
+                    target.z += -worldDx * sinA + worldDy * cosA;
+                } else {
+                    // Rail: Z-only movement
+                    target.z += moveY * pixelToWorld;
+                }
 
                 clampTarget(target);
                 camera.target = target;
@@ -1029,6 +1099,49 @@ export class GameplayState implements GameState {
                 cam.metadata = { ...cam.metadata, orthoZoom: newZoom };
                 this.game.updateOrthoBounds();
             }, { passive: false });
+
+            // Pinch-to-zoom for mobile
+            let pinchStartDist = 0;
+            let pinchStartZoom = 25;
+            let isPinching = false;
+
+            canvas.addEventListener('touchstart', (evt: TouchEvent) => {
+                if (evt.touches.length === 2) {
+                    isPinching = true;
+                    // Suppress drag when pinching
+                    pointerDown = false;
+                    isDragging = false;
+                    const dx = evt.touches[0].clientX - evt.touches[1].clientX;
+                    const dy = evt.touches[0].clientY - evt.touches[1].clientY;
+                    pinchStartDist = Math.sqrt(dx * dx + dy * dy);
+                    const cam = this.scene?.activeCamera as ArcRotateCamera;
+                    pinchStartZoom = cam?.metadata?.orthoZoom ?? 25;
+                }
+            }, { passive: true });
+
+            canvas.addEventListener('touchmove', (evt: TouchEvent) => {
+                if (isPinching && evt.touches.length === 2) {
+                    evt.preventDefault();
+                    const dx = evt.touches[0].clientX - evt.touches[1].clientX;
+                    const dy = evt.touches[0].clientY - evt.touches[1].clientY;
+                    const currentDist = Math.sqrt(dx * dx + dy * dy);
+
+                    const scale = pinchStartDist / currentDist;
+                    const newZoom = Math.max(8, Math.min(50, pinchStartZoom * scale));
+
+                    const cam = this.scene?.activeCamera as ArcRotateCamera;
+                    if (cam) {
+                        cam.metadata = { ...cam.metadata, orthoZoom: newZoom };
+                        this.game.updateOrthoBounds();
+                    }
+                }
+            }, { passive: false });
+
+            canvas.addEventListener('touchend', (evt: TouchEvent) => {
+                if (evt.touches.length < 2) {
+                    isPinching = false;
+                }
+            }, { passive: true });
         }
     }
 
@@ -1544,288 +1657,570 @@ export class GameplayState implements GameState {
     private showTowerActions(): void {
         if (!this.ui || !this.selectedTower) return;
 
+        const isMobile = this.isMobileDevice();
+
         if (!this.towerInfoPanel) {
             this.towerInfoPanel = new Rectangle('towerInfoPanel');
-            this.towerInfoPanel.width = "280px";
-            this.towerInfoPanel.height = "310px";
-            this.towerInfoPanel.cornerRadius = 14;
+
+            if (isMobile) {
+                // Mobile: full-width bottom bar, horizontal layout
+                this.towerInfoPanel.width = "100%";
+                this.towerInfoPanel.height = "140px";
+                this.towerInfoPanel.cornerRadius = 0;
+                this.towerInfoPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+                this.towerInfoPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+                this.towerInfoPanel.top = "0px";
+                this.towerInfoPanel.left = "0px";
+            } else {
+                // Desktop: right-side panel
+                this.towerInfoPanel.width = "280px";
+                this.towerInfoPanel.height = "310px";
+                this.towerInfoPanel.cornerRadius = 14;
+                this.towerInfoPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+                this.towerInfoPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+                this.towerInfoPanel.top = "-100px";
+                this.towerInfoPanel.left = "-10px";
+            }
             this.towerInfoPanel.color = PALETTE.UI_BORDER;
             this.towerInfoPanel.thickness = 1;
             this.towerInfoPanel.background = PALETTE.UI_PANEL_SOLID;
-            this.towerInfoPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-            this.towerInfoPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-            this.towerInfoPanel.top = "-100px";
-            this.towerInfoPanel.left = "-10px";
             this.towerInfoPanel.shadowColor = "rgba(0, 0, 0, 0.5)";
             this.towerInfoPanel.shadowBlur = 12;
             this.towerInfoPanel.shadowOffsetY = 4;
             this.ui.addControl(this.towerInfoPanel);
 
-            // Slide-in from right
-            let slideX = 290;
-            this.towerInfoPanel.left = (slideX - 10) + 'px';
-            const slideObs = this.scene!.onBeforeRenderObservable.add(() => {
-                slideX *= 0.78;
-                if (slideX < 1) {
-                    slideX = 0;
-                    this.scene?.onBeforeRenderObservable.remove(slideObs);
-                }
-                if (this.towerInfoPanel) this.towerInfoPanel.left = (-10 + slideX) + 'px';
-            });
-
-            // ---- TOP SECTION: Preview + Name + Level dots ----
-            // Tower preview image (72x72)
-            const previewContainer = new Rectangle('towerInfoPreview');
-            previewContainer.width = '72px';
-            previewContainer.height = '72px';
-            previewContainer.cornerRadius = 10;
-            previewContainer.background = 'rgba(40, 44, 52, 0.8)';
-            previewContainer.thickness = 1;
-            previewContainer.color = 'rgba(80, 90, 110, 0.3)';
-            previewContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            previewContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-            previewContainer.top = '14px';
-            previewContainer.left = '14px';
-            this.towerInfoPanel.addControl(previewContainer);
-
-            // Tower name (to the right of preview)
-            this.towerTypeText = new TextBlock('typeValue', '-');
-            this.towerTypeText.color = '#FFFFFF';
-            this.towerTypeText.fontSize = 18;
-            this.towerTypeText.fontFamily = 'Arial';
-            this.towerTypeText.fontWeight = 'bold';
-            this.towerTypeText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            this.towerTypeText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-            this.towerTypeText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            this.towerTypeText.top = '16px';
-            this.towerTypeText.left = '96px';
-            this.towerTypeText.width = '170px';
-            this.towerTypeText.resizeToFit = true;
-            this.towerInfoPanel.addControl(this.towerTypeText);
-
-            // Level text (used for data, hidden)
-            this.towerLevelText = new TextBlock('levelValue', '1');
-            this.towerLevelText.color = 'transparent';
-            this.towerLevelText.fontSize = 1;
-            this.towerLevelText.width = '0px';
-            this.towerLevelText.height = '0px';
-            this.towerInfoPanel.addControl(this.towerLevelText);
-
-            // Level dots container
-            const levelDotsContainer = new Rectangle('levelDots');
-            levelDotsContainer.width = '80px';
-            levelDotsContainer.height = '16px';
-            levelDotsContainer.thickness = 0;
-            levelDotsContainer.background = 'transparent';
-            levelDotsContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            levelDotsContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-            levelDotsContainer.top = '40px';
-            levelDotsContainer.left = '96px';
-            this.towerInfoPanel.addControl(levelDotsContainer);
-
-            for (let i = 0; i < 3; i++) {
-                const dot = new Rectangle(`levelDot_${i}`);
-                dot.width = '12px';
-                dot.height = '12px';
-                dot.cornerRadius = 6;
-                dot.background = 'rgba(80, 90, 110, 0.4)';
-                dot.thickness = 0;
-                dot.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-                dot.left = (i * 18) + 'px';
-                levelDotsContainer.addControl(dot);
+            if (isMobile) {
+                // Slide-in from bottom
+                let slideY = 140;
+                this.towerInfoPanel.top = slideY + 'px';
+                const slideObs = this.scene!.onBeforeRenderObservable.add(() => {
+                    slideY *= 0.78;
+                    if (slideY < 1) {
+                        slideY = 0;
+                        this.scene?.onBeforeRenderObservable.remove(slideObs);
+                    }
+                    if (this.towerInfoPanel) this.towerInfoPanel.top = slideY + 'px';
+                });
+            } else {
+                // Slide-in from right (desktop)
+                let slideX = 290;
+                this.towerInfoPanel.left = (slideX - 10) + 'px';
+                const slideObs = this.scene!.onBeforeRenderObservable.add(() => {
+                    slideX *= 0.78;
+                    if (slideX < 1) {
+                        slideX = 0;
+                        this.scene?.onBeforeRenderObservable.remove(slideObs);
+                    }
+                    if (this.towerInfoPanel) this.towerInfoPanel.left = (-10 + slideX) + 'px';
+                });
             }
 
-            // Level label
-            const levelLabel = new TextBlock('levelLabel', 'LVL');
-            levelLabel.color = '#B0B8C8';
-            levelLabel.fontSize = 10;
-            levelLabel.fontFamily = 'Arial';
-            levelLabel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            levelLabel.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            levelLabel.left = '60px';
-            levelDotsContainer.addControl(levelLabel);
+            if (isMobile) {
+                // ---- MOBILE LAYOUT: Compact horizontal arrangement ----
+                // Left section: Preview + Name + Level dots
+                const leftSection = new Rectangle('mobileLeftSection');
+                leftSection.width = '50%';
+                leftSection.height = '100%';
+                leftSection.thickness = 0;
+                leftSection.background = 'transparent';
+                leftSection.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+                this.towerInfoPanel.addControl(leftSection);
 
-            // Divider
-            const divider1 = new Rectangle('divider1');
-            divider1.width = '90%';
-            divider1.height = '1px';
-            divider1.background = 'rgba(80, 90, 110, 0.3)';
-            divider1.thickness = 0;
-            divider1.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-            divider1.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-            divider1.top = '96px';
-            this.towerInfoPanel.addControl(divider1);
+                // Tower preview image (44x44)
+                const previewContainer = new Rectangle('towerInfoPreview');
+                previewContainer.width = '44px';
+                previewContainer.height = '44px';
+                previewContainer.cornerRadius = 8;
+                previewContainer.background = 'rgba(40, 44, 52, 0.8)';
+                previewContainer.thickness = 1;
+                previewContainer.color = 'rgba(80, 90, 110, 0.3)';
+                previewContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+                previewContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+                previewContainer.top = '8px';
+                previewContainer.left = '8px';
+                leftSection.addControl(previewContainer);
 
-            // ---- STATS SECTION: 2x2 compact grid ----
-            const statsGrid = new Grid('statsGrid');
-            statsGrid.addColumnDefinition(0.5);
-            statsGrid.addColumnDefinition(0.5);
-            statsGrid.addRowDefinition(0.5);
-            statsGrid.addRowDefinition(0.5);
-            statsGrid.width = '90%';
-            statsGrid.height = '90px';
-            statsGrid.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-            statsGrid.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-            statsGrid.top = '104px';
-            this.towerInfoPanel.addControl(statsGrid);
+                // Tower name
+                this.towerTypeText = new TextBlock('typeValue', '-');
+                this.towerTypeText.color = '#FFFFFF';
+                this.towerTypeText.fontSize = 13;
+                this.towerTypeText.fontFamily = 'Arial';
+                this.towerTypeText.fontWeight = 'bold';
+                this.towerTypeText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+                this.towerTypeText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+                this.towerTypeText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+                this.towerTypeText.top = '10px';
+                this.towerTypeText.left = '58px';
+                this.towerTypeText.width = '100px';
+                this.towerTypeText.resizeToFit = true;
+                leftSection.addControl(this.towerTypeText);
 
-            const createStatCell = (label: string, valueId: string, row: number, col: number): TextBlock => {
-                const container = new Rectangle(`stat_${valueId}`);
-                container.thickness = 0;
-                container.background = 'transparent';
-                statsGrid.addControl(container, row, col);
+                // Level text (hidden data)
+                this.towerLevelText = new TextBlock('levelValue', '1');
+                this.towerLevelText.color = 'transparent';
+                this.towerLevelText.fontSize = 1;
+                this.towerLevelText.width = '0px';
+                this.towerLevelText.height = '0px';
+                leftSection.addControl(this.towerLevelText);
 
-                const lbl = new TextBlock(`${valueId}_lbl`, label);
-                lbl.color = '#B0B8C8';
-                lbl.fontSize = 10;
-                lbl.fontFamily = 'Arial';
-                lbl.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-                lbl.top = '2px';
-                container.addControl(lbl);
+                // Level dots
+                const levelDotsContainer = new Rectangle('levelDots');
+                levelDotsContainer.width = '70px';
+                levelDotsContainer.height = '12px';
+                levelDotsContainer.thickness = 0;
+                levelDotsContainer.background = 'transparent';
+                levelDotsContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+                levelDotsContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+                levelDotsContainer.top = '27px';
+                levelDotsContainer.left = '58px';
+                leftSection.addControl(levelDotsContainer);
 
-                const val = new TextBlock(valueId, '-');
-                val.color = '#FFFFFF';
-                val.fontSize = 16;
-                val.fontFamily = 'Arial';
-                val.fontWeight = 'bold';
-                val.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-                val.top = '-2px';
-                container.addControl(val);
-
-                return val;
-            };
-
-            this.towerDamageText = createStatCell('DMG', 'damageValue', 0, 0);
-            this.towerRangeText = createStatCell('RNG', 'rangeValue', 0, 1);
-            this.towerRateText = createStatCell('RATE', 'rateValue', 1, 0);
-            // Sell value display
-            createStatCell('SELL', 'sellDisplayValue', 1, 1);
-
-            // Divider 2
-            const divider2 = new Rectangle('divider2');
-            divider2.width = '90%';
-            divider2.height = '1px';
-            divider2.background = 'rgba(80, 90, 110, 0.3)';
-            divider2.thickness = 0;
-            divider2.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-            divider2.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-            divider2.top = '202px';
-            this.towerInfoPanel.addControl(divider2);
-
-            // ---- BUTTONS: Sell + Upgrade ----
-            this.sellButton = new Rectangle('sellButton');
-            this.sellButton.width = "115px";
-            this.sellButton.height = "44px";
-            this.sellButton.cornerRadius = 22;
-            this.sellButton.color = 'transparent';
-            this.sellButton.thickness = 0;
-            this.sellButton.background = '#E53935';
-            this.sellButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            this.sellButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-            this.sellButton.top = "-12px";
-            this.sellButton.left = "14px";
-            this.sellButton.isPointerBlocker = true;
-            this.sellButton.shadowColor = "rgba(0, 0, 0, 0.4)";
-            this.sellButton.shadowBlur = 5;
-            this.sellButton.shadowOffsetY = 2;
-
-            const sellText = new TextBlock('sellText', 'SELL');
-            sellText.color = '#FFFFFF';
-            sellText.fontSize = 14;
-            sellText.fontFamily = 'Arial';
-            sellText.fontWeight = 'bold';
-            sellText.top = "-8px";
-            this.sellButton.addControl(sellText);
-
-            const sellValueText = new TextBlock('sellValueText', '');
-            sellValueText.color = '#B0B8C8';
-            sellValueText.fontSize = 12;
-            sellValueText.fontFamily = 'Arial';
-            sellValueText.top = "10px";
-            this.sellButton.addControl(sellValueText);
-
-            this.sellButton.onPointerEnterObservable.add(() => {
-                if (this.sellButton) this.sellButton.background = '#EF5350';
-            });
-            this.sellButton.onPointerOutObservable.add(() => {
-                if (this.sellButton) this.sellButton.background = '#E53935';
-            });
-            this.sellButton.onPointerDownObservable.add(() => {
-                if (this.sellButton) this.sellButton.alpha = 0.8;
-            });
-            this.sellButton.onPointerClickObservable.add(() => {
-                this.sellSelectedTower();
-            });
-            this.sellButton.onPointerUpObservable.add(() => {
-                if (this.sellButton) this.sellButton.alpha = 1.0;
-                this.sellSelectedTower();
-            });
-            this.towerInfoPanel.addControl(this.sellButton);
-
-            this.upgradeButton = new Rectangle('upgradeButton');
-            this.upgradeButton.width = "115px";
-            this.upgradeButton.height = "44px";
-            this.upgradeButton.cornerRadius = 22;
-            this.upgradeButton.color = 'transparent';
-            this.upgradeButton.thickness = 0;
-            this.upgradeButton.background = '#4CAF50';
-            this.upgradeButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-            this.upgradeButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-            this.upgradeButton.top = "-12px";
-            this.upgradeButton.left = "-14px";
-            this.upgradeButton.isPointerBlocker = true;
-            this.upgradeButton.shadowColor = "rgba(0, 0, 0, 0.4)";
-            this.upgradeButton.shadowBlur = 5;
-            this.upgradeButton.shadowOffsetY = 2;
-
-            const upgradeText = new TextBlock('upgradeText', 'UPGRADE');
-            upgradeText.color = '#FFFFFF';
-            upgradeText.fontSize = 14;
-            upgradeText.fontFamily = 'Arial';
-            upgradeText.fontWeight = 'bold';
-            upgradeText.top = "-8px";
-            this.upgradeButton.addControl(upgradeText);
-
-            const upgradeCostText = new TextBlock('upgradeCostText', '');
-            upgradeCostText.color = '#B0B8C8';
-            upgradeCostText.fontSize = 12;
-            upgradeCostText.fontFamily = 'Arial';
-            upgradeCostText.top = "10px";
-            this.upgradeButton.addControl(upgradeCostText);
-
-            this.upgradeButton.onPointerEnterObservable.add(() => {
-                if (this.upgradeButton && this.playerStats && this.selectedTower &&
-                    this.playerStats.getMoney() >= this.selectedTower.getUpgradeCost()) {
-                    this.upgradeButton.background = '#66BB6A';
+                for (let i = 0; i < 3; i++) {
+                    const dot = new Rectangle(`levelDot_${i}`);
+                    dot.width = '8px';
+                    dot.height = '8px';
+                    dot.cornerRadius = 4;
+                    dot.background = 'rgba(80, 90, 110, 0.4)';
+                    dot.thickness = 0;
+                    dot.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+                    dot.left = (i * 12) + 'px';
+                    levelDotsContainer.addControl(dot);
                 }
-            });
-            this.upgradeButton.onPointerOutObservable.add(() => {
-                if (this.upgradeButton && this.playerStats && this.selectedTower) {
-                    if (this.playerStats.getMoney() >= this.selectedTower.getUpgradeCost()) {
-                        this.upgradeButton.background = '#4CAF50';
-                    } else {
-                        this.upgradeButton.background = '#3A3F4B';
+
+                const levelLabel = new TextBlock('levelLabel', 'LVL');
+                levelLabel.color = '#B0B8C8';
+                levelLabel.fontSize = 7;
+                levelLabel.fontFamily = 'Arial';
+                levelLabel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+                levelLabel.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+                levelLabel.left = '40px';
+                levelDotsContainer.addControl(levelLabel);
+
+                // Stats in single row below
+                const statsGrid = new Grid('statsGrid');
+                statsGrid.addColumnDefinition(0.25);
+                statsGrid.addColumnDefinition(0.25);
+                statsGrid.addColumnDefinition(0.25);
+                statsGrid.addColumnDefinition(0.25);
+                statsGrid.addRowDefinition(1.0);
+                statsGrid.width = '95%';
+                statsGrid.height = '44px';
+                statsGrid.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+                statsGrid.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+                statsGrid.top = '-6px';
+                statsGrid.left = '4px';
+                leftSection.addControl(statsGrid);
+
+                const createStatCell = (label: string, valueId: string, row: number, col: number): TextBlock => {
+                    const container = new Rectangle(`stat_${valueId}`);
+                    container.thickness = 0;
+                    container.background = 'transparent';
+                    statsGrid.addControl(container, row, col);
+
+                    const lbl = new TextBlock(`${valueId}_lbl`, label);
+                    lbl.color = '#B0B8C8';
+                    lbl.fontSize = 7;
+                    lbl.fontFamily = 'Arial';
+                    lbl.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+                    lbl.top = '2px';
+                    container.addControl(lbl);
+
+                    const val = new TextBlock(valueId, '-');
+                    val.color = '#FFFFFF';
+                    val.fontSize = 11;
+                    val.fontFamily = 'Arial';
+                    val.fontWeight = 'bold';
+                    val.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+                    val.top = '-2px';
+                    container.addControl(val);
+
+                    return val;
+                };
+
+                this.towerDamageText = createStatCell('DMG', 'damageValue', 0, 0);
+                this.towerRangeText = createStatCell('RNG', 'rangeValue', 0, 1);
+                this.towerRateText = createStatCell('RATE', 'rateValue', 0, 2);
+                createStatCell('SELL', 'sellDisplayValue', 0, 3);
+
+                // Right section: Buttons side by side + close
+                const rightSection = new Rectangle('mobileRightSection');
+                rightSection.width = '50%';
+                rightSection.height = '100%';
+                rightSection.thickness = 0;
+                rightSection.background = 'transparent';
+                rightSection.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+                this.towerInfoPanel.addControl(rightSection);
+
+                // Upgrade button — large touch target
+                this.upgradeButton = new Rectangle('upgradeButton');
+                this.upgradeButton.width = "92%";
+                this.upgradeButton.height = "44px";
+                this.upgradeButton.cornerRadius = 12;
+                this.upgradeButton.color = 'transparent';
+                this.upgradeButton.thickness = 0;
+                this.upgradeButton.background = '#4CAF50';
+                this.upgradeButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+                this.upgradeButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+                this.upgradeButton.top = "8px";
+                this.upgradeButton.isPointerBlocker = true;
+                this.upgradeButton.shadowColor = "rgba(0, 0, 0, 0.4)";
+                this.upgradeButton.shadowBlur = 5;
+                this.upgradeButton.shadowOffsetY = 2;
+
+                const upgradeText = new TextBlock('upgradeText', 'UPGRADE');
+                upgradeText.color = '#FFFFFF';
+                upgradeText.fontSize = 11;
+                upgradeText.fontFamily = 'Arial';
+                upgradeText.fontWeight = 'bold';
+                upgradeText.top = "-6px";
+                this.upgradeButton.addControl(upgradeText);
+
+                const upgradeCostText = new TextBlock('upgradeCostText', '');
+                upgradeCostText.color = '#B0B8C8';
+                upgradeCostText.fontSize = 9;
+                upgradeCostText.fontFamily = 'Arial';
+                upgradeCostText.top = "8px";
+                this.upgradeButton.addControl(upgradeCostText);
+
+                this.upgradeButton.onPointerDownObservable.add(() => {
+                    if (this.upgradeButton && this.playerStats && this.selectedTower &&
+                        this.playerStats.getMoney() >= this.selectedTower.getUpgradeCost()) {
+                        this.upgradeButton.alpha = 0.8;
                     }
-                }
-            });
-            this.upgradeButton.onPointerDownObservable.add(() => {
-                if (this.upgradeButton && this.playerStats && this.selectedTower &&
-                    this.playerStats.getMoney() >= this.selectedTower.getUpgradeCost()) {
-                    this.upgradeButton.alpha = 0.8;
-                }
-            });
-            this.upgradeButton.onPointerClickObservable.add(() => {
-                this.upgradeSelectedTower();
-            });
-            this.upgradeButton.onPointerUpObservable.add(() => {
-                if (this.upgradeButton && this.playerStats && this.selectedTower) {
-                    if (this.playerStats.getMoney() >= this.selectedTower.getUpgradeCost()) {
-                        this.upgradeButton.alpha = 1.0;
+                });
+                this.upgradeButton.onPointerClickObservable.add(() => {
+                    this.upgradeSelectedTower();
+                });
+                this.upgradeButton.onPointerUpObservable.add(() => {
+                    if (this.upgradeButton && this.playerStats && this.selectedTower) {
+                        if (this.playerStats.getMoney() >= this.selectedTower.getUpgradeCost()) {
+                            this.upgradeButton.alpha = 1.0;
+                        }
                     }
+                    this.upgradeSelectedTower();
+                });
+                rightSection.addControl(this.upgradeButton);
+
+                // Sell button
+                this.sellButton = new Rectangle('sellButton');
+                this.sellButton.width = "92%";
+                this.sellButton.height = "44px";
+                this.sellButton.cornerRadius = 12;
+                this.sellButton.color = 'transparent';
+                this.sellButton.thickness = 0;
+                this.sellButton.background = '#E53935';
+                this.sellButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+                this.sellButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+                this.sellButton.top = "56px";
+                this.sellButton.isPointerBlocker = true;
+                this.sellButton.shadowColor = "rgba(0, 0, 0, 0.4)";
+                this.sellButton.shadowBlur = 5;
+                this.sellButton.shadowOffsetY = 2;
+
+                const sellText = new TextBlock('sellText', 'SELL');
+                sellText.color = '#FFFFFF';
+                sellText.fontSize = 11;
+                sellText.fontFamily = 'Arial';
+                sellText.fontWeight = 'bold';
+                sellText.top = "-6px";
+                this.sellButton.addControl(sellText);
+
+                const sellValueText = new TextBlock('sellValueText', '');
+                sellValueText.color = '#B0B8C8';
+                sellValueText.fontSize = 9;
+                sellValueText.fontFamily = 'Arial';
+                sellValueText.top = "8px";
+                this.sellButton.addControl(sellValueText);
+
+                this.sellButton.onPointerDownObservable.add(() => {
+                    if (this.sellButton) this.sellButton.alpha = 0.8;
+                });
+                this.sellButton.onPointerClickObservable.add(() => {
+                    this.sellSelectedTower();
+                });
+                this.sellButton.onPointerUpObservable.add(() => {
+                    if (this.sellButton) this.sellButton.alpha = 1.0;
+                    this.sellSelectedTower();
+                });
+                rightSection.addControl(this.sellButton);
+
+                // Close button at bottom-right
+                const closeBtn = new Rectangle('towerInfoClose');
+                closeBtn.width = '24px';
+                closeBtn.height = '24px';
+                closeBtn.cornerRadius = 12;
+                closeBtn.background = 'rgba(60, 65, 75, 0.8)';
+                closeBtn.thickness = 0;
+                closeBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+                closeBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+                closeBtn.top = '-6px';
+                closeBtn.left = '-6px';
+                closeBtn.isPointerBlocker = true;
+                rightSection.addControl(closeBtn);
+
+                const closeTxt = new TextBlock('towerInfoCloseTxt', 'x');
+                closeTxt.color = '#B0B8C8';
+                closeTxt.fontSize = 11;
+                closeTxt.fontFamily = 'Arial';
+                closeBtn.addControl(closeTxt);
+
+                closeBtn.onPointerClickObservable.add(() => {
+                    this.deselectTower();
+                });
+            } else {
+                // ---- DESKTOP LAYOUT (original) ----
+                // Tower preview image (72x72)
+                const previewContainer = new Rectangle('towerInfoPreview');
+                previewContainer.width = '72px';
+                previewContainer.height = '72px';
+                previewContainer.cornerRadius = 10;
+                previewContainer.background = 'rgba(40, 44, 52, 0.8)';
+                previewContainer.thickness = 1;
+                previewContainer.color = 'rgba(80, 90, 110, 0.3)';
+                previewContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+                previewContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+                previewContainer.top = '14px';
+                previewContainer.left = '14px';
+                this.towerInfoPanel.addControl(previewContainer);
+
+                // Tower name
+                this.towerTypeText = new TextBlock('typeValue', '-');
+                this.towerTypeText.color = '#FFFFFF';
+                this.towerTypeText.fontSize = 18;
+                this.towerTypeText.fontFamily = 'Arial';
+                this.towerTypeText.fontWeight = 'bold';
+                this.towerTypeText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+                this.towerTypeText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+                this.towerTypeText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+                this.towerTypeText.top = '16px';
+                this.towerTypeText.left = '96px';
+                this.towerTypeText.width = '170px';
+                this.towerTypeText.resizeToFit = true;
+                this.towerInfoPanel.addControl(this.towerTypeText);
+
+                // Level text (hidden data)
+                this.towerLevelText = new TextBlock('levelValue', '1');
+                this.towerLevelText.color = 'transparent';
+                this.towerLevelText.fontSize = 1;
+                this.towerLevelText.width = '0px';
+                this.towerLevelText.height = '0px';
+                this.towerInfoPanel.addControl(this.towerLevelText);
+
+                // Level dots
+                const levelDotsContainer = new Rectangle('levelDots');
+                levelDotsContainer.width = '80px';
+                levelDotsContainer.height = '16px';
+                levelDotsContainer.thickness = 0;
+                levelDotsContainer.background = 'transparent';
+                levelDotsContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+                levelDotsContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+                levelDotsContainer.top = '40px';
+                levelDotsContainer.left = '96px';
+                this.towerInfoPanel.addControl(levelDotsContainer);
+
+                for (let i = 0; i < 3; i++) {
+                    const dot = new Rectangle(`levelDot_${i}`);
+                    dot.width = '12px';
+                    dot.height = '12px';
+                    dot.cornerRadius = 6;
+                    dot.background = 'rgba(80, 90, 110, 0.4)';
+                    dot.thickness = 0;
+                    dot.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+                    dot.left = (i * 18) + 'px';
+                    levelDotsContainer.addControl(dot);
                 }
-                this.upgradeSelectedTower();
-            });
-            this.towerInfoPanel.addControl(this.upgradeButton);
+
+                const levelLabel = new TextBlock('levelLabel', 'LVL');
+                levelLabel.color = '#B0B8C8';
+                levelLabel.fontSize = 10;
+                levelLabel.fontFamily = 'Arial';
+                levelLabel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+                levelLabel.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+                levelLabel.left = '60px';
+                levelDotsContainer.addControl(levelLabel);
+
+                // Divider
+                const divider1 = new Rectangle('divider1');
+                divider1.width = '90%';
+                divider1.height = '1px';
+                divider1.background = 'rgba(80, 90, 110, 0.3)';
+                divider1.thickness = 0;
+                divider1.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+                divider1.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+                divider1.top = '96px';
+                this.towerInfoPanel.addControl(divider1);
+
+                // Stats grid
+                const statsGrid = new Grid('statsGrid');
+                statsGrid.addColumnDefinition(0.5);
+                statsGrid.addColumnDefinition(0.5);
+                statsGrid.addRowDefinition(0.5);
+                statsGrid.addRowDefinition(0.5);
+                statsGrid.width = '90%';
+                statsGrid.height = '90px';
+                statsGrid.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+                statsGrid.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+                statsGrid.top = '104px';
+                this.towerInfoPanel.addControl(statsGrid);
+
+                const createStatCell = (label: string, valueId: string, row: number, col: number): TextBlock => {
+                    const container = new Rectangle(`stat_${valueId}`);
+                    container.thickness = 0;
+                    container.background = 'transparent';
+                    statsGrid.addControl(container, row, col);
+
+                    const lbl = new TextBlock(`${valueId}_lbl`, label);
+                    lbl.color = '#B0B8C8';
+                    lbl.fontSize = 10;
+                    lbl.fontFamily = 'Arial';
+                    lbl.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+                    lbl.top = '2px';
+                    container.addControl(lbl);
+
+                    const val = new TextBlock(valueId, '-');
+                    val.color = '#FFFFFF';
+                    val.fontSize = 16;
+                    val.fontFamily = 'Arial';
+                    val.fontWeight = 'bold';
+                    val.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+                    val.top = '-2px';
+                    container.addControl(val);
+
+                    return val;
+                };
+
+                this.towerDamageText = createStatCell('DMG', 'damageValue', 0, 0);
+                this.towerRangeText = createStatCell('RNG', 'rangeValue', 0, 1);
+                this.towerRateText = createStatCell('RATE', 'rateValue', 1, 0);
+                createStatCell('SELL', 'sellDisplayValue', 1, 1);
+
+                // Divider 2
+                const divider2 = new Rectangle('divider2');
+                divider2.width = '90%';
+                divider2.height = '1px';
+                divider2.background = 'rgba(80, 90, 110, 0.3)';
+                divider2.thickness = 0;
+                divider2.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+                divider2.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+                divider2.top = '202px';
+                this.towerInfoPanel.addControl(divider2);
+
+                // Sell button
+                this.sellButton = new Rectangle('sellButton');
+                this.sellButton.width = "115px";
+                this.sellButton.height = "44px";
+                this.sellButton.cornerRadius = 22;
+                this.sellButton.color = 'transparent';
+                this.sellButton.thickness = 0;
+                this.sellButton.background = '#E53935';
+                this.sellButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+                this.sellButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+                this.sellButton.top = "-12px";
+                this.sellButton.left = "14px";
+                this.sellButton.isPointerBlocker = true;
+                this.sellButton.shadowColor = "rgba(0, 0, 0, 0.4)";
+                this.sellButton.shadowBlur = 5;
+                this.sellButton.shadowOffsetY = 2;
+
+                const sellText = new TextBlock('sellText', 'SELL');
+                sellText.color = '#FFFFFF';
+                sellText.fontSize = 14;
+                sellText.fontFamily = 'Arial';
+                sellText.fontWeight = 'bold';
+                sellText.top = "-8px";
+                this.sellButton.addControl(sellText);
+
+                const sellValueText = new TextBlock('sellValueText', '');
+                sellValueText.color = '#B0B8C8';
+                sellValueText.fontSize = 12;
+                sellValueText.fontFamily = 'Arial';
+                sellValueText.top = "10px";
+                this.sellButton.addControl(sellValueText);
+
+                this.sellButton.onPointerEnterObservable.add(() => {
+                    if (this.sellButton) this.sellButton.background = '#EF5350';
+                });
+                this.sellButton.onPointerOutObservable.add(() => {
+                    if (this.sellButton) this.sellButton.background = '#E53935';
+                });
+                this.sellButton.onPointerDownObservable.add(() => {
+                    if (this.sellButton) this.sellButton.alpha = 0.8;
+                });
+                this.sellButton.onPointerClickObservable.add(() => {
+                    this.sellSelectedTower();
+                });
+                this.sellButton.onPointerUpObservable.add(() => {
+                    if (this.sellButton) this.sellButton.alpha = 1.0;
+                    this.sellSelectedTower();
+                });
+                this.towerInfoPanel.addControl(this.sellButton);
+
+                // Upgrade button
+                this.upgradeButton = new Rectangle('upgradeButton');
+                this.upgradeButton.width = "115px";
+                this.upgradeButton.height = "44px";
+                this.upgradeButton.cornerRadius = 22;
+                this.upgradeButton.color = 'transparent';
+                this.upgradeButton.thickness = 0;
+                this.upgradeButton.background = '#4CAF50';
+                this.upgradeButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+                this.upgradeButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+                this.upgradeButton.top = "-12px";
+                this.upgradeButton.left = "-14px";
+                this.upgradeButton.isPointerBlocker = true;
+                this.upgradeButton.shadowColor = "rgba(0, 0, 0, 0.4)";
+                this.upgradeButton.shadowBlur = 5;
+                this.upgradeButton.shadowOffsetY = 2;
+
+                const upgradeText = new TextBlock('upgradeText', 'UPGRADE');
+                upgradeText.color = '#FFFFFF';
+                upgradeText.fontSize = 14;
+                upgradeText.fontFamily = 'Arial';
+                upgradeText.fontWeight = 'bold';
+                upgradeText.top = "-8px";
+                this.upgradeButton.addControl(upgradeText);
+
+                const upgradeCostText = new TextBlock('upgradeCostText', '');
+                upgradeCostText.color = '#B0B8C8';
+                upgradeCostText.fontSize = 12;
+                upgradeCostText.fontFamily = 'Arial';
+                upgradeCostText.top = "10px";
+                this.upgradeButton.addControl(upgradeCostText);
+
+                this.upgradeButton.onPointerEnterObservable.add(() => {
+                    if (this.upgradeButton && this.playerStats && this.selectedTower &&
+                        this.playerStats.getMoney() >= this.selectedTower.getUpgradeCost()) {
+                        this.upgradeButton.background = '#66BB6A';
+                    }
+                });
+                this.upgradeButton.onPointerOutObservable.add(() => {
+                    if (this.upgradeButton && this.playerStats && this.selectedTower) {
+                        if (this.playerStats.getMoney() >= this.selectedTower.getUpgradeCost()) {
+                            this.upgradeButton.background = '#4CAF50';
+                        } else {
+                            this.upgradeButton.background = '#3A3F4B';
+                        }
+                    }
+                });
+                this.upgradeButton.onPointerDownObservable.add(() => {
+                    if (this.upgradeButton && this.playerStats && this.selectedTower &&
+                        this.playerStats.getMoney() >= this.selectedTower.getUpgradeCost()) {
+                        this.upgradeButton.alpha = 0.8;
+                    }
+                });
+                this.upgradeButton.onPointerClickObservable.add(() => {
+                    this.upgradeSelectedTower();
+                });
+                this.upgradeButton.onPointerUpObservable.add(() => {
+                    if (this.upgradeButton && this.playerStats && this.selectedTower) {
+                        if (this.playerStats.getMoney() >= this.selectedTower.getUpgradeCost()) {
+                            this.upgradeButton.alpha = 1.0;
+                        }
+                    }
+                    this.upgradeSelectedTower();
+                });
+                this.towerInfoPanel.addControl(this.upgradeButton);
+            }
         } else {
             this.towerInfoPanel.isVisible = true;
         }
@@ -2474,11 +2869,16 @@ export class GameplayState implements GameState {
 
         const position = this.selectedPosition.clone();
         const isMobile = this.isMobileDevice();
+        const isMobilePortrait = isMobile && window.innerWidth < 480;
+
+        // Calculate panel height based on layout
+        const panelHeight = isMobilePortrait ? '220px' : (isMobile ? '170px' : '240px');
+        const panelHeightNum = isMobilePortrait ? 220 : (isMobile ? 170 : 240);
 
         // Create bottom-anchored panel container
         this.towerSelectorPanel = new Rectangle('towerPanelContainer');
         this.towerSelectorPanel.width = '100%';
-        this.towerSelectorPanel.height = isMobile ? '210px' : '240px';
+        this.towerSelectorPanel.height = panelHeight;
         this.towerSelectorPanel.background = PALETTE.UI_PANEL_SOLID;
         this.towerSelectorPanel.thickness = 1;
         this.towerSelectorPanel.color = PALETTE.UI_BORDER;
@@ -2488,8 +2888,7 @@ export class GameplayState implements GameState {
         this.ui.addControl(this.towerSelectorPanel);
 
         // Slide-in animation
-        const targetTop = 0;
-        let slideOffset = isMobile ? 210 : 240;
+        let slideOffset = panelHeightNum;
         this.towerSelectorPanel.top = slideOffset + 'px';
         const slideObs = this.scene!.onBeforeRenderObservable.add(() => {
             slideOffset *= 0.82;
@@ -2501,9 +2900,10 @@ export class GameplayState implements GameState {
         });
 
         // ---- Category tabs at top ----
+        const tabHeight = isMobile ? 26 : 32;
         const tabRow = new Rectangle('tabRow');
         tabRow.width = '100%';
-        tabRow.height = '32px';
+        tabRow.height = tabHeight + 'px';
         tabRow.background = 'rgba(20, 24, 30, 0.6)';
         tabRow.thickness = 0;
         tabRow.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
@@ -2511,10 +2911,10 @@ export class GameplayState implements GameState {
 
         const createTab = (name: string, cat: 'medieval' | 'elemental', leftPos: string) => {
             const tab = Button.CreateSimpleButton(`tab_${cat}`, name);
-            tab.width = '100px';
-            tab.height = '28px';
+            tab.width = isMobile ? '80px' : '100px';
+            tab.height = isMobile ? '22px' : '28px';
             tab.color = '#FFFFFF';
-            tab.fontSize = 12;
+            tab.fontSize = isMobile ? 10 : 12;
             tab.fontFamily = 'Arial';
             tab.fontWeight = this.activeTowerCategory === cat ? 'bold' : 'normal';
             tab.background = this.activeTowerCategory === cat ? '#4CAF50' : 'rgba(60, 65, 75, 0.8)';
@@ -2532,22 +2932,23 @@ export class GameplayState implements GameState {
             tabRow.addControl(tab);
         };
 
-        createTab('Medieval', 'medieval', '-58px');
-        createTab('Elemental', 'elemental', '58px');
+        createTab('Medieval', 'medieval', isMobile ? '-46px' : '-58px');
+        createTab('Elemental', 'elemental', isMobile ? '46px' : '58px');
 
         // Close button
+        const closeBtnSize = isMobile ? 22 : 26;
         const closeBtn = Button.CreateSimpleButton('closeBtn', 'x');
-        closeBtn.width = '26px';
-        closeBtn.height = '26px';
+        closeBtn.width = closeBtnSize + 'px';
+        closeBtn.height = closeBtnSize + 'px';
         closeBtn.color = '#FFFFFF';
         closeBtn.background = '#E53935';
-        closeBtn.cornerRadius = 13;
+        closeBtn.cornerRadius = closeBtnSize / 2;
         closeBtn.thickness = 0;
         closeBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         closeBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        closeBtn.top = '3px';
-        closeBtn.left = '-8px';
-        closeBtn.fontSize = 13;
+        closeBtn.top = '2px';
+        closeBtn.left = '-6px';
+        closeBtn.fontSize = isMobile ? 10 : 13;
         closeBtn.onPointerClickObservable.add(() => {
             this.hideTowerSelector();
             this.hideDetailPopup();
@@ -2555,15 +2956,7 @@ export class GameplayState implements GameState {
         });
         this.towerSelectorPanel.addControl(closeBtn);
 
-        // ---- Tower cards row ----
-        const cardRow = new StackPanel('cardRow');
-        cardRow.isVertical = false;
-        cardRow.height = isMobile ? '170px' : '200px';
-        cardRow.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        cardRow.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        cardRow.paddingBottom = '6px';
-        this.towerSelectorPanel.addControl(cardRow);
-
+        // ---- Tower cards ----
         const filteredTowers = TOWER_DATA.filter(t => t.category === this.activeTowerCategory);
         const playerMoney = this.playerStats ? this.playerStats.getMoney() : 0;
 
@@ -2572,82 +2965,122 @@ export class GameplayState implements GameState {
         const maxRng = Math.max(...TOWER_DATA.map(t => t.range));
         const maxSpd = Math.max(...TOWER_DATA.map(t => t.fireRate));
 
-        const cardWidth = isMobile ? 100 : 120;
-        const cardHeight = isMobile ? 150 : 175;
-        const previewSize = isMobile ? 56 : 68;
+        const cardWidth = isMobilePortrait ? 70 : (isMobile ? 80 : 120);
+        const cardHeight = isMobilePortrait ? 85 : (isMobile ? 125 : 175);
+        const previewSize = isMobilePortrait ? 32 : (isMobile ? 44 : 68);
 
-        filteredTowers.forEach((tower) => {
-            const canAfford = playerMoney >= tower.cost;
+        if (isMobilePortrait) {
+            // 2-column grid for portrait phones — fills width
+            const gridContainer = new Grid('cardGrid');
+            const cols = 2;
+            const rows = Math.ceil(filteredTowers.length / cols);
+            for (let c = 0; c < cols; c++) gridContainer.addColumnDefinition(1 / cols);
+            for (let r = 0; r < rows; r++) gridContainer.addRowDefinition(1 / rows);
+            gridContainer.width = '160px';
+            gridContainer.height = (panelHeightNum - tabHeight - 6) + 'px';
+            gridContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+            gridContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            gridContainer.paddingBottom = '4px';
+            this.towerSelectorPanel.addControl(gridContainer);
 
-            // Card container
-            const card = new Rectangle(`card_${tower.id}`);
-            card.width = cardWidth + 'px';
-            card.height = cardHeight + 'px';
-            card.background = PALETTE.UI_CARD_BG;
-            card.cornerRadius = 8;
-            card.thickness = 1;
-            card.color = PALETTE.UI_BORDER;
-            card.paddingLeft = '4px';
-            card.paddingRight = '4px';
-            card.alpha = canAfford ? 1.0 : 0.4;
-            card.isPointerBlocker = true;
+            filteredTowers.forEach((tower, idx) => {
+                const row = Math.floor(idx / cols);
+                const col = idx % cols;
+                const card = this.createTowerCard(tower, cardWidth, cardHeight, previewSize, isMobile, isMobilePortrait, playerMoney, maxDmg, maxRng, maxSpd, position);
+                gridContainer.addControl(card, row, col);
+            });
+        } else {
+            // Horizontal row (desktop and landscape mobile)
+            const cardRow = new StackPanel('cardRow');
+            cardRow.isVertical = false;
+            cardRow.height = isMobile ? '135px' : '200px';
+            cardRow.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+            cardRow.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            cardRow.paddingBottom = '4px';
+            this.towerSelectorPanel.addControl(cardRow);
 
-            // Color accent bar at top
-            const accent = new Rectangle(`accent_${tower.id}`);
-            accent.width = '100%';
-            accent.height = '4px';
-            accent.background = tower.color;
-            accent.thickness = 0;
-            accent.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-            card.addControl(accent);
+            filteredTowers.forEach((tower) => {
+                const card = this.createTowerCard(tower, cardWidth, cardHeight, previewSize, isMobile, false, playerMoney, maxDmg, maxRng, maxSpd, position);
+                cardRow.addControl(card);
+            });
+        }
+    }
 
-            // 3D Tower preview image
-            const previewUrl = this.towerPreviewRenderer?.getDataUrl(tower.id);
-            if (previewUrl) {
-                const previewImg = new Image(`preview_${tower.id}`, previewUrl);
-                previewImg.width = previewSize + 'px';
-                previewImg.height = previewSize + 'px';
-                previewImg.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-                previewImg.top = '8px';
-                card.addControl(previewImg);
-            } else {
-                // Fallback: colored circle
-                const fallback = new Rectangle(`preview_${tower.id}`);
-                fallback.width = (previewSize * 0.6) + 'px';
-                fallback.height = (previewSize * 0.6) + 'px';
-                fallback.cornerRadius = previewSize * 0.3;
-                fallback.background = tower.color;
-                fallback.thickness = 0;
-                fallback.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-                fallback.top = (8 + previewSize * 0.2) + 'px';
-                card.addControl(fallback);
-            }
+    private createTowerCard(
+        tower: TowerData, cardWidth: number, cardHeight: number, previewSize: number,
+        isMobile: boolean, isMobilePortrait: boolean, playerMoney: number,
+        maxDmg: number, maxRng: number, maxSpd: number, position: Vector3
+    ): Rectangle {
+        const canAfford = playerMoney >= tower.cost;
 
-            // Tower name
-            const nameTop = 8 + previewSize + 4;
-            const nameText = new TextBlock(`name_${tower.id}`, tower.name);
-            nameText.color = '#FFFFFF';
-            nameText.fontSize = isMobile ? 10 : 12;
-            nameText.fontFamily = 'Arial';
-            nameText.fontWeight = 'bold';
-            nameText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-            nameText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-            nameText.top = nameTop + 'px';
-            nameText.resizeToFit = true;
-            card.addControl(nameText);
+        const card = new Rectangle(`card_${tower.id}`);
+        card.width = cardWidth + 'px';
+        card.height = cardHeight + 'px';
+        card.background = PALETTE.UI_CARD_BG;
+        card.cornerRadius = 8;
+        card.thickness = 1;
+        card.color = PALETTE.UI_BORDER;
+        card.paddingLeft = '4px';
+        card.paddingRight = '4px';
+        card.alpha = canAfford ? 1.0 : 0.4;
+        card.isPointerBlocker = true;
 
-            // Cost
-            const costText = new TextBlock(`cost_${tower.id}`, `$${tower.cost}`);
-            costText.color = '#F5A623';
-            costText.fontSize = isMobile ? 10 : 12;
-            costText.fontFamily = 'Arial';
-            costText.fontWeight = 'bold';
-            costText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-            costText.top = (nameTop + 14) + 'px';
-            costText.resizeToFit = true;
-            card.addControl(costText);
+        // Color accent bar at top
+        const accent = new Rectangle(`accent_${tower.id}`);
+        accent.width = '100%';
+        accent.height = '4px';
+        accent.background = tower.color;
+        accent.thickness = 0;
+        accent.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        card.addControl(accent);
 
-            // Stat bars
+        // 3D Tower preview image
+        const previewUrl = this.towerPreviewRenderer?.getDataUrl(tower.id);
+        if (previewUrl) {
+            const previewImg = new Image(`preview_${tower.id}`, previewUrl);
+            previewImg.width = previewSize + 'px';
+            previewImg.height = previewSize + 'px';
+            previewImg.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            previewImg.top = '8px';
+            card.addControl(previewImg);
+        } else {
+            const fallback = new Rectangle(`preview_${tower.id}`);
+            fallback.width = (previewSize * 0.6) + 'px';
+            fallback.height = (previewSize * 0.6) + 'px';
+            fallback.cornerRadius = previewSize * 0.3;
+            fallback.background = tower.color;
+            fallback.thickness = 0;
+            fallback.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            fallback.top = (8 + previewSize * 0.2) + 'px';
+            card.addControl(fallback);
+        }
+
+        // Tower name
+        const nameTop = 8 + previewSize + 4;
+        const nameText = new TextBlock(`name_${tower.id}`, tower.name);
+        nameText.color = '#FFFFFF';
+        nameText.fontSize = isMobilePortrait ? 9 : (isMobile ? 10 : 12);
+        nameText.fontFamily = 'Arial';
+        nameText.fontWeight = 'bold';
+        nameText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        nameText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        nameText.top = nameTop + 'px';
+        nameText.resizeToFit = true;
+        card.addControl(nameText);
+
+        // Cost
+        const costText = new TextBlock(`cost_${tower.id}`, `$${tower.cost}`);
+        costText.color = '#F5A623';
+        costText.fontSize = isMobilePortrait ? 9 : (isMobile ? 10 : 12);
+        costText.fontFamily = 'Arial';
+        costText.fontWeight = 'bold';
+        costText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        costText.top = (nameTop + (isMobilePortrait ? 12 : 14)) + 'px';
+        costText.resizeToFit = true;
+        card.addControl(costText);
+
+        if (!isMobilePortrait) {
+            // Stat bars (skip on portrait to save space)
             const statsTop = nameTop + 28;
             const barHeight = isMobile ? 6 : 7;
             const barGap = isMobile ? 11 : 12;
@@ -2695,34 +3128,51 @@ export class GameplayState implements GameState {
             createStatBar('DMG', tower.damage, maxDmg, '#E53935', statsTop);
             createStatBar('RNG', tower.range, maxRng, '#2196F3', statsTop + barGap);
             createStatBar('SPD', tower.fireRate, maxSpd, '#4CAF50', statsTop + barGap * 2);
+        }
 
-            // Element badge for elemental towers
-            if (tower.category === 'elemental') {
-                const badge = new Rectangle(`badge_${tower.id}`);
-                badge.width = '40px';
-                badge.height = '14px';
-                badge.background = tower.color;
-                badge.cornerRadius = 7;
-                badge.thickness = 0;
-                badge.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-                badge.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-                badge.top = '-4px';
-                card.addControl(badge);
+        // On mobile, show inline description text instead of hover popup
+        if (isMobile && !isMobilePortrait) {
+            const descText = new TextBlock(`desc_${tower.id}`, tower.description);
+            descText.color = '#888';
+            descText.fontSize = 7;
+            descText.fontFamily = 'Arial';
+            descText.textWrapping = true;
+            descText.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+            descText.top = '-3px';
+            descText.height = '18px';
+            descText.paddingLeft = '4px';
+            descText.paddingRight = '4px';
+            card.addControl(descText);
+        }
 
-                const badgeText = new TextBlock(`badgeTxt_${tower.id}`, tower.element.toUpperCase());
-                badgeText.color = '#FFFFFF';
-                badgeText.fontSize = 8;
-                badgeText.fontFamily = 'Arial';
-                badgeText.fontWeight = 'bold';
-                badge.addControl(badgeText);
-            }
+        // Element badge for elemental towers
+        if (tower.category === 'elemental') {
+            const badge = new Rectangle(`badge_${tower.id}`);
+            badge.width = isMobilePortrait ? '34px' : '40px';
+            badge.height = isMobilePortrait ? '12px' : '14px';
+            badge.background = tower.color;
+            badge.cornerRadius = 7;
+            badge.thickness = 0;
+            badge.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+            badge.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            badge.top = isMobile ? '-2px' : '-4px';
+            card.addControl(badge);
 
-            // Hover: glow border with tower color, lighten background
+            const badgeText = new TextBlock(`badgeTxt_${tower.id}`, tower.element.toUpperCase());
+            badgeText.color = '#FFFFFF';
+            badgeText.fontSize = isMobilePortrait ? 7 : 8;
+            badgeText.fontFamily = 'Arial';
+            badgeText.fontWeight = 'bold';
+            badge.addControl(badgeText);
+        }
+
+        // Desktop only: hover popup
+        if (!isMobile) {
             card.onPointerEnterObservable.add(() => {
                 card.color = tower.color;
                 card.thickness = 2;
                 card.background = PALETTE.UI_CARD_HOVER;
-                this.showDetailPopup(tower, isMobile);
+                this.showDetailPopup(tower, false);
             });
 
             card.onPointerOutObservable.add(() => {
@@ -2731,22 +3181,22 @@ export class GameplayState implements GameState {
                 card.background = PALETTE.UI_CARD_BG;
                 this.hideDetailPopup();
             });
+        }
 
-            // Click: place tower
-            card.onPointerClickObservable.add(() => {
-                if (!canAfford) {
-                    this.shakeElement(card);
-                    return;
-                }
-                this.selectedTowerType = tower.id;
-                this.hideTowerSelector();
-                this.hideDetailPopup();
-                this.placeTowerAtPosition(position);
-                this.hidePlacementOutline();
-            });
-
-            cardRow.addControl(card);
+        // Click: place tower
+        card.onPointerClickObservable.add(() => {
+            if (!canAfford) {
+                this.shakeElement(card);
+                return;
+            }
+            this.selectedTowerType = tower.id;
+            this.hideTowerSelector();
+            this.hideDetailPopup();
+            this.placeTowerAtPosition(position);
+            this.hidePlacementOutline();
         });
+
+        return card;
     }
 
     private showDetailPopup(tower: TowerData, isMobile: boolean): void {
