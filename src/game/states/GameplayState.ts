@@ -11,6 +11,8 @@ import { Tower, ElementType } from '../gameplay/towers/Tower';
 import { WaveStatus } from '../gameplay/WaveStatus';
 import { DamageNumberManager } from '../gameplay/DamageNumberManager';
 import { LevelManager } from '../gameplay/LevelManager';
+import { TowerPreviewRenderer } from '../ui/TowerPreviewRenderer';
+import { PALETTE } from '../rendering/StyleConstants';
 
 // ==================== TOWER DATA ====================
 
@@ -83,6 +85,7 @@ export class GameplayState implements GameState {
     private levelManager: LevelManager | null = null;
     private levelTransitioning: boolean = false;
     private levelTransitionOverlay: Rectangle | null = null;
+    private towerPreviewRenderer: TowerPreviewRenderer | null = null;
 
     constructor(game: Game) {
         this.game = game;
@@ -167,11 +170,16 @@ export class GameplayState implements GameState {
         // Set up segment completion callback
         this.waveManager.setOnSegmentComplete(() => this.extendMap());
 
-        // Create UI
-        this.createUI();
-
-        // Setup input handling
-        this.setupInputHandling();
+        // Generate tower preview images then build UI
+        this.towerPreviewRenderer = new TowerPreviewRenderer(this.game);
+        this.towerPreviewRenderer.generateAll().then(() => {
+            this.createUI();
+            this.setupInputHandling();
+        }).catch(() => {
+            // Fallback: build UI without previews
+            this.createUI();
+            this.setupInputHandling();
+        });
 
         // Initialize damage number manager
         this.damageNumberManager = new DamageNumberManager(this.game);
@@ -249,6 +257,7 @@ export class GameplayState implements GameState {
         this.levelTransitioning = false;
         this.confirmationButtons.container = null;
         this.confirmationButtons.position = null;
+        this.towerPreviewRenderer = null;
     }
 
     public update(deltaTime: number): void {
@@ -366,340 +375,269 @@ export class GameplayState implements GameState {
             this.ui.renderScale = 1.5;
         }
 
-        // --- Stats panel (top-left): Dark rounded panel ---
-        const statsPanel = new Rectangle('statsContainer');
-        statsPanel.width = '200px';
-        statsPanel.height = '180px';
-        statsPanel.background = 'rgba(28, 32, 40, 0.88)';
-        statsPanel.cornerRadius = 12;
-        statsPanel.thickness = 1;
-        statsPanel.color = '#3A3F4B';
-        statsPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        statsPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        statsPanel.left = '10px';
-        statsPanel.top = '10px';
-        this.ui.addControl(statsPanel);
+        // ====== STATS BAR (top-left): compact horizontal bar ======
+        const statsBar = new Rectangle('statsContainer');
+        statsBar.width = isMobile ? '320px' : '400px';
+        statsBar.height = '44px';
+        statsBar.background = PALETTE.UI_PANEL_BG;
+        statsBar.cornerRadius = 16;
+        statsBar.thickness = 1;
+        statsBar.color = PALETTE.UI_BORDER;
+        statsBar.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        statsBar.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        statsBar.left = '10px';
+        statsBar.top = '10px';
+        statsBar.shadowColor = 'rgba(0,0,0,0.3)';
+        statsBar.shadowBlur = 8;
+        statsBar.shadowOffsetY = 2;
+        this.ui.addControl(statsBar);
 
-        // Health row: red dot + number
-        const healthContainer = new Rectangle('healthContainer');
-        healthContainer.width = '180px';
-        healthContainer.height = '34px';
-        healthContainer.background = 'transparent';
-        healthContainer.thickness = 0;
-        healthContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        healthContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        healthContainer.top = '10px';
-        healthContainer.left = '10px';
-        statsPanel.addControl(healthContainer);
+        // Helper: each stat lives in its own fixed-width container so text never overlaps
+        const createStatGroup = (
+            circleColor: string, label: string, valueName: string,
+            defaultValue: string, leftPos: number, groupWidth: number
+        ) => {
+            // Container that clips its contents
+            const group = new Rectangle(`${valueName}Group`);
+            group.width = groupWidth + 'px';
+            group.height = '36px';
+            group.thickness = 0;
+            group.background = 'transparent';
+            group.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            group.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+            group.left = leftPos + 'px';
+            statsBar.addControl(group);
 
-        const healthDot = new Rectangle('healthDot');
-        healthDot.width = '12px';
-        healthDot.height = '12px';
-        healthDot.cornerRadius = 6;
-        healthDot.background = '#E53935';
-        healthDot.thickness = 0;
-        healthDot.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        healthDot.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-        healthDot.left = '0px';
-        healthContainer.addControl(healthDot);
+            // Icon circle
+            const circle = new Rectangle(`${valueName}Dot`);
+            circle.width = '26px';
+            circle.height = '26px';
+            circle.cornerRadius = 13;
+            circle.background = circleColor;
+            circle.thickness = 0;
+            circle.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            circle.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+            circle.left = '0px';
+            group.addControl(circle);
 
-        const healthText = new TextBlock('healthText');
-        healthText.text = '100';
-        healthText.color = '#FFFFFF';
-        healthText.fontSize = 20;
-        healthText.fontFamily = 'Arial';
-        healthText.fontWeight = 'bold';
-        healthText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        healthText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        healthText.left = '20px';
-        healthContainer.addControl(healthText);
+            const circleLabel = new TextBlock(`${valueName}Label`, label);
+            circleLabel.color = '#FFFFFF';
+            circleLabel.fontSize = 9;
+            circleLabel.fontFamily = 'Arial';
+            circleLabel.fontWeight = 'bold';
+            circle.addControl(circleLabel);
 
-        // Gold row: gold dot + number
-        const moneyContainer = new Rectangle('moneyContainer');
-        moneyContainer.width = '180px';
-        moneyContainer.height = '34px';
-        moneyContainer.background = 'transparent';
-        moneyContainer.thickness = 0;
-        moneyContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        moneyContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        moneyContainer.top = '44px';
-        moneyContainer.left = '10px';
-        statsPanel.addControl(moneyContainer);
+            // Value text — constrained to remaining width inside group
+            const valueText = new TextBlock(valueName);
+            valueText.text = defaultValue;
+            valueText.color = '#FFFFFF';
+            valueText.fontSize = 14;
+            valueText.fontFamily = 'Arial';
+            valueText.fontWeight = 'bold';
+            valueText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            valueText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            valueText.left = '30px';
+            valueText.width = (groupWidth - 34) + 'px';
+            valueText.resizeToFit = true;
+            group.addControl(valueText);
+        };
 
-        const moneyDot = new Rectangle('moneyDot');
-        moneyDot.width = '12px';
-        moneyDot.height = '12px';
-        moneyDot.cornerRadius = 6;
-        moneyDot.background = '#F5A623';
-        moneyDot.thickness = 0;
-        moneyDot.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        moneyDot.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-        moneyDot.left = '0px';
-        moneyContainer.addControl(moneyDot);
+        // Stat groups with explicit widths — HP short, $ medium, Wave long
+        const hpWidth = isMobile ? 70 : 80;
+        const goldWidth = isMobile ? 80 : 90;
+        const waveWidth = isMobile ? 130 : 160;
 
-        const moneyText = new TextBlock('moneyText');
-        moneyText.text = '200';
-        moneyText.color = '#FFFFFF';
-        moneyText.fontSize = 20;
-        moneyText.fontFamily = 'Arial';
-        moneyText.fontWeight = 'bold';
-        moneyText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        moneyText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        moneyText.left = '20px';
-        moneyContainer.addControl(moneyText);
+        createStatGroup('#E53935', 'HP', 'healthText', '100', 8, hpWidth);
+        createStatGroup('#F5A623', '$', 'moneyText', '200', 8 + hpWidth + 4, goldWidth);
+        createStatGroup('#42A5F5', 'W', 'waveText', 'S1-1/10', 8 + hpWidth + 4 + goldWidth + 4, waveWidth);
 
-        // Wave row: blue dot + number
-        const waveContainer = new Rectangle('waveContainer');
-        waveContainer.width = '180px';
-        waveContainer.height = '34px';
-        waveContainer.background = 'transparent';
-        waveContainer.thickness = 0;
-        waveContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        waveContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        waveContainer.top = '78px';
-        waveContainer.left = '10px';
-        statsPanel.addControl(waveContainer);
+        // Rename the health circle to 'healthDot' for updateUI compat
+        // The dot is nested inside the group container, so search recursively via the UI texture
+        const hGroup = statsBar.getChildByName('healthTextGroup') as Rectangle;
+        if (hGroup) {
+            const hDot = hGroup.getChildByName('healthTextDot');
+            if (hDot) hDot.name = 'healthDot';
+        }
 
-        const waveDot = new Rectangle('waveDot');
-        waveDot.width = '12px';
-        waveDot.height = '12px';
-        waveDot.cornerRadius = 6;
-        waveDot.background = '#42A5F5';
-        waveDot.thickness = 0;
-        waveDot.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        waveDot.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-        waveDot.left = '0px';
-        waveContainer.addControl(waveDot);
-
-        const waveText = new TextBlock('waveText');
-        waveText.text = '1';
-        waveText.color = '#FFFFFF';
-        waveText.fontSize = 20;
-        waveText.fontFamily = 'Arial';
-        waveText.fontWeight = 'bold';
-        waveText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        waveText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        waveText.left = '20px';
-        waveContainer.addControl(waveText);
-
-        // Kill row: text label + number
-        const killContainer = new Rectangle('killContainer');
-        killContainer.width = '180px';
-        killContainer.height = '34px';
-        killContainer.background = 'transparent';
-        killContainer.thickness = 0;
-        killContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        killContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        killContainer.top = '112px';
-        killContainer.left = '10px';
-        statsPanel.addControl(killContainer);
-
-        const killLabel = new TextBlock('killLabel');
-        killLabel.text = 'Kills';
-        killLabel.color = '#B0B8C8';
-        killLabel.fontSize = 14;
-        killLabel.fontFamily = 'Arial';
-        killLabel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        killLabel.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        killLabel.left = '0px';
-        killContainer.addControl(killLabel);
-
+        // Kill text (small, right-aligned in remaining space)
         const killText = new TextBlock('killText');
         killText.text = '0';
-        killText.color = '#FFFFFF';
-        killText.fontSize = 20;
+        killText.color = '#B0B8C8';
+        killText.fontSize = 11;
         killText.fontFamily = 'Arial';
-        killText.fontWeight = 'bold';
-        killText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        killText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        killText.left = '45px';
-        killContainer.addControl(killText);
+        killText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        killText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        killText.left = '-10px';
+        killText.width = '40px';
+        statsBar.addControl(killText);
 
-        // --- Wave info section below stats panel ---
-        const waveInfoContainer = new Rectangle('waveInfoContainer');
-        waveInfoContainer.width = '200px';
-        waveInfoContainer.height = '60px';
-        waveInfoContainer.background = 'rgba(28, 32, 40, 0.88)';
-        waveInfoContainer.cornerRadius = 12;
-        waveInfoContainer.thickness = 1;
-        waveInfoContainer.color = '#3A3F4B';
-        waveInfoContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        waveInfoContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        waveInfoContainer.left = '10px';
-        waveInfoContainer.top = '200px';
-        this.ui.addControl(waveInfoContainer);
+        // Fade-in animation for stats bar
+        statsBar.alpha = 0;
+        let fadeIn = 0;
+        const fadeObs = this.scene!.onBeforeRenderObservable.add(() => {
+            fadeIn += 0.05;
+            statsBar.alpha = Math.min(1, fadeIn);
+            if (fadeIn >= 1) this.scene?.onBeforeRenderObservable.remove(fadeObs);
+        });
+
+        // ====== WAVE INFO BAR (below stats bar) ======
+        const waveInfoBar = new Rectangle('waveInfoContainer');
+        waveInfoBar.width = isMobile ? '320px' : '400px';
+        waveInfoBar.height = '28px';
+        waveInfoBar.background = PALETTE.UI_PANEL_BG;
+        waveInfoBar.cornerRadius = 10;
+        waveInfoBar.thickness = 1;
+        waveInfoBar.color = PALETTE.UI_BORDER;
+        waveInfoBar.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        waveInfoBar.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        waveInfoBar.left = '10px';
+        waveInfoBar.top = '58px';
+        this.ui.addControl(waveInfoBar);
 
         const countdownText = new TextBlock('countdownText');
         countdownText.text = '';
         countdownText.color = '#F5A623';
-        countdownText.fontSize = 16;
+        countdownText.fontSize = 12;
         countdownText.fontFamily = 'Arial';
         countdownText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        countdownText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         countdownText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        countdownText.left = '12px';
-        countdownText.top = '8px';
-        waveInfoContainer.addControl(countdownText);
+        countdownText.left = '10px';
+        waveInfoBar.addControl(countdownText);
 
         const enemiesText = new TextBlock('enemiesText');
         enemiesText.text = '';
         enemiesText.color = '#B0B8C8';
-        enemiesText.fontSize = 16;
+        enemiesText.fontSize = 12;
         enemiesText.fontFamily = 'Arial';
-        enemiesText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        enemiesText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        enemiesText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        enemiesText.left = '12px';
-        enemiesText.top = '32px';
-        waveInfoContainer.addControl(enemiesText);
+        enemiesText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        enemiesText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        enemiesText.left = '-10px';
+        waveInfoBar.addControl(enemiesText);
 
-        // --- Controls panel (top-right): dark panel with text buttons ---
-        const controlsPanel = new Rectangle('controlsPanel');
-        controlsPanel.width = '160px';
-        controlsPanel.height = '50px';
-        controlsPanel.background = 'rgba(28, 32, 40, 0.88)';
-        controlsPanel.cornerRadius = 12;
-        controlsPanel.thickness = 1;
-        controlsPanel.color = '#3A3F4B';
-        controlsPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        controlsPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        controlsPanel.top = '10px';
-        controlsPanel.left = '-10px';
-        this.ui.addControl(controlsPanel);
+        // ====== CONTROLS STRIP (top-right): vertical stack ======
+        const controlStrip = new Rectangle('controlsPanel');
+        controlStrip.width = '52px';
+        controlStrip.height = '220px';
+        controlStrip.background = PALETTE.UI_PANEL_BG;
+        controlStrip.cornerRadius = 16;
+        controlStrip.thickness = 1;
+        controlStrip.color = PALETTE.UI_BORDER;
+        controlStrip.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        controlStrip.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        controlStrip.top = '10px';
+        controlStrip.left = '-10px';
+        controlStrip.shadowColor = 'rgba(0,0,0,0.3)';
+        controlStrip.shadowBlur = 8;
+        controlStrip.shadowOffsetY = 2;
+        this.ui.addControl(controlStrip);
 
-        // Pause button - text "II" instead of emoji
+        // Pause button
         const pauseButton = Button.CreateSimpleButton('pauseButton', 'II');
         pauseButton.width = '40px';
-        pauseButton.height = '36px';
+        pauseButton.height = '40px';
         pauseButton.color = '#FFFFFF';
         pauseButton.background = '#2196F3';
-        pauseButton.cornerRadius = 18;
+        pauseButton.cornerRadius = 20;
         pauseButton.thickness = 0;
         pauseButton.fontFamily = 'Arial';
         pauseButton.fontSize = 16;
         pauseButton.fontWeight = 'bold';
-        pauseButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        pauseButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-        pauseButton.left = '8px';
+        pauseButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        pauseButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        pauseButton.top = '8px';
         pauseButton.zIndex = 100;
 
-        pauseButton.onPointerEnterObservable.add(() => {
-            pauseButton.background = '#42A5F5';
-        });
+        pauseButton.onPointerEnterObservable.add(() => { pauseButton.background = '#42A5F5'; });
         pauseButton.onPointerOutObservable.add(() => {
-            const isPaused = this.game.getIsPaused();
-            pauseButton.background = isPaused ? '#4CAF50' : '#2196F3';
+            pauseButton.background = this.game.getIsPaused() ? '#4CAF50' : '#2196F3';
         });
-        pauseButton.onPointerClickObservable.add(() => {
-            this.game.togglePause();
-        });
-        controlsPanel.addControl(pauseButton);
-
-        // Register button to update its state when the game pauses/resumes
+        pauseButton.onPointerClickObservable.add(() => { this.game.togglePause(); });
+        controlStrip.addControl(pauseButton);
         this.registerPauseButtonUpdate(pauseButton);
 
-        // Next wave button - text ">" instead of emoji
+        // Next wave button
         const waveButton = Button.CreateSimpleButton('waveButton', '>');
         waveButton.width = '40px';
-        waveButton.height = '36px';
+        waveButton.height = '40px';
         waveButton.color = '#FFFFFF';
         waveButton.background = '#E53935';
-        waveButton.cornerRadius = 18;
+        waveButton.cornerRadius = 20;
         waveButton.thickness = 0;
         waveButton.fontFamily = 'Arial';
         waveButton.fontSize = 18;
         waveButton.fontWeight = 'bold';
         waveButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        waveButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        waveButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        waveButton.top = '56px';
         waveButton.zIndex = 100;
 
-        waveButton.onPointerEnterObservable.add(() => {
-            waveButton.background = '#EF5350';
-        });
-        waveButton.onPointerOutObservable.add(() => {
-            waveButton.background = '#E53935';
-        });
+        waveButton.onPointerEnterObservable.add(() => { waveButton.background = '#EF5350'; });
+        waveButton.onPointerOutObservable.add(() => { waveButton.background = '#E53935'; });
 
         waveButton.onPointerUpObservable.add(() => {
             if (this.waveManager) {
                 if (this.waveManager.isWaveInProgress()) {
                     const currentWave = this.waveManager.getCurrentWave();
                     const enemies = [];
-
                     enemies.push({ type: 'basic', count: 5 + Math.floor(currentWave / 2), delay: 1.0 });
-
                     if (currentWave > 2) {
                         enemies.push({ type: 'fast', count: 3 + Math.floor((currentWave - 2) / 2), delay: 0.8 });
                     }
-
                     if (currentWave > 4) {
                         enemies.push({ type: 'tank', count: 1 + Math.floor((currentWave - 4) / 3), delay: 2.0 });
                     }
-
                     if (currentWave % 10 === 0 && currentWave > 0) {
                         enemies.push({ type: 'boss', count: 1, delay: 0 });
                     }
-
                     const reward = 25 + currentWave * 10;
-
                     this.waveManager.incrementWaveCounter();
-
                     this.waveManager.createParallelWave(enemies, reward);
-
-                    console.log(`Created parallel wave with ${enemies.length} enemy types as wave ${this.waveManager.getCurrentWave()}`);
                 } else {
                     this.waveManager.startNextWave();
                 }
             }
         });
-        controlsPanel.addControl(waveButton);
-
-        // Register wave button to update its state
+        controlStrip.addControl(waveButton);
         this.registerWaveButtonUpdate(waveButton);
 
-        // === Speed Control Buttons ===
-        const speedPanel = new Rectangle('speedPanel');
-        speedPanel.width = '140px';
-        speedPanel.height = '40px';
-        speedPanel.background = 'rgba(28, 32, 40, 0.88)';
-        speedPanel.cornerRadius = 12;
-        speedPanel.thickness = 1;
-        speedPanel.color = '#3A3F4B';
-        speedPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        speedPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        speedPanel.top = '70px';
-        speedPanel.left = '-10px';
-        this.ui.addControl(speedPanel);
+        // Separator line
+        const separator = new Rectangle('controlsSep');
+        separator.width = '32px';
+        separator.height = '1px';
+        separator.background = 'rgba(80,90,110,0.4)';
+        separator.thickness = 0;
+        separator.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        separator.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        separator.top = '104px';
+        controlStrip.addControl(separator);
 
+        // Speed buttons
         const speeds = [1, 2, 3];
         speeds.forEach((speed, index) => {
             const speedBtn = Button.CreateSimpleButton(`speed${speed}Btn`, `${speed}x`);
-            speedBtn.width = '38px';
-            speedBtn.height = '30px';
+            speedBtn.width = '36px';
+            speedBtn.height = '36px';
             speedBtn.color = '#FFFFFF';
             speedBtn.background = speed === 1 ? '#4CAF50' : '#3A3F4B';
-            speedBtn.cornerRadius = 15;
+            speedBtn.cornerRadius = 18;
             speedBtn.thickness = 0;
-            speedBtn.fontSize = 14;
+            speedBtn.fontSize = 13;
             speedBtn.fontFamily = 'Arial';
             speedBtn.fontWeight = 'bold';
-            speedBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            speedBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-            speedBtn.left = `${8 + index * 44}px`;
+            speedBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            speedBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            speedBtn.top = (112 + index * 36) + 'px';
             speedBtn.zIndex = 100;
 
             speedBtn.onPointerUpObservable.add(() => {
                 this.game.setTimeScale(speed);
-                // Update all speed button colors
                 speeds.forEach(s => {
                     const btn = this.ui?.getControlByName(`speed${s}Btn`) as Button;
-                    if (btn) {
-                        btn.background = s === speed ? '#4CAF50' : '#3A3F4B';
-                    }
+                    if (btn) btn.background = s === speed ? '#4CAF50' : '#3A3F4B';
                 });
             });
 
-            speedPanel.addControl(speedBtn);
+            controlStrip.addControl(speedBtn);
         });
     }
 
@@ -811,17 +749,10 @@ export class GameplayState implements GameState {
         // Update money display (number only)
         moneyText.text = `${this.playerStats.getMoney()}`;
 
-        // Update wave display: Segment # — Wave #/10
+        // Update wave display: compact "S1-3/10"
         const segmentNum = this.waveManager.getSegmentIndex() + 1;
         const segmentWave = this.waveManager.getSegmentWave();
-        const absoluteWave = this.waveManager.getAbsoluteWave();
-        let waveDisplay = `S${segmentNum} - ${segmentWave}/10`;
-
-        // Show the effective difficulty
-        const difficulty = this.waveManager.getDifficultyMultiplier().toFixed(1);
-        waveDisplay += ` (x${difficulty})`;
-
-        waveText.text = waveDisplay;
+        waveText.text = `S${segmentNum}-${segmentWave}/10`;
 
         // Update wave countdown timer
         if (countdownText) {
@@ -840,13 +771,14 @@ export class GameplayState implements GameState {
             }
         }
 
-        // Update enemies remaining
+        // Update enemies remaining / difficulty
         if (enemiesText) {
             if (this.waveManager.isWaveInProgress() && this.enemyManager) {
                 const remaining = this.waveManager.getRemainingEnemiesInWave();
                 enemiesText.text = `Enemies: ${remaining}`;
             } else {
-                enemiesText.text = '';
+                const diff = this.waveManager.getDifficultyMultiplier().toFixed(1);
+                enemiesText.text = `x${diff}`;
             }
         }
 
@@ -1613,100 +1545,176 @@ export class GameplayState implements GameState {
         if (!this.ui || !this.selectedTower) return;
 
         if (!this.towerInfoPanel) {
-            // Clean dark panel for tower info
             this.towerInfoPanel = new Rectangle('towerInfoPanel');
-            this.towerInfoPanel.width = "260px";
-            this.towerInfoPanel.height = "260px";
-            this.towerInfoPanel.cornerRadius = 12;
-            this.towerInfoPanel.color = '#3A3F4B';
+            this.towerInfoPanel.width = "280px";
+            this.towerInfoPanel.height = "310px";
+            this.towerInfoPanel.cornerRadius = 14;
+            this.towerInfoPanel.color = PALETTE.UI_BORDER;
             this.towerInfoPanel.thickness = 1;
-            this.towerInfoPanel.background = 'rgba(28, 32, 40, 0.95)';
+            this.towerInfoPanel.background = PALETTE.UI_PANEL_SOLID;
             this.towerInfoPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
             this.towerInfoPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-            this.towerInfoPanel.top = "-160px";
+            this.towerInfoPanel.top = "-100px";
             this.towerInfoPanel.left = "-10px";
             this.towerInfoPanel.shadowColor = "rgba(0, 0, 0, 0.5)";
-            this.towerInfoPanel.shadowBlur = 10;
-            this.towerInfoPanel.shadowOffsetY = 3;
+            this.towerInfoPanel.shadowBlur = 12;
+            this.towerInfoPanel.shadowOffsetY = 4;
             this.ui.addControl(this.towerInfoPanel);
 
-            // Header text
-            const titleBlock = new TextBlock('towerInfoTitle', 'Tower Info');
-            titleBlock.color = '#F5A623';
-            titleBlock.fontSize = 18;
-            titleBlock.fontWeight = 'bold';
-            titleBlock.fontFamily = 'Arial';
-            titleBlock.height = "30px";
-            titleBlock.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-            titleBlock.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-            titleBlock.top = "12px";
-            this.towerInfoPanel.addControl(titleBlock);
+            // Slide-in from right
+            let slideX = 290;
+            this.towerInfoPanel.left = (slideX - 10) + 'px';
+            const slideObs = this.scene!.onBeforeRenderObservable.add(() => {
+                slideX *= 0.78;
+                if (slideX < 1) {
+                    slideX = 0;
+                    this.scene?.onBeforeRenderObservable.remove(slideObs);
+                }
+                if (this.towerInfoPanel) this.towerInfoPanel.left = (-10 + slideX) + 'px';
+            });
 
-            // Stats grid with text labels (no emoji)
-            const statsGrid = new Grid('statsGrid');
-            statsGrid.addColumnDefinition(0.45); // Labels
-            statsGrid.addColumnDefinition(0.55); // Values
-            statsGrid.addRowDefinition(0.2); // Type
-            statsGrid.addRowDefinition(0.2); // Level
-            statsGrid.addRowDefinition(0.2); // Damage
-            statsGrid.addRowDefinition(0.2); // Range
-            statsGrid.addRowDefinition(0.2); // Rate
-            statsGrid.width = "90%";
-            statsGrid.height = "120px";
-            statsGrid.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-            statsGrid.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-            statsGrid.top = "48px";
-            this.towerInfoPanel.addControl(statsGrid);
+            // ---- TOP SECTION: Preview + Name + Level dots ----
+            // Tower preview image (72x72)
+            const previewContainer = new Rectangle('towerInfoPreview');
+            previewContainer.width = '72px';
+            previewContainer.height = '72px';
+            previewContainer.cornerRadius = 10;
+            previewContainer.background = 'rgba(40, 44, 52, 0.8)';
+            previewContainer.thickness = 1;
+            previewContainer.color = 'rgba(80, 90, 110, 0.3)';
+            previewContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            previewContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            previewContainer.top = '14px';
+            previewContainer.left = '14px';
+            this.towerInfoPanel.addControl(previewContainer);
 
-            // Labels with text only
-            const createLabel = (text: string, row: number) => {
-                const label = new TextBlock(`${text}Label`, text + ":");
-                label.color = '#B0B8C8';
-                label.fontSize = 14;
-                label.fontFamily = 'Arial';
-                label.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-                label.paddingRight = "10px";
-                statsGrid.addControl(label, row, 0);
-                return label;
-            };
+            // Tower name (to the right of preview)
+            this.towerTypeText = new TextBlock('typeValue', '-');
+            this.towerTypeText.color = '#FFFFFF';
+            this.towerTypeText.fontSize = 18;
+            this.towerTypeText.fontFamily = 'Arial';
+            this.towerTypeText.fontWeight = 'bold';
+            this.towerTypeText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            this.towerTypeText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            this.towerTypeText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            this.towerTypeText.top = '16px';
+            this.towerTypeText.left = '96px';
+            this.towerTypeText.width = '170px';
+            this.towerTypeText.resizeToFit = true;
+            this.towerInfoPanel.addControl(this.towerTypeText);
 
-            createLabel("Type", 0);
-            createLabel("Level", 1);
-            createLabel("Damage", 2);
-            createLabel("Range", 3);
-            createLabel("Fire Rate", 4);
+            // Level text (used for data, hidden)
+            this.towerLevelText = new TextBlock('levelValue', '1');
+            this.towerLevelText.color = 'transparent';
+            this.towerLevelText.fontSize = 1;
+            this.towerLevelText.width = '0px';
+            this.towerLevelText.height = '0px';
+            this.towerInfoPanel.addControl(this.towerLevelText);
 
-            // Value fields
-            const createValue = (id: string, row: number) => {
-                const value = new TextBlock(id, "-");
-                value.color = '#FFFFFF';
-                value.fontSize = 14;
-                value.fontFamily = 'Arial';
-                value.fontWeight = 'bold';
-                value.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-                statsGrid.addControl(value, row, 1);
-                return value;
-            };
+            // Level dots container
+            const levelDotsContainer = new Rectangle('levelDots');
+            levelDotsContainer.width = '80px';
+            levelDotsContainer.height = '16px';
+            levelDotsContainer.thickness = 0;
+            levelDotsContainer.background = 'transparent';
+            levelDotsContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            levelDotsContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            levelDotsContainer.top = '40px';
+            levelDotsContainer.left = '96px';
+            this.towerInfoPanel.addControl(levelDotsContainer);
 
-            this.towerTypeText = createValue("typeValue", 0);
-            this.towerLevelText = createValue("levelValue", 1);
-            this.towerDamageText = createValue("damageValue", 2);
-            this.towerRangeText = createValue("rangeValue", 3);
-            this.towerRateText = createValue("rateValue", 4);
+            for (let i = 0; i < 3; i++) {
+                const dot = new Rectangle(`levelDot_${i}`);
+                dot.width = '12px';
+                dot.height = '12px';
+                dot.cornerRadius = 6;
+                dot.background = 'rgba(80, 90, 110, 0.4)';
+                dot.thickness = 0;
+                dot.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+                dot.left = (i * 18) + 'px';
+                levelDotsContainer.addControl(dot);
+            }
+
+            // Level label
+            const levelLabel = new TextBlock('levelLabel', 'LVL');
+            levelLabel.color = '#B0B8C8';
+            levelLabel.fontSize = 10;
+            levelLabel.fontFamily = 'Arial';
+            levelLabel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            levelLabel.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            levelLabel.left = '60px';
+            levelDotsContainer.addControl(levelLabel);
 
             // Divider
-            const divider = new Rectangle('divider');
-            divider.width = "90%";
-            divider.height = "1px";
-            divider.background = '#3A3F4B';
-            divider.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-            divider.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-            divider.top = "178px";
-            this.towerInfoPanel.addControl(divider);
+            const divider1 = new Rectangle('divider1');
+            divider1.width = '90%';
+            divider1.height = '1px';
+            divider1.background = 'rgba(80, 90, 110, 0.3)';
+            divider1.thickness = 0;
+            divider1.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            divider1.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            divider1.top = '96px';
+            this.towerInfoPanel.addControl(divider1);
 
-            // Sell button - pill shape
+            // ---- STATS SECTION: 2x2 compact grid ----
+            const statsGrid = new Grid('statsGrid');
+            statsGrid.addColumnDefinition(0.5);
+            statsGrid.addColumnDefinition(0.5);
+            statsGrid.addRowDefinition(0.5);
+            statsGrid.addRowDefinition(0.5);
+            statsGrid.width = '90%';
+            statsGrid.height = '90px';
+            statsGrid.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            statsGrid.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            statsGrid.top = '104px';
+            this.towerInfoPanel.addControl(statsGrid);
+
+            const createStatCell = (label: string, valueId: string, row: number, col: number): TextBlock => {
+                const container = new Rectangle(`stat_${valueId}`);
+                container.thickness = 0;
+                container.background = 'transparent';
+                statsGrid.addControl(container, row, col);
+
+                const lbl = new TextBlock(`${valueId}_lbl`, label);
+                lbl.color = '#B0B8C8';
+                lbl.fontSize = 10;
+                lbl.fontFamily = 'Arial';
+                lbl.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+                lbl.top = '2px';
+                container.addControl(lbl);
+
+                const val = new TextBlock(valueId, '-');
+                val.color = '#FFFFFF';
+                val.fontSize = 16;
+                val.fontFamily = 'Arial';
+                val.fontWeight = 'bold';
+                val.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+                val.top = '-2px';
+                container.addControl(val);
+
+                return val;
+            };
+
+            this.towerDamageText = createStatCell('DMG', 'damageValue', 0, 0);
+            this.towerRangeText = createStatCell('RNG', 'rangeValue', 0, 1);
+            this.towerRateText = createStatCell('RATE', 'rateValue', 1, 0);
+            // Sell value display
+            createStatCell('SELL', 'sellDisplayValue', 1, 1);
+
+            // Divider 2
+            const divider2 = new Rectangle('divider2');
+            divider2.width = '90%';
+            divider2.height = '1px';
+            divider2.background = 'rgba(80, 90, 110, 0.3)';
+            divider2.thickness = 0;
+            divider2.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            divider2.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            divider2.top = '202px';
+            this.towerInfoPanel.addControl(divider2);
+
+            // ---- BUTTONS: Sell + Upgrade ----
             this.sellButton = new Rectangle('sellButton');
-            this.sellButton.width = "110px";
+            this.sellButton.width = "115px";
             this.sellButton.height = "44px";
             this.sellButton.cornerRadius = 22;
             this.sellButton.color = 'transparent';
@@ -1715,7 +1723,7 @@ export class GameplayState implements GameState {
             this.sellButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
             this.sellButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
             this.sellButton.top = "-12px";
-            this.sellButton.left = "15px";
+            this.sellButton.left = "14px";
             this.sellButton.isPointerBlocker = true;
             this.sellButton.shadowColor = "rgba(0, 0, 0, 0.4)";
             this.sellButton.shadowBlur = 5;
@@ -1737,41 +1745,25 @@ export class GameplayState implements GameState {
             this.sellButton.addControl(sellValueText);
 
             this.sellButton.onPointerEnterObservable.add(() => {
-                if (this.sellButton) {
-                    this.sellButton.background = '#EF5350';
-                }
+                if (this.sellButton) this.sellButton.background = '#EF5350';
             });
-
             this.sellButton.onPointerOutObservable.add(() => {
-                if (this.sellButton) {
-                    this.sellButton.background = '#E53935';
-                }
+                if (this.sellButton) this.sellButton.background = '#E53935';
             });
-
             this.sellButton.onPointerDownObservable.add(() => {
-                if (this.sellButton) {
-                    this.sellButton.alpha = 0.8;
-                }
+                if (this.sellButton) this.sellButton.alpha = 0.8;
             });
-
             this.sellButton.onPointerClickObservable.add(() => {
-                console.log("Sell button clicked");
                 this.sellSelectedTower();
             });
-
             this.sellButton.onPointerUpObservable.add(() => {
-                console.log("Sell button up");
-                if (this.sellButton) {
-                    this.sellButton.alpha = 1.0;
-                }
+                if (this.sellButton) this.sellButton.alpha = 1.0;
                 this.sellSelectedTower();
             });
-
             this.towerInfoPanel.addControl(this.sellButton);
 
-            // Upgrade button - pill shape
             this.upgradeButton = new Rectangle('upgradeButton');
-            this.upgradeButton.width = "110px";
+            this.upgradeButton.width = "115px";
             this.upgradeButton.height = "44px";
             this.upgradeButton.cornerRadius = 22;
             this.upgradeButton.color = 'transparent';
@@ -1780,7 +1772,7 @@ export class GameplayState implements GameState {
             this.upgradeButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
             this.upgradeButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
             this.upgradeButton.top = "-12px";
-            this.upgradeButton.left = "-15px";
+            this.upgradeButton.left = "-14px";
             this.upgradeButton.isPointerBlocker = true;
             this.upgradeButton.shadowColor = "rgba(0, 0, 0, 0.4)";
             this.upgradeButton.shadowBlur = 5;
@@ -1807,7 +1799,6 @@ export class GameplayState implements GameState {
                     this.upgradeButton.background = '#66BB6A';
                 }
             });
-
             this.upgradeButton.onPointerOutObservable.add(() => {
                 if (this.upgradeButton && this.playerStats && this.selectedTower) {
                     if (this.playerStats.getMoney() >= this.selectedTower.getUpgradeCost()) {
@@ -1817,21 +1808,16 @@ export class GameplayState implements GameState {
                     }
                 }
             });
-
             this.upgradeButton.onPointerDownObservable.add(() => {
                 if (this.upgradeButton && this.playerStats && this.selectedTower &&
                     this.playerStats.getMoney() >= this.selectedTower.getUpgradeCost()) {
                     this.upgradeButton.alpha = 0.8;
                 }
             });
-
             this.upgradeButton.onPointerClickObservable.add(() => {
-                console.log("Upgrade button clicked");
                 this.upgradeSelectedTower();
             });
-
             this.upgradeButton.onPointerUpObservable.add(() => {
-                console.log("Upgrade button up");
                 if (this.upgradeButton && this.playerStats && this.selectedTower) {
                     if (this.playerStats.getMoney() >= this.selectedTower.getUpgradeCost()) {
                         this.upgradeButton.alpha = 1.0;
@@ -1839,7 +1825,6 @@ export class GameplayState implements GameState {
                 }
                 this.upgradeSelectedTower();
             });
-
             this.towerInfoPanel.addControl(this.upgradeButton);
         } else {
             this.towerInfoPanel.isVisible = true;
@@ -1855,6 +1840,25 @@ export class GameplayState implements GameState {
     }
 
     /**
+     * Map tower class name to tower ID for preview lookup
+     */
+    private getTowerIdFromInstance(tower: Tower): string | undefined {
+        const className = tower.constructor.name;
+        const map: Record<string, string> = {
+            'BasicTower': 'basicTower',
+            'FastTower': 'fastTower',
+            'HeavyTower': 'heavyTower',
+            'SniperTower': 'sniperTower',
+            'AOETower': 'aoeTower',
+            'FireTower': 'fireTower',
+            'WaterTower': 'waterTower',
+            'WindTower': 'windTower',
+            'EarthTower': 'earthTower',
+        };
+        return map[className];
+    }
+
+    /**
      * Update the tower information display
      */
     private updateTowerInfo(): void {
@@ -1867,14 +1871,57 @@ export class GameplayState implements GameState {
         let towerType = this.selectedTower.constructor.name;
         towerType = towerType.replace("Tower", "");
 
-        // Update tower info text fields
-        this.towerTypeText.text = towerType;
+        // Look up friendly name from TOWER_DATA
+        const towerId = this.getTowerIdFromInstance(this.selectedTower);
+        const towerData = towerId ? getTowerDataById(towerId) : undefined;
+
+        this.towerTypeText.text = towerData ? towerData.name : towerType;
         this.towerLevelText.text = `${this.selectedTower.getLevel()}`;
         this.towerDamageText.text = `${this.selectedTower.getDamage().toFixed(1)}`;
         this.towerRangeText.text = `${this.selectedTower.getRange().toFixed(1)}`;
-        this.towerRateText.text = `${this.selectedTower.getFireRate().toFixed(1)}/sec`;
+        this.towerRateText.text = `${this.selectedTower.getFireRate().toFixed(1)}/s`;
 
-        // Update sell value
+        // Update tower preview image
+        if (this.towerInfoPanel && towerId) {
+            const previewContainer = this.towerInfoPanel.getChildByName('towerInfoPreview') as Rectangle;
+            if (previewContainer) {
+                // Remove previous preview image
+                const existingImg = previewContainer.getChildByName('towerInfoImg');
+                if (existingImg) previewContainer.removeControl(existingImg);
+
+                const previewUrl = this.towerPreviewRenderer?.getDataUrl(towerId);
+                if (previewUrl) {
+                    const img = new Image('towerInfoImg', previewUrl);
+                    img.width = '64px';
+                    img.height = '64px';
+                    previewContainer.addControl(img);
+                }
+            }
+        }
+
+        // Update level dots
+        if (this.towerInfoPanel) {
+            const level = this.selectedTower.getLevel();
+            const maxLevel = this.selectedTower.getMaxLevel();
+            // Get tower color
+            const tColor = towerData ? towerData.color : '#4CAF50';
+            for (let i = 0; i < 3; i++) {
+                const dot = this.towerInfoPanel.getChildByName(`levelDot_${i}`) as Rectangle;
+                if (dot) {
+                    dot.background = i < level ? tColor : 'rgba(80, 90, 110, 0.4)';
+                }
+            }
+        }
+
+        // Update sell value in stats grid
+        if (this.towerInfoPanel) {
+            const sellDisplay = this.towerInfoPanel.getChildByName('sellDisplayValue') as TextBlock;
+            if (sellDisplay) {
+                sellDisplay.text = `$${this.selectedTower.getSellValue()}`;
+            }
+        }
+
+        // Update sell button value
         const sellValueEl = this.sellButton?.getChildByName('sellValueText') as TextBlock;
         if (sellValueEl) {
             sellValueEl.text = `$${this.selectedTower.getSellValue()}`;
@@ -1886,14 +1933,12 @@ export class GameplayState implements GameState {
             const upgradeCostEl = this.upgradeButton.getChildByName('upgradeCostText') as TextBlock;
 
             if (this.selectedTower.getLevel() >= this.selectedTower.getMaxLevel()) {
-                // Tower is at max level — gray out and disable
                 this.upgradeButton.background = '#888888';
                 this.upgradeButton.alpha = 0.8;
                 this.upgradeButton.isEnabled = false;
                 if (upgradeTextEl) upgradeTextEl.text = 'MAX LEVEL';
                 if (upgradeCostEl) upgradeCostEl.text = '';
             } else {
-                // Tower can still be upgraded
                 this.upgradeButton.isEnabled = true;
                 if (upgradeTextEl) upgradeTextEl.text = 'UPGRADE';
                 if (upgradeCostEl) upgradeCostEl.text = `$${this.selectedTower.getUpgradeCost()}`;
@@ -2433,14 +2478,27 @@ export class GameplayState implements GameState {
         // Create bottom-anchored panel container
         this.towerSelectorPanel = new Rectangle('towerPanelContainer');
         this.towerSelectorPanel.width = '100%';
-        this.towerSelectorPanel.height = isMobile ? '180px' : '200px';
-        this.towerSelectorPanel.background = 'rgba(28, 32, 40, 0.94)';
+        this.towerSelectorPanel.height = isMobile ? '210px' : '240px';
+        this.towerSelectorPanel.background = PALETTE.UI_PANEL_SOLID;
         this.towerSelectorPanel.thickness = 1;
-        this.towerSelectorPanel.color = '#3A3F4B';
+        this.towerSelectorPanel.color = PALETTE.UI_BORDER;
         this.towerSelectorPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.towerSelectorPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
         this.towerSelectorPanel.zIndex = 10;
         this.ui.addControl(this.towerSelectorPanel);
+
+        // Slide-in animation
+        const targetTop = 0;
+        let slideOffset = isMobile ? 210 : 240;
+        this.towerSelectorPanel.top = slideOffset + 'px';
+        const slideObs = this.scene!.onBeforeRenderObservable.add(() => {
+            slideOffset *= 0.82;
+            if (slideOffset < 1) {
+                slideOffset = 0;
+                this.scene?.onBeforeRenderObservable.remove(slideObs);
+            }
+            if (this.towerSelectorPanel) this.towerSelectorPanel.top = slideOffset + 'px';
+        });
 
         // ---- Category tabs at top ----
         const tabRow = new Rectangle('tabRow');
@@ -2500,7 +2558,7 @@ export class GameplayState implements GameState {
         // ---- Tower cards row ----
         const cardRow = new StackPanel('cardRow');
         cardRow.isVertical = false;
-        cardRow.height = isMobile ? '140px' : '160px';
+        cardRow.height = isMobile ? '170px' : '200px';
         cardRow.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
         cardRow.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         cardRow.paddingBottom = '6px';
@@ -2514,8 +2572,9 @@ export class GameplayState implements GameState {
         const maxRng = Math.max(...TOWER_DATA.map(t => t.range));
         const maxSpd = Math.max(...TOWER_DATA.map(t => t.fireRate));
 
-        const cardWidth = isMobile ? 90 : 100;
-        const cardHeight = isMobile ? 125 : 140;
+        const cardWidth = isMobile ? 100 : 120;
+        const cardHeight = isMobile ? 150 : 175;
+        const previewSize = isMobile ? 56 : 68;
 
         filteredTowers.forEach((tower) => {
             const canAfford = playerMoney >= tower.cost;
@@ -2524,10 +2583,10 @@ export class GameplayState implements GameState {
             const card = new Rectangle(`card_${tower.id}`);
             card.width = cardWidth + 'px';
             card.height = cardHeight + 'px';
-            card.background = 'rgba(40, 44, 52, 0.95)';
+            card.background = PALETTE.UI_CARD_BG;
             card.cornerRadius = 8;
             card.thickness = 1;
-            card.color = '#3A3F4B';
+            card.color = PALETTE.UI_BORDER;
             card.paddingLeft = '4px';
             card.paddingRight = '4px';
             card.alpha = canAfford ? 1.0 : 0.4;
@@ -2536,43 +2595,65 @@ export class GameplayState implements GameState {
             // Color accent bar at top
             const accent = new Rectangle(`accent_${tower.id}`);
             accent.width = '100%';
-            accent.height = '5px';
+            accent.height = '4px';
             accent.background = tower.color;
             accent.thickness = 0;
             accent.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
             card.addControl(accent);
 
+            // 3D Tower preview image
+            const previewUrl = this.towerPreviewRenderer?.getDataUrl(tower.id);
+            if (previewUrl) {
+                const previewImg = new Image(`preview_${tower.id}`, previewUrl);
+                previewImg.width = previewSize + 'px';
+                previewImg.height = previewSize + 'px';
+                previewImg.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+                previewImg.top = '8px';
+                card.addControl(previewImg);
+            } else {
+                // Fallback: colored circle
+                const fallback = new Rectangle(`preview_${tower.id}`);
+                fallback.width = (previewSize * 0.6) + 'px';
+                fallback.height = (previewSize * 0.6) + 'px';
+                fallback.cornerRadius = previewSize * 0.3;
+                fallback.background = tower.color;
+                fallback.thickness = 0;
+                fallback.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+                fallback.top = (8 + previewSize * 0.2) + 'px';
+                card.addControl(fallback);
+            }
+
             // Tower name
+            const nameTop = 8 + previewSize + 4;
             const nameText = new TextBlock(`name_${tower.id}`, tower.name);
             nameText.color = '#FFFFFF';
-            nameText.fontSize = isMobile ? 10 : 11;
+            nameText.fontSize = isMobile ? 10 : 12;
             nameText.fontFamily = 'Arial';
             nameText.fontWeight = 'bold';
             nameText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
             nameText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-            nameText.top = '10px';
+            nameText.top = nameTop + 'px';
             nameText.resizeToFit = true;
             card.addControl(nameText);
 
             // Cost
             const costText = new TextBlock(`cost_${tower.id}`, `$${tower.cost}`);
             costText.color = '#F5A623';
-            costText.fontSize = isMobile ? 11 : 12;
+            costText.fontSize = isMobile ? 10 : 12;
             costText.fontFamily = 'Arial';
             costText.fontWeight = 'bold';
             costText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-            costText.top = isMobile ? '22px' : '24px';
+            costText.top = (nameTop + 14) + 'px';
             costText.resizeToFit = true;
             card.addControl(costText);
 
-            // Stat bars container
-            const statsTop = isMobile ? 38 : 42;
-            const barHeight = isMobile ? 7 : 8;
-            const barGap = isMobile ? 12 : 14;
+            // Stat bars
+            const statsTop = nameTop + 28;
+            const barHeight = isMobile ? 6 : 7;
+            const barGap = isMobile ? 11 : 12;
             const barMaxWidth = cardWidth - 24;
 
             const createStatBar = (label: string, value: number, maxValue: number, barColor: string, yOffset: number) => {
-                // Label
                 const lbl = new TextBlock(`${tower.id}_${label}_lbl`, label);
                 lbl.color = '#888';
                 lbl.fontSize = isMobile ? 7 : 8;
@@ -2585,11 +2666,10 @@ export class GameplayState implements GameState {
                 lbl.resizeToFit = true;
                 card.addControl(lbl);
 
-                // Bar background
                 const barBg = new Rectangle(`${tower.id}_${label}_bg`);
                 barBg.width = barMaxWidth + 'px';
                 barBg.height = barHeight + 'px';
-                barBg.background = 'rgba(255,255,255,0.1)';
+                barBg.background = 'rgba(255,255,255,0.08)';
                 barBg.cornerRadius = 3;
                 barBg.thickness = 0;
                 barBg.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
@@ -2597,7 +2677,6 @@ export class GameplayState implements GameState {
                 barBg.top = (yOffset + 9) + 'px';
                 card.addControl(barBg);
 
-                // Bar fill
                 const fillPct = Math.min(1, value / maxValue);
                 const fillWidth = Math.max(4, Math.floor(barMaxWidth * fillPct));
                 const bar = new Rectangle(`${tower.id}_${label}_fill`);
@@ -2627,7 +2706,7 @@ export class GameplayState implements GameState {
                 badge.thickness = 0;
                 badge.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
                 badge.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-                badge.top = '-6px';
+                badge.top = '-4px';
                 card.addControl(badge);
 
                 const badgeText = new TextBlock(`badgeTxt_${tower.id}`, tower.element.toUpperCase());
@@ -2638,16 +2717,18 @@ export class GameplayState implements GameState {
                 badge.addControl(badgeText);
             }
 
-            // Hover: highlight border, show detail popup
+            // Hover: glow border with tower color, lighten background
             card.onPointerEnterObservable.add(() => {
                 card.color = tower.color;
                 card.thickness = 2;
+                card.background = PALETTE.UI_CARD_HOVER;
                 this.showDetailPopup(tower, isMobile);
             });
 
             card.onPointerOutObservable.add(() => {
-                card.color = '#3A3F4B';
+                card.color = PALETTE.UI_BORDER;
                 card.thickness = 1;
+                card.background = PALETTE.UI_CARD_BG;
                 this.hideDetailPopup();
             });
 
@@ -2681,7 +2762,7 @@ export class GameplayState implements GameState {
         this.towerDetailPopup.color = tower.color;
         this.towerDetailPopup.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.towerDetailPopup.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        this.towerDetailPopup.top = isMobile ? '-185px' : '-205px';
+        this.towerDetailPopup.top = isMobile ? '-215px' : '-245px';
         this.towerDetailPopup.zIndex = 15;
         this.towerDetailPopup.isPointerBlocker = false;
         this.ui.addControl(this.towerDetailPopup);

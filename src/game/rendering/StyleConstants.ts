@@ -108,6 +108,11 @@ export const PALETTE = {
 
     // UI
     UI_PANEL: 'rgba(28, 32, 40, 0.88)',
+    UI_PANEL_BG: 'rgba(16, 20, 28, 0.82)',
+    UI_PANEL_SOLID: 'rgba(22, 26, 34, 0.95)',
+    UI_BORDER: 'rgba(80, 90, 110, 0.3)',
+    UI_CARD_BG: 'rgba(30, 34, 42, 0.92)',
+    UI_CARD_HOVER: 'rgba(50, 56, 68, 0.95)',
     UI_PANEL_BORDER: '#3A3F4B',
     UI_ACCENT_GOLD: '#F5A623',
     UI_TEXT_PRIMARY: '#FFFFFF',
