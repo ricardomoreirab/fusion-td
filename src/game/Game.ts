@@ -152,8 +152,17 @@ export class Game {
         // Set initial ortho bounds
         this.updateOrthoBounds();
 
-        // No user controls -- camera is fully fixed
+        // No user controls -- camera is fully fixed, no rotation allowed
         camera.inputs.clear();
+        camera.detachControl();
+
+        // Lock rotation angles so they can never change
+        camera.lowerAlphaLimit = camera.alpha;
+        camera.upperAlphaLimit = camera.alpha;
+        camera.lowerBetaLimit = camera.beta;
+        camera.upperBetaLimit = camera.beta;
+        camera.lowerRadiusLimit = camera.radius;
+        camera.upperRadiusLimit = camera.radius;
     }
 
     /**

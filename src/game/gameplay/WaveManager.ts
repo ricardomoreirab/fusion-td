@@ -125,58 +125,73 @@ export class WaveManager {
     private enemiesLeftToSpawn: { type: string, delay: number }[] = [];
     private timeSinceLastSpawn: number = 0;
     private totalWaves: number = 10;
-    private difficultyMultiplier: number = 1.0; // Multiplier for enemy stats
-    private autoWaveTimer: number = 0; // Timer for auto-starting waves
-    private autoWaveDelay: number = 5; // Delay in seconds before auto-starting next wave
-    private parallelWaves: ParallelWave[] = []; // Array of parallel waves
+    private difficultyMultiplier: number = 1.0;
+    private autoWaveTimer: number = 0;
+    private autoWaveDelay: number = 5;
+    private parallelWaves: ParallelWave[] = [];
     private wavesPerLevel: number = 10;
     private levelIndex: number = 0;
 
+    // Infinite mode tracking
+    private absoluteWave: number = 0; // Total waves across all segments
+    private segmentWave: number = 0; // 1-10 within current segment
+    private segmentIndex: number = 0; // Which segment we're on
+    private onSegmentComplete: (() => void) | null = null;
+
     // Speed-based difficulty system
-    private waveStartTime: number = 0; // Time when the wave started
-    private baseClearTime: number = 60; // Base time in seconds expected to clear a wave
-    private minClearTime: number = 20; // Minimum time to clear a wave for max multiplier
-    private speedMultiplierMax: number = 2.0; // Maximum speed multiplier (reduced from 3.0 to avoid punishing skilled play)
-    private speedMultiplier: number = 1.0; // Current speed-based multiplier
-    private lastWaveClearTime: number = 0; // Time taken to clear the last wave
+    private waveStartTime: number = 0;
+    private baseClearTime: number = 60;
+    private minClearTime: number = 20;
+    private speedMultiplierMax: number = 2.0;
+    private speedMultiplier: number = 1.0;
+    private lastWaveClearTime: number = 0;
 
     // Parallel wave difficulty system
-    private parallelWaveMultiplier: number = 1.0; // Additional multiplier for parallel waves
-    private maxParallelMultiplier: number = 1.3; // Maximum parallel wave multiplier (reduced from 1.5)
+    private parallelWaveMultiplier: number = 1.0;
+    private maxParallelMultiplier: number = 1.3;
 
     // Perfect wave bonus tracking
-    private healthAtWaveStart: number = 0; // Health when wave started, for perfect wave detection
-    private consecutivePerfectWaves: number = 0; // Track streaks for bonus rewards
+    private healthAtWaveStart: number = 0;
+    private consecutivePerfectWaves: number = 0;
 
-    constructor(enemyManager: EnemyManager, playerStats: PlayerStats, wavesPerLevel: number = 10, levelIndex: number = 0) {
+    constructor(enemyManager: EnemyManager, playerStats: PlayerStats) {
         this.enemyManager = enemyManager;
         this.playerStats = playerStats;
-        this.wavesPerLevel = wavesPerLevel;
-        this.levelIndex = levelIndex;
 
         // Set player stats in enemy manager for rewards
         this.enemyManager.setPlayerStats(playerStats);
 
-        // Generate initial waves
-        this.generateWaves();
+        // Generate Level 1 hand-crafted waves (first 10 waves)
+        this.generateLevel1Waves();
+        this.totalWaves = this.wavesPerLevel;
     }
 
     /**
-     * Generate waves based on the current level index.
-     * Each level has wavesPerLevel (10) hand-crafted waves.
+     * Set the callback for when a segment's 10 waves are completed.
      */
-    private generateWaves(): void {
-        this.waves = [];
+    public setOnSegmentComplete(callback: () => void): void {
+        this.onSegmentComplete = callback;
+    }
 
-        if (this.levelIndex === 0) {
-            this.generateLevel1Waves();
-        } else if (this.levelIndex === 1) {
-            this.generateLevel2Waves();
-        } else {
-            this.generateLevel3Waves();
-        }
+    /**
+     * Get the current segment index.
+     */
+    public getSegmentIndex(): number {
+        return this.segmentIndex;
+    }
 
-        this.totalWaves = this.wavesPerLevel;
+    /**
+     * Get the wave number within the current segment (1-10).
+     */
+    public getSegmentWave(): number {
+        return this.segmentWave;
+    }
+
+    /**
+     * Get the absolute wave number (total across all segments).
+     */
+    public getAbsoluteWave(): number {
+        return this.absoluteWave;
     }
 
     // =================================================================
@@ -524,13 +539,12 @@ export class WaveManager {
      * @returns The generated wave
      */
     private generateNextWave(): Wave {
-        const waveNum = this.currentWave;
-        // How far past wave 20 we are (1, 2, 3, ...)
-        const endlessIndex = waveNum - 20;
+        const waveNum = this.absoluteWave;
+        // How far past the hand-crafted waves we are (1, 2, 3, ...)
+        const endlessIndex = Math.max(1, waveNum - 10);
         // Theme cycles every 5 waves
         const themeIndex = ((endlessIndex - 1) % 5) + 1;
         // Scaling factor: grows but with diminishing returns
-        // At wave 25: 1.5x, wave 30: 2.0x, wave 40: 2.7x, wave 50: 3.2x
         const scaleFactor = 1.0 + Math.log2(1 + endlessIndex * 0.5);
 
         // Base counts scaled by the factor
@@ -825,31 +839,24 @@ export class WaveManager {
         // Reset auto-wave timer
         this.autoWaveTimer = 0;
 
-        // If all waves are completed, return false
-        if (this.currentWave >= this.totalWaves) {
-            return false;
-        }
-
         // If a wave is already in progress, return false
         if (this.waveInProgress) {
             return false;
         }
 
-        // Increment wave counter
+        // Increment wave counters
         this.currentWave++;
+        this.absoluteWave++;
+        this.segmentWave++;
 
         // Store the wave start time for speed-based difficulty
-        this.waveStartTime = performance.now() / 1000; // Convert to seconds
+        this.waveStartTime = performance.now() / 1000;
 
         // Record health at wave start for perfect wave detection
         this.healthAtWaveStart = this.playerStats.getHealth();
 
-        // Difficulty scales across levels using a wave offset.
-        // Level 0 waves 1-10 => global wave 1-10
-        // Level 1 waves 1-10 => global wave 11-20
-        // Level 2 waves 1-10 => global wave 21-30
-        const waveOffset = this.levelIndex * this.wavesPerLevel;
-        const w = this.currentWave - 1 + waveOffset;
+        // Difficulty scales continuously using absolute wave number
+        const w = this.absoluteWave - 1;
         this.difficultyMultiplier = 1.0 + 0.12 * w + 0.004 * w * w;
 
         // Milestone waves (every 5): apply a small bump (+15% on top of the formula)
@@ -867,12 +874,12 @@ export class WaveManager {
         const effectiveDifficulty = Math.min(this.difficultyMultiplier * this.speedMultiplier * this.parallelWaveMultiplier, 20.0);
         console.log(`Wave ${this.currentWave}: Difficulty set to ${effectiveDifficulty.toFixed(2)}x (base: ${this.difficultyMultiplier.toFixed(2)}x, speed: ${this.speedMultiplier.toFixed(2)}x, parallel: ${this.parallelWaveMultiplier.toFixed(2)}x)`);
         
-        // Get the current wave
+        // Get the current wave: use hand-crafted waves for first 10, then procedural
         let wave: Wave;
-        if (this.currentWave <= this.waves.length) {
-            wave = this.waves[this.currentWave - 1];
+        if (this.absoluteWave <= this.waves.length) {
+            wave = this.waves[this.absoluteWave - 1];
         } else {
-            // Generate a new wave if we've run out of predefined waves
+            // Generate a procedural wave
             wave = this.generateNextWave();
             this.waves.push(wave);
         }
@@ -977,7 +984,14 @@ export class WaveManager {
         this.playerStats.addWaveCompleted();
 
         // Debug log to confirm wave completion
-        console.log(`Wave ${this.currentWave} completed in ${this.lastWaveClearTime.toFixed(2)} seconds. Speed multiplier: ${this.speedMultiplier.toFixed(2)}x. Ready for wave ${this.currentWave + 1}. Auto-wave in ${this.autoWaveDelay} seconds.`);
+        console.log(`Wave ${this.absoluteWave} (segment ${this.segmentIndex + 1}, wave ${this.segmentWave}/10) completed in ${this.lastWaveClearTime.toFixed(2)} seconds. Speed multiplier: ${this.speedMultiplier.toFixed(2)}x.`);
+
+        // Check if we've completed waves in this segment (1 wave per segment for testing)
+        if (this.segmentWave >= 1 && this.onSegmentComplete) {
+            this.segmentWave = 0;
+            this.segmentIndex++;
+            this.onSegmentComplete();
+        }
     }
     
     /**
@@ -1037,7 +1051,8 @@ export class WaveManager {
      * @returns True if all waves are complete
      */
     public isAllWavesCompleted(): boolean {
-        return this.currentWave >= this.wavesPerLevel && !this.waveInProgress;
+        // Infinite mode: never "all completed"
+        return false;
     }
 
     /**
@@ -1045,7 +1060,7 @@ export class WaveManager {
      * @returns The current wave number
      */
     public getCurrentWave(): number {
-        return this.currentWave + 1;
+        return this.absoluteWave;
     }
 
     /**
@@ -1084,6 +1099,9 @@ export class WaveManager {
         this.enemiesLeftToSpawn = [];
         this.timeSinceLastSpawn = 0;
         this.currentWave = 0;
+        this.absoluteWave = 0;
+        this.segmentWave = 0;
+        this.segmentIndex = 0;
         this.autoWaveTimer = 0;
         this.difficultyMultiplier = 1.0;
         this.speedMultiplier = 1.0;
@@ -1092,6 +1110,7 @@ export class WaveManager {
         this.waveStartTime = 0;
         this.healthAtWaveStart = 0;
         this.consecutivePerfectWaves = 0;
+        this.onSegmentComplete = null;
 
         console.log('WaveManager disposed and reset');
     }
@@ -1101,7 +1120,7 @@ export class WaveManager {
      * @returns Time in seconds until next auto-wave, or 0 if no auto-wave is pending
      */
     public getAutoWaveTimeRemaining(): number {
-        if (this.waveInProgress || this.enemyManager.getEnemyCount() > 0 || this.currentWave === 0) {
+        if (this.waveInProgress || this.enemyManager.getEnemyCount() > 0 || this.absoluteWave === 0) {
             return 0;
         }
         return Math.max(0, this.autoWaveDelay - this.autoWaveTimer);
@@ -1190,15 +1209,14 @@ export class WaveManager {
      */
     public isBossWave(): boolean {
         // Check if we have a predefined wave
-        if (this.currentWave > 0 && this.currentWave <= this.waves.length) {
-            const wave = this.waves[this.currentWave - 1];
+        if (this.absoluteWave > 0 && this.absoluteWave <= this.waves.length) {
+            const wave = this.waves[this.absoluteWave - 1];
             return wave.enemies.some(enemy => enemy.type === 'boss' && enemy.count > 0);
         }
 
-        // For generated waves (21+), boss appears every 5th wave in the endless cycle
-        // (themeIndex 5 = boss wave: waves 25, 30, 35, 40, ...)
-        if (this.currentWave > 20) {
-            const endlessIndex = this.currentWave - 20;
+        // For generated waves (11+), boss appears every 5th wave in the endless cycle
+        if (this.absoluteWave > 10) {
+            const endlessIndex = this.absoluteWave - 10;
             return ((endlessIndex - 1) % 5) + 1 === 5;
         }
 
@@ -1210,15 +1228,15 @@ export class WaveManager {
      * @returns True if the current wave is a milestone wave
      */
     public isMilestoneWave(): boolean {
-        return this.currentWave > 0 && this.currentWave % 5 === 0;
+        return this.absoluteWave > 0 && this.absoluteWave % 5 === 0;
     }
-    
+
     /**
      * Check if the next wave will be a milestone wave (every 5 waves)
      * @returns True if the next wave will be a milestone wave
      */
     public isNextWaveMilestone(): boolean {
-        return (this.currentWave + 1) % 5 === 0;
+        return (this.absoluteWave + 1) % 5 === 0;
     }
 
     /**
@@ -1276,12 +1294,13 @@ export class WaveManager {
      * Uses the same formula-based scaling as startNextWave() for consistency.
      */
     public incrementWaveCounter(): void {
-        // Increment wave counter
+        // Increment wave counters
         this.currentWave++;
+        this.absoluteWave++;
+        this.segmentWave++;
 
-        // Apply the same formula-based difficulty scaling with level offset
-        const waveOffset = this.levelIndex * this.wavesPerLevel;
-        const w = this.currentWave - 1 + waveOffset;
+        // Apply the same formula-based difficulty scaling using absolute wave
+        const w = this.absoluteWave - 1;
         this.difficultyMultiplier = 1.0 + 0.12 * w + 0.004 * w * w;
 
         // Milestone waves: +15% bump
@@ -1304,26 +1323,26 @@ export class WaveManager {
      * @returns WaveInfo object with name, description, and metadata
      */
     public getCurrentWaveInfo(): WaveInfo | null {
-        if (this.currentWave <= 0) return null;
+        if (this.absoluteWave <= 0) return null;
 
-        const waveIndex = this.currentWave - 1;
+        const waveIndex = this.absoluteWave - 1;
         if (waveIndex < this.waves.length) {
             const wave = this.waves[waveIndex];
             return {
                 name: wave.name,
                 description: wave.description,
-                waveNumber: this.currentWave,
+                waveNumber: this.absoluteWave,
                 isBoss: wave.enemies.some(e => e.type === 'boss' && e.count > 0),
-                isMilestone: this.currentWave % 5 === 0
+                isMilestone: this.absoluteWave % 5 === 0
             };
         }
 
         return {
-            name: `Wave ${this.currentWave}`,
+            name: `Wave ${this.absoluteWave}`,
             description: 'The endless horde continues.',
-            waveNumber: this.currentWave,
+            waveNumber: this.absoluteWave,
             isBoss: this.isBossWave(),
-            isMilestone: this.currentWave % 5 === 0
+            isMilestone: this.absoluteWave % 5 === 0
         };
     }
 

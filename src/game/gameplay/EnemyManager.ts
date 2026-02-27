@@ -15,6 +15,7 @@ export class EnemyManager {
     private enemies: Enemy[] = [];
     private playerStats: PlayerStats | null = null;
     private towerManager: TowerManager | null = null;
+    private compositePath: Vector3[] | null = null;
 
     constructor(game: Game, map: Map) {
         this.game = game;
@@ -23,7 +24,6 @@ export class EnemyManager {
 
     /**
      * Set the player stats reference for rewarding kills
-     * @param playerStats The player stats instance
      */
     public setPlayerStats(playerStats: PlayerStats): void {
         this.playerStats = playerStats;
@@ -31,11 +31,10 @@ export class EnemyManager {
 
     /**
      * Set the tower manager reference for tower destruction capabilities
-     * @param towerManager The tower manager instance
      */
     public setTowerManager(towerManager: TowerManager): void {
         this.towerManager = towerManager;
-        
+
         // Update any existing enemies
         for (const enemy of this.enemies) {
             enemy.setTowerManager(towerManager);
@@ -43,13 +42,30 @@ export class EnemyManager {
     }
 
     /**
+     * Set the composite path (spanning all segments) for new enemy spawning.
+     */
+    public setCompositePath(path: Vector3[]): void {
+        this.compositePath = path;
+    }
+
+    /**
+     * Extend paths of all currently in-flight enemies with bridge + new segment waypoints.
+     */
+    public extendAllEnemyPaths(additionalPoints: Vector3[]): void {
+        for (const enemy of this.enemies) {
+            if (enemy.isAlive()) {
+                enemy.extendPath(additionalPoints);
+            }
+        }
+    }
+
+    /**
      * Update all enemies
-     * @param deltaTime Time elapsed since last update in seconds
      */
     public update(deltaTime: number): void {
         // Create a copy of the array to safely remove enemies during iteration
         const enemiesToUpdate = [...this.enemies];
-        
+
         for (const enemy of enemiesToUpdate) {
             // Update enemy and check if it reached the end
             const reachedEnd = enemy.update(deltaTime);
@@ -76,17 +92,14 @@ export class EnemyManager {
     }
 
     /**
-     * Create a new enemy
-     * @param type The type of enemy to create
-     * @returns The created enemy
+     * Create a new enemy. Uses composite path if available, otherwise the single map path.
      */
     public createEnemy(type: string): Enemy {
-        const path = this.map.getPath();
+        const path = this.compositePath || this.map.getPath();
         const startPosition = this.map.getStartPosition();
-        
+
         let enemy: Enemy;
-        
-        // Create the appropriate enemy type
+
         switch (type) {
             case 'basic':
                 enemy = new BasicEnemy(this.game, startPosition, path);
@@ -101,25 +114,23 @@ export class EnemyManager {
                 enemy = new BossEnemy(this.game, startPosition, path);
                 break;
             default:
-                // Default to basic enemy
                 enemy = new BasicEnemy(this.game, startPosition, path);
                 break;
         }
-        
+
         // Set tower manager reference if available
         if (this.towerManager) {
             enemy.setTowerManager(this.towerManager);
         }
-        
+
         // Add to enemies list
         this.enemies.push(enemy);
-        
+
         return enemy;
     }
 
     /**
      * Remove an enemy from the manager
-     * @param enemy The enemy to remove
      */
     private removeEnemy(enemy: Enemy): void {
         const index = this.enemies.indexOf(enemy);
@@ -130,7 +141,6 @@ export class EnemyManager {
 
     /**
      * Get all enemies
-     * @returns Array of all enemies
      */
     public getEnemies(): Enemy[] {
         return this.enemies;
@@ -138,7 +148,6 @@ export class EnemyManager {
 
     /**
      * Get the number of enemies currently active
-     * @returns The number of enemies
      */
     public getEnemyCount(): number {
         return this.enemies.length;
@@ -146,9 +155,6 @@ export class EnemyManager {
 
     /**
      * Get enemies within a certain range of a position
-     * @param position The center position
-     * @param range The maximum range
-     * @returns Array of enemies within range
      */
     public getEnemiesInRange(position: Vector3, range: number): Enemy[] {
         return this.enemies.filter(enemy => {
@@ -159,24 +165,21 @@ export class EnemyManager {
 
     /**
      * Get the closest enemy to a position
-     * @param position The position to check from
-     * @param maxRange The maximum range to check (optional)
-     * @returns The closest enemy or null if none found
      */
     public getClosestEnemy(position: Vector3, maxRange?: number): Enemy | null {
         let closestEnemy: Enemy | null = null;
         let closestDistance = maxRange !== undefined ? maxRange : Number.MAX_VALUE;
-        
+
         for (const enemy of this.enemies) {
             if (!enemy.isAlive()) continue;
-            
+
             const distance = Vector3.Distance(position, enemy.getPosition());
             if (distance < closestDistance) {
                 closestDistance = distance;
                 closestEnemy = enemy;
             }
         }
-        
+
         return closestEnemy;
     }
 
@@ -189,4 +192,4 @@ export class EnemyManager {
         }
         this.enemies = [];
     }
-} 
+}

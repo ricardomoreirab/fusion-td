@@ -1,6 +1,6 @@
 import { Vector3, MeshBuilder, Mesh, Scene, Color3, Color4, ParticleSystem, ShadowGenerator, DirectionalLight } from '@babylonjs/core';
 import { Game } from '../Game';
-import { PALETTE } from '../rendering/StyleConstants';
+import { PALETTE, MapThemePalette, MAP_THEMES } from '../rendering/StyleConstants';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../rendering/LowPolyMaterial';
 import { LevelConfig, LEVEL_1 } from './LevelConfig';
 
@@ -55,13 +55,22 @@ export class Map {
     private terrainZones: TerrainZone[][] = [];
     private heightMap: number[][] = [];
     private config: LevelConfig;
+    private themePalette: MapThemePalette;
     private zOffset: number;
+    private suppressStartPortal: boolean;
+    private suppressEndPortal: boolean;
+    private endPortalMeshes: Mesh[] = [];
+    private farWallMeshes: Mesh[] = [];
+    private nearWallMeshes: Mesh[] = [];
 
-    constructor(game: Game, config?: LevelConfig, zOffset?: number) {
+    constructor(game: Game, config?: LevelConfig, zOffset?: number, suppressStartPortal?: boolean, suppressEndPortal?: boolean) {
         this.game = game;
         this.scene = game.getScene();
         this.config = config || LEVEL_1;
+        this.themePalette = MAP_THEMES[this.config.theme];
         this.zOffset = zOffset || 0;
+        this.suppressStartPortal = suppressStartPortal || false;
+        this.suppressEndPortal = suppressEndPortal || false;
 
         for (let x = 0; x < this.gridSize; x++) {
             this.grid[x] = [];
@@ -76,6 +85,10 @@ export class Map {
     }
 
     public initialize(): void {
+        // Apply theme sky and fog colors
+        this.scene.clearColor = this.themePalette.sky;
+        this.scene.fogColor = this.themePalette.fog;
+
         this.setupLighting();
         this.defineTerrainZones();
         this.generateHeightMap();
@@ -92,15 +105,27 @@ export class Map {
         this.createPathVisuals();
         this.createBridges();
         this.addDecorations();
-        this.addMapBorder();
         this.addCellIndicators();
         this.addPathBorders();
         this.createPortals();
         this.addAtmosphericEffects();
+        this.addThemeParticles();
         this.addParticleEffects();
     }
 
+    public getThemePalette(): MapThemePalette {
+        return this.themePalette;
+    }
+
     private setupLighting(): void {
+        // Reuse existing directional light if one already exists (prevents brightness stacking)
+        const existing = this.scene.getLightByName("mapLight") as DirectionalLight;
+        if (existing) {
+            // Reuse the existing shadow generator
+            this.shadowGenerator = existing.getShadowGenerator() as ShadowGenerator;
+            return;
+        }
+
         const light = new DirectionalLight("mapLight", new Vector3(-0.4, -1, -0.6), this.scene);
         light.intensity = 0.75;
         light.position = new Vector3(20, 40, 20 + this.zOffset);
@@ -209,8 +234,8 @@ export class Map {
     private createGround(): void {
         const mapWidth = this.gridSize * this.cellSize;
         const mapHeight = this.gridSize * this.cellSize;
-        const centerX = mapWidth / 2 - this.cellSize;
-        const centerZ = mapHeight / 2 - this.cellSize;
+        const centerX = mapWidth / 2;
+        const centerZ = mapHeight / 2;
 
         // Base ground plane
         const ground = MeshBuilder.CreateGround('ground_main', {
@@ -241,7 +266,7 @@ export class Map {
         }
 
         makeFlatShaded(ground);
-        const groundMat = createLowPolyMaterial('groundMat', PALETTE.GROUND, this.scene);
+        const groundMat = createLowPolyMaterial('groundMat', this.themePalette.ground, this.scene);
         ground.material = groundMat;
         ground.receiveShadows = true;
         this.groundMeshes.push(ground);
@@ -254,20 +279,20 @@ export class Map {
      * Create colored overlays for different terrain zones
      */
     private createTerrainOverlays(): void {
-        // Forest floor patches - darker, richer green
-        const forestMat = createLowPolyMaterial('forestFloorMat', new Color3(0.25, 0.45, 0.18), this.scene);
+        // Forest floor patches
+        const forestMat = createLowPolyMaterial('forestFloorMat', this.themePalette.forestOverlay, this.scene);
         forestMat.alpha = 0.35;
 
-        // Rocky highland patches - grey-brown tones
-        const rockMat = createLowPolyMaterial('highlandMat', new Color3(0.52, 0.48, 0.42), this.scene);
+        // Rocky highland patches
+        const rockMat = createLowPolyMaterial('highlandMat', this.themePalette.highlandOverlay, this.scene);
         rockMat.alpha = 0.3;
 
-        // Crystal grove patches - subtle purple-tinted ground
-        const crystalGroundMat = createLowPolyMaterial('crystalGroundMat', new Color3(0.45, 0.35, 0.55), this.scene);
+        // Crystal grove patches
+        const crystalGroundMat = createLowPolyMaterial('crystalGroundMat', this.themePalette.crystalOverlay, this.scene);
         crystalGroundMat.alpha = 0.2;
 
-        // Riverside patches - lush darker green
-        const riversideMat = createLowPolyMaterial('riversideMat', new Color3(0.30, 0.55, 0.28), this.scene);
+        // Riverside patches
+        const riversideMat = createLowPolyMaterial('riversideMat', this.themePalette.riversideOverlay, this.scene);
         riversideMat.alpha = 0.25;
 
         // Scatter zone-specific patches
@@ -311,7 +336,7 @@ export class Map {
         }
 
         // Add scattered grass tufts across meadow areas
-        const grassMat = createLowPolyMaterial('grassPatchMat', PALETTE.GROUND.scale(0.85), this.scene);
+        const grassMat = createLowPolyMaterial('grassPatchMat', this.themePalette.ground.scale(0.85), this.scene);
         grassMat.alpha = 0.2;
         const numPatches = 12;
         for (let i = 0; i < numPatches; i++) {
@@ -386,8 +411,8 @@ export class Map {
      * Create flat-shaded path tiles with height variation matching terrain
      */
     private createPathVisuals(): void {
-        const pathMat = createLowPolyMaterial('pathMat', PALETTE.PATH, this.scene);
-        const pathDarkMat = createLowPolyMaterial('pathDarkMat', PALETTE.PATH.scale(0.88), this.scene);
+        const pathMat = createLowPolyMaterial('pathMat', this.themePalette.path, this.scene);
+        const pathDarkMat = createLowPolyMaterial('pathDarkMat', this.themePalette.path.scale(0.88), this.scene);
 
         for (let x = 0; x < this.gridSize; x++) {
             for (let y = 0; y < this.gridSize; y++) {
@@ -429,7 +454,7 @@ export class Map {
                         );
                         stone.rotation.y = Math.random() * Math.PI * 2;
                         stone.scaling.y = 0.4;
-                        stone.material = createLowPolyMaterial(`pStone_${x}_${y}`, PALETTE.PATH_BORDER, this.scene);
+                        stone.material = createLowPolyMaterial(`pStone_${x}_${y}`, this.themePalette.pathBorder, this.scene);
                         makeFlatShaded(stone);
                         this.groundMeshes.push(stone);
                     }
@@ -475,13 +500,20 @@ export class Map {
             }
         }
 
-        // Create water surface meshes
-        const waterColor = new Color3(0.25, 0.55, 0.85);
-        const waterMat = createLowPolyMaterial('riverWaterMat', waterColor, this.scene);
-        waterMat.alpha = 0.6;
-
-        const waterDeepMat = createLowPolyMaterial('riverDeepMat', new Color3(0.15, 0.40, 0.70), this.scene);
-        waterDeepMat.alpha = 0.5;
+        // Create water surface meshes (lava for fire theme, mud for earth, etc.)
+        let waterMat;
+        let waterDeepMat;
+        if (this.themePalette.waterEmissive) {
+            waterMat = createEmissiveMaterial('riverWaterMat', this.themePalette.waterColor, 0.6, this.scene);
+            waterMat.alpha = 0.8;
+            waterDeepMat = createEmissiveMaterial('riverDeepMat', this.themePalette.waterDeep, 0.7, this.scene);
+            waterDeepMat.alpha = 0.7;
+        } else {
+            waterMat = createLowPolyMaterial('riverWaterMat', this.themePalette.waterColor, this.scene);
+            waterMat.alpha = 0.6;
+            waterDeepMat = createLowPolyMaterial('riverDeepMat', this.themePalette.waterDeep, this.scene);
+            waterDeepMat.alpha = 0.5;
+        }
 
         for (const cell of riverCells) {
             const pos = this.gridToWorld(cell.x, cell.y);
@@ -527,7 +559,7 @@ export class Map {
                         rock.rotation.y = Math.random() * Math.PI * 2;
                         rock.scaling.y = 0.5 + Math.random() * 0.3;
                         rock.material = createLowPolyMaterial(`rrMat_${cell.x}_${cell.y}_${dx}_${dy}`,
-                            Math.random() > 0.5 ? PALETTE.ROCK : PALETTE.ROCK_DARK, this.scene);
+                            Math.random() > 0.5 ? this.themePalette.rock : this.themePalette.rockDark, this.scene);
                         makeFlatShaded(rock);
                         if (this.shadowGenerator) this.shadowGenerator.addShadowCaster(rock);
                         this.decorationMeshes.push(rock);
@@ -623,8 +655,12 @@ export class Map {
      * End portal: crimson vortex in the crystal grove
      */
     private createPortals(): void {
-        this.createStartPortal();
-        this.createEndPortal();
+        if (!this.suppressStartPortal) {
+            this.createStartPortal();
+        }
+        if (!this.suppressEndPortal) {
+            this.createEndPortal();
+        }
     }
 
     /**
@@ -749,6 +785,7 @@ export class Map {
     private createEndPortal(): void {
         const endPos = this.gridToWorld(this.endPosition.x, this.endPosition.y);
         const portalColor = PALETTE.PORTAL_END;
+        this.endPortalMeshes = [];
 
         // Crater ring on the ground
         const crater = MeshBuilder.CreateTorus('endCrater', {
@@ -763,6 +800,7 @@ export class Map {
         crater.material = craterMat;
         makeFlatShaded(crater);
         this.groundMeshes.push(crater);
+        this.endPortalMeshes.push(crater);
 
         // Ground sigil
         const sigil = MeshBuilder.CreateDisc('endSigil', {
@@ -775,6 +813,7 @@ export class Map {
         sigilMat.alpha = 0.5;
         sigil.material = sigilMat;
         this.groundMeshes.push(sigil);
+        this.endPortalMeshes.push(sigil);
 
         // Main vortex ring
         const vortex = MeshBuilder.CreateTorus('endVortex', {
@@ -789,6 +828,7 @@ export class Map {
         makeFlatShaded(vortex);
         if (this.shadowGenerator) this.shadowGenerator.addShadowCaster(vortex);
         this.groundMeshes.push(vortex);
+        this.endPortalMeshes.push(vortex);
 
         // Inner vortex ring
         const innerVortex = MeshBuilder.CreateTorus('endInnerVortex', {
@@ -803,6 +843,7 @@ export class Map {
         innerVortex.material = innerVortexMat;
         makeFlatShaded(innerVortex);
         this.groundMeshes.push(innerVortex);
+        this.endPortalMeshes.push(innerVortex);
 
         // Jagged crystal spires around the portal
         const spireCount = 5;
@@ -833,6 +874,7 @@ export class Map {
             makeFlatShaded(spire);
             if (this.shadowGenerator) this.shadowGenerator.addShadowCaster(spire);
             this.groundMeshes.push(spire);
+            this.endPortalMeshes.push(spire);
         }
 
         // Floating crystal core in the center
@@ -846,6 +888,7 @@ export class Map {
         core.material = coreMat;
         makeFlatShaded(core);
         this.groundMeshes.push(core);
+        this.endPortalMeshes.push(core);
 
         // Animate end portal
         this.scene.registerBeforeRender(() => {
@@ -931,7 +974,7 @@ export class Map {
         }
         // Fern bush (10% chance)
         else if (roll < 0.70) {
-            this.createBush(position, PALETTE.TREE_FOLIAGE_DARK);
+            this.createBush(position, this.themePalette.treeFoliageDark);
             return true;
         }
 
@@ -956,7 +999,7 @@ export class Map {
         }
         // Bush (8% chance)
         else if (roll < 0.30) {
-            this.createBush(position, PALETTE.BUSH);
+            this.createBush(position, this.themePalette.bush);
             return true;
         }
         // Small rock (5% chance)
@@ -986,7 +1029,7 @@ export class Map {
         }
         // Scrub bush (10% chance)
         else if (roll < 0.45) {
-            this.createBush(position, new Color3(0.35, 0.50, 0.25));
+            this.createBush(position, this.themePalette.bush.scale(0.9));
             return true;
         }
         // Small rock (8% chance)
@@ -1021,7 +1064,7 @@ export class Map {
         }
         // Dark bush (8% chance)
         else if (roll < 0.48) {
-            this.createBush(position, new Color3(0.28, 0.40, 0.45));
+            this.createBush(position, this.themePalette.rockDark.scale(1.1));
             return true;
         }
 
@@ -1046,7 +1089,7 @@ export class Map {
         }
         // Small bush (8% chance)
         else if (roll < 0.35) {
-            this.createBush(position, new Color3(0.32, 0.58, 0.30));
+            this.createBush(position, this.themePalette.riversideOverlay);
             return true;
         }
 
@@ -1070,7 +1113,7 @@ export class Map {
             tessellation: 6
         }, this.scene);
         trunk.position = new Vector3(position.x, position.y + trunkHeight / 2, position.z);
-        trunk.material = createLowPolyMaterial('trunkMat', PALETTE.TREE_TRUNK, this.scene);
+        trunk.material = createLowPolyMaterial('trunkMat', this.themePalette.treeTrunk, this.scene);
         makeFlatShaded(trunk);
         meshes.push(trunk);
 
@@ -1091,7 +1134,7 @@ export class Map {
                 position.y + trunkHeight + i * 0.55,
                 position.z + (Math.random() - 0.5) * 0.1
             );
-            const foliageColor = i === 0 ? PALETTE.TREE_FOLIAGE_DARK : PALETTE.TREE_FOLIAGE;
+            const foliageColor = i === 0 ? this.themePalette.treeFoliageDark : this.themePalette.treeFoliage;
             cone.material = createLowPolyMaterial(`leavesMat_${i}`, foliageColor, this.scene);
             makeFlatShaded(cone);
             meshes.push(cone);
@@ -1160,7 +1203,7 @@ export class Map {
         log.position = new Vector3(position.x, position.y + 0.12, position.z);
         log.rotation.z = Math.PI / 2;
         log.rotation.y = Math.random() * Math.PI;
-        log.material = createLowPolyMaterial('logMat', PALETTE.TREE_TRUNK.scale(0.85), this.scene);
+        log.material = createLowPolyMaterial('logMat', this.themePalette.treeTrunk.scale(0.85), this.scene);
         makeFlatShaded(log);
         if (this.shadowGenerator) this.shadowGenerator.addShadowCaster(log);
         this.decorationMeshes.push(log);
@@ -1207,7 +1250,7 @@ export class Map {
         rock.rotation.y = Math.random() * Math.PI * 2;
         rock.rotation.x = Math.random() * 0.3;
         rock.material = createLowPolyMaterial('rockMat',
-            Math.random() > 0.5 ? PALETTE.ROCK : PALETTE.ROCK_DARK, this.scene);
+            Math.random() > 0.5 ? this.themePalette.rock : this.themePalette.rockDark, this.scene);
         makeFlatShaded(rock);
         if (this.shadowGenerator) this.shadowGenerator.addShadowCaster(rock);
         this.decorationMeshes.push(rock);
@@ -1225,7 +1268,7 @@ export class Map {
         boulder.scaling.y = 0.6 + Math.random() * 0.4;
         boulder.position = new Vector3(position.x, position.y + size * 0.4, position.z);
         boulder.rotation.y = Math.random() * Math.PI * 2;
-        boulder.material = createLowPolyMaterial('boulderMat', PALETTE.ROCK_DARK, this.scene);
+        boulder.material = createLowPolyMaterial('boulderMat', this.themePalette.rockDark, this.scene);
         makeFlatShaded(boulder);
         if (this.shadowGenerator) this.shadowGenerator.addShadowCaster(boulder);
         this.decorationMeshes.push(boulder);
@@ -1244,7 +1287,7 @@ export class Map {
             );
             frag.rotation.y = Math.random() * Math.PI * 2;
             frag.scaling.y = 0.5;
-            frag.material = createLowPolyMaterial(`fragMat_${i}`, PALETTE.ROCK, this.scene);
+            frag.material = createLowPolyMaterial(`fragMat_${i}`, this.themePalette.rock, this.scene);
             makeFlatShaded(frag);
             this.decorationMeshes.push(frag);
         }
@@ -1269,7 +1312,7 @@ export class Map {
             rock.scaling.y = 0.4 + Math.random() * 0.4;
             rock.rotation.y = Math.random() * Math.PI * 2;
             rock.material = createLowPolyMaterial(`clusterRockMat_${i}`,
-                Math.random() > 0.3 ? PALETTE.ROCK_DARK : PALETTE.ROCK, this.scene);
+                Math.random() > 0.3 ? this.themePalette.rockDark : this.themePalette.rock, this.scene);
             makeFlatShaded(rock);
             if (this.shadowGenerator) this.shadowGenerator.addShadowCaster(rock);
             this.decorationMeshes.push(rock);
@@ -1314,11 +1357,7 @@ export class Map {
      */
     private createCrystalFormation(position: Vector3): void {
         const count = 2 + Math.floor(Math.random() * 3);
-        const crystalColors = [
-            new Color3(0.65, 0.30, 0.85),  // Purple
-            new Color3(0.45, 0.78, 0.95),  // Cyan
-            new Color3(0.85, 0.50, 0.95)   // Pink
-        ];
+        const crystalColors = this.themePalette.crystalColors;
 
         for (let i = 0; i < count; i++) {
             const height = 0.5 + Math.random() * 1.0;
@@ -1359,7 +1398,7 @@ export class Map {
         shard.rotation.x = (Math.random() - 0.5) * 0.5;
         shard.rotation.z = (Math.random() - 0.5) * 0.5;
 
-        const shardColor = new Color3(0.55 + Math.random() * 0.3, 0.35, 0.85);
+        const shardColor = this.themePalette.crystalColors[Math.floor(Math.random() * this.themePalette.crystalColors.length)];
         shard.material = createEmissiveMaterial('shardMat', shardColor, 0.3, this.scene);
         makeFlatShaded(shard);
         this.decorationMeshes.push(shard);
@@ -1522,80 +1561,141 @@ export class Map {
      * crystal sparkles in the grove, mist near the river.
      */
     private addAtmosphericEffects(): void {
-        // Fireflies in the forest area
-        const forestCenter = this.gridToWorld(2, 4);
-        const fireflies = new ParticleSystem("fireflies", 30, this.scene);
-        fireflies.emitter = new Vector3(forestCenter.x, 1.0, forestCenter.z);
-        fireflies.minEmitBox = new Vector3(-4, 0, -4);
-        fireflies.maxEmitBox = new Vector3(4, 2, 6);
-        fireflies.color1 = new Color4(0.8, 0.95, 0.3, 0.7);
-        fireflies.color2 = new Color4(0.6, 0.85, 0.2, 0.5);
-        fireflies.colorDead = new Color4(0.3, 0.4, 0.1, 0.0);
-        fireflies.minSize = 0.06;
-        fireflies.maxSize = 0.14;
-        fireflies.minLifeTime = 2.0;
-        fireflies.maxLifeTime = 4.0;
-        fireflies.emitRate = 5;
-        fireflies.direction1 = new Vector3(-0.3, 0.1, -0.3);
-        fireflies.direction2 = new Vector3(0.3, 0.4, 0.3);
-        fireflies.gravity = new Vector3(0, 0.02, 0);
-        fireflies.start();
-        this.pathParticles.push(fireflies);
+        // Scan terrain zones to find dominant biomes and their centers
+        const zoneCells: { [zone: number]: { x: number; y: number }[] } = {};
+        for (let x = 0; x < this.gridSize; x++) {
+            for (let y = 0; y < this.gridSize; y++) {
+                const zone = this.terrainZones[x][y] as number;
+                if (!zoneCells[zone]) zoneCells[zone] = [];
+                zoneCells[zone].push({ x, y });
+            }
+        }
 
-        // Crystal sparkles in the grove
-        const groveCenter = this.gridToWorld(17, 15);
-        const sparkles = new ParticleSystem("crystalSparkles", 25, this.scene);
-        sparkles.emitter = new Vector3(groveCenter.x, 0.5, groveCenter.z);
-        sparkles.minEmitBox = new Vector3(-3, 0, -3);
-        sparkles.maxEmitBox = new Vector3(3, 1, 3);
-        sparkles.color1 = new Color4(0.7, 0.4, 0.95, 0.6);
-        sparkles.color2 = new Color4(0.5, 0.8, 0.95, 0.4);
-        sparkles.colorDead = new Color4(0.3, 0.2, 0.5, 0.0);
-        sparkles.minSize = 0.04;
-        sparkles.maxSize = 0.10;
-        sparkles.minLifeTime = 1.0;
-        sparkles.maxLifeTime = 2.5;
-        sparkles.emitRate = 8;
-        sparkles.direction1 = new Vector3(-0.1, 0.5, -0.1);
-        sparkles.direction2 = new Vector3(0.1, 1.0, 0.1);
-        sparkles.gravity = new Vector3(0, -0.1, 0);
-        sparkles.start();
-        this.pathParticles.push(sparkles);
+        // Helper: get center of a zone cluster
+        const getCenter = (cells: { x: number; y: number }[]) => {
+            const cx = Math.round(cells.reduce((s, c) => s + c.x, 0) / cells.length);
+            const cy = Math.round(cells.reduce((s, c) => s + c.y, 0) / cells.length);
+            return this.gridToWorld(cx, cy);
+        };
 
-        // River mist
-        const riverMidPoint = this.gridToWorld(10, 10);
-        const mist = new ParticleSystem("riverMist", 20, this.scene);
-        mist.emitter = new Vector3(riverMidPoint.x, 0.2, riverMidPoint.z);
-        mist.minEmitBox = new Vector3(-6, 0, -6);
-        mist.maxEmitBox = new Vector3(6, 0.3, 6);
-        mist.color1 = new Color4(0.7, 0.8, 0.9, 0.15);
-        mist.color2 = new Color4(0.6, 0.75, 0.85, 0.10);
-        mist.colorDead = new Color4(0.5, 0.6, 0.7, 0.0);
-        mist.minSize = 0.8;
-        mist.maxSize = 2.0;
-        mist.minLifeTime = 3.0;
-        mist.maxLifeTime = 5.0;
-        mist.emitRate = 3;
-        mist.direction1 = new Vector3(-0.2, 0.05, -0.2);
-        mist.direction2 = new Vector3(0.2, 0.15, 0.2);
-        mist.gravity = new Vector3(0.05, 0, 0.02);
-        mist.start();
-        this.pathParticles.push(mist);
+        // Forest → fireflies
+        if (zoneCells[TerrainZone.FOREST] && zoneCells[TerrainZone.FOREST].length > 5) {
+            const center = getCenter(zoneCells[TerrainZone.FOREST]);
+            const fireflies = new ParticleSystem("fireflies", 30, this.scene);
+            fireflies.emitter = new Vector3(center.x, 1.0, center.z);
+            fireflies.minEmitBox = new Vector3(-4, 0, -4);
+            fireflies.maxEmitBox = new Vector3(4, 2, 6);
+            fireflies.color1 = new Color4(0.8, 0.95, 0.3, 0.7);
+            fireflies.color2 = new Color4(0.6, 0.85, 0.2, 0.5);
+            fireflies.colorDead = new Color4(0.3, 0.4, 0.1, 0.0);
+            fireflies.minSize = 0.06;
+            fireflies.maxSize = 0.14;
+            fireflies.minLifeTime = 2.0;
+            fireflies.maxLifeTime = 4.0;
+            fireflies.emitRate = 5;
+            fireflies.direction1 = new Vector3(-0.3, 0.1, -0.3);
+            fireflies.direction2 = new Vector3(0.3, 0.4, 0.3);
+            fireflies.gravity = new Vector3(0, 0.02, 0);
+            fireflies.start();
+            this.pathParticles.push(fireflies);
+        }
 
-        // Fog patches using translucent discs at various locations
-        const fogPositions = [
-            { x: 6, y: 3 },
-            { x: 13, y: 16 },
-            { x: 1, y: 14 },
-            { x: 16, y: 7 }
-        ];
+        // Crystal Grove → sparkles
+        if (zoneCells[TerrainZone.CRYSTAL_GROVE] && zoneCells[TerrainZone.CRYSTAL_GROVE].length > 5) {
+            const center = getCenter(zoneCells[TerrainZone.CRYSTAL_GROVE]);
+            const sparkles = new ParticleSystem("crystalSparkles", 25, this.scene);
+            sparkles.emitter = new Vector3(center.x, 0.5, center.z);
+            sparkles.minEmitBox = new Vector3(-3, 0, -3);
+            sparkles.maxEmitBox = new Vector3(3, 1, 3);
+            sparkles.color1 = new Color4(0.7, 0.4, 0.95, 0.6);
+            sparkles.color2 = new Color4(0.5, 0.8, 0.95, 0.4);
+            sparkles.colorDead = new Color4(0.3, 0.2, 0.5, 0.0);
+            sparkles.minSize = 0.04;
+            sparkles.maxSize = 0.10;
+            sparkles.minLifeTime = 1.0;
+            sparkles.maxLifeTime = 2.5;
+            sparkles.emitRate = 8;
+            sparkles.direction1 = new Vector3(-0.1, 0.5, -0.1);
+            sparkles.direction2 = new Vector3(0.1, 1.0, 0.1);
+            sparkles.gravity = new Vector3(0, -0.1, 0);
+            sparkles.start();
+            this.pathParticles.push(sparkles);
+        }
 
-        const fogMat = createLowPolyMaterial('fogMat', new Color3(0.75, 0.82, 0.88), this.scene);
+        // Rocky Highlands → drifting dust/embers
+        if (zoneCells[TerrainZone.ROCKY_HIGHLANDS] && zoneCells[TerrainZone.ROCKY_HIGHLANDS].length > 5) {
+            const center = getCenter(zoneCells[TerrainZone.ROCKY_HIGHLANDS]);
+            const dust = new ParticleSystem("highlandDust", 20, this.scene);
+            dust.emitter = new Vector3(center.x, 0.6, center.z);
+            dust.minEmitBox = new Vector3(-5, 0, -5);
+            dust.maxEmitBox = new Vector3(5, 1, 5);
+            dust.color1 = new Color4(0.75, 0.60, 0.40, 0.3);
+            dust.color2 = new Color4(0.60, 0.50, 0.35, 0.2);
+            dust.colorDead = new Color4(0.4, 0.3, 0.2, 0.0);
+            dust.minSize = 0.15;
+            dust.maxSize = 0.5;
+            dust.minLifeTime = 2.0;
+            dust.maxLifeTime = 4.0;
+            dust.emitRate = 4;
+            dust.direction1 = new Vector3(-0.5, 0.1, -0.2);
+            dust.direction2 = new Vector3(0.5, 0.4, 0.2);
+            dust.gravity = new Vector3(0.1, -0.02, 0.05);
+            dust.start();
+            this.pathParticles.push(dust);
+        }
+
+        // River → mist (only if config has a river)
+        if (this.config.river && this.config.river.points.length > 0) {
+            const mid = this.config.river.points[Math.floor(this.config.river.points.length / 2)];
+            const riverPos = this.gridToWorld(mid.x, mid.y);
+            const mist = new ParticleSystem("riverMist", 20, this.scene);
+            mist.emitter = new Vector3(riverPos.x, 0.2, riverPos.z);
+            mist.minEmitBox = new Vector3(-6, 0, -6);
+            mist.maxEmitBox = new Vector3(6, 0.3, 6);
+            mist.color1 = new Color4(0.7, 0.8, 0.9, 0.15);
+            mist.color2 = new Color4(0.6, 0.75, 0.85, 0.10);
+            mist.colorDead = new Color4(0.5, 0.6, 0.7, 0.0);
+            mist.minSize = 0.8;
+            mist.maxSize = 2.0;
+            mist.minLifeTime = 3.0;
+            mist.maxLifeTime = 5.0;
+            mist.emitRate = 3;
+            mist.direction1 = new Vector3(-0.2, 0.05, -0.2);
+            mist.direction2 = new Vector3(0.2, 0.15, 0.2);
+            mist.gravity = new Vector3(0.05, 0, 0.02);
+            mist.start();
+            this.pathParticles.push(mist);
+        }
+
+        // Meadow → drifting pollen/seeds (only if meadow is the dominant zone)
+        if (zoneCells[TerrainZone.MEADOW] && zoneCells[TerrainZone.MEADOW].length > 40) {
+            const center = getCenter(zoneCells[TerrainZone.MEADOW]);
+            const pollen = new ParticleSystem("meadowPollen", 15, this.scene);
+            pollen.emitter = new Vector3(center.x, 0.8, center.z);
+            pollen.minEmitBox = new Vector3(-8, 0, -8);
+            pollen.maxEmitBox = new Vector3(8, 1, 8);
+            pollen.color1 = new Color4(1.0, 0.95, 0.7, 0.4);
+            pollen.color2 = new Color4(0.95, 0.90, 0.6, 0.25);
+            pollen.colorDead = new Color4(0.8, 0.75, 0.5, 0.0);
+            pollen.minSize = 0.03;
+            pollen.maxSize = 0.08;
+            pollen.minLifeTime = 3.0;
+            pollen.maxLifeTime = 6.0;
+            pollen.emitRate = 3;
+            pollen.direction1 = new Vector3(-0.3, 0.05, -0.1);
+            pollen.direction2 = new Vector3(0.3, 0.2, 0.1);
+            pollen.gravity = new Vector3(0.02, -0.01, 0.01);
+            pollen.start();
+            this.pathParticles.push(pollen);
+        }
+
+        // Fog patches at random positions
+        const fogMat = createLowPolyMaterial('fogMat', this.themePalette.fog.scale(0.9), this.scene);
         fogMat.alpha = 0.08;
-
-        for (let i = 0; i < fogPositions.length; i++) {
-            const fp = fogPositions[i];
-            const fogPos = this.gridToWorld(fp.x, fp.y);
+        for (let i = 0; i < 4; i++) {
+            const fx = Math.floor(Math.random() * 16) + 2;
+            const fy = Math.floor(Math.random() * 16) + 2;
+            const fogPos = this.gridToWorld(fx, fy);
             const fogDisc = MeshBuilder.CreateDisc(`fog_${i}`, {
                 radius: 2.5 + Math.random() * 2.0,
                 tessellation: 6
@@ -1605,6 +1705,33 @@ export class Map {
             fogDisc.material = fogMat;
             this.groundMeshes.push(fogDisc);
         }
+    }
+
+    /**
+     * Add theme-specific ambient particles across the entire map.
+     * Fire: floating embers, Water: mist droplets, Wind: wispy leaves, Earth: drifting dust
+     */
+    private addThemeParticles(): void {
+        const mapCenter = this.gridToWorld(10, 10);
+        const tp = this.themePalette;
+
+        const ambient = new ParticleSystem("themeAmbient", 40, this.scene);
+        ambient.emitter = new Vector3(mapCenter.x, 1.2, mapCenter.z);
+        ambient.minEmitBox = new Vector3(-18, 0, -18);
+        ambient.maxEmitBox = new Vector3(18, 3, 18);
+        ambient.color1 = tp.particleColor1;
+        ambient.color2 = tp.particleColor2;
+        ambient.colorDead = tp.particleDead;
+        ambient.minSize = 0.05;
+        ambient.maxSize = 0.18;
+        ambient.minLifeTime = 2.0;
+        ambient.maxLifeTime = 5.0;
+        ambient.emitRate = 8;
+        ambient.direction1 = new Vector3(-0.3, 0.1, -0.3);
+        ambient.direction2 = new Vector3(0.3, 0.5, 0.3);
+        ambient.gravity = new Vector3(0.02, -0.01, 0.01);
+        ambient.start();
+        this.pathParticles.push(ambient);
     }
 
     // ==================== PUBLIC API (UNCHANGED) ====================
@@ -1650,12 +1777,53 @@ export class Map {
         return this.zOffset;
     }
 
+    public getStartPositionGrid(): { x: number; y: number } {
+        return { ...this.startPosition };
+    }
+
+    public getEndPositionGrid(): { x: number; y: number } {
+        return { ...this.endPosition };
+    }
+
+    /**
+     * Remove the end portal meshes (used when extending the map with a new segment).
+     */
+    public removeEndPortal(): void {
+        for (const mesh of this.endPortalMeshes) {
+            if (mesh && !mesh.isDisposed()) {
+                // Also remove from groundMeshes tracking
+                const idx = this.groundMeshes.indexOf(mesh);
+                if (idx !== -1) this.groundMeshes.splice(idx, 1);
+                mesh.dispose();
+            }
+        }
+        this.endPortalMeshes = [];
+
+        // Also remove far wall so segments visually connect
+        this.removeFarWall();
+    }
+
+    /**
+     * Remove the far (high-Z) border wall and its corner towers.
+     * Called when extending the map with a new segment.
+     */
+    public removeFarWall(): void {
+        for (const mesh of this.farWallMeshes) {
+            if (mesh && !mesh.isDisposed()) {
+                const idx = this.groundMeshes.indexOf(mesh);
+                if (idx !== -1) this.groundMeshes.splice(idx, 1);
+                mesh.dispose();
+            }
+        }
+        this.farWallMeshes = [];
+    }
+
     /**
      * Add semi-transparent cell indicators on buildable (EMPTY) cells.
      * Named 'ground_cell_x_y' so they match the startsWith('ground_') predicate.
      */
     private addCellIndicators(): void {
-        const cellMat = createLowPolyMaterial('cellIndicatorMat', PALETTE.GROUND.scale(1.15), this.scene);
+        const cellMat = createLowPolyMaterial('cellIndicatorMat', this.themePalette.ground.scale(1.15), this.scene);
         cellMat.alpha = 0.15;
 
         for (let x = 0; x < this.gridSize; x++) {
@@ -1680,7 +1848,7 @@ export class Map {
      * Add border strips along path edges where path meets non-path terrain.
      */
     private addPathBorders(): void {
-        const borderMat = createLowPolyMaterial('pathBorderMat', PALETTE.PATH_BORDER, this.scene);
+        const borderMat = createLowPolyMaterial('pathBorderMat', this.themePalette.pathBorder, this.scene);
         const borderWidth = 0.12;
         const borderHeight = 0.16;
 
@@ -1738,6 +1906,7 @@ export class Map {
         const borderTopMat = createLowPolyMaterial('mapBorderTopMat', PALETTE.ROCK, this.scene);
 
         // Four walls around the perimeter (zOffset applied to all Z positions)
+        // wall 0 = near (low-Z), wall 1 = far (high-Z), wall 2 = left, wall 3 = right
         const zo = this.zOffset;
         const walls = [
             { w: mapWidth + borderThickness * 2, d: borderThickness, x: mapWidth / 2, z: -borderThickness / 2 + zo },
@@ -1747,6 +1916,9 @@ export class Map {
         ];
 
         for (let i = 0; i < walls.length; i++) {
+            // Skip near wall if start portal is suppressed (segment receives enemies from previous)
+            if (i === 0 && this.suppressStartPortal) continue;
+
             const wall = MeshBuilder.CreateBox(`mapBorder_${i}`, {
                 width: walls[i].w,
                 height: borderHeight,
@@ -1767,9 +1939,15 @@ export class Map {
             cap.position = new Vector3(walls[i].x, borderHeight + 0.04, walls[i].z);
             cap.material = borderTopMat;
             this.groundMeshes.push(cap);
+
+            // Track far wall meshes for removal when extending the map
+            if (i === 1) {
+                this.farWallMeshes.push(wall, cap);
+            }
         }
 
         // Corner watchtowers - more elaborate than simple pillars
+        // corners 0,1 = near side (low-Z), corners 2,3 = far side (high-Z)
         const corners = [
             { x: -borderThickness / 2, z: -borderThickness / 2 + zo },
             { x: mapWidth + borderThickness / 2, z: -borderThickness / 2 + zo },
@@ -1778,6 +1956,9 @@ export class Map {
         ];
 
         for (let i = 0; i < corners.length; i++) {
+            // Skip near-side corners if start portal suppressed
+            if ((i === 0 || i === 1) && this.suppressStartPortal) continue;
+
             // Tower base
             const base = MeshBuilder.CreateCylinder(`cornerBase_${i}`, {
                 height: borderHeight * 2.2,
@@ -1802,6 +1983,11 @@ export class Map {
             makeFlatShaded(roof);
             if (this.shadowGenerator) this.shadowGenerator.addShadowCaster(roof);
             this.groundMeshes.push(roof);
+
+            // Track far-side corner meshes for removal
+            if (i === 2 || i === 3) {
+                this.farWallMeshes.push(base, roof);
+            }
         }
 
         // Decorative stones along the outer wall

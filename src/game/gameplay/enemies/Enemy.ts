@@ -858,6 +858,14 @@ export class Enemy {
     }
 
     /**
+     * Extend this enemy's path with additional waypoints.
+     * Used when a new map segment is appended so in-flight enemies continue into it.
+     */
+    public extendPath(additionalPoints: Vector3[]): void {
+        this.path.push(...additionalPoints);
+    }
+
+    /**
      * Set the tower manager reference
      * @param towerManager The tower manager instance
      */

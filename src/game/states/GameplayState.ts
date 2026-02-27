@@ -12,6 +12,37 @@ import { WaveStatus } from '../gameplay/WaveStatus';
 import { DamageNumberManager } from '../gameplay/DamageNumberManager';
 import { LevelManager } from '../gameplay/LevelManager';
 
+// ==================== TOWER DATA ====================
+
+interface TowerData {
+    id: string;
+    name: string;
+    cost: number;
+    color: string;
+    element: string;
+    category: 'medieval' | 'elemental';
+    damage: number;
+    range: number;
+    fireRate: number;
+    description: string;
+}
+
+const TOWER_DATA: TowerData[] = [
+    { id: 'basicTower',  name: 'Watchtower',  cost: 50,  color: '#4CAF50', element: 'none',  category: 'medieval',  damage: 10, range: 5,  fireRate: 1,   description: 'Balanced tower with steady damage' },
+    { id: 'fastTower',   name: 'Ballista',    cost: 100, color: '#2196F3', element: 'none',  category: 'medieval',  damage: 5,  range: 4,  fireRate: 3,   description: 'Rapid fire, low damage per hit' },
+    { id: 'heavyTower',  name: 'Trebuchet',   cost: 150, color: '#FF9800', element: 'none',  category: 'medieval',  damage: 30, range: 4,  fireRate: 0.5, description: 'Devastating blows, very slow' },
+    { id: 'sniperTower', name: 'Spire',       cost: 200, color: '#9C27B0', element: 'none',  category: 'medieval',  damage: 50, range: 10, fireRate: 0.3, description: 'Extreme range, picks off targets' },
+    { id: 'aoeTower',    name: 'Mage Tower',  cost: 150, color: '#7E57C2', element: 'none',  category: 'medieval',  damage: 15, range: 5,  fireRate: 2,   description: 'Arcane blasts hit multiple foes' },
+    { id: 'fireTower',   name: 'Fire',        cost: 125, color: '#FF5722', element: 'fire',  category: 'elemental', damage: 12, range: 5,  fireRate: 1,   description: 'Burns enemies over time' },
+    { id: 'waterTower',  name: 'Water',       cost: 125, color: '#03A9F4', element: 'water', category: 'elemental', damage: 8,  range: 5,  fireRate: 1.2, description: 'Slows enemies on hit' },
+    { id: 'windTower',   name: 'Wind',        cost: 125, color: '#8BC34A', element: 'wind',  category: 'elemental', damage: 6,  range: 6,  fireRate: 1.5, description: 'Pushes enemies backwards' },
+    { id: 'earthTower',  name: 'Earth',       cost: 125, color: '#795548', element: 'earth', category: 'elemental', damage: 15, range: 4,  fireRate: 0.8, description: 'Stuns enemies briefly' }
+];
+
+function getTowerDataById(id: string): TowerData | undefined {
+    return TOWER_DATA.find(t => t.id === id);
+}
+
 export class GameplayState implements GameState {
     private game: Game;
     private ui: AdvancedDynamicTexture | null = null;
@@ -48,7 +79,7 @@ export class GameplayState implements GameState {
     private playerMoney: number = 200;
     private damageNumberManager: DamageNumberManager | null = null;
     private damageEventHandler: ((e: Event) => void) | null = null;
-    private towerTooltip: Rectangle | null = null;
+    private towerDetailPopup: Rectangle | null = null;
     private levelManager: LevelManager | null = null;
     private levelTransitioning: boolean = false;
     private levelTransitionOverlay: Rectangle | null = null;
@@ -108,8 +139,8 @@ export class GameplayState implements GameState {
         this.levelManager = new LevelManager(this.game);
         this.levelTransitioning = false;
 
-        // Setup the map via level manager (level 0)
-        this.map = this.levelManager.createMapForLevel(0);
+        // Setup the first map segment (Level 1: The Enchanted Forest)
+        this.map = this.levelManager.createFirstSegment();
 
         // Create enemy manager
         this.enemyManager = new EnemyManager(this.game, this.map);
@@ -122,15 +153,19 @@ export class GameplayState implements GameState {
 
         // Create tower manager
         this.towerManager = new TowerManager(this.game, this.map);
+        this.towerManager.setLevelManager(this.levelManager);
 
         // Connect managers for targeting
         this.towerManager.setEnemyManager(this.enemyManager);
 
-        // Connect managers for tower destruction (new)
+        // Connect managers for tower destruction
         this.enemyManager.setTowerManager(this.towerManager);
 
-        // Create wave manager (10 waves, level 0)
-        this.waveManager = new WaveManager(this.enemyManager, this.playerStats, 10, 0);
+        // Create wave manager (infinite mode)
+        this.waveManager = new WaveManager(this.enemyManager, this.playerStats);
+
+        // Set up segment completion callback
+        this.waveManager.setOnSegmentComplete(() => this.extendMap());
 
         // Create UI
         this.createUI();
@@ -230,21 +265,9 @@ export class GameplayState implements GameState {
         // Update damage numbers (use real deltaTime for smooth animation)
         this.damageNumberManager?.update(deltaTime);
 
-        // Check for game over condition
+        // Check for game over condition (only way game ends — player death)
         if (this.playerStats && this.playerStats.getHealth() <= 0) {
             this.game.getStateManager().changeState('gameOver');
-        }
-
-        // Check for level completion (all waves done + no enemies alive)
-        if (this.waveManager?.isAllWavesCompleted() && this.enemyManager?.getEnemyCount() === 0) {
-            if (this.levelManager && this.levelManager.isLastLevel()) {
-                // Final level complete — victory!
-                this.playerStats?.setWon(true);
-                this.game.getStateManager().changeState('gameOver');
-            } else {
-                // Transition to next level
-                this.startLevelTransition();
-            }
         }
 
         // Update UI
@@ -252,87 +275,76 @@ export class GameplayState implements GameState {
     }
 
     // ========================================================================
-    // LEVEL TRANSITION
+    // MAP EXTENSION (infinite mode)
     // ========================================================================
 
-    private startLevelTransition(): void {
-        if (!this.levelManager || !this.ui || !this.playerStats) return;
+    /**
+     * Extend the map with a new procedural segment. Called when 10 waves are completed
+     * on the current segment. Towers, enemies, and the wave manager persist.
+     */
+    private extendMap(): void {
+        if (!this.levelManager || !this.enemyManager || !this.playerStats) return;
 
-        this.levelTransitioning = true;
+        console.log('Extending map with new segment...');
 
-        // Deselect any selected tower
-        if (this.selectedTower) {
-            this.deselectTower();
-        }
-        this.hideTowerSelector();
-        this.hidePlacementOutline();
+        // 1. Remove the end portal from the latest segment (visual cleanup)
+        this.levelManager.removeEndPortalFromLatestSegment();
 
-        // Dispose towers, enemies, wave manager (keep map visible for scroll effect)
-        this.towerManager?.dispose();
-        this.enemyManager?.dispose();
-        this.waveManager?.dispose();
+        // 2. Generate and create the new segment
+        const newMap = this.levelManager.generateNextSegment();
+        const newSegmentIndex = this.levelManager.getSegmentCount() - 1;
 
-        // Show "Level Complete!" overlay
-        const overlay = new Rectangle('levelTransitionOverlay');
-        overlay.width = '100%';
-        overlay.height = '100%';
-        overlay.background = 'rgba(0, 0, 0, 0.7)';
-        overlay.thickness = 0;
-        overlay.zIndex = 100;
-        this.ui.addControl(overlay);
-        this.levelTransitionOverlay = overlay;
+        // 3. Get bridge + new path for extending in-flight enemies
+        const bridgeAndPath = this.levelManager.getBridgeAndNewSegmentPath(newSegmentIndex);
+        this.enemyManager.extendAllEnemyPaths(bridgeAndPath);
 
-        const titleText = new TextBlock('transitionTitle');
-        titleText.text = 'Level Complete!';
-        titleText.color = '#F5A623';
-        titleText.fontSize = 36;
-        titleText.fontFamily = 'Arial';
-        titleText.fontWeight = 'bold';
-        titleText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-        titleText.top = '-40px';
-        overlay.addControl(titleText);
+        // 4. Update composite path for future enemy spawning
+        const compositePath = this.levelManager.getCompositePath();
+        this.enemyManager.setCompositePath(compositePath);
 
-        const subtitleText = new TextBlock('transitionSubtitle');
-        subtitleText.text = `Descending to next realm...`;
-        subtitleText.color = '#FFFFFF';
-        subtitleText.fontSize = 20;
-        subtitleText.fontFamily = 'Arial';
-        subtitleText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-        subtitleText.top = '10px';
-        overlay.addControl(subtitleText);
+        // 5. Award money bonus
+        this.playerStats.addMoney(newMap.getZOffsetValue() > 0 ? 100 + (newSegmentIndex - 1) * 50 : 0);
 
-        // After 2 seconds, animate camera and set up next level
+        // 6. Animate camera to new segment
+        this.levelManager.animateCameraToSegment(newSegmentIndex);
+
+        // 7. Show brief "New Territory!" notification
+        this.showNewTerritoryNotification();
+
+        console.log(`Map extended to segment ${newSegmentIndex + 1}`);
+    }
+
+    /**
+     * Show a brief non-blocking "New Territory!" notification that fades after 2 seconds.
+     */
+    private showNewTerritoryNotification(): void {
+        if (!this.ui) return;
+
+        const notification = new Rectangle('newTerritoryNotification');
+        notification.width = '300px';
+        notification.height = '50px';
+        notification.background = 'rgba(76, 175, 80, 0.9)';
+        notification.cornerRadius = 12;
+        notification.thickness = 0;
+        notification.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        notification.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        notification.top = '-100px';
+        notification.zIndex = 50;
+        this.ui.addControl(notification);
+
+        const text = new TextBlock('notificationText');
+        text.text = 'New Territory Unlocked!';
+        text.color = '#FFFFFF';
+        text.fontSize = 22;
+        text.fontFamily = 'Arial';
+        text.fontWeight = 'bold';
+        notification.addControl(text);
+
+        // Fade out after 2 seconds
         setTimeout(() => {
-            const newLevelIndex = this.levelManager!.advanceLevel();
-            const newConfig = this.levelManager!.getCurrentLevelConfig();
-
-            // Add money bonus for the new level
-            this.playerStats!.addMoney(newConfig.moneyBonus);
-
-            // Animate camera to next level
-            this.levelManager!.animateCameraToLevel(newLevelIndex).then(() => {
-                // Create new map
-                this.map = this.levelManager!.createMapForLevel(newLevelIndex);
-
-                // Create new managers for the new level
-                this.enemyManager = new EnemyManager(this.game, this.map);
-                this.enemyManager.setPlayerStats(this.playerStats!);
-
-                this.towerManager = new TowerManager(this.game, this.map);
-                this.towerManager.setEnemyManager(this.enemyManager);
-                this.enemyManager.setTowerManager(this.towerManager);
-
-                this.waveManager = new WaveManager(this.enemyManager, this.playerStats!, 10, newLevelIndex);
-
-                // Remove overlay and resume gameplay
-                if (this.levelTransitionOverlay) {
-                    this.ui!.removeControl(this.levelTransitionOverlay);
-                    this.levelTransitionOverlay = null;
-                }
-                this.levelTransitioning = false;
-
-                console.log(`Transitioned to Level ${newLevelIndex + 1}: ${newConfig.name}`);
-            });
+            if (this.ui && notification) {
+                this.ui.removeControl(notification);
+            }
         }, 2000);
     }
 
@@ -799,11 +811,11 @@ export class GameplayState implements GameState {
         // Update money display (number only)
         moneyText.text = `${this.playerStats.getMoney()}`;
 
-        // Update wave display with level info
-        const currentWave = this.waveManager.getCurrentWave();
-        const levelNum = this.levelManager ? this.levelManager.getCurrentLevelIndex() + 1 : 1;
-        const totalWaves = this.waveManager.getTotalWaves();
-        let waveDisplay = `L${levelNum} - ${currentWave}/${totalWaves}`;
+        // Update wave display: Segment # — Wave #/10
+        const segmentNum = this.waveManager.getSegmentIndex() + 1;
+        const segmentWave = this.waveManager.getSegmentWave();
+        const absoluteWave = this.waveManager.getAbsoluteWave();
+        let waveDisplay = `S${segmentNum} - ${segmentWave}/10`;
 
         // Show the effective difficulty
         const difficulty = this.waveManager.getDifficultyMultiplier().toFixed(1);
@@ -864,92 +876,164 @@ export class GameplayState implements GameState {
         this.scene = this.game.getScene();
         if (!this.scene) return;
 
+        // Ensure camera cannot rotate — fully detach all built-in camera controls
+        const camera = this.scene.activeCamera as ArcRotateCamera;
+        if (camera) {
+            camera.inputs.clear();
+            camera.detachControl();
+        }
+
+        // --- Camera drag state ---
+        // Drag threshold in pixels: movement below this is a tap, above is a drag
+        const DRAG_THRESHOLD = 8;
+        let pointerDown = false;
+        let isDragging = false;
+        let downX = 0;
+        let downY = 0;
+        let lastX = 0;
+        let lastY = 0;
+
+        // Rail camera: lock X to map center, only allow Z panning along the map
+        const MAP_CENTER_X = 20;
+        const clampTarget = (target: Vector3) => {
+            if (!this.levelManager) return;
+            const maxZ = this.levelManager.getMaxZ() + 5;
+            target.x = MAP_CENTER_X;
+            target.z = Math.max(5, Math.min(maxZ, target.z));
+        };
+
+        const canvas = this.scene.getEngine().getRenderingCanvas();
+
+        // --- Unified pointer handling: drag to pan, tap to interact ---
         this.scene.onPointerDown = (evt) => {
             if (evt.button !== 0 || !this.scene) return;
+            pointerDown = true;
+            isDragging = false;
+            downX = evt.clientX;
+            downY = evt.clientY;
+            lastX = evt.clientX;
+            lastY = evt.clientY;
+        };
 
-            // Check if we're clicking on UI elements
-            const pickInfo = this.scene.pick(
-                this.scene.pointerX,
-                this.scene.pointerY
-            );
+        this.scene.onPointerMove = (evt) => {
+            if (!this.scene) return;
 
-            // Don't process clicks on GUI elements
+            // Tower preview follows pointer when placing
+            if (this.selectedTowerType && this.towerPreview) {
+                const pickResult = this.scene.pick(
+                    this.scene.pointerX,
+                    this.scene.pointerY,
+                    (mesh) => mesh.name.startsWith('ground_')
+                );
+                if (pickResult.hit && pickResult.pickedPoint) {
+                    this.updateTowerPreview(pickResult.pickedPoint);
+                }
+            }
+
+            // Camera drag
+            if (!pointerDown) return;
+
+            const dx = evt.clientX - downX;
+            const dy = evt.clientY - downY;
+
+            // Start dragging once past threshold
+            if (!isDragging && (dx * dx + dy * dy) > DRAG_THRESHOLD * DRAG_THRESHOLD) {
+                isDragging = true;
+            }
+
+            if (isDragging) {
+                const camera = this.scene.activeCamera as ArcRotateCamera;
+                if (!camera || !canvas) return;
+
+                const moveX = evt.clientX - lastX;
+                const moveY = evt.clientY - lastY;
+                lastX = evt.clientX;
+                lastY = evt.clientY;
+
+                // Convert screen drag to Z-rail movement only
+                // Dragging up (negative moveY) = scroll toward lower Z, dragging down = higher Z
+                const orthoHeight = (camera.orthoTop ?? 1) - (camera.orthoBottom ?? -1);
+                const pixelToWorld = orthoHeight / canvas.clientHeight;
+
+                const target = camera.target.clone();
+                target.z += moveY * pixelToWorld;
+
+                clampTarget(target);
+                camera.target = target;
+            }
+        };
+
+        this.scene.onPointerUp = (evt) => {
+            if (evt.button !== 0 || !this.scene) {
+                pointerDown = false;
+                isDragging = false;
+                return;
+            }
+
+            const wasDrag = isDragging;
+            pointerDown = false;
+            isDragging = false;
+
+            // If it was a drag, don't process as a tap
+            if (wasDrag) return;
+
+            // === TAP HANDLING (same logic as the old onPointerDown) ===
+
+            // Check UI elements
+            const pickInfo = this.scene.pick(this.scene.pointerX, this.scene.pointerY);
             if (pickInfo.hit && pickInfo.pickedMesh && pickInfo.pickedMesh.name.includes('GUI')) {
                 return;
             }
 
-            // If we have an open tower selector, check if the click is outside it
-            // and close it if so
+            // Close tower selector if open
             if (this.towerSelectorPanel) {
-                // First hide the tower selector to handle "clicking outside"
                 this.hideTowerSelector();
                 this.hidePlacementOutline();
-                return; // Return here to prevent immediate selection on the next click
+                return;
             }
 
-            // We'll detect clicks outside of towers and handle UI cleanup below
-
-            // First check if we're clicking on a tower
+            // Check if tapping on a tower
             const pickResult = this.scene.pick(
                 this.scene.pointerX,
                 this.scene.pointerY,
-                (mesh) => {
-                    // Only pick meshes that aren't UI or range indicators
-                    return !mesh.name.includes('GUI') &&
-                           !mesh.name.includes('rangeIndicator') &&
-                           !mesh.name.includes('rangeRing');
-                }
+                (mesh) => !mesh.name.includes('GUI') &&
+                          !mesh.name.includes('rangeIndicator') &&
+                          !mesh.name.includes('rangeRing')
             );
 
             if (pickResult.hit && pickResult.pickedMesh) {
                 const clickedTower = this.findTowerByMesh(pickResult.pickedMesh);
-
                 if (clickedTower) {
-                    // If we already have this tower selected, do nothing (allows clicking range indicator)
-                    if (this.selectedTower === clickedTower) {
-                        return;
-                    }
-
-                    // Otherwise, select the new tower
+                    if (this.selectedTower === clickedTower) return;
                     this.selectTower(clickedTower);
-                    // Hide any existing placement UI when selecting a tower
                     this.hidePlacementOutline();
                     this.hideTowerSelector();
                     return;
                 }
             }
 
-            // If click wasn't on a tower, deselect any selected tower
+            // Deselect tower if tapping elsewhere
             if (this.selectedTower) {
                 this.deselectTower();
             }
 
-            // If we're not clicking on a tower, check if we're clicking on the ground
+            // Check if tapping on buildable ground
             const groundPickResult = this.scene.pick(
                 this.scene.pointerX,
                 this.scene.pointerY,
-                (mesh) => {
-                    return mesh.name.startsWith('ground_');
-                }
+                (mesh) => mesh.name.startsWith('ground_')
             );
 
             if (groundPickResult.hit && groundPickResult.pickedPoint) {
                 const position = groundPickResult.pickedPoint;
-                // Filter picks to current level's Z range
-                if (this.map) {
-                    const zOff = this.map.getZOffsetValue();
-                    if (position.z < zOff - 1 || position.z > zOff + 41) {
-                        return; // Click was on a different level's ground
-                    }
-                }
-                if (this.map) {
-                    const gridPosition = this.map.worldToGrid(position);
-                    if (this.map.canPlaceTower(gridPosition.x, gridPosition.y)) {
-                        // Hide any existing placement UI before showing new ones
+                const clickMap = this.levelManager
+                    ? this.levelManager.getMapForWorldPosition(position)
+                    : this.map;
+                if (clickMap) {
+                    const gridPosition = clickMap.worldToGrid(position);
+                    if (clickMap.canPlaceTower(gridPosition.x, gridPosition.y)) {
                         this.hidePlacementOutline();
                         this.hideTowerSelector();
-
-                        // Store the selected position and show tower selector
                         this.selectedPosition = position;
                         this.showPlacementOutline(position);
                         this.showTowerSelector();
@@ -962,44 +1046,58 @@ export class GameplayState implements GameState {
             }
         };
 
-        this.scene.onPointerMove = (evt) => {
-            if (this.selectedTowerType && this.towerPreview && this.scene) {
-                const pickInfo = this.scene.pick(
-                    this.scene.pointerX,
-                    this.scene.pointerY
-                );
-
-                if (pickInfo.hit && pickInfo.pickedMesh && pickInfo.pickedMesh.name.includes('GUI')) {
-                    return;
-                }
-
-                const pickResult = this.scene.pick(
-                    this.scene.pointerX,
-                    this.scene.pointerY,
-                    (mesh) => {
-                        return mesh.name.startsWith('ground_');
-                    }
-                );
-
-                if (pickResult.hit && pickResult.pickedPoint) {
-                    this.updateTowerPreview(pickResult.pickedPoint);
-                }
-            }
-        };
+        // Keyboard: Escape + WASD movement
+        const pressedKeys = new Set<string>();
 
         this.scene.onKeyboardObservable.add((kbInfo) => {
-            switch (kbInfo.type) {
-                case KeyboardEventTypes.KEYDOWN:
-                    // Check if Escape is pressed to cancel tower placement
-                    if (kbInfo.event.key === 'Escape') {
-                        if (this.selectedTowerType) {
-                            this.cancelTowerPlacement();
-                        }
-                        return;
-                    }
-                    break;
+            const key = kbInfo.event.key.toLowerCase();
+            if (kbInfo.type === KeyboardEventTypes.KEYDOWN) {
+                pressedKeys.add(key);
+                if (key === 'escape' && this.selectedTowerType) {
+                    this.cancelTowerPlacement();
+                }
+            } else if (kbInfo.type === KeyboardEventTypes.KEYUP) {
+                pressedKeys.delete(key);
             }
         });
+
+        // WASD / arrow keys move camera along Z rail only
+        this.scene.onBeforeRenderObservable.add(() => {
+            const cam = this.scene?.activeCamera as ArcRotateCamera;
+            if (!cam || !this.levelManager) return;
+
+            let zMove = 0;
+            const speed = 0.8;
+
+            // W/Up = scroll toward lower Z (toward start), S/Down = toward higher Z
+            if (pressedKeys.has('w') || pressedKeys.has('arrowup')) zMove = -speed;
+            if (pressedKeys.has('s') || pressedKeys.has('arrowdown')) zMove = speed;
+
+            if (zMove !== 0) {
+                const target = cam.target.clone();
+                target.z += zMove;
+                clampTarget(target);
+                cam.target = target;
+            }
+        });
+
+        // Prevent context menu & scroll wheel zoom
+        if (canvas) {
+            canvas.addEventListener('contextmenu', (evt) => evt.preventDefault());
+
+            canvas.addEventListener('wheel', (evt: WheelEvent) => {
+                evt.preventDefault();
+                const cam = this.scene?.activeCamera as ArcRotateCamera;
+                if (!cam) return;
+
+                const currentZoom = cam.metadata?.orthoZoom ?? 25;
+                const zoomDelta = evt.deltaY * 0.02;
+                const newZoom = Math.max(8, Math.min(50, currentZoom + zoomDelta));
+
+                cam.metadata = { ...cam.metadata, orthoZoom: newZoom };
+                this.game.updateOrthoBounds();
+            }, { passive: false });
+        }
     }
 
     // ========================================================================
@@ -1087,13 +1185,19 @@ export class GameplayState implements GameState {
     }
 
     private updateTowerPreview(position: Vector3): void {
-        if (!this.towerPreview || !this.map) return;
+        if (!this.towerPreview) return;
+
+        // Resolve which map segment this position belongs to
+        const previewMap = this.levelManager
+            ? this.levelManager.getMapForWorldPosition(position)
+            : this.map;
+        if (!previewMap) return;
 
         this.towerPreview.setEnabled(true);
 
-        const gridPosition = this.map.worldToGrid(position);
+        const gridPosition = previewMap.worldToGrid(position);
 
-        const worldPosition = this.map.gridToWorld(gridPosition.x, gridPosition.y);
+        const worldPosition = previewMap.gridToWorld(gridPosition.x, gridPosition.y);
 
         this.towerPreview.position = new Vector3(worldPosition.x, 1, worldPosition.z);
 
@@ -1105,7 +1209,7 @@ export class GameplayState implements GameState {
             this.squareOutline.setEnabled(true);
             this.squareOutline.position = new Vector3(worldPosition.x, 0.1, worldPosition.z);
 
-            const canPlace = this.map.canPlaceTower(gridPosition.x, gridPosition.y);
+            const canPlace = previewMap.canPlaceTower(gridPosition.x, gridPosition.y);
 
             const material = this.towerPreview.material as StandardMaterial;
             if (canPlace) {
@@ -1123,7 +1227,12 @@ export class GameplayState implements GameState {
     }
 
     private showConfirmationButtons(position: Vector3): void {
-        if (!this.ui || !this.map) return;
+        if (!this.ui) return;
+
+        const confirmMap = this.levelManager
+            ? (this.levelManager.getMapForWorldPosition(position) || this.map)
+            : this.map;
+        if (!confirmMap) return;
 
         if (this.towerPreview) {
             const material = this.towerPreview.material as StandardMaterial;
@@ -1132,8 +1241,8 @@ export class GameplayState implements GameState {
 
         this.confirmationButtons.position = position.clone();
 
-        const gridPosition = this.map.worldToGrid(position);
-        const worldPosition = this.map.gridToWorld(gridPosition.x, gridPosition.y);
+        const gridPosition = confirmMap.worldToGrid(position);
+        const worldPosition = confirmMap.gridToWorld(gridPosition.x, gridPosition.y);
 
         const container = new Rectangle('confirmationContainer');
         container.width = '300px';
@@ -1246,21 +1355,31 @@ export class GameplayState implements GameState {
     }
 
     private confirmTowerPlacement(): void {
-        if (!this.map || !this.towerManager || !this.playerStats || !this.selectedTowerType || !this.confirmationButtons.position) {
+        if (!this.towerManager || !this.playerStats || !this.selectedTowerType || !this.confirmationButtons.position) {
             this.hideConfirmationButtons();
             return;
         }
 
         const position = this.confirmationButtons.position;
-        const gridPosition = this.map.worldToGrid(position);
-        const worldPosition = this.map.gridToWorld(gridPosition.x, gridPosition.y);
+        // Resolve which map segment this placement belongs to
+        const placeMap = this.levelManager
+            ? (this.levelManager.getMapForWorldPosition(position) || this.map)
+            : this.map;
+
+        if (!placeMap) {
+            this.hideConfirmationButtons();
+            return;
+        }
+
+        const gridPosition = placeMap.worldToGrid(position);
+        const worldPosition = placeMap.gridToWorld(gridPosition.x, gridPosition.y);
 
         const towerCost = this.getTowerCost(this.selectedTowerType);
         if (this.playerStats.getMoney() >= towerCost) {
             this.towerManager.createTower(this.selectedTowerType, new Vector3(worldPosition.x, position.y, worldPosition.z));
             this.playerStats.spendMoney(towerCost);
 
-            this.map.setTowerPlaced(gridPosition.x, gridPosition.y, true);
+            placeMap.setTowerPlaced(gridPosition.x, gridPosition.y, true);
 
             this.game.getAssetManager().playSound('towerShoot');
 
@@ -1301,24 +1420,8 @@ export class GameplayState implements GameState {
     }
 
     private getTowerCost(type: string): number {
-        switch (type) {
-            case 'basicTower': return 50;
-            case 'fastTower': return 100;
-            case 'heavyTower': return 150;
-            case 'sniperTower': return 200;
-            case 'aoeTower': return 150;
-            case 'fireTower': return 125;
-            case 'waterTower': return 125;
-            case 'windTower': return 125;
-            case 'earthTower': return 125;
-            case 'steamTower': return 250;
-            case 'lavaTower': return 250;
-            case 'iceTower': return 250;
-            case 'stormTower': return 250;
-            case 'mudTower': return 250;
-            case 'dustTower': return 250;
-            default: return 0;
-        }
+        const data = getTowerDataById(type);
+        return data ? data.cost : 0;
     }
 
     private togglePause(): void {
@@ -2252,10 +2355,13 @@ export class GameplayState implements GameState {
     // ========================================================================
 
     private showPlacementOutline(position: Vector3): void {
-        if (!this.map) return;
+        const outlineMap = this.levelManager
+            ? (this.levelManager.getMapForWorldPosition(position) || this.map)
+            : this.map;
+        if (!outlineMap) return;
 
-        const gridPosition = this.map.worldToGrid(position);
-        const worldPosition = this.map.gridToWorld(gridPosition.x, gridPosition.y);
+        const gridPosition = outlineMap.worldToGrid(position);
+        const worldPosition = outlineMap.gridToWorld(gridPosition.x, gridPosition.y);
 
         // Create a more visible outline
         const size = 2.2;
@@ -2313,275 +2419,296 @@ export class GameplayState implements GameState {
     }
 
     // ========================================================================
-    // TOWER SELECTOR (circular UI with colored circle indicators)
+    // TOWER SELECTOR (card-based bottom panel)
     // ========================================================================
+
+    private activeTowerCategory: 'medieval' | 'elemental' = 'medieval';
 
     private showTowerSelector(): void {
         if (!this.ui || !this.selectedPosition) return;
 
-        // Store position in a local variable that's guaranteed not to be null
         const position = this.selectedPosition.clone();
-
-        // Convert 3D world position to 2D screen position
-        if (!this.scene || !this.scene.activeCamera) return;
-
-        const worldPos = position;
-        const screenPos = Vector3.Project(
-            worldPos,
-            Matrix.Identity(),
-            this.scene.getTransformMatrix(),
-            this.scene.activeCamera.viewport
-        );
-
-        // Detect if we're on a mobile device
         const isMobile = this.isMobileDevice();
 
-        // Get UI dimensions
-        const uiWidth = this.ui.getSize().width;
-        const uiHeight = this.ui.getSize().height;
-
-        // Calculate screen position
-        const screenX = screenPos.x * uiWidth;
-        const screenY = screenPos.y * uiHeight;
-
-        // Adjust selector size based on device
-        const selectorSize = isMobile ? 280 : 260;
-        const selectorRadius = selectorSize / 2;
-
-        // Create circular tower selector panel with dark style
-        this.towerSelectorPanel = new Rectangle('towerSelectorPanel');
-        this.towerSelectorPanel.width = selectorSize + 'px';
-        this.towerSelectorPanel.height = selectorSize + 'px';
-        this.towerSelectorPanel.background = 'rgba(28, 32, 40, 0.92)';
-        this.towerSelectorPanel.cornerRadius = selectorRadius;
+        // Create bottom-anchored panel container
+        this.towerSelectorPanel = new Rectangle('towerPanelContainer');
+        this.towerSelectorPanel.width = '100%';
+        this.towerSelectorPanel.height = isMobile ? '180px' : '200px';
+        this.towerSelectorPanel.background = 'rgba(28, 32, 40, 0.94)';
         this.towerSelectorPanel.thickness = 1;
         this.towerSelectorPanel.color = '#3A3F4B';
-
-        // Use center positioning to avoid edge issues
         this.towerSelectorPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        this.towerSelectorPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-
-        // Calculate position offsets from center of screen
-        const offsetX = screenX - (uiWidth / 2);
-        const offsetY = screenY - (uiHeight / 2);
-
-        // Apply position
-        this.towerSelectorPanel.left = offsetX + 'px';
-        this.towerSelectorPanel.top = offsetY + 'px';
-
+        this.towerSelectorPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
         this.towerSelectorPanel.zIndex = 10;
         this.ui.addControl(this.towerSelectorPanel);
 
-        // Define tower buttons with colored circle indicators
-        const towers = [
-            { id: 'basicTower', name: 'Basic', cost: '50', color: '#4CAF50' },
-            { id: 'fastTower', name: 'Fast', cost: '100', color: '#2196F3' },
-            { id: 'heavyTower', name: 'Heavy', cost: '150', color: '#FF9800' },
-            { id: 'sniperTower', name: 'Sniper', cost: '200', color: '#9C27B0' },
-            { id: 'aoeTower', name: 'Mage', cost: '150', color: '#7E57C2' },
-            { id: 'fireTower', name: 'Fire', cost: '125', color: '#FF5722' },
-            { id: 'waterTower', name: 'Water', cost: '125', color: '#03A9F4' },
-            { id: 'windTower', name: 'Wind', cost: '125', color: '#8BC34A' },
-            { id: 'earthTower', name: 'Earth', cost: '125', color: '#795548' }
-        ];
+        // ---- Category tabs at top ----
+        const tabRow = new Rectangle('tabRow');
+        tabRow.width = '100%';
+        tabRow.height = '32px';
+        tabRow.background = 'rgba(20, 24, 30, 0.6)';
+        tabRow.thickness = 0;
+        tabRow.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.towerSelectorPanel.addControl(tabRow);
 
-        // Create a circular arrangement of tower buttons
-        const radius = isMobile ? 105 : 85;
-        const buttonsCount = towers.length;
+        const createTab = (name: string, cat: 'medieval' | 'elemental', leftPos: string) => {
+            const tab = Button.CreateSimpleButton(`tab_${cat}`, name);
+            tab.width = '100px';
+            tab.height = '28px';
+            tab.color = '#FFFFFF';
+            tab.fontSize = 12;
+            tab.fontFamily = 'Arial';
+            tab.fontWeight = this.activeTowerCategory === cat ? 'bold' : 'normal';
+            tab.background = this.activeTowerCategory === cat ? '#4CAF50' : 'rgba(60, 65, 75, 0.8)';
+            tab.cornerRadius = 6;
+            tab.thickness = 0;
+            tab.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            tab.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+            tab.left = leftPos;
+            tab.onPointerClickObservable.add(() => {
+                this.activeTowerCategory = cat;
+                this.hideTowerSelector();
+                this.hideDetailPopup();
+                this.showTowerSelector();
+            });
+            tabRow.addControl(tab);
+        };
 
-        // Add label in center
-        const centerLabel = new TextBlock("centerLabel", "Select\nTower");
-        centerLabel.color = '#B0B8C8';
-        centerLabel.fontSize = 14;
-        centerLabel.fontFamily = 'Arial';
-        centerLabel.textWrapping = true;
-        centerLabel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        centerLabel.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-        this.towerSelectorPanel.addControl(centerLabel);
+        createTab('Medieval', 'medieval', '-58px');
+        createTab('Elemental', 'elemental', '58px');
 
-        // Add close button
-        const closeButton = Button.CreateSimpleButton("closeButton", "x");
-        closeButton.width = "24px";
-        closeButton.height = "24px";
-        closeButton.color = '#FFFFFF';
-        closeButton.background = '#E53935';
-        closeButton.cornerRadius = 12;
-        closeButton.thickness = 0;
-        closeButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        closeButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        closeButton.top = "5px";
-        closeButton.left = "-5px";
-        closeButton.onPointerClickObservable.add(() => {
+        // Close button
+        const closeBtn = Button.CreateSimpleButton('closeBtn', 'x');
+        closeBtn.width = '26px';
+        closeBtn.height = '26px';
+        closeBtn.color = '#FFFFFF';
+        closeBtn.background = '#E53935';
+        closeBtn.cornerRadius = 13;
+        closeBtn.thickness = 0;
+        closeBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        closeBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        closeBtn.top = '3px';
+        closeBtn.left = '-8px';
+        closeBtn.fontSize = 13;
+        closeBtn.onPointerClickObservable.add(() => {
             this.hideTowerSelector();
+            this.hideDetailPopup();
             this.hidePlacementOutline();
         });
-        this.towerSelectorPanel.addControl(closeButton);
+        this.towerSelectorPanel.addControl(closeBtn);
 
-        towers.forEach((tower, index) => {
-            // Calculate position in circle
-            const angle = (index / buttonsCount) * 2 * Math.PI;
-            const x = Math.sin(angle) * radius;
-            const y = -Math.cos(angle) * radius;
+        // ---- Tower cards row ----
+        const cardRow = new StackPanel('cardRow');
+        cardRow.isVertical = false;
+        cardRow.height = isMobile ? '140px' : '160px';
+        cardRow.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        cardRow.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        cardRow.paddingBottom = '6px';
+        this.towerSelectorPanel.addControl(cardRow);
 
-            // Create button container with colored circle
-            const button = new Button(`${tower.id}_button`);
-            const buttonSize = isMobile ? 65 : 55;
-            button.width = buttonSize + "px";
-            button.height = buttonSize + "px";
-            button.background = tower.color;
-            button.color = '#FFFFFF';
-            button.cornerRadius = buttonSize / 2;
-            button.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-            button.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-            button.left = x + "px";
-            button.top = y + "px";
+        const filteredTowers = TOWER_DATA.filter(t => t.category === this.activeTowerCategory);
+        const playerMoney = this.playerStats ? this.playerStats.getMoney() : 0;
 
-            // Clear default text
-            if (button.textBlock) {
-                button.textBlock.text = "";
-            }
+        // Stat max values for proportional bars
+        const maxDmg = Math.max(...TOWER_DATA.map(t => t.damage));
+        const maxRng = Math.max(...TOWER_DATA.map(t => t.range));
+        const maxSpd = Math.max(...TOWER_DATA.map(t => t.fireRate));
 
-            // Add tower name text
-            const nameText = new TextBlock(`${tower.id}_name`, tower.name);
+        const cardWidth = isMobile ? 90 : 100;
+        const cardHeight = isMobile ? 125 : 140;
+
+        filteredTowers.forEach((tower) => {
+            const canAfford = playerMoney >= tower.cost;
+
+            // Card container
+            const card = new Rectangle(`card_${tower.id}`);
+            card.width = cardWidth + 'px';
+            card.height = cardHeight + 'px';
+            card.background = 'rgba(40, 44, 52, 0.95)';
+            card.cornerRadius = 8;
+            card.thickness = 1;
+            card.color = '#3A3F4B';
+            card.paddingLeft = '4px';
+            card.paddingRight = '4px';
+            card.alpha = canAfford ? 1.0 : 0.4;
+            card.isPointerBlocker = true;
+
+            // Color accent bar at top
+            const accent = new Rectangle(`accent_${tower.id}`);
+            accent.width = '100%';
+            accent.height = '5px';
+            accent.background = tower.color;
+            accent.thickness = 0;
+            accent.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            card.addControl(accent);
+
+            // Tower name
+            const nameText = new TextBlock(`name_${tower.id}`, tower.name);
             nameText.color = '#FFFFFF';
-            nameText.fontSize = isMobile ? 14 : 11;
+            nameText.fontSize = isMobile ? 10 : 11;
             nameText.fontFamily = 'Arial';
             nameText.fontWeight = 'bold';
-            nameText.resizeToFit = false;
-            nameText.textWrapping = true;
             nameText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-            nameText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-            nameText.top = isMobile ? "-10px" : "-8px";
-            button.addControl(nameText);
+            nameText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            nameText.top = '10px';
+            nameText.resizeToFit = true;
+            card.addControl(nameText);
 
-            // Add small cost indicator at bottom of button
-            const costIndicator = new TextBlock(`${tower.id}_cost`, "$" + tower.cost);
-            costIndicator.color = '#FFFFFF';
-            costIndicator.fontSize = isMobile ? 12 : 9;
-            costIndicator.fontFamily = 'Arial';
-            costIndicator.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-            costIndicator.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-            costIndicator.top = isMobile ? "18px" : "16px";
-            button.addControl(costIndicator);
+            // Cost
+            const costText = new TextBlock(`cost_${tower.id}`, `$${tower.cost}`);
+            costText.color = '#F5A623';
+            costText.fontSize = isMobile ? 11 : 12;
+            costText.fontFamily = 'Arial';
+            costText.fontWeight = 'bold';
+            costText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            costText.top = isMobile ? '22px' : '24px';
+            costText.resizeToFit = true;
+            card.addControl(costText);
 
-            // Highlight effect on hover + tooltip
-            button.onPointerEnterObservable.add(() => {
-                button.background = this.lightenColor(tower.color, 20);
-                button.scaleX = 1.1;
-                button.scaleY = 1.1;
+            // Stat bars container
+            const statsTop = isMobile ? 38 : 42;
+            const barHeight = isMobile ? 7 : 8;
+            const barGap = isMobile ? 12 : 14;
+            const barMaxWidth = cardWidth - 24;
 
-                nameText.fontSize = 13;
+            const createStatBar = (label: string, value: number, maxValue: number, barColor: string, yOffset: number) => {
+                // Label
+                const lbl = new TextBlock(`${tower.id}_${label}_lbl`, label);
+                lbl.color = '#888';
+                lbl.fontSize = isMobile ? 7 : 8;
+                lbl.fontFamily = 'Arial';
+                lbl.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+                lbl.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+                lbl.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+                lbl.top = yOffset + 'px';
+                lbl.left = '8px';
+                lbl.resizeToFit = true;
+                card.addControl(lbl);
 
-                // Show tooltip
-                this.showTowerTooltip(tower.id, tower.name, tower.cost);
+                // Bar background
+                const barBg = new Rectangle(`${tower.id}_${label}_bg`);
+                barBg.width = barMaxWidth + 'px';
+                barBg.height = barHeight + 'px';
+                barBg.background = 'rgba(255,255,255,0.1)';
+                barBg.cornerRadius = 3;
+                barBg.thickness = 0;
+                barBg.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+                barBg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+                barBg.top = (yOffset + 9) + 'px';
+                card.addControl(barBg);
+
+                // Bar fill
+                const fillPct = Math.min(1, value / maxValue);
+                const fillWidth = Math.max(4, Math.floor(barMaxWidth * fillPct));
+                const bar = new Rectangle(`${tower.id}_${label}_fill`);
+                bar.width = fillWidth + 'px';
+                bar.height = barHeight + 'px';
+                bar.background = barColor;
+                bar.cornerRadius = 3;
+                bar.thickness = 0;
+                bar.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+                bar.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+                bar.top = (yOffset + 9) + 'px';
+                bar.left = ((cardWidth - barMaxWidth) / 2) + 'px';
+                card.addControl(bar);
+            };
+
+            createStatBar('DMG', tower.damage, maxDmg, '#E53935', statsTop);
+            createStatBar('RNG', tower.range, maxRng, '#2196F3', statsTop + barGap);
+            createStatBar('SPD', tower.fireRate, maxSpd, '#4CAF50', statsTop + barGap * 2);
+
+            // Element badge for elemental towers
+            if (tower.category === 'elemental') {
+                const badge = new Rectangle(`badge_${tower.id}`);
+                badge.width = '40px';
+                badge.height = '14px';
+                badge.background = tower.color;
+                badge.cornerRadius = 7;
+                badge.thickness = 0;
+                badge.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+                badge.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+                badge.top = '-6px';
+                card.addControl(badge);
+
+                const badgeText = new TextBlock(`badgeTxt_${tower.id}`, tower.element.toUpperCase());
+                badgeText.color = '#FFFFFF';
+                badgeText.fontSize = 8;
+                badgeText.fontFamily = 'Arial';
+                badgeText.fontWeight = 'bold';
+                badge.addControl(badgeText);
+            }
+
+            // Hover: highlight border, show detail popup
+            card.onPointerEnterObservable.add(() => {
+                card.color = tower.color;
+                card.thickness = 2;
+                this.showDetailPopup(tower, isMobile);
             });
 
-            button.onPointerOutObservable.add(() => {
-                button.background = tower.color;
-                button.scaleX = 1.0;
-                button.scaleY = 1.0;
-
-                nameText.fontSize = 12;
-
-                // Hide tooltip
-                this.hideTowerTooltip();
+            card.onPointerOutObservable.add(() => {
+                card.color = '#3A3F4B';
+                card.thickness = 1;
+                this.hideDetailPopup();
             });
 
-            // Make button clickable
-            button.isPointerBlocker = true;
-
-            // Handle tower selection - use the stored position
-            button.onPointerUpObservable.add(() => {
-                // Check if player has enough money
-                if (this.playerStats && this.getTowerCost(tower.id) > this.playerStats.getMoney()) {
-                    // Shake effect for insufficient funds
-                    this.shakeElement(button);
+            // Click: place tower
+            card.onPointerClickObservable.add(() => {
+                if (!canAfford) {
+                    this.shakeElement(card);
                     return;
                 }
-
-                // Select the tower type and place it immediately
                 this.selectedTowerType = tower.id;
-
-                // Hide the tower selector and outline
                 this.hideTowerSelector();
-
-                // Place the tower directly at the position
+                this.hideDetailPopup();
                 this.placeTowerAtPosition(position);
-
-                // Hide the placement outline after placing
                 this.hidePlacementOutline();
             });
 
-            // Add the button to the panel if it still exists
-            if (this.towerSelectorPanel) {
-                this.towerSelectorPanel.addControl(button);
-            }
+            cardRow.addControl(card);
         });
     }
 
-    private showTowerTooltip(towerId: string, name: string, cost: string): void {
+    private showDetailPopup(tower: TowerData, isMobile: boolean): void {
         if (!this.ui) return;
-        this.hideTowerTooltip();
+        this.hideDetailPopup();
 
-        const stats = this.getTowerStats(towerId);
+        this.towerDetailPopup = new Rectangle('detailPopup');
+        this.towerDetailPopup.width = '200px';
+        this.towerDetailPopup.height = '100px';
+        this.towerDetailPopup.background = 'rgba(28, 32, 40, 0.96)';
+        this.towerDetailPopup.cornerRadius = 10;
+        this.towerDetailPopup.thickness = 1;
+        this.towerDetailPopup.color = tower.color;
+        this.towerDetailPopup.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.towerDetailPopup.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        this.towerDetailPopup.top = isMobile ? '-185px' : '-205px';
+        this.towerDetailPopup.zIndex = 15;
+        this.towerDetailPopup.isPointerBlocker = false;
+        this.ui.addControl(this.towerDetailPopup);
 
-        this.towerTooltip = new Rectangle('towerTooltip');
-        this.towerTooltip.width = '180px';
-        this.towerTooltip.height = '120px';
-        this.towerTooltip.background = 'rgba(28, 32, 40, 0.95)';
-        this.towerTooltip.cornerRadius = 12;
-        this.towerTooltip.thickness = 1;
-        this.towerTooltip.color = '#3A3F4B';
-        this.towerTooltip.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        this.towerTooltip.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        this.towerTooltip.top = '-20px';
-        this.towerTooltip.zIndex = 20;
-        this.towerTooltip.isPointerBlocker = false;
-        this.ui.addControl(this.towerTooltip);
-
-        const tooltipText = new TextBlock('tooltipText');
-        tooltipText.text = `${name} Tower - $${cost}\n` +
-            `Damage: ${stats.damage}\n` +
-            `Range: ${stats.range}\n` +
-            `Fire Rate: ${stats.fireRate}/s\n` +
-            `${stats.description}`;
-        tooltipText.color = '#B0B8C8';
-        tooltipText.fontSize = 13;
-        tooltipText.fontFamily = 'Arial';
-        tooltipText.textWrapping = true;
-        tooltipText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        tooltipText.paddingLeft = '10px';
-        tooltipText.paddingRight = '10px';
-        tooltipText.paddingTop = '8px';
-        tooltipText.paddingBottom = '8px';
-        this.towerTooltip.addControl(tooltipText);
+        const detailText = new TextBlock('detailText');
+        detailText.text = `${tower.name}  -  $${tower.cost}\n` +
+            `DMG: ${tower.damage}  RNG: ${tower.range}  SPD: ${tower.fireRate}/s\n` +
+            (tower.element !== 'none' ? `Element: ${tower.element}\n` : '') +
+            `${tower.description}`;
+        detailText.color = '#B0B8C8';
+        detailText.fontSize = 11;
+        detailText.fontFamily = 'Arial';
+        detailText.textWrapping = true;
+        detailText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        detailText.paddingLeft = '10px';
+        detailText.paddingRight = '10px';
+        detailText.paddingTop = '8px';
+        this.towerDetailPopup.addControl(detailText);
     }
 
-    private hideTowerTooltip(): void {
-        if (this.towerTooltip && this.ui) {
-            this.ui.removeControl(this.towerTooltip);
-            this.towerTooltip = null;
+    private hideDetailPopup(): void {
+        if (this.towerDetailPopup && this.ui) {
+            this.ui.removeControl(this.towerDetailPopup);
+            this.towerDetailPopup = null;
         }
     }
 
-    private getTowerStats(towerId: string): { damage: number, range: number, fireRate: number, description: string } {
-        switch (towerId) {
-            case 'basicTower': return { damage: 10, range: 5, fireRate: 1, description: 'Balanced tower' };
-            case 'fastTower': return { damage: 5, range: 4, fireRate: 3, description: 'Rapid fire, low damage' };
-            case 'heavyTower': return { damage: 30, range: 4, fireRate: 0.5, description: 'High damage, slow' };
-            case 'sniperTower': return { damage: 50, range: 10, fireRate: 0.3, description: 'Long range, very slow' };
-            case 'aoeTower': return { damage: 15, range: 5, fireRate: 2, description: 'Arcane AOE damage' };
-            case 'fireTower': return { damage: 12, range: 5, fireRate: 1, description: 'Burns enemies over time' };
-            case 'waterTower': return { damage: 8, range: 5, fireRate: 1.2, description: 'Slows enemies' };
-            case 'windTower': return { damage: 6, range: 6, fireRate: 1.5, description: 'Pushes enemies back' };
-            case 'earthTower': return { damage: 15, range: 4, fireRate: 0.8, description: 'Stuns enemies' };
-            default: return { damage: 0, range: 0, fireRate: 0, description: '' };
-        }
-    }
-
-    /**
-     * Create a shake animation for an element when player has insufficient funds
-     */
     private shakeElement(element: Control): void {
         const originalLeft = element.left;
         const shakeAmount = 3;
@@ -2598,21 +2725,13 @@ export class GameplayState implements GameState {
         }, duration);
     }
 
-    /**
-     * Lighten a color by the specified amount
-     */
     private lightenColor(color: string, amount: number): string {
-        // Convert hex to RGB
         let r = parseInt(color.substring(1, 3), 16);
         let g = parseInt(color.substring(3, 5), 16);
         let b = parseInt(color.substring(5, 7), 16);
-
-        // Lighten
         r = Math.min(255, r + amount);
         g = Math.min(255, g + amount);
         b = Math.min(255, b + amount);
-
-        // Convert back to hex
         return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
     }
 
@@ -2624,7 +2743,7 @@ export class GameplayState implements GameState {
      * Hide the tower selector UI
      */
     private hideTowerSelector(): void {
-        this.hideTowerTooltip();
+        this.hideDetailPopup();
         if (this.towerSelectorPanel && this.ui) {
             this.ui.removeControl(this.towerSelectorPanel);
             this.towerSelectorPanel = null;

@@ -13,6 +13,7 @@ import { WindTower } from './towers/WindTower';
 import { EarthTower } from './towers/EarthTower';
 import { TowerCombiner } from './towers/TowerCombiner';
 import { EnemyManager } from './EnemyManager';
+import { LevelManager } from './LevelManager';
 // Import hybrid towers
 import { SteamTower } from './towers/hybrid/SteamTower';
 import { LavaTower } from './towers/hybrid/LavaTower';
@@ -28,12 +29,20 @@ export class TowerManager {
     private towers: Tower[] = [];
     private enemyManager: EnemyManager | null = null;
     private towerCombiner: TowerCombiner;
+    private levelManager: LevelManager | null = null;
 
     constructor(game: Game, map: Map) {
         this.game = game;
         this.scene = game.getScene();
         this.map = map;
         this.towerCombiner = new TowerCombiner(game, this, map);
+    }
+
+    /**
+     * Set the level manager for multi-map grid resolution when selling towers.
+     */
+    public setLevelManager(levelManager: LevelManager): void {
+        this.levelManager = levelManager;
     }
 
     /**
@@ -278,22 +287,27 @@ export class TowerManager {
      */
     public sellTower(tower: Tower): number {
         const sellValue = tower.getSellValue();
-        
+
+        // Resolve which map segment the tower belongs to
+        const towerMap = this.levelManager
+            ? (this.levelManager.getMapForWorldPosition(tower.getPosition()) || this.map)
+            : this.map;
+
         // Get the grid position before removing the tower
-        const gridPosition = this.map.worldToGrid(tower.getPosition());
-        
+        const gridPosition = towerMap.worldToGrid(tower.getPosition());
+
         // Dispose the tower (which will clean up projectiles)
         tower.dispose();
-        
+
         // Remove from towers list after disposal
         const index = this.towers.indexOf(tower);
         if (index !== -1) {
             this.towers.splice(index, 1);
         }
-        
+
         // Update the grid after tower is disposed
-        this.map.setTowerPlaced(gridPosition.x, gridPosition.y, false);
-        
+        towerMap.setTowerPlaced(gridPosition.x, gridPosition.y, false);
+
         return sellValue;
     }
 

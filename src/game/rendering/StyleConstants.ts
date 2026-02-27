@@ -1,4 +1,5 @@
 import { Color3, Color4 } from '@babylonjs/core';
+import { MapTheme } from '../gameplay/LevelConfig';
 
 /**
  * Warm, saturated color palette for the low-poly stylized aesthetic.
@@ -144,3 +145,174 @@ export const PALETTE = {
     TOWER_AOE_STONE: new Color3(0.45, 0.42, 0.48),        // Dark arcane stone
     TOWER_AOE_ORB: new Color3(0.72, 0.40, 0.95),          // Conjurer orb
 } as const;
+
+// ==================== MAP THEME PALETTES ====================
+
+export interface MapThemePalette {
+    sky: Color4;
+    fog: Color3;
+    ground: Color3;
+    path: Color3;
+    pathBorder: Color3;
+    waterColor: Color3;
+    waterDeep: Color3;
+    waterEmissive: boolean;
+    treeTrunk: Color3;
+    treeFoliage: Color3;
+    treeFoliageDark: Color3;
+    rock: Color3;
+    rockDark: Color3;
+    bush: Color3;
+    crystalColors: Color3[];
+    particleColor1: Color4;
+    particleColor2: Color4;
+    particleDead: Color4;
+    // Terrain overlay colors
+    forestOverlay: Color3;
+    highlandOverlay: Color3;
+    crystalOverlay: Color3;
+    riversideOverlay: Color3;
+}
+
+export const MAP_THEMES: Record<MapTheme, MapThemePalette> = {
+    [MapTheme.NEUTRAL]: {
+        sky: new Color4(0.55, 0.78, 0.95, 1),
+        fog: new Color3(0.55, 0.78, 0.95),
+        ground: new Color3(0.42, 0.65, 0.32),
+        path: new Color3(0.82, 0.72, 0.55),
+        pathBorder: new Color3(0.65, 0.55, 0.40),
+        waterColor: new Color3(0.25, 0.55, 0.85),
+        waterDeep: new Color3(0.15, 0.40, 0.70),
+        waterEmissive: false,
+        treeTrunk: new Color3(0.55, 0.35, 0.18),
+        treeFoliage: new Color3(0.22, 0.58, 0.22),
+        treeFoliageDark: new Color3(0.18, 0.48, 0.18),
+        rock: new Color3(0.58, 0.55, 0.52),
+        rockDark: new Color3(0.45, 0.42, 0.40),
+        bush: new Color3(0.30, 0.62, 0.28),
+        crystalColors: [
+            new Color3(0.65, 0.30, 0.85),
+            new Color3(0.45, 0.78, 0.95),
+            new Color3(0.85, 0.50, 0.95)
+        ],
+        particleColor1: new Color4(0.8, 0.95, 0.3, 0.7),
+        particleColor2: new Color4(0.6, 0.85, 0.2, 0.5),
+        particleDead: new Color4(0.3, 0.4, 0.1, 0.0),
+        forestOverlay: new Color3(0.25, 0.45, 0.18),
+        highlandOverlay: new Color3(0.52, 0.48, 0.42),
+        crystalOverlay: new Color3(0.45, 0.35, 0.55),
+        riversideOverlay: new Color3(0.30, 0.55, 0.28)
+    },
+    [MapTheme.FIRE]: {
+        sky: new Color4(0.35, 0.15, 0.10, 1),
+        fog: new Color3(0.40, 0.18, 0.12),
+        ground: new Color3(0.28, 0.18, 0.12),
+        path: new Color3(0.55, 0.38, 0.25),
+        pathBorder: new Color3(0.40, 0.28, 0.18),
+        waterColor: new Color3(0.95, 0.45, 0.10),      // Lava orange
+        waterDeep: new Color3(0.85, 0.25, 0.05),        // Deep lava
+        waterEmissive: true,
+        treeTrunk: new Color3(0.22, 0.15, 0.10),        // Charred
+        treeFoliage: new Color3(0.35, 0.18, 0.08),      // Burnt orange leaves
+        treeFoliageDark: new Color3(0.25, 0.12, 0.05),
+        rock: new Color3(0.38, 0.30, 0.28),             // Volcanic rock
+        rockDark: new Color3(0.22, 0.18, 0.18),         // Obsidian
+        bush: new Color3(0.40, 0.22, 0.10),             // Scorched bush
+        crystalColors: [
+            new Color3(1.0, 0.50, 0.10),                // Ember
+            new Color3(0.95, 0.30, 0.05),                // Hot orange
+            new Color3(0.80, 0.20, 0.10)                 // Deep red
+        ],
+        particleColor1: new Color4(1.0, 0.55, 0.10, 0.8),  // Ember particles
+        particleColor2: new Color4(0.95, 0.30, 0.05, 0.6),
+        particleDead: new Color4(0.3, 0.1, 0.0, 0.0),
+        forestOverlay: new Color3(0.22, 0.12, 0.08),
+        highlandOverlay: new Color3(0.32, 0.22, 0.18),
+        crystalOverlay: new Color3(0.45, 0.20, 0.10),
+        riversideOverlay: new Color3(0.35, 0.18, 0.10)
+    },
+    [MapTheme.WATER]: {
+        sky: new Color4(0.40, 0.65, 0.85, 1),
+        fog: new Color3(0.45, 0.68, 0.88),
+        ground: new Color3(0.28, 0.52, 0.38),           // Lush blue-green
+        path: new Color3(0.65, 0.72, 0.78),             // Pale stone
+        pathBorder: new Color3(0.48, 0.55, 0.62),
+        waterColor: new Color3(0.20, 0.50, 0.85),       // Deep blue
+        waterDeep: new Color3(0.10, 0.35, 0.70),
+        waterEmissive: false,
+        treeTrunk: new Color3(0.38, 0.32, 0.22),
+        treeFoliage: new Color3(0.18, 0.52, 0.38),      // Blue-green
+        treeFoliageDark: new Color3(0.12, 0.42, 0.32),
+        rock: new Color3(0.48, 0.55, 0.58),             // Wet stone
+        rockDark: new Color3(0.35, 0.42, 0.48),
+        bush: new Color3(0.22, 0.55, 0.40),
+        crystalColors: [
+            new Color3(0.30, 0.70, 0.95),               // Aqua
+            new Color3(0.45, 0.85, 0.90),                // Light cyan
+            new Color3(0.20, 0.55, 0.80)                 // Ocean blue
+        ],
+        particleColor1: new Color4(0.60, 0.85, 0.95, 0.4),  // Mist
+        particleColor2: new Color4(0.50, 0.75, 0.90, 0.3),
+        particleDead: new Color4(0.40, 0.60, 0.70, 0.0),
+        forestOverlay: new Color3(0.20, 0.42, 0.30),
+        highlandOverlay: new Color3(0.38, 0.45, 0.50),
+        crystalOverlay: new Color3(0.30, 0.45, 0.58),
+        riversideOverlay: new Color3(0.22, 0.48, 0.35)
+    },
+    [MapTheme.WIND]: {
+        sky: new Color4(0.72, 0.85, 0.92, 1),
+        fog: new Color3(0.75, 0.88, 0.92),
+        ground: new Color3(0.52, 0.68, 0.42),           // Pale green highlands
+        path: new Color3(0.78, 0.75, 0.65),
+        pathBorder: new Color3(0.62, 0.58, 0.50),
+        waterColor: new Color3(0.35, 0.65, 0.80),
+        waterDeep: new Color3(0.25, 0.50, 0.68),
+        waterEmissive: false,
+        treeTrunk: new Color3(0.50, 0.40, 0.25),
+        treeFoliage: new Color3(0.40, 0.68, 0.35),      // Bright green
+        treeFoliageDark: new Color3(0.32, 0.58, 0.28),
+        rock: new Color3(0.62, 0.62, 0.58),             // Light grey
+        rockDark: new Color3(0.50, 0.50, 0.48),
+        bush: new Color3(0.48, 0.70, 0.38),             // Wispy green
+        crystalColors: [
+            new Color3(0.75, 0.92, 0.80),               // Pale green
+            new Color3(0.85, 0.95, 0.88),                // Near white
+            new Color3(0.60, 0.85, 0.70)                 // Mint
+        ],
+        particleColor1: new Color4(0.85, 0.95, 0.88, 0.5),  // Wispy leaves
+        particleColor2: new Color4(0.70, 0.90, 0.75, 0.3),
+        particleDead: new Color4(0.50, 0.70, 0.55, 0.0),
+        forestOverlay: new Color3(0.35, 0.55, 0.30),
+        highlandOverlay: new Color3(0.55, 0.58, 0.50),
+        crystalOverlay: new Color3(0.50, 0.60, 0.52),
+        riversideOverlay: new Color3(0.40, 0.62, 0.35)
+    },
+    [MapTheme.EARTH]: {
+        sky: new Color4(0.62, 0.55, 0.42, 1),
+        fog: new Color3(0.65, 0.58, 0.45),
+        ground: new Color3(0.48, 0.38, 0.25),           // Rocky brown
+        path: new Color3(0.72, 0.60, 0.42),
+        pathBorder: new Color3(0.55, 0.45, 0.32),
+        waterColor: new Color3(0.45, 0.35, 0.22),       // Muddy river
+        waterDeep: new Color3(0.35, 0.28, 0.18),
+        waterEmissive: false,
+        treeTrunk: new Color3(0.42, 0.30, 0.18),
+        treeFoliage: new Color3(0.38, 0.48, 0.22),      // Olive
+        treeFoliageDark: new Color3(0.30, 0.38, 0.18),
+        rock: new Color3(0.62, 0.52, 0.38),             // Sandstone
+        rockDark: new Color3(0.48, 0.40, 0.30),
+        bush: new Color3(0.42, 0.48, 0.25),
+        crystalColors: [
+            new Color3(0.85, 0.65, 0.25),               // Amber
+            new Color3(0.75, 0.55, 0.20),                // Gold
+            new Color3(0.65, 0.45, 0.15)                 // Bronze
+        ],
+        particleColor1: new Color4(0.75, 0.60, 0.35, 0.4),  // Dust
+        particleColor2: new Color4(0.60, 0.50, 0.30, 0.3),
+        particleDead: new Color4(0.45, 0.35, 0.20, 0.0),
+        forestOverlay: new Color3(0.35, 0.30, 0.18),
+        highlandOverlay: new Color3(0.50, 0.42, 0.32),
+        crystalOverlay: new Color3(0.55, 0.42, 0.25),
+        riversideOverlay: new Color3(0.40, 0.35, 0.22)
+    }
+};
