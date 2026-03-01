@@ -12,7 +12,7 @@ import { WaveStatus } from '../gameplay/WaveStatus';
 import { DamageNumberManager } from '../gameplay/DamageNumberManager';
 import { LevelManager } from '../gameplay/LevelManager';
 import { TowerPreviewRenderer } from '../ui/TowerPreviewRenderer';
-import { PALETTE } from '../rendering/StyleConstants';
+import { PALETTE, FONTS, UI } from '../rendering/StyleConstants';
 
 // ==================== TOWER DATA ====================
 
@@ -330,23 +330,25 @@ export class GameplayState implements GameState {
         if (!this.ui) return;
 
         const notification = new Rectangle('newTerritoryNotification');
-        notification.width = '300px';
-        notification.height = '50px';
-        notification.background = 'rgba(76, 175, 80, 0.9)';
-        notification.cornerRadius = 12;
+        notification.width = '320px';
+        notification.height = '52px';
+        notification.background = PALETTE.UI_BUTTON_PRIMARY;
+        notification.cornerRadius = UI.RADIUS_MD;
         notification.thickness = 0;
         notification.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         notification.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
         notification.top = '-100px';
         notification.zIndex = 50;
+        notification.shadowColor = UI.SHADOW_GLOW_GREEN;
+        notification.shadowBlur = UI.BLUR_LG;
         this.ui.addControl(notification);
 
         const text = new TextBlock('notificationText');
         text.text = 'New Territory Unlocked!';
         text.color = '#FFFFFF';
-        text.fontSize = 22;
-        text.fontFamily = 'Arial';
-        text.fontWeight = 'bold';
+        text.fontSize = 20;
+        text.fontFamily = FONTS.UI;
+        text.fontWeight = '700';
         notification.addControl(text);
 
         // Fade out after 2 seconds
@@ -376,18 +378,18 @@ export class GameplayState implements GameState {
 
         // ====== STATS BAR (top-left): compact horizontal bar ======
         const statsBar = new Rectangle('statsContainer');
-        statsBar.width = isMobile ? '250px' : '400px';
-        statsBar.height = isMobile ? '36px' : '44px';
-        statsBar.background = PALETTE.UI_PANEL_BG;
-        statsBar.cornerRadius = isMobile ? 10 : 16;
+        statsBar.width = isMobile ? '250px' : '420px';
+        statsBar.height = isMobile ? '38px' : '46px';
+        statsBar.background = PALETTE.UI_PANEL;
+        statsBar.cornerRadius = isMobile ? UI.RADIUS_SM : UI.RADIUS_MD;
         statsBar.thickness = 1;
         statsBar.color = PALETTE.UI_BORDER;
         statsBar.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         statsBar.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        statsBar.left = '6px';
-        statsBar.top = '6px';
-        statsBar.shadowColor = 'rgba(0,0,0,0.3)';
-        statsBar.shadowBlur = 8;
+        statsBar.left = '8px';
+        statsBar.top = '8px';
+        statsBar.shadowColor = UI.SHADOW_MD;
+        statsBar.shadowBlur = UI.BLUR_MD;
         statsBar.shadowOffsetY = 2;
         this.ui.addControl(statsBar);
 
@@ -423,17 +425,17 @@ export class GameplayState implements GameState {
             const circleLabel = new TextBlock(`${valueName}Label`, label);
             circleLabel.color = '#FFFFFF';
             circleLabel.fontSize = isMobile ? 7 : 9;
-            circleLabel.fontFamily = 'Arial';
-            circleLabel.fontWeight = 'bold';
+            circleLabel.fontFamily = FONTS.UI;
+            circleLabel.fontWeight = '700';
             circle.addControl(circleLabel);
 
             // Value text — constrained to remaining width inside group
             const valueText = new TextBlock(valueName);
             valueText.text = defaultValue;
-            valueText.color = '#FFFFFF';
+            valueText.color = PALETTE.UI_TEXT_PRIMARY;
             valueText.fontSize = isMobile ? 11 : 14;
-            valueText.fontFamily = 'Arial';
-            valueText.fontWeight = 'bold';
+            valueText.fontFamily = FONTS.UI;
+            valueText.fontWeight = '700';
             valueText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
             valueText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
             valueText.left = (circleSize + 4) + 'px';
@@ -462,9 +464,9 @@ export class GameplayState implements GameState {
         // Kill text (small, right-aligned in remaining space)
         const killText = new TextBlock('killText');
         killText.text = '0';
-        killText.color = '#B0B8C8';
+        killText.color = PALETTE.UI_TEXT_SECONDARY;
         killText.fontSize = isMobile ? 9 : 11;
-        killText.fontFamily = 'Arial';
+        killText.fontFamily = FONTS.UI;
         killText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         killText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         killText.left = '-6px';
@@ -482,23 +484,23 @@ export class GameplayState implements GameState {
 
         // ====== WAVE INFO BAR (below stats bar on desktop, merged into second row on mobile) ======
         const waveInfoBar = new Rectangle('waveInfoContainer');
-        waveInfoBar.width = isMobile ? '250px' : '400px';
-        waveInfoBar.height = isMobile ? '22px' : '28px';
-        waveInfoBar.background = PALETTE.UI_PANEL_BG;
-        waveInfoBar.cornerRadius = isMobile ? 7 : 10;
+        waveInfoBar.width = isMobile ? '250px' : '420px';
+        waveInfoBar.height = isMobile ? '24px' : '30px';
+        waveInfoBar.background = PALETTE.UI_PANEL;
+        waveInfoBar.cornerRadius = isMobile ? UI.RADIUS_SM : UI.RADIUS_SM;
         waveInfoBar.thickness = 1;
         waveInfoBar.color = PALETTE.UI_BORDER;
         waveInfoBar.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         waveInfoBar.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        waveInfoBar.left = '6px';
-        waveInfoBar.top = isMobile ? '44px' : '58px';
+        waveInfoBar.left = '8px';
+        waveInfoBar.top = isMobile ? '48px' : '62px';
         this.ui.addControl(waveInfoBar);
 
         const countdownText = new TextBlock('countdownText');
         countdownText.text = '';
-        countdownText.color = '#F5A623';
+        countdownText.color = PALETTE.UI_ACCENT_GOLD;
         countdownText.fontSize = isMobile ? 10 : 12;
-        countdownText.fontFamily = 'Arial';
+        countdownText.fontFamily = FONTS.UI;
         countdownText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         countdownText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         countdownText.left = '8px';
@@ -506,9 +508,9 @@ export class GameplayState implements GameState {
 
         const enemiesText = new TextBlock('enemiesText');
         enemiesText.text = '';
-        enemiesText.color = '#B0B8C8';
+        enemiesText.color = PALETTE.UI_TEXT_SECONDARY;
         enemiesText.fontSize = isMobile ? 10 : 12;
-        enemiesText.fontFamily = 'Arial';
+        enemiesText.fontFamily = FONTS.UI;
         enemiesText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         enemiesText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         enemiesText.left = '-8px';
@@ -535,11 +537,11 @@ export class GameplayState implements GameState {
             controlStrip.top = '10px';
             controlStrip.left = '-10px';
         }
-        controlStrip.background = PALETTE.UI_PANEL_BG;
+        controlStrip.background = PALETTE.UI_PANEL;
         controlStrip.thickness = 1;
         controlStrip.color = PALETTE.UI_BORDER;
-        controlStrip.shadowColor = 'rgba(0,0,0,0.3)';
-        controlStrip.shadowBlur = 8;
+        controlStrip.shadowColor = UI.SHADOW_MD;
+        controlStrip.shadowBlur = UI.BLUR_MD;
         controlStrip.shadowOffsetY = 2;
         this.ui.addControl(controlStrip);
 
@@ -550,10 +552,10 @@ export class GameplayState implements GameState {
         pauseButton.width = pauseBtnSize;
         pauseButton.height = pauseBtnSize;
         pauseButton.color = '#FFFFFF';
-        pauseButton.background = '#2196F3';
-        pauseButton.cornerRadius = 20;
+        pauseButton.background = PALETTE.UI_BUTTON_SECONDARY;
+        pauseButton.cornerRadius = UI.RADIUS_XL;
         pauseButton.thickness = 0;
-        pauseButton.fontFamily = 'Arial';
+        pauseButton.fontFamily = FONTS.UI;
         pauseButton.fontSize = isMobile ? 12 : 16;
         pauseButton.fontWeight = 'bold';
         pauseButton.zIndex = 100;
@@ -571,7 +573,7 @@ export class GameplayState implements GameState {
         if (!isMobile) {
             pauseButton.onPointerEnterObservable.add(() => { pauseButton.background = '#42A5F5'; });
             pauseButton.onPointerOutObservable.add(() => {
-                pauseButton.background = this.game.getIsPaused() ? '#4CAF50' : '#2196F3';
+                pauseButton.background = this.game.getIsPaused() ? PALETTE.UI_BUTTON_PRIMARY : PALETTE.UI_BUTTON_SECONDARY;
             });
         }
         pauseButton.onPointerClickObservable.add(() => { this.game.togglePause(); });
@@ -584,10 +586,10 @@ export class GameplayState implements GameState {
         waveButton.width = waveBtnSize;
         waveButton.height = waveBtnSize;
         waveButton.color = '#FFFFFF';
-        waveButton.background = '#E53935';
-        waveButton.cornerRadius = 20;
+        waveButton.background = PALETTE.UI_BUTTON_DANGER;
+        waveButton.cornerRadius = UI.RADIUS_XL;
         waveButton.thickness = 0;
-        waveButton.fontFamily = 'Arial';
+        waveButton.fontFamily = FONTS.UI;
         waveButton.fontSize = isMobile ? 14 : 18;
         waveButton.fontWeight = 'bold';
         waveButton.zIndex = 100;
@@ -661,12 +663,12 @@ export class GameplayState implements GameState {
             speedBtn.width = speedBtnSize;
             speedBtn.height = speedBtnSize;
             speedBtn.color = '#FFFFFF';
-            speedBtn.background = speed === 1 ? '#4CAF50' : '#3A3F4B';
+            speedBtn.background = speed === 1 ? PALETTE.UI_BUTTON_PRIMARY : PALETTE.UI_BUTTON_MUTED;
             speedBtn.cornerRadius = 18;
             speedBtn.thickness = 0;
             speedBtn.fontSize = isMobile ? 9 : 13;
-            speedBtn.fontFamily = 'Arial';
-            speedBtn.fontWeight = 'bold';
+            speedBtn.fontFamily = FONTS.UI;
+            speedBtn.fontWeight = '700';
             speedBtn.zIndex = 100;
 
             if (isMobile) {
@@ -683,7 +685,7 @@ export class GameplayState implements GameState {
                 this.game.setTimeScale(speed);
                 speeds.forEach(s => {
                     const btn = this.ui?.getControlByName(`speed${s}Btn`) as Button;
-                    if (btn) btn.background = s === speed ? '#4CAF50' : '#3A3F4B';
+                    if (btn) btn.background = s === speed ? PALETTE.UI_BUTTON_PRIMARY : PALETTE.UI_BUTTON_MUTED;
                 });
             });
 
@@ -786,14 +788,14 @@ export class GameplayState implements GameState {
 
         // Change health text and dot color based on health
         if (health <= 25) {
-            healthText.color = '#E53935';
-            if (healthDot) healthDot.background = '#E53935';
+            healthText.color = PALETTE.UI_HEALTH_LOW;
+            if (healthDot) healthDot.background = PALETTE.UI_HEALTH_LOW;
         } else if (health <= 50) {
-            healthText.color = '#FF9800';
-            if (healthDot) healthDot.background = '#FF9800';
+            healthText.color = PALETTE.UI_HEALTH_MED;
+            if (healthDot) healthDot.background = PALETTE.UI_HEALTH_MED;
         } else {
-            healthText.color = '#FFFFFF';
-            if (healthDot) healthDot.background = '#E53935';
+            healthText.color = PALETTE.UI_TEXT_PRIMARY;
+            if (healthDot) healthDot.background = PALETTE.UI_HEALTH;
         }
 
         // Update money display (number only)
@@ -809,13 +811,13 @@ export class GameplayState implements GameState {
             const timeRemaining = this.waveManager.getAutoWaveTimeRemaining();
             if (timeRemaining > 0) {
                 countdownText.text = `Next wave: ${timeRemaining.toFixed(1)}s`;
-                countdownText.color = '#F5A623';
+                countdownText.color = PALETTE.UI_ACCENT_GOLD;
             } else if (this.waveManager.isWaveInProgress()) {
                 countdownText.text = 'Wave in progress';
-                countdownText.color = '#E53935';
+                countdownText.color = PALETTE.UI_HEALTH;
             } else if (this.waveManager.getCurrentWave() <= 1) {
                 countdownText.text = 'Press > to start';
-                countdownText.color = '#66BB6A';
+                countdownText.color = PALETTE.UI_BUTTON_PRIMARY_HOVER;
             } else {
                 countdownText.text = '';
             }
@@ -1292,10 +1294,10 @@ export class GameplayState implements GameState {
         const container = new Rectangle('confirmationContainer');
         container.width = '300px';
         container.height = '120px';
-        container.background = 'rgba(28, 32, 40, 0.95)';
-        container.cornerRadius = 12;
+        container.background = PALETTE.UI_PANEL_SOLID;
+        container.cornerRadius = UI.RADIUS_LG;
         container.thickness = 1;
-        container.color = '#3A3F4B';
+        container.color = PALETTE.UI_PANEL_BORDER;
         container.zIndex = 10;
 
         container.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
@@ -1306,7 +1308,7 @@ export class GameplayState implements GameState {
         towerTypeText.text = `${this.selectedTowerType?.replace('Tower', '')} Tower`;
         towerTypeText.color = '#FFFFFF';
         towerTypeText.fontSize = 16;
-        towerTypeText.fontFamily = 'Arial';
+        towerTypeText.fontFamily = FONTS.UI;
         towerTypeText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         towerTypeText.top = "-40px";
         container.addControl(towerTypeText);
@@ -1325,12 +1327,12 @@ export class GameplayState implements GameState {
         confirmButton.width = '130px';
         confirmButton.height = '50px';
         confirmButton.color = '#FFFFFF';
-        confirmButton.background = '#4CAF50';
-        confirmButton.cornerRadius = 32;
+        confirmButton.background = PALETTE.UI_BUTTON_PRIMARY;
+        confirmButton.cornerRadius = UI.RADIUS_LG;
         confirmButton.thickness = 0;
-        confirmButton.fontFamily = 'Arial';
+        confirmButton.fontFamily = FONTS.UI;
         confirmButton.fontSize = 18;
-        confirmButton.fontWeight = 'bold';
+        confirmButton.fontWeight = '700';
         confirmButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         confirmButton.isPointerBlocker = true;
         confirmButton.paddingLeft = '15px';
@@ -1355,12 +1357,12 @@ export class GameplayState implements GameState {
         cancelButton.width = '130px';
         cancelButton.height = '50px';
         cancelButton.color = '#FFFFFF';
-        cancelButton.background = '#E53935';
-        cancelButton.cornerRadius = 32;
+        cancelButton.background = PALETTE.UI_BUTTON_DANGER;
+        cancelButton.cornerRadius = UI.RADIUS_LG;
         cancelButton.thickness = 0;
-        cancelButton.fontFamily = 'Arial';
+        cancelButton.fontFamily = FONTS.UI;
         cancelButton.fontSize = 18;
-        cancelButton.fontWeight = 'bold';
+        cancelButton.fontWeight = '700';
         cancelButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         cancelButton.isPointerBlocker = true;
         cancelButton.paddingLeft = '15px';
@@ -1479,7 +1481,7 @@ export class GameplayState implements GameState {
         button.width = '130px';
         button.height = '40px';
         button.background = color;
-        button.cornerRadius = 4;
+        button.cornerRadius = UI.RADIUS_SM;
         button.thickness = 2;
         button.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         button.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
@@ -1557,11 +1559,11 @@ export class GameplayState implements GameState {
 
         if (basicTab && elementalTab) {
             if (category === 'basic') {
-                basicTab.background = '#4CAF50';
-                elementalTab.background = '#333333';
+                basicTab.background = PALETTE.UI_BUTTON_PRIMARY;
+                elementalTab.background = PALETTE.UI_BUTTON_MUTED;
             } else {
-                basicTab.background = '#333333';
-                elementalTab.background = '#555555';
+                basicTab.background = PALETTE.UI_BUTTON_MUTED;
+                elementalTab.background = PALETTE.UI_BUTTON_PRIMARY;
             }
         }
 
@@ -1684,9 +1686,9 @@ export class GameplayState implements GameState {
             this.towerInfoPanel.color = PALETTE.UI_BORDER;
             this.towerInfoPanel.thickness = 1;
             this.towerInfoPanel.background = PALETTE.UI_PANEL_SOLID;
-            this.towerInfoPanel.shadowColor = "rgba(0, 0, 0, 0.5)";
-            this.towerInfoPanel.shadowBlur = 12;
-            this.towerInfoPanel.shadowOffsetY = 4;
+            this.towerInfoPanel.shadowColor = UI.SHADOW_LG;
+            this.towerInfoPanel.shadowBlur = UI.BLUR_XL;
+            this.towerInfoPanel.shadowOffsetY = 6;
             this.ui.addControl(this.towerInfoPanel);
 
             if (isMobile) {
@@ -1744,7 +1746,7 @@ export class GameplayState implements GameState {
                 this.towerTypeText = new TextBlock('typeValue', '-');
                 this.towerTypeText.color = '#FFFFFF';
                 this.towerTypeText.fontSize = 13;
-                this.towerTypeText.fontFamily = 'Arial';
+                this.towerTypeText.fontFamily = FONTS.UI;
                 this.towerTypeText.fontWeight = 'bold';
                 this.towerTypeText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
                 this.towerTypeText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
@@ -1858,7 +1860,7 @@ export class GameplayState implements GameState {
                 this.upgradeButton.cornerRadius = 12;
                 this.upgradeButton.color = 'transparent';
                 this.upgradeButton.thickness = 0;
-                this.upgradeButton.background = '#4CAF50';
+                this.upgradeButton.background = PALETTE.UI_BUTTON_PRIMARY;
                 this.upgradeButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
                 this.upgradeButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
                 this.upgradeButton.top = "8px";
@@ -1908,7 +1910,7 @@ export class GameplayState implements GameState {
                 this.sellButton.cornerRadius = 12;
                 this.sellButton.color = 'transparent';
                 this.sellButton.thickness = 0;
-                this.sellButton.background = '#E53935';
+                this.sellButton.background = PALETTE.UI_BUTTON_DANGER;
                 this.sellButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
                 this.sellButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
                 this.sellButton.top = "56px";
@@ -1987,7 +1989,7 @@ export class GameplayState implements GameState {
                 this.towerTypeText = new TextBlock('typeValue', '-');
                 this.towerTypeText.color = '#FFFFFF';
                 this.towerTypeText.fontSize = 18;
-                this.towerTypeText.fontFamily = 'Arial';
+                this.towerTypeText.fontFamily = FONTS.UI;
                 this.towerTypeText.fontWeight = 'bold';
                 this.towerTypeText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
                 this.towerTypeText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
@@ -2112,7 +2114,7 @@ export class GameplayState implements GameState {
                 this.sellButton.cornerRadius = 22;
                 this.sellButton.color = 'transparent';
                 this.sellButton.thickness = 0;
-                this.sellButton.background = '#E53935';
+                this.sellButton.background = PALETTE.UI_BUTTON_DANGER;
                 this.sellButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
                 this.sellButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
                 this.sellButton.top = "-12px";
@@ -2138,10 +2140,10 @@ export class GameplayState implements GameState {
                 this.sellButton.addControl(sellValueText);
 
                 this.sellButton.onPointerEnterObservable.add(() => {
-                    if (this.sellButton) this.sellButton.background = '#EF5350';
+                    if (this.sellButton) this.sellButton.background = PALETTE.UI_BUTTON_DANGER_HOVER;
                 });
                 this.sellButton.onPointerOutObservable.add(() => {
-                    if (this.sellButton) this.sellButton.background = '#E53935';
+                    if (this.sellButton) this.sellButton.background = PALETTE.UI_BUTTON_DANGER;
                 });
                 this.sellButton.onPointerDownObservable.add(() => {
                     if (this.sellButton) this.sellButton.alpha = 0.8;
@@ -2162,7 +2164,7 @@ export class GameplayState implements GameState {
                 this.upgradeButton.cornerRadius = 22;
                 this.upgradeButton.color = 'transparent';
                 this.upgradeButton.thickness = 0;
-                this.upgradeButton.background = '#4CAF50';
+                this.upgradeButton.background = PALETTE.UI_BUTTON_PRIMARY;
                 this.upgradeButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
                 this.upgradeButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
                 this.upgradeButton.top = "-12px";
@@ -2190,15 +2192,15 @@ export class GameplayState implements GameState {
                 this.upgradeButton.onPointerEnterObservable.add(() => {
                     if (this.upgradeButton && this.playerStats && this.selectedTower &&
                         this.playerStats.getMoney() >= this.selectedTower.getUpgradeCost()) {
-                        this.upgradeButton.background = '#66BB6A';
+                        this.upgradeButton.background = PALETTE.UI_BUTTON_PRIMARY_HOVER;
                     }
                 });
                 this.upgradeButton.onPointerOutObservable.add(() => {
                     if (this.upgradeButton && this.playerStats && this.selectedTower) {
                         if (this.playerStats.getMoney() >= this.selectedTower.getUpgradeCost()) {
-                            this.upgradeButton.background = '#4CAF50';
+                            this.upgradeButton.background = PALETTE.UI_BUTTON_PRIMARY;
                         } else {
-                            this.upgradeButton.background = '#3A3F4B';
+                            this.upgradeButton.background = PALETTE.UI_BUTTON_MUTED;
                         }
                     }
                 });
@@ -2328,7 +2330,7 @@ export class GameplayState implements GameState {
             const upgradeCostEl = this.upgradeButton.getChildByName('upgradeCostText') as TextBlock;
 
             if (this.selectedTower.getLevel() >= this.selectedTower.getMaxLevel()) {
-                this.upgradeButton.background = '#888888';
+                this.upgradeButton.background = PALETTE.UI_TEXT_TERTIARY;
                 this.upgradeButton.alpha = 0.8;
                 this.upgradeButton.isEnabled = false;
                 if (upgradeTextEl) upgradeTextEl.text = 'MAX LEVEL';
@@ -2340,10 +2342,10 @@ export class GameplayState implements GameState {
 
                 if (this.playerStats) {
                     if (this.playerStats.getMoney() >= this.selectedTower.getUpgradeCost()) {
-                        this.upgradeButton.background = '#4CAF50';
+                        this.upgradeButton.background = PALETTE.UI_BUTTON_PRIMARY;
                         this.upgradeButton.alpha = 1.0;
                     } else {
-                        this.upgradeButton.background = '#3A3F4B';
+                        this.upgradeButton.background = PALETTE.UI_BUTTON_MUTED;
                         this.upgradeButton.alpha = 0.6;
                     }
                 }
@@ -2633,10 +2635,10 @@ export class GameplayState implements GameState {
 
         if (isPaused) {
             pauseButton.textBlock.text = '>';
-            pauseButton.background = '#4CAF50';
+            pauseButton.background = PALETTE.UI_BUTTON_PRIMARY;
         } else {
             pauseButton.textBlock.text = 'II';
-            pauseButton.background = '#2196F3';
+            pauseButton.background = PALETTE.UI_BUTTON_SECONDARY;
         }
     }
 
@@ -2654,7 +2656,7 @@ export class GameplayState implements GameState {
 
         if (this.waveManager.isWaveInProgress()) {
             waveButton.textBlock.text = '~';
-            waveButton.background = '#F57C00';
+            waveButton.background = '#D29922';
 
             // Cancel any milestone pulse effect
             if (waveButton.metadata?.isPulsing) {
@@ -2669,7 +2671,7 @@ export class GameplayState implements GameState {
             if (isNextMilestone) {
                 // Warning text and color for milestone wave
                 waveButton.textBlock.text = '!';
-                waveButton.background = '#FF8800';
+                waveButton.background = '#D29922';
 
                 // Add pulse animation for milestone warning
                 if (!waveButton.metadata?.isPulsing) {
@@ -2693,7 +2695,7 @@ export class GameplayState implements GameState {
             } else {
                 // Normal next wave button
                 waveButton.textBlock.text = '>';
-                waveButton.background = '#E53935';
+                waveButton.background = PALETTE.UI_BUTTON_DANGER;
 
                 // Cancel pulse if active
                 if (waveButton.metadata?.isPulsing) {
@@ -2879,7 +2881,7 @@ export class GameplayState implements GameState {
         this.towerSelectorPanel = new Rectangle('towerPanelContainer');
         this.towerSelectorPanel.width = '100%';
         this.towerSelectorPanel.height = panelHeight;
-        this.towerSelectorPanel.background = PALETTE.UI_PANEL_SOLID;
+        this.towerSelectorPanel.background = PALETTE.UI_PANEL;
         this.towerSelectorPanel.thickness = 1;
         this.towerSelectorPanel.color = PALETTE.UI_BORDER;
         this.towerSelectorPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
@@ -2915,10 +2917,10 @@ export class GameplayState implements GameState {
             tab.height = isMobile ? '22px' : '28px';
             tab.color = '#FFFFFF';
             tab.fontSize = isMobile ? 10 : 12;
-            tab.fontFamily = 'Arial';
-            tab.fontWeight = this.activeTowerCategory === cat ? 'bold' : 'normal';
-            tab.background = this.activeTowerCategory === cat ? '#4CAF50' : 'rgba(60, 65, 75, 0.8)';
-            tab.cornerRadius = 6;
+            tab.fontFamily = FONTS.UI;
+            tab.fontWeight = this.activeTowerCategory === cat ? '700' : '500';
+            tab.background = this.activeTowerCategory === cat ? PALETTE.UI_BUTTON_PRIMARY : PALETTE.UI_BUTTON_MUTED;
+            tab.cornerRadius = UI.RADIUS_SM;
             tab.thickness = 0;
             tab.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
             tab.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
@@ -2941,7 +2943,7 @@ export class GameplayState implements GameState {
         closeBtn.width = closeBtnSize + 'px';
         closeBtn.height = closeBtnSize + 'px';
         closeBtn.color = '#FFFFFF';
-        closeBtn.background = '#E53935';
+        closeBtn.background = PALETTE.UI_BUTTON_DANGER;
         closeBtn.cornerRadius = closeBtnSize / 2;
         closeBtn.thickness = 0;
         closeBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
@@ -3017,7 +3019,7 @@ export class GameplayState implements GameState {
         card.width = cardWidth + 'px';
         card.height = cardHeight + 'px';
         card.background = PALETTE.UI_CARD_BG;
-        card.cornerRadius = 8;
+        card.cornerRadius = UI.RADIUS_MD;
         card.thickness = 1;
         card.color = PALETTE.UI_BORDER;
         card.paddingLeft = '4px';
@@ -3125,9 +3127,9 @@ export class GameplayState implements GameState {
                 card.addControl(bar);
             };
 
-            createStatBar('DMG', tower.damage, maxDmg, '#E53935', statsTop);
-            createStatBar('RNG', tower.range, maxRng, '#2196F3', statsTop + barGap);
-            createStatBar('SPD', tower.fireRate, maxSpd, '#4CAF50', statsTop + barGap * 2);
+            createStatBar('DMG', tower.damage, maxDmg, PALETTE.UI_BUTTON_DANGER, statsTop);
+            createStatBar('RNG', tower.range, maxRng, PALETTE.UI_BUTTON_SECONDARY, statsTop + barGap);
+            createStatBar('SPD', tower.fireRate, maxSpd, PALETTE.UI_BUTTON_PRIMARY, statsTop + barGap * 2);
         }
 
         // On mobile, show inline description text instead of hover popup
@@ -3206,8 +3208,8 @@ export class GameplayState implements GameState {
         this.towerDetailPopup = new Rectangle('detailPopup');
         this.towerDetailPopup.width = '200px';
         this.towerDetailPopup.height = '100px';
-        this.towerDetailPopup.background = 'rgba(28, 32, 40, 0.96)';
-        this.towerDetailPopup.cornerRadius = 10;
+        this.towerDetailPopup.background = PALETTE.UI_PANEL_SOLID;
+        this.towerDetailPopup.cornerRadius = UI.RADIUS_MD;
         this.towerDetailPopup.thickness = 1;
         this.towerDetailPopup.color = tower.color;
         this.towerDetailPopup.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;

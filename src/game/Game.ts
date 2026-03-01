@@ -1,4 +1,4 @@
-import { Engine, Scene, Vector3, HemisphericLight, ArcRotateCamera, Camera, Color3, Color4, SceneLoader, Animation, AbstractMesh, GlowLayer } from '@babylonjs/core';
+import { Engine, Scene, Vector3, HemisphericLight, DirectionalLight, ArcRotateCamera, Camera, Color3, Color4, SceneLoader, Animation, AbstractMesh, GlowLayer, ShadowGenerator } from '@babylonjs/core';
 import { GameState } from './states/GameState';
 import { MenuState } from './states/MenuState';
 import { GameplayState } from './states/GameplayState';
@@ -52,10 +52,13 @@ export class Game {
         
         // Start loading assets
         this.assetManager.loadAssets(() => {
-            // Hide loading screen
+            // Fade out loading screen
             const loadingScreen = document.getElementById('loadingScreen');
             if (loadingScreen) {
-                loadingScreen.style.display = 'none';
+                loadingScreen.classList.add('fade-out');
+                setTimeout(() => {
+                    loadingScreen.style.display = 'none';
+                }, 600);
             }
             
             // Start with the menu state
@@ -116,18 +119,27 @@ export class Game {
     }
 
     private setupScene(): void {
-        // Warm hemisphere light for low-poly stylized look
-        const light = new HemisphericLight('light', new Vector3(0, 1, 0), this.scene);
-        light.diffuse = PALETTE.LIGHT_DIFFUSE.clone();
-        light.groundColor = PALETTE.LIGHT_GROUND.clone();
-        light.intensity = 0.65;
+        // Primary ambient light - warm hemisphere for low-poly stylized look
+        const hemiLight = new HemisphericLight('hemiLight', new Vector3(0, 1, 0), this.scene);
+        hemiLight.diffuse = PALETTE.LIGHT_DIFFUSE.clone();
+        hemiLight.groundColor = PALETTE.LIGHT_GROUND.clone();
+        hemiLight.intensity = 0.55;
+
+        // Directional sun light for depth and shadows
+        const sunLight = new DirectionalLight('sunLight', new Vector3(-0.5, -1, -0.3).normalize(), this.scene);
+        sunLight.intensity = 0.4;
+        sunLight.diffuse = new Color3(1.0, 0.95, 0.85);
+        sunLight.specular = new Color3(0.2, 0.2, 0.2);
 
         // Fog disabled -- doesn't work properly with orthographic projection
         this.scene.fogMode = Scene.FOGMODE_NONE;
 
-        // Glow layer for emissive elements (portals, tower effects)
+        // Enhanced glow layer for emissive elements (portals, tower effects, projectiles)
         const glowLayer = new GlowLayer('glowLayer', this.scene);
-        glowLayer.intensity = 0.4;
+        glowLayer.intensity = 0.5;
+
+        // Ambient color for richer shading
+        this.scene.ambientColor = new Color3(0.15, 0.15, 0.18);
 
         // Tilted isometric beta angle: ~60° from pole (30° above horizon)
         // gives a dramatic 3/4 view that shows tower sides clearly
