@@ -22,8 +22,9 @@ export class DustTower extends Tower {
         const fireRate = 1.2;
         const cost = 225;
 
-        super(game, position, range, damage, fireRate, cost);
+        super(game, position, range, damage, fireRate, cost, true);
 
+        this.fusionTier = 1;
         this.secondaryEffectChance = 0.3;
         this.statusEffectDuration = 2.5;
         this.statusEffectStrength = 0.8;

@@ -915,10 +915,28 @@ export class Map {
      * - Crystal grove: crystal formations, glowing mushrooms
      * - Riverside: reeds, lily pads, smooth stones
      */
+    private isAdjacentToPath(x: number, y: number): boolean {
+        const neighbors: [number, number][] = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+        for (const [dx, dy] of neighbors) {
+            const nx = x + dx;
+            const ny = y + dy;
+            if (nx >= 0 && nx < this.gridSize && ny >= 0 && ny < this.gridSize) {
+                const cell = this.grid[nx][ny];
+                if (cell === CellType.PATH || cell === CellType.START || cell === CellType.END) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     private addDecorations(): void {
         for (let x = 0; x < this.gridSize; x++) {
             for (let y = 0; y < this.gridSize; y++) {
                 if (this.grid[x][y] === CellType.EMPTY) {
+                    // Skip cells adjacent to the path to keep tower placement spots clear
+                    if (this.isAdjacentToPath(x, y)) continue;
+
                     const zone = this.terrainZones[x][y];
                     const position = this.gridToWorld(x, y);
                     position.y = Math.max(this.heightMap[x][y], 0);

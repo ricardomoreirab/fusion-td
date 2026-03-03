@@ -7,10 +7,12 @@ import { TowerManager } from '../gameplay/TowerManager';
 import { EnemyManager } from '../gameplay/EnemyManager';
 import { WaveManager } from '../gameplay/WaveManager';
 import { PlayerStats } from '../gameplay/PlayerStats';
-import { Tower, ElementType } from '../gameplay/towers/Tower';
+import { Tower, ElementType, TargetingMode } from '../gameplay/towers/Tower';
 import { WaveStatus } from '../gameplay/WaveStatus';
 import { DamageNumberManager } from '../gameplay/DamageNumberManager';
 import { LevelManager } from '../gameplay/LevelManager';
+import { AbilityManager } from '../gameplay/AbilityManager';
+import { ChampionManager } from '../gameplay/ChampionManager';
 import { TowerPreviewRenderer } from '../ui/TowerPreviewRenderer';
 import { PALETTE } from '../rendering/StyleConstants';
 
@@ -86,6 +88,23 @@ export class GameplayState implements GameState {
     private levelTransitioning: boolean = false;
     private levelTransitionOverlay: Rectangle | null = null;
     private towerPreviewRenderer: TowerPreviewRenderer | null = null;
+    private rewardEventHandler: ((e: Event) => void) | null = null;
+    private targetingButton: Rectangle | null = null;
+    private abilityManager: AbilityManager | null = null;
+    private meteorButton: Rectangle | null = null;
+    private frostNovaButton: Rectangle | null = null;
+    private chainLightningButton: Rectangle | null = null;
+    private fortifyButton: Rectangle | null = null;
+    private goldRushButton: Rectangle | null = null;
+    private lastKnownHealth: number = -1;
+    private damageVignette: Rectangle | null = null;
+    private waveClearText: TextBlock | null = null;
+    private bossWarningText: TextBlock | null = null;
+    private lastWaveInProgress: boolean = false;
+    private lastSegmentWave: number = 0;
+    private fusionGuidePanel: Rectangle | null = null;
+    private championManager: ChampionManager | null = null;
+    private championButton: Rectangle | null = null;
 
     constructor(game: Game) {
         this.game = game;
@@ -170,6 +189,14 @@ export class GameplayState implements GameState {
         // Set up segment completion callback
         this.waveManager.setOnSegmentComplete(() => this.extendMap());
 
+        // Create ability manager
+        this.abilityManager = new AbilityManager(this.game, this.enemyManager);
+        this.abilityManager.setPlayerStats(this.playerStats);
+        this.abilityManager.setTowerManager(this.towerManager);
+
+        // Create champion manager
+        this.championManager = new ChampionManager(this.game, this.enemyManager, this.waveManager);
+
         // Generate tower preview images then build UI
         this.towerPreviewRenderer = new TowerPreviewRenderer(this.game);
         this.towerPreviewRenderer.generateAll().then(() => {
@@ -195,6 +222,15 @@ export class GameplayState implements GameState {
             }
         };
         document.addEventListener('towerDamage', this.damageEventHandler);
+
+        // Listen for enemy reward events (gold float text on death)
+        this.rewardEventHandler = (e: Event) => {
+            const detail = (e as CustomEvent).detail;
+            if (this.damageNumberManager) {
+                this.damageNumberManager.showReward(detail.position, detail.reward);
+            }
+        };
+        document.addEventListener('enemyReward', this.rewardEventHandler);
 
         // Reset time scale
         this.game.setTimeScale(1);
@@ -244,6 +280,12 @@ export class GameplayState implements GameState {
             this.damageEventHandler = null;
         }
 
+        // Remove reward event listener
+        if (this.rewardEventHandler) {
+            document.removeEventListener('enemyReward', this.rewardEventHandler);
+            this.rewardEventHandler = null;
+        }
+
         // Reset time scale
         this.game.setTimeScale(1);
 
@@ -254,6 +296,15 @@ export class GameplayState implements GameState {
         this.waveManager = null;
         this.playerStats = null;
         this.levelManager = null;
+        if (this.abilityManager) {
+            this.abilityManager.dispose();
+            this.abilityManager = null;
+        }
+        if (this.championManager) {
+            this.championManager.dispose();
+            this.championManager = null;
+        }
+        this.championButton = null;
         this.levelTransitioning = false;
         this.confirmationButtons.container = null;
         this.confirmationButtons.position = null;
@@ -270,6 +321,8 @@ export class GameplayState implements GameState {
         this.towerManager?.update(scaledDelta);
         this.enemyManager?.update(scaledDelta);
         this.waveManager?.update(scaledDelta);
+        this.abilityManager?.update(scaledDelta);
+        this.championManager?.update(scaledDelta);
 
         // Update damage numbers (use real deltaTime for smooth animation)
         this.damageNumberManager?.update(deltaTime);
@@ -277,6 +330,34 @@ export class GameplayState implements GameState {
         // Check for game over condition (only way game ends — player death)
         if (this.playerStats && this.playerStats.getHealth() <= 0) {
             this.game.getStateManager().changeState('gameOver');
+        }
+
+        // --- Screen damage vignette ---
+        if (this.playerStats) {
+            const currentHealth = this.playerStats.getHealth();
+            if (this.lastKnownHealth > 0 && currentHealth < this.lastKnownHealth) {
+                this.flashDamageVignette();
+            }
+            this.lastKnownHealth = currentHealth;
+        }
+
+        // --- Wave complete feedback + Boss warning ---
+        if (this.waveManager) {
+            const waveInProgress = this.waveManager.isWaveInProgress();
+            const segmentWave = this.waveManager.getSegmentWave();
+
+            // Detect wave just completed (was in progress, now not)
+            if (this.lastWaveInProgress && !waveInProgress && segmentWave > this.lastSegmentWave) {
+                this.showWaveClearText();
+                // Boss warning: check upcoming waves
+                if (segmentWave === 8) {
+                    this.showBossWarning('WARNING: Boss in 2 waves!', false);
+                } else if (segmentWave === 9) {
+                    this.showBossWarning('BOSS INCOMING!', true);
+                }
+            }
+            this.lastWaveInProgress = waveInProgress;
+            this.lastSegmentWave = segmentWave;
         }
 
         // Update UI
@@ -544,7 +625,7 @@ export class GameplayState implements GameState {
         this.ui.addControl(controlStrip);
 
         // Pause button
-        const mBtnSize = 28; // mobile button size in ideal px
+        const mBtnSize = 44; // mobile button size in ideal px (Apple/Google 44px guideline)
         const pauseBtnSize = isMobile ? mBtnSize + 'px' : '40px';
         const pauseButton = Button.CreateSimpleButton('pauseButton', 'II');
         pauseButton.width = pauseBtnSize;
@@ -689,6 +770,462 @@ export class GameplayState implements GameState {
 
             controlStrip.addControl(speedBtn);
         });
+
+        // ====== ABILITY BUTTONS (bottom-left) ======
+        this.createAbilityButtons(isMobile);
+
+        // ====== FUSION GUIDE BUTTON (right side) ======
+        this.createFusionGuideButton(isMobile);
+    }
+
+    private createAbilityButtons(isMobile: boolean): void {
+        if (!this.ui) return;
+
+        const btnW = isMobile ? '48px' : '55px';
+        const btnH = isMobile ? '48px' : '55px';
+        const btnGap = isMobile ? 54 : 61; // button width + 6px gap
+        const fontSize = isMobile ? 7 : 9;
+        const baseLeft = isMobile ? 8 : 10;
+
+        const abilityConfigs = [
+            { id: 'meteor', icon: '\u2604', label: 'METEOR', iconColor: '#FF6600', labelColor: '#FFB380', bg: '#B34000', border: '#FF6600', needsTargeting: true },
+            { id: 'frostNova', icon: '\u2744', label: 'FROST', iconColor: '#66BBEE', labelColor: '#88CCEE', bg: '#1A4D7A', border: '#4499DD', needsTargeting: false },
+            { id: 'chainLightning', icon: '\u26A1', label: 'CHAIN', iconColor: '#AAAAFF', labelColor: '#BBBBFF', bg: '#2A2A5A', border: '#7777CC', needsTargeting: true },
+            { id: 'fortify', icon: '\uD83D\uDEE1', label: 'FORT', iconColor: '#FFD700', labelColor: '#FFE066', bg: '#5A4A10', border: '#CCAA00', needsTargeting: false },
+            { id: 'goldRush', icon: '\uD83D\uDCB0', label: 'GOLD', iconColor: '#FFD700', labelColor: '#FFE066', bg: '#4A3A00', border: '#BB9900', needsTargeting: false },
+        ];
+
+        const buttonRefs = ['meteorButton', 'frostNovaButton', 'chainLightningButton', 'fortifyButton', 'goldRushButton'] as const;
+
+        for (let i = 0; i < abilityConfigs.length; i++) {
+            const cfg = abilityConfigs[i];
+            const btn = new Rectangle(`${cfg.id}Button`);
+            btn.width = btnW;
+            btn.height = btnH;
+            btn.cornerRadius = 10;
+            btn.background = cfg.bg;
+            btn.color = cfg.border;
+            btn.thickness = 2;
+            btn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            btn.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+            btn.left = `${baseLeft + i * btnGap}px`;
+            btn.top = isMobile ? '-60px' : '-80px';
+            btn.zIndex = 100;
+            btn.isPointerBlocker = true;
+
+            const icon = new TextBlock(`${cfg.id}Icon`, cfg.icon);
+            icon.fontSize = isMobile ? 18 : 20;
+            icon.color = cfg.iconColor;
+            icon.top = '-6px';
+            btn.addControl(icon);
+
+            const label = new TextBlock(`${cfg.id}Label`, cfg.label);
+            label.fontSize = fontSize;
+            label.color = cfg.labelColor;
+            label.fontFamily = 'Arial';
+            label.fontWeight = 'bold';
+            label.top = '12px';
+            btn.addControl(label);
+
+            const cooldown = new TextBlock(`${cfg.id}Cooldown`, '');
+            cooldown.fontSize = fontSize;
+            cooldown.color = '#FFFFFF';
+            cooldown.fontFamily = 'Arial';
+            cooldown.top = '20px';
+            btn.addControl(cooldown);
+
+            btn.onPointerClickObservable.add(() => {
+                if (this.abilityManager) {
+                    const ability = this.abilityManager.getAbility(cfg.id);
+                    if (ability && ability.isReady) {
+                        if (cfg.needsTargeting) {
+                            this.abilityManager.startTargeting(cfg.id);
+                        } else {
+                            this.abilityManager.activate(cfg.id);
+                        }
+                    }
+                }
+            });
+
+            this.ui.addControl(btn);
+            (this as any)[buttonRefs[i]] = btn;
+        }
+
+        // ====== CHAMPION SUMMON BUTTON (below ability row) ======
+        const champBtn = new Rectangle('championButton');
+        const champW = isMobile ? 200 : 220;
+        champBtn.width = `${champW}px`;
+        champBtn.height = btnH;
+        champBtn.cornerRadius = 10;
+        champBtn.background = '#1A3A2A';
+        champBtn.color = '#FFD700';
+        champBtn.thickness = 2;
+        champBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        champBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        champBtn.left = `${baseLeft}px`;
+        champBtn.top = isMobile ? '-14px' : '-24px';
+        champBtn.zIndex = 100;
+        champBtn.isPointerBlocker = true;
+
+        const champIcon = new TextBlock('championIcon', '\u2694');
+        champIcon.fontSize = isMobile ? 16 : 18;
+        champIcon.color = '#FFD700';
+        champIcon.left = isMobile ? '-70px' : '-80px';
+        champBtn.addControl(champIcon);
+
+        const champLabel = new TextBlock('championLabel', 'SUMMON CHAMPION');
+        champLabel.fontSize = isMobile ? 9 : 10;
+        champLabel.color = '#FFD700';
+        champLabel.fontFamily = 'Arial';
+        champLabel.fontWeight = 'bold';
+        champLabel.top = '-8px';
+        champLabel.left = '10px';
+        champBtn.addControl(champLabel);
+
+        const champStatus = new TextBlock('championStatus', 'READY!');
+        champStatus.fontSize = isMobile ? 8 : 9;
+        champStatus.color = '#66FF66';
+        champStatus.fontFamily = 'Arial';
+        champStatus.top = '8px';
+        champStatus.left = '10px';
+        champBtn.addControl(champStatus);
+
+        champBtn.onPointerClickObservable.add(() => {
+            if (this.championManager && this.championManager.canSummon() && this.levelManager) {
+                const path = this.levelManager.getCompositePath();
+                this.championManager.summon(path);
+            }
+        });
+
+        this.ui.addControl(champBtn);
+        this.championButton = champBtn;
+    }
+
+    private updateAbilityButtons(): void {
+        if (!this.abilityManager) return;
+
+        const buttonConfigs: Array<{ id: string; btn: Rectangle | null; bg: string; activeBg?: string }> = [
+            { id: 'meteor', btn: this.meteorButton, bg: '#B34000', activeBg: '#FF6600' },
+            { id: 'frostNova', btn: this.frostNovaButton, bg: '#1A4D7A' },
+            { id: 'chainLightning', btn: this.chainLightningButton, bg: '#2A2A5A', activeBg: '#5555AA' },
+            { id: 'fortify', btn: this.fortifyButton, bg: '#5A4A10' },
+            { id: 'goldRush', btn: this.goldRushButton, bg: '#4A3A00' },
+        ];
+
+        for (const cfg of buttonConfigs) {
+            const ability = this.abilityManager.getAbility(cfg.id);
+            if (!ability || !cfg.btn) continue;
+
+            const cooldownText = cfg.btn.getChildByName(`${cfg.id}Cooldown`) as TextBlock;
+            if (ability.isReady) {
+                cfg.btn.alpha = 1.0;
+                if (cooldownText) cooldownText.text = '';
+                // Highlight if this ability is currently being targeted
+                if (cfg.activeBg && this.abilityManager.getTargetingAbility() === cfg.id) {
+                    cfg.btn.background = cfg.activeBg;
+                } else {
+                    cfg.btn.background = cfg.bg;
+                }
+            } else {
+                cfg.btn.alpha = 0.5;
+                if (cooldownText) cooldownText.text = `${Math.ceil(ability.currentCooldown)}s`;
+                cfg.btn.background = '#3A3F4B';
+            }
+        }
+
+        // Update champion button state
+        if (this.championButton && this.championManager) {
+            const statusText = this.championButton.getChildByName('championStatus') as TextBlock;
+            const labelText = this.championButton.getChildByName('championLabel') as TextBlock;
+            if (this.championManager.isChampionActive()) {
+                this.championButton.alpha = 0.8;
+                this.championButton.background = '#2A3A2A';
+                this.championButton.color = '#FFD700';
+                if (statusText) { statusText.text = 'CHAMPION ACTIVE'; statusText.color = '#FFD700'; }
+            } else if (this.championManager.canSummon()) {
+                this.championButton.alpha = 1.0;
+                this.championButton.background = '#1A3A2A';
+                this.championButton.color = '#FFD700';
+                if (statusText) { statusText.text = 'READY!'; statusText.color = '#66FF66'; }
+            } else {
+                const wavesLeft = this.championManager.getWavesUntilReady();
+                this.championButton.alpha = 0.5;
+                this.championButton.background = '#3A3F4B';
+                this.championButton.color = '#666666';
+                if (statusText) { statusText.text = `${wavesLeft} waves remaining`; statusText.color = '#AAAAAA'; }
+            }
+        }
+    }
+
+    private createFusionGuideButton(isMobile: boolean): void {
+        if (!this.ui) return;
+
+        // Toggle button on the right edge
+        const toggleBtn = Button.CreateSimpleButton('fusionGuideToggle', '\uD83D\uDCD6');
+        toggleBtn.width = isMobile ? '40px' : '44px';
+        toggleBtn.height = isMobile ? '40px' : '44px';
+        toggleBtn.fontSize = isMobile ? 18 : 20;
+        toggleBtn.cornerRadius = 12;
+        toggleBtn.background = '#2A2040';
+        toggleBtn.color = '#C8A0FF';
+        toggleBtn.thickness = 0;
+        toggleBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        toggleBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        toggleBtn.left = isMobile ? '-8px' : '-10px';
+        toggleBtn.top = isMobile ? '-8px' : '-10px';
+        toggleBtn.shadowColor = '#000000';
+        toggleBtn.shadowBlur = 6;
+        toggleBtn.shadowOffsetY = 2;
+        toggleBtn.zIndex = 100;
+        toggleBtn.onPointerEnterObservable.add(() => { toggleBtn.background = '#3A3060'; });
+        toggleBtn.onPointerOutObservable.add(() => { toggleBtn.background = '#2A2040'; });
+        toggleBtn.onPointerClickObservable.add(() => {
+            if (this.fusionGuidePanel) {
+                this.fusionGuidePanel.isVisible = !this.fusionGuidePanel.isVisible;
+            }
+        });
+        this.ui.addControl(toggleBtn);
+
+        // Guide panel — anchored right, vertically centered
+        const panel = new Rectangle('fusionGuidePanel');
+        const panelW = isMobile ? 260 : 300;
+        panel.width = `${panelW}px`;
+        panel.height = isMobile ? '420px' : '500px';
+        panel.cornerRadius = 14;
+        panel.background = '#141820';
+        panel.color = '#2A2E38';
+        panel.thickness = 1;
+        panel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        panel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        panel.left = isMobile ? '-8px' : '-10px';
+        panel.top = isMobile ? '-56px' : '-62px';
+        panel.shadowColor = '#000000';
+        panel.shadowBlur = 14;
+        panel.shadowOffsetY = 3;
+        panel.zIndex = 200;
+        panel.isVisible = false;
+        panel.isPointerBlocker = true;
+        this.ui.addControl(panel);
+        this.fusionGuidePanel = panel;
+
+        // Panel title
+        const title = new TextBlock('guideTitle', 'FUSION GUIDE');
+        title.color = '#FFD54F';
+        title.fontSize = 16;
+        title.fontWeight = 'bold';
+        title.fontFamily = 'Arial';
+        title.height = '28px';
+        title.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        title.top = '12px';
+        panel.addControl(title);
+
+        // Divider
+        const divider = new Rectangle('guideDivider');
+        divider.width = '50px';
+        divider.height = '2px';
+        divider.background = '#FFD54F';
+        divider.thickness = 0;
+        divider.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        divider.top = '38px';
+        panel.addControl(divider);
+
+        // Section: Tier 1 Hybrids
+        const tier1Title = new TextBlock('tier1Title', 'HYBRID TOWERS');
+        tier1Title.color = '#8890A0';
+        tier1Title.fontSize = 11;
+        tier1Title.fontWeight = 'bold';
+        tier1Title.fontFamily = 'Arial';
+        tier1Title.height = '16px';
+        tier1Title.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        tier1Title.top = '50px';
+        panel.addControl(tier1Title);
+
+        const hybrids: { e1: string; c1: string; e2: string; c2: string; result: string; cr: string }[] = [
+            { e1: 'Fire',  c1: '#FF5722', e2: 'Water', c2: '#03A9F4', result: 'Steam',     cr: '#D4845A' },
+            { e1: 'Fire',  c1: '#FF5722', e2: 'Earth', c2: '#795548', result: 'Lava',      cr: '#FF6600' },
+            { e1: 'Water', c1: '#03A9F4', e2: 'Wind',  c2: '#8BC34A', result: 'Ice',       cr: '#66BBEE' },
+            { e1: 'Wind',  c1: '#8BC34A', e2: 'Fire',  c2: '#FF5722', result: 'Storm',     cr: '#9999FF' },
+            { e1: 'Earth', c1: '#795548', e2: 'Water', c2: '#03A9F4', result: 'Mud',       cr: '#8B7355' },
+            { e1: 'Earth', c1: '#795548', e2: 'Wind',  c2: '#8BC34A', result: 'Dust',      cr: '#C4A870' },
+        ];
+
+        const rowH = 30;
+        const fs = isMobile ? 12 : 13;
+        let y = 70;
+
+        for (const h of hybrids) {
+            // Element 1
+            const e1 = new TextBlock();
+            e1.text = h.e1;
+            e1.color = h.c1;
+            e1.fontSize = fs;
+            e1.fontWeight = 'bold';
+            e1.fontFamily = 'Arial';
+            e1.width = '50px';
+            e1.height = `${rowH}px`;
+            e1.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+            e1.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            e1.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            e1.left = `${panelW / 2 - 110}px`;
+            e1.top = `${y}px`;
+            panel.addControl(e1);
+
+            // +
+            const plus = new TextBlock();
+            plus.text = '+';
+            plus.color = '#606878';
+            plus.fontSize = fs;
+            plus.fontFamily = 'Arial';
+            plus.width = '16px';
+            plus.height = `${rowH}px`;
+            plus.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            plus.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            plus.left = `${panelW / 2 - 56}px`;
+            plus.top = `${y}px`;
+            panel.addControl(plus);
+
+            // Element 2
+            const e2 = new TextBlock();
+            e2.text = h.e2;
+            e2.color = h.c2;
+            e2.fontSize = fs;
+            e2.fontWeight = 'bold';
+            e2.fontFamily = 'Arial';
+            e2.width = '50px';
+            e2.height = `${rowH}px`;
+            e2.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            e2.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            e2.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            e2.left = `${panelW / 2 - 36}px`;
+            e2.top = `${y}px`;
+            panel.addControl(e2);
+
+            // Arrow
+            const arrow = new TextBlock();
+            arrow.text = '\u2192';
+            arrow.color = '#606878';
+            arrow.fontSize = fs;
+            arrow.fontFamily = 'Arial';
+            arrow.width = '20px';
+            arrow.height = `${rowH}px`;
+            arrow.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            arrow.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            arrow.left = `${panelW / 2 + 20}px`;
+            arrow.top = `${y}px`;
+            panel.addControl(arrow);
+
+            // Result
+            const res = new TextBlock();
+            res.text = h.result;
+            res.color = h.cr;
+            res.fontSize = fs;
+            res.fontWeight = 'bold';
+            res.fontFamily = 'Arial';
+            res.width = '60px';
+            res.height = `${rowH}px`;
+            res.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            res.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            res.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            res.left = `${panelW / 2 + 44}px`;
+            res.top = `${y}px`;
+            panel.addControl(res);
+
+            y += rowH;
+        }
+
+        // Section: Tier 2 Ultimates
+        y += 10;
+        const tier2Title = new TextBlock('tier2Title', 'ULTIMATE TOWERS');
+        tier2Title.color = '#8890A0';
+        tier2Title.fontSize = 11;
+        tier2Title.fontWeight = 'bold';
+        tier2Title.fontFamily = 'Arial';
+        tier2Title.height = '16px';
+        tier2Title.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        tier2Title.top = `${y}px`;
+        panel.addControl(tier2Title);
+
+        y += 20;
+
+        const tier2Hint = new TextBlock('tier2Hint', 'Two max-level hybrids of the same type');
+        tier2Hint.color = '#606878';
+        tier2Hint.fontSize = 10;
+        tier2Hint.fontFamily = 'Arial';
+        tier2Hint.height = '14px';
+        tier2Hint.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        tier2Hint.top = `${y}px`;
+        panel.addControl(tier2Hint);
+
+        y += 18;
+
+        const ultimates: { source: string; sc: string; result: string; rc: string }[] = [
+            { source: 'Steam',  sc: '#D4845A', result: 'Geyser',   rc: '#DDAA55' },
+            { source: 'Lava',   sc: '#FF6600', result: 'Inferno',  rc: '#FF4400' },
+            { source: 'Ice',    sc: '#66BBEE', result: 'Glacier',  rc: '#55AAFF' },
+            { source: 'Storm',  sc: '#9999FF', result: 'Tempest',  rc: '#BBBBFF' },
+            { source: 'Mud',    sc: '#8B7355', result: 'Quagmire', rc: '#6B8B3A' },
+            { source: 'Dust',   sc: '#C4A870', result: 'Cyclone',  rc: '#DDCC88' },
+        ];
+
+        for (const u of ultimates) {
+            // Source x2
+            const src = new TextBlock();
+            src.text = `${u.source} x2`;
+            src.color = u.sc;
+            src.fontSize = fs;
+            src.fontWeight = 'bold';
+            src.fontFamily = 'Arial';
+            src.width = '100px';
+            src.height = `${rowH}px`;
+            src.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+            src.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            src.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            src.left = `${panelW / 2 - 70}px`;
+            src.top = `${y}px`;
+            panel.addControl(src);
+
+            // Arrow
+            const arrow = new TextBlock();
+            arrow.text = '\u2192';
+            arrow.color = '#606878';
+            arrow.fontSize = fs;
+            arrow.fontFamily = 'Arial';
+            arrow.width = '20px';
+            arrow.height = `${rowH}px`;
+            arrow.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            arrow.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            arrow.left = `${panelW / 2 + 20}px`;
+            arrow.top = `${y}px`;
+            panel.addControl(arrow);
+
+            // Result
+            const res = new TextBlock();
+            res.text = u.result;
+            res.color = u.rc;
+            res.fontSize = fs;
+            res.fontWeight = 'bold';
+            res.fontFamily = 'Arial';
+            res.width = '70px';
+            res.height = `${rowH}px`;
+            res.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            res.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            res.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            res.left = `${panelW / 2 + 44}px`;
+            res.top = `${y}px`;
+            panel.addControl(res);
+
+            y += rowH;
+        }
+
+        // Close hint at bottom
+        const closeHint = new TextBlock('guideCloseHint', 'tap book to close');
+        closeHint.color = '#4A5060';
+        closeHint.fontSize = 10;
+        closeHint.fontFamily = 'Arial';
+        closeHint.height = '16px';
+        closeHint.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        closeHint.top = '-8px';
+        panel.addControl(closeHint);
     }
 
     private createResponsiveTowerButton(id: string, name: string, cost: string, color: string, width: string, left: string, parent: Rectangle, hidden: boolean = false): void {
@@ -804,18 +1341,30 @@ export class GameplayState implements GameState {
         const segmentWave = this.waveManager.getSegmentWave();
         waveText.text = `S${segmentNum}-${segmentWave}/10`;
 
-        // Update wave countdown timer
+        // Update wave countdown timer + wave preview
         if (countdownText) {
             const timeRemaining = this.waveManager.getAutoWaveTimeRemaining();
             if (timeRemaining > 0) {
-                countdownText.text = `Next wave: ${timeRemaining.toFixed(1)}s`;
+                // Show countdown with enemy composition preview
+                const nextEnemies = this.waveManager.getNextWaveEnemies();
+                let previewStr = '';
+                if (nextEnemies) {
+                    const parts = nextEnemies.map(e => {
+                        const icons: Record<string, string> = {
+                            basic: 'Goblin', fast: 'Wraith', tank: 'Beetle',
+                            boss: 'BOSS', splitting: 'Hydra', healer: 'Shaman', shield: 'Paladin'
+                        };
+                        return `${e.count}x ${icons[e.type] || e.type}`;
+                    });
+                    previewStr = `  [${parts.join(', ')}]`;
+                }
+                countdownText.text = `Next: ${timeRemaining.toFixed(1)}s${previewStr}`;
                 countdownText.color = '#F5A623';
             } else if (this.waveManager.isWaveInProgress()) {
                 countdownText.text = 'Wave in progress';
                 countdownText.color = '#E53935';
-            } else if (this.waveManager.getCurrentWave() <= 1) {
-                countdownText.text = 'Press > to start';
-                countdownText.color = '#66BB6A';
+            } else if (this.waveManager.getCurrentWave() <= 1 && timeRemaining <= 0) {
+                countdownText.text = '';
             } else {
                 countdownText.text = '';
             }
@@ -836,6 +1385,9 @@ export class GameplayState implements GameState {
         if (killText) {
             killText.text = `${this.playerStats.getTotalKills()}`;
         }
+
+        // Update ability buttons
+        this.updateAbilityButtons();
     }
 
     /**
@@ -981,6 +1533,24 @@ export class GameplayState implements GameState {
 
             // === TAP HANDLING (same logic as the old onPointerDown) ===
 
+            // Handle ability targeting mode (Meteor Strike click-to-target)
+            if (this.abilityManager && this.abilityManager.getIsTargeting()) {
+                const abilityPick = this.scene.pick(
+                    this.scene.pointerX,
+                    this.scene.pointerY,
+                    (mesh) => mesh.name.startsWith('ground_')
+                );
+                if (abilityPick.hit && abilityPick.pickedPoint) {
+                    const targetAbility = this.abilityManager.getTargetingAbility();
+                    if (targetAbility) {
+                        this.abilityManager.activate(targetAbility, abilityPick.pickedPoint);
+                    }
+                } else {
+                    this.abilityManager.cancelTargeting();
+                }
+                return;
+            }
+
             // Check UI elements
             const pickInfo = this.scene.pick(this.scene.pointerX, this.scene.pointerY);
             if (pickInfo.hit && pickInfo.pickedMesh && pickInfo.pickedMesh.name.includes('GUI')) {
@@ -1057,6 +1627,34 @@ export class GameplayState implements GameState {
                 pressedKeys.add(key);
                 if (key === 'escape' && this.selectedTowerType) {
                     this.cancelTowerPlacement();
+                }
+                // Speed control shortcuts: 1/2/3
+                if (key === '1') {
+                    this.game.setTimeScale(1);
+                    [1, 2, 3].forEach(s => {
+                        const btn = this.ui?.getControlByName(`speed${s}Btn`) as Rectangle;
+                        if (btn) btn.background = s === 1 ? '#4CAF50' : '#3A3F4B';
+                    });
+                } else if (key === '2') {
+                    this.game.setTimeScale(2);
+                    [1, 2, 3].forEach(s => {
+                        const btn = this.ui?.getControlByName(`speed${s}Btn`) as Rectangle;
+                        if (btn) btn.background = s === 2 ? '#4CAF50' : '#3A3F4B';
+                    });
+                } else if (key === '3') {
+                    this.game.setTimeScale(3);
+                    [1, 2, 3].forEach(s => {
+                        const btn = this.ui?.getControlByName(`speed${s}Btn`) as Rectangle;
+                        if (btn) btn.background = s === 3 ? '#4CAF50' : '#3A3F4B';
+                    });
+                }
+                // Space for pause
+                if (key === ' ') {
+                    this.game.togglePause();
+                }
+                // Cancel ability targeting with Escape
+                if (key === 'escape' && this.abilityManager?.getIsTargeting()) {
+                    this.abilityManager.cancelTargeting();
                 }
             } else if (kbInfo.type === KeyboardEventTypes.KEYUP) {
                 pressedKeys.delete(key);
@@ -1421,10 +2019,13 @@ export class GameplayState implements GameState {
 
         const towerCost = this.getTowerCost(this.selectedTowerType);
         if (this.playerStats.getMoney() >= towerCost) {
-            this.towerManager.createTower(this.selectedTowerType, new Vector3(worldPosition.x, position.y, worldPosition.z));
+            const placed = this.towerManager.createTower(this.selectedTowerType, new Vector3(worldPosition.x, position.y, worldPosition.z));
             this.playerStats.spendMoney(towerCost);
 
-            placeMap.setTowerPlaced(gridPosition.x, gridPosition.y, true);
+            // Only mark grid cell if the tower wasn't consumed by fusion
+            if (placed) {
+                placeMap.setTowerPlaced(gridPosition.x, gridPosition.y, true);
+            }
 
             this.game.getAssetManager().playSound('towerShoot');
 
@@ -1616,6 +2217,15 @@ export class GameplayState implements GameState {
             const towerMesh = tower.getMesh();
             if (towerMesh && (towerMesh === mesh || this.isMeshChildOf(mesh, towerMesh))) {
                 return tower;
+            }
+        }
+
+        // Debug: log when click misses all towers
+        if (towers.length > 0) {
+            console.log(`[CLICK] Picked mesh "${mesh.name}", parent: "${mesh.parent?.name}". No tower matched. Tower count: ${towers.length}`);
+            for (const tower of towers) {
+                const tm = tower.getMesh();
+                console.log(`[CLICK]   Tower mesh: "${tm?.name}", id: ${tower.getId()}, pos: (${tower.getPosition().x}, ${tower.getPosition().z})`);
             }
         }
 
@@ -2220,6 +2830,33 @@ export class GameplayState implements GameState {
                     this.upgradeSelectedTower();
                 });
                 this.towerInfoPanel.addControl(this.upgradeButton);
+
+                // --- Targeting mode button ---
+                this.targetingButton = new Rectangle('targetingButton');
+                this.targetingButton.width = '100px';
+                this.targetingButton.height = '28px';
+                this.targetingButton.cornerRadius = 6;
+                this.targetingButton.background = '#3A3F4B';
+                this.targetingButton.color = '#555';
+                this.targetingButton.thickness = 1;
+                this.targetingButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+                this.targetingButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+                this.targetingButton.top = this.isMobileDevice() ? '-8px' : '-6px';
+
+                const targetText = new TextBlock('targetingText', 'CLOSEST');
+                targetText.color = '#B0B8C8';
+                targetText.fontSize = this.isMobileDevice() ? 10 : 9;
+                targetText.fontFamily = 'Arial';
+                targetText.fontWeight = 'bold';
+                this.targetingButton.addControl(targetText);
+
+                this.targetingButton.onPointerClickObservable.add(() => {
+                    if (this.selectedTower) {
+                        const newMode = this.selectedTower.cycleTargetingMode();
+                        this.updateTargetingButtonText();
+                    }
+                });
+                this.towerInfoPanel.addControl(this.targetingButton);
             }
         } else {
             this.towerInfoPanel.isVisible = true;
@@ -2349,6 +2986,167 @@ export class GameplayState implements GameState {
                 }
             }
         }
+
+        // Update targeting mode button text
+        this.updateTargetingButtonText();
+    }
+
+    private updateTargetingButtonText(): void {
+        if (!this.targetingButton || !this.selectedTower) return;
+        const targetText = this.targetingButton.getChildByName('targetingText') as TextBlock;
+        if (targetText) {
+            const mode = this.selectedTower.getTargetingMode();
+            const labels: Record<string, string> = {
+                [TargetingMode.CLOSEST]: '\u25CE CLOSEST',
+                [TargetingMode.FIRST]: '\u25B6 FIRST',
+                [TargetingMode.STRONGEST]: '\u2620 STRONGEST'
+            };
+            targetText.text = labels[mode] || 'CLOSEST';
+        }
+    }
+
+    // ========================================================================
+    // SCREEN FEEDBACK EFFECTS
+    // ========================================================================
+
+    private flashDamageVignette(): void {
+        if (!this.ui) return;
+
+        // Create or reuse vignette overlay
+        if (!this.damageVignette) {
+            this.damageVignette = new Rectangle('damageVignette');
+            this.damageVignette.width = '100%';
+            this.damageVignette.height = '100%';
+            this.damageVignette.thickness = 0;
+            this.damageVignette.background = 'transparent';
+            this.damageVignette.color = 'rgba(220, 30, 30, 0.45)';
+            this.damageVignette.thickness = 30;
+            this.damageVignette.isHitTestVisible = false;
+            this.damageVignette.isPointerBlocker = false;
+            this.damageVignette.alpha = 0;
+            this.ui.addControl(this.damageVignette);
+        }
+
+        // Flash in and out over 300ms
+        this.damageVignette.alpha = 1.0;
+        const startTime = performance.now();
+        const duration = 300;
+        const fadeStep = () => {
+            const elapsed = performance.now() - startTime;
+            if (elapsed >= duration) {
+                if (this.damageVignette) this.damageVignette.alpha = 0;
+                return;
+            }
+            if (this.damageVignette) {
+                this.damageVignette.alpha = 1.0 - (elapsed / duration);
+            }
+            requestAnimationFrame(fadeStep);
+        };
+        requestAnimationFrame(fadeStep);
+    }
+
+    private showWaveClearText(): void {
+        if (!this.ui) return;
+
+        if (this.waveClearText) {
+            this.ui.removeControl(this.waveClearText);
+            this.waveClearText = null;
+        }
+
+        this.waveClearText = new TextBlock('waveClearText', 'WAVE CLEARED!');
+        this.waveClearText.color = '#66BB6A';
+        this.waveClearText.fontSize = 36;
+        this.waveClearText.fontFamily = 'Arial';
+        this.waveClearText.fontWeight = 'bold';
+        this.waveClearText.outlineWidth = 3;
+        this.waveClearText.outlineColor = 'black';
+        this.waveClearText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.waveClearText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        this.waveClearText.top = '-50px';
+        this.waveClearText.isHitTestVisible = false;
+        this.waveClearText.scaleX = 0.5;
+        this.waveClearText.scaleY = 0.5;
+        this.ui.addControl(this.waveClearText);
+
+        // Scale-up animation then fade out
+        const startTime = performance.now();
+        const animStep = () => {
+            const elapsed = performance.now() - startTime;
+            if (!this.waveClearText) return;
+
+            if (elapsed < 200) {
+                // Scale up: 0.5 -> 1.2
+                const t = elapsed / 200;
+                const scale = 0.5 + t * 0.7;
+                this.waveClearText.scaleX = scale;
+                this.waveClearText.scaleY = scale;
+            } else if (elapsed < 400) {
+                // Scale settle: 1.2 -> 1.0
+                const t = (elapsed - 200) / 200;
+                const scale = 1.2 - t * 0.2;
+                this.waveClearText.scaleX = scale;
+                this.waveClearText.scaleY = scale;
+            } else if (elapsed < 1500) {
+                this.waveClearText.scaleX = 1;
+                this.waveClearText.scaleY = 1;
+            } else if (elapsed < 2000) {
+                // Fade out
+                this.waveClearText.alpha = 1 - (elapsed - 1500) / 500;
+            } else {
+                if (this.ui && this.waveClearText) {
+                    this.ui.removeControl(this.waveClearText);
+                    this.waveClearText = null;
+                }
+                return;
+            }
+            requestAnimationFrame(animStep);
+        };
+        requestAnimationFrame(animStep);
+    }
+
+    private showBossWarning(text: string, urgent: boolean): void {
+        if (!this.ui) return;
+
+        if (this.bossWarningText) {
+            this.ui.removeControl(this.bossWarningText);
+            this.bossWarningText = null;
+        }
+
+        this.bossWarningText = new TextBlock('bossWarningText', text);
+        this.bossWarningText.color = urgent ? '#FF3333' : '#FF9800';
+        this.bossWarningText.fontSize = urgent ? 32 : 26;
+        this.bossWarningText.fontFamily = 'Arial';
+        this.bossWarningText.fontWeight = 'bold';
+        this.bossWarningText.outlineWidth = 3;
+        this.bossWarningText.outlineColor = 'black';
+        this.bossWarningText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.bossWarningText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        this.bossWarningText.top = '20px';
+        this.bossWarningText.isHitTestVisible = false;
+        this.ui.addControl(this.bossWarningText);
+
+        // Flash and fade out over 3 seconds
+        const startTime = performance.now();
+        const duration = 3000;
+        const animStep = () => {
+            const elapsed = performance.now() - startTime;
+            if (!this.bossWarningText) return;
+
+            if (elapsed < duration - 500) {
+                // Pulsing alpha
+                this.bossWarningText.alpha = 0.7 + 0.3 * Math.sin(elapsed / 150);
+            } else if (elapsed < duration) {
+                this.bossWarningText.alpha = 1 - (elapsed - (duration - 500)) / 500;
+            } else {
+                if (this.ui && this.bossWarningText) {
+                    this.ui.removeControl(this.bossWarningText);
+                    this.bossWarningText = null;
+                }
+                return;
+            }
+            requestAnimationFrame(animStep);
+        };
+        requestAnimationFrame(animStep);
     }
 
     private hideTowerActions(): void {
@@ -2476,6 +3274,12 @@ export class GameplayState implements GameState {
 
                 this.game.getAssetManager().playSound('towerUpgrade');
 
+                // Check if tower was consumed by tier 2 fusion
+                if (!this.towerManager.hasTower(this.selectedTower)) {
+                    this.deselectTower();
+                    return;
+                }
+
                 // Make sure we update the UI with the same tower
                 const upgradedTower = this.towerManager.getTowerById(selectedTowerId);
                 if (upgradedTower) {
@@ -2597,11 +3401,14 @@ export class GameplayState implements GameState {
 
         const towerCost = this.getTowerCost(this.selectedTowerType);
         if (this.playerStats.getMoney() >= towerCost) {
-            this.towerManager.createTower(this.selectedTowerType, new Vector3(worldPosition.x, position.y, worldPosition.z));
+            const placed = this.towerManager.createTower(this.selectedTowerType, new Vector3(worldPosition.x, position.y, worldPosition.z));
             this.playerStats.spendMoney(towerCost);
             this.playerStats.addTowerBuilt();
 
-            this.map.setTowerPlaced(gridPosition.x, gridPosition.y, true);
+            // Only mark grid cell if the tower wasn't consumed by fusion
+            if (placed) {
+                this.map.setTowerPlaced(gridPosition.x, gridPosition.y, true);
+            }
 
             this.game.getAssetManager().playSound('towerShoot');
 

@@ -20,8 +20,9 @@ export class LavaTower extends Tower {
         const fireRate = 0.8;
         const cost = 250;
 
-        super(game, position, range, damage, fireRate, cost);
+        super(game, position, range, damage, fireRate, cost, true);
 
+        this.fusionTier = 1;
         this.secondaryEffectChance = 0.6;
         this.statusEffectDuration = 4;
         this.statusEffectStrength = 0.25;

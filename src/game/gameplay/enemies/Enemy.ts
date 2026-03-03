@@ -1,4 +1,4 @@
-import { Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, Color4, Scene, ParticleSystem, Texture, DynamicTexture, Sound } from '@babylonjs/core';
+import { Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, Color4, Scene, ParticleSystem, Texture, DynamicTexture, Sound, Animation } from '@babylonjs/core';
 import { Game } from '../../Game';
 import { EnemyType, StatusEffect } from '../towers/Tower';
 import { TowerManager } from '../TowerManager';
@@ -46,6 +46,10 @@ export class Enemy {
     protected lastBurnDamageTime: number = 0;
     protected burnDamagePerTick: number = 0;
     protected damageResistance: number = 0;
+
+    // CC immunity windows (prevent perma-CC)
+    protected freezeImmunityUntil: number = 0; // timestamp when freeze immunity expires
+    protected stunImmunityUntil: number = 0;   // timestamp when stun immunity expires
 
     constructor(game: Game, position: Vector3, path: Vector3[], speed: number, health: number, damage: number, reward: number) {
         this.game = game;
@@ -387,41 +391,49 @@ export class Enemy {
      * @param strength Strength of the effect (e.g., slow percentage, damage per tick)
      */
     public applyStatusEffect(effect: StatusEffect, duration: number, strength: number): void {
-        const endTime = performance.now() + (duration * 1000);
-        
-        // Store the effect data
-        this.activeStatusEffects.set(effect, { endTime, strength });
-        
+        const currentTime = performance.now();
+        const endTime = currentTime + (duration * 1000);
+
         // Apply effect-specific changes
         switch (effect) {
             case StatusEffect.BURNING:
+                this.activeStatusEffects.set(effect, { endTime, strength });
                 this.burnDamagePerTick = strength;
-                this.lastBurnDamageTime = performance.now();
+                this.lastBurnDamageTime = currentTime;
                 this.createStatusEffectParticles(effect);
                 break;
-                
+
             case StatusEffect.SLOWED:
-                // Reduce speed by the slow percentage
-                this.speed = this.originalSpeed * (1 - strength);
+                // Cap slow at 80% (prevent 100% slow = freeze)
+                this.activeStatusEffects.set(effect, { endTime, strength });
+                this.speed = this.originalSpeed * Math.max(0.2, 1 - strength);
                 this.createStatusEffectParticles(effect);
                 break;
-                
+
             case StatusEffect.FROZEN:
+                // Check freeze immunity window (3s after last freeze ends)
+                if (currentTime < this.freezeImmunityUntil) return;
+                this.activeStatusEffects.set(effect, { endTime, strength });
                 this.isFrozen = true;
                 this.speed = 0;
                 this.createStatusEffectParticles(effect);
                 break;
-                
+
             case StatusEffect.STUNNED:
+                // Check stun immunity window (5s after last stun ends)
+                if (currentTime < this.stunImmunityUntil) return;
+                this.activeStatusEffects.set(effect, { endTime, strength });
                 this.isStunned = true;
                 this.createStatusEffectParticles(effect);
                 break;
-                
+
             case StatusEffect.PUSHED:
+                this.activeStatusEffects.set(effect, { endTime, strength });
                 // Push logic is handled in the tower's effect application
                 break;
-                
+
             case StatusEffect.CONFUSED:
+                this.activeStatusEffects.set(effect, { endTime, strength });
                 this.isConfused = true;
                 this.confusedDirection = null; // Will be set on next update
                 this.createStatusEffectParticles(effect);
@@ -452,11 +464,15 @@ export class Enemy {
             case StatusEffect.FROZEN:
                 this.isFrozen = false;
                 this.speed = this.originalSpeed;
+                // 3 second immunity window after freeze ends
+                this.freezeImmunityUntil = performance.now() + 3000;
                 this.stopStatusEffectParticles(effect);
                 break;
-                
+
             case StatusEffect.STUNNED:
                 this.isStunned = false;
+                // 5 second immunity window after stun ends
+                this.stunImmunityUntil = performance.now() + 5000;
                 this.stopStatusEffectParticles(effect);
                 break;
                 
@@ -620,25 +636,58 @@ export class Enemy {
      */
     public takeDamage(amount: number): boolean {
         if (!this.alive) return false;
-        
+
         // Apply damage resistance if it exists
         let actualDamage = amount;
         if (this.damageResistance && this.damageResistance > 0) {
             actualDamage = amount * (1 - this.damageResistance);
         }
-        
+
         this.health -= actualDamage;
-        
+
         // Update health bar instead of scaling
         this.updateHealthBar();
-        
+
+        // Hit flash: briefly turn mesh white for 80ms
+        this.flashHit();
+
         if (this.health <= 0) {
             this.health = 0;
             this.die();
             return true;
         }
-        
+
         return false;
+    }
+
+    /**
+     * Flash the enemy mesh white briefly on hit (80ms emissive pulse)
+     */
+    protected flashHit(): void {
+        if (!this.mesh || this.mesh.isDisposed()) return;
+
+        // Collect all materials from this mesh and children
+        const meshes = [this.mesh, ...this.mesh.getChildMeshes(false)];
+        const originalEmissives: { mat: StandardMaterial, color: Color3 }[] = [];
+
+        for (const m of meshes) {
+            const mat = m.material as StandardMaterial;
+            if (mat && mat.emissiveColor !== undefined) {
+                originalEmissives.push({ mat, color: mat.emissiveColor.clone() });
+                mat.emissiveColor = new Color3(1, 1, 1);
+            }
+        }
+
+        // Restore after 80ms
+        setTimeout(() => {
+            for (const entry of originalEmissives) {
+                try {
+                    entry.mat.emissiveColor = entry.color;
+                } catch (_) {
+                    // Material may have been disposed
+                }
+            }
+        }, 80);
     }
 
     /**
@@ -686,12 +735,49 @@ export class Enemy {
     }
 
     /**
-     * Create a death effect
+     * Create a death effect — particle burst + gold reward float text
      */
     protected createDeathEffect(): void {
-        // This would create a particle effect or animation when the enemy dies
-        // For simplicity, we'll just log it
-        console.log('Enemy died at', this.position);
+        const deathPos = this.position.clone();
+        deathPos.y += 0.5;
+
+        // --- Particle burst ---
+        const ps = new ParticleSystem('deathBurst', 30, this.scene);
+        ps.emitter = deathPos;
+        ps.minEmitBox = new Vector3(-0.2, 0, -0.2);
+        ps.maxEmitBox = new Vector3(0.2, 0, 0.2);
+        ps.color1 = new Color4(1, 0.8, 0.3, 1);
+        ps.color2 = new Color4(0.8, 0.3, 0.1, 1);
+        ps.colorDead = new Color4(0.3, 0.1, 0, 0);
+        ps.minSize = 0.1;
+        ps.maxSize = 0.35;
+        ps.minLifeTime = 0.2;
+        ps.maxLifeTime = 0.5;
+        ps.emitRate = 100;
+        ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
+        ps.direction1 = new Vector3(-1, 1, -1);
+        ps.direction2 = new Vector3(1, 2, 1);
+        ps.minEmitPower = 1;
+        ps.maxEmitPower = 3;
+        ps.gravity = new Vector3(0, -5, 0);
+        ps.start();
+        setTimeout(() => { ps.stop(); setTimeout(() => ps.dispose(), 600); }, 150);
+
+        // --- Gold reward float-up text ---
+        this.showGoldRewardText(deathPos);
+    }
+
+    /**
+     * Show floating gold reward text at the death position
+     */
+    protected showGoldRewardText(position: Vector3): void {
+        const rewardEvent = new CustomEvent('enemyReward', {
+            detail: {
+                position: position,
+                reward: this.reward
+            }
+        });
+        document.dispatchEvent(rewardEvent);
     }
 
     /**
@@ -724,6 +810,36 @@ export class Enemy {
      */
     public getReward(): number {
         return this.reward;
+    }
+
+    /**
+     * Get the current health
+     */
+    public getHealth(): number {
+        return this.health;
+    }
+
+    /**
+     * Get the max health
+     */
+    public getMaxHealth(): number {
+        return this.maxHealth;
+    }
+
+    /**
+     * Get the current path index (how far along the path this enemy is)
+     */
+    public getPathIndex(): number {
+        return this.currentPathIndex;
+    }
+
+    /**
+     * Heal this enemy by the specified amount (capped at maxHealth)
+     */
+    public heal(amount: number): void {
+        if (!this.alive) return;
+        this.health = Math.min(this.maxHealth, this.health + amount);
+        this.updateHealthBar();
     }
 
     /**

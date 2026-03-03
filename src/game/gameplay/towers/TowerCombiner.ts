@@ -11,6 +11,19 @@ import { IceTower } from './hybrid/IceTower';
 import { StormTower } from './hybrid/StormTower';
 import { MudTower } from './hybrid/MudTower';
 import { DustTower } from './hybrid/DustTower';
+import { GeyserTower } from './ultimate/GeyserTower';
+import { InfernoTower } from './ultimate/InfernoTower';
+import { GlacierTower } from './ultimate/GlacierTower';
+import { TempestTower } from './ultimate/TempestTower';
+import { QuagmireTower } from './ultimate/QuagmireTower';
+import { CycloneTower } from './ultimate/CycloneTower';
+
+interface Tier2Combination {
+    sourceType: string;
+    resultType: string;
+    name: string;
+}
+
 
 /**
  * Class responsible for detecting and creating tower combinations
@@ -203,55 +216,69 @@ export class TowerCombiner {
      * @param tower2 The second tower
      */
     private createCombinedTower(combination: TowerCombination, tower1: Tower, tower2: Tower): void {
-        // Calculate the position for the new tower (midpoint between the two towers)
-        const position1 = tower1.getPosition();
-        const position2 = tower2.getPosition();
-        
-        const midpoint = new Vector3(
-            (position1.x + position2.x) / 2,
-            0, // Y position is always 0 for towers
-            (position1.z + position2.z) / 2
-        );
-        
+        // Place new tower at tower1's position (the newly placed tower that triggered fusion)
+        const pos1 = tower1.getPosition();
+        const pos2 = tower2.getPosition();
+        console.log(`[FUSION] tower1 pos: (${pos1.x}, ${pos1.z}), tower2 pos: (${pos2.x}, ${pos2.z})`);
+
+        const newPosition = new Vector3(pos1.x, 0, pos1.z);
+        console.log(`[FUSION] new tower position: (${newPosition.x}, ${newPosition.z})`);
+
+        // Free both grid cells before removing towers
+        const grid1 = this.map.worldToGrid(pos1);
+        const grid2 = this.map.worldToGrid(pos2);
+        this.map.setTowerPlaced(grid1.x, grid1.y, false);
+        this.map.setTowerPlaced(grid2.x, grid2.y, false);
+        console.log(`[FUSION] freed grid cells: (${grid1.x},${grid1.y}) and (${grid2.x},${grid2.y})`);
+
         // Remove the original towers
         this.towerManager.removeTower(tower1);
         this.towerManager.removeTower(tower2);
-        
+
         // Create the new combined tower based on the combination type
         let newTower: Tower | null = null;
-        
+
         switch (combination.resultType) {
             case 'SteamTower':
-                newTower = new SteamTower(this.game, midpoint);
+                newTower = new SteamTower(this.game, newPosition);
                 break;
             case 'LavaTower':
-                newTower = new LavaTower(this.game, midpoint);
+                newTower = new LavaTower(this.game, newPosition);
                 break;
             case 'IceTower':
-                newTower = new IceTower(this.game, midpoint);
+                newTower = new IceTower(this.game, newPosition);
                 break;
             case 'StormTower':
-                newTower = new StormTower(this.game, midpoint);
+                newTower = new StormTower(this.game, newPosition);
                 break;
             case 'MudTower':
-                newTower = new MudTower(this.game, midpoint);
+                newTower = new MudTower(this.game, newPosition);
                 break;
             case 'DustTower':
-                newTower = new DustTower(this.game, midpoint);
+                newTower = new DustTower(this.game, newPosition);
                 break;
         }
-        
+
         if (newTower) {
             // Add the new tower to the tower manager
             this.towerManager.addTower(newTower);
-            
+
+            // Mark the new tower's grid cell as occupied
+            const newGrid = this.map.worldToGrid(newPosition);
+            this.map.setTowerPlaced(newGrid.x, newGrid.y, true);
+            console.log(`[FUSION] marked grid (${newGrid.x},${newGrid.y}) as occupied`);
+
+            // Verify tower mesh position
+            const meshPos = newTower.getMesh()?.position;
+            console.log(`[FUSION] new tower mesh pos: (${meshPos?.x}, ${meshPos?.z}), stored pos: (${newTower.getPosition().x}, ${newTower.getPosition().z})`);
+            console.log(`[FUSION] towers in manager: ${this.towerManager.getTowers().length}`);
+
             // Show a visual effect for the combination
-            this.showCombinationEffect(midpoint, combination);
-            
+            this.showCombinationEffect(newPosition, combination);
+
             // Play a sound effect
             this.game.getAssetManager().playSound('towerCombine');
-            
-            // Show a notification in the console instead
+
             console.log(`Created ${combination.name}!`);
         }
     }
@@ -262,8 +289,83 @@ export class TowerCombiner {
      * @param combination The tower combination
      */
     private showCombinationEffect(position: Vector3, combination: TowerCombination): void {
-        // This would create a particle effect or other visual to show the combination
-        // For now, we'll just log it
         console.log(`Created ${combination.name} at position ${position.x}, ${position.z}`);
+    }
+
+    // ========================================================================
+    // Tier 2 Fusion — two identical max-level hybrid towers → Ultimate tower
+    // ========================================================================
+
+    private tier2Combinations: Tier2Combination[] = [
+        { sourceType: 'SteamTower',  resultType: 'GeyserTower',   name: 'Geyser Tower' },
+        { sourceType: 'LavaTower',   resultType: 'InfernoTower',  name: 'Inferno Tower' },
+        { sourceType: 'IceTower',    resultType: 'GlacierTower',  name: 'Glacier Tower' },
+        { sourceType: 'StormTower',  resultType: 'TempestTower',  name: 'Tempest Tower' },
+        { sourceType: 'MudTower',    resultType: 'QuagmireTower', name: 'Quagmire Tower' },
+        { sourceType: 'DustTower',   resultType: 'CycloneTower',  name: 'Cyclone Tower' },
+    ];
+
+    /**
+     * Check for tier 2 combinations after a hybrid tower reaches max level
+     */
+    public checkTier2Combinations(tower: Tower): boolean {
+        if (tower.getFusionTier() !== 1) return false;
+        if (tower.getLevel() < tower.getMaxLevel()) return false;
+
+        const towerType = tower.getType();
+        const combo = this.tier2Combinations.find(c => c.sourceType === towerType);
+        if (!combo) return false;
+
+        const position = tower.getPosition();
+        const adjacentTowers = this.getAdjacentTowers(position.x, position.z);
+
+        for (const adj of adjacentTowers) {
+            if (adj === tower) continue;
+            if (adj.getType() !== towerType) continue;
+            if (adj.getFusionTier() !== 1) continue;
+            if (adj.getLevel() < adj.getMaxLevel()) continue;
+
+            // Found a match — create tier 2 tower
+            this.createTier2Tower(combo, tower, adj);
+            return true;
+        }
+
+        return false;
+    }
+
+    private createTier2Tower(combo: Tier2Combination, tower1: Tower, tower2: Tower): void {
+        const newPosition = tower1.getPosition().clone();
+        newPosition.y = 0;
+
+        // Free both grid cells
+        const grid1 = this.map.worldToGrid(tower1.getPosition());
+        const grid2 = this.map.worldToGrid(tower2.getPosition());
+        this.map.setTowerPlaced(grid1.x, grid1.y, false);
+        this.map.setTowerPlaced(grid2.x, grid2.y, false);
+
+        // Remove both towers
+        this.towerManager.removeTower(tower1);
+        this.towerManager.removeTower(tower2);
+
+        // Create ultimate tower
+        let newTower: Tower | null = null;
+        switch (combo.resultType) {
+            case 'GeyserTower':   newTower = new GeyserTower(this.game, newPosition);   break;
+            case 'InfernoTower':  newTower = new InfernoTower(this.game, newPosition);  break;
+            case 'GlacierTower':  newTower = new GlacierTower(this.game, newPosition);  break;
+            case 'TempestTower':  newTower = new TempestTower(this.game, newPosition);  break;
+            case 'QuagmireTower': newTower = new QuagmireTower(this.game, newPosition); break;
+            case 'CycloneTower':  newTower = new CycloneTower(this.game, newPosition);  break;
+        }
+
+        if (newTower) {
+            this.towerManager.addTower(newTower);
+
+            const newGrid = this.map.worldToGrid(newPosition);
+            this.map.setTowerPlaced(newGrid.x, newGrid.y, true);
+
+            this.game.getAssetManager().playSound('towerCombine');
+            console.log(`Created ${combo.name}!`);
+        }
     }
 } 

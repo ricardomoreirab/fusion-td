@@ -6,6 +6,10 @@ import { BasicEnemy } from './enemies/BasicEnemy';
 import { FastEnemy } from './enemies/FastEnemy';
 import { TankEnemy } from './enemies/TankEnemy';
 import { BossEnemy } from './enemies/BossEnemy';
+import { SplittingEnemy } from './enemies/SplittingEnemy';
+import { HealerEnemy } from './enemies/HealerEnemy';
+import { ShieldEnemy } from './enemies/ShieldEnemy';
+import { MiniEnemy } from './enemies/MiniEnemy';
 import { PlayerStats } from './PlayerStats';
 import { TowerManager } from './TowerManager';
 
@@ -16,10 +20,40 @@ export class EnemyManager {
     private playerStats: PlayerStats | null = null;
     private towerManager: TowerManager | null = null;
     private compositePath: Vector3[] | null = null;
+    private splitHandler: ((e: Event) => void) | null = null;
+    private healHandler: ((e: Event) => void) | null = null;
 
     constructor(game: Game, map: Map) {
         this.game = game;
         this.map = map;
+
+        // Listen for enemy split events (from SplittingEnemy)
+        this.splitHandler = (e: Event) => {
+            const detail = (e as CustomEvent).detail;
+            const { position, path, count } = detail;
+            for (let i = 0; i < count; i++) {
+                const offset = new Vector3((Math.random() - 0.5) * 1.5, 0, (Math.random() - 0.5) * 1.5);
+                const spawnPos = position.add(offset);
+                const mini = new MiniEnemy(this.game, spawnPos, [...path]);
+                if (this.towerManager) mini.setTowerManager(this.towerManager);
+                this.enemies.push(mini);
+            }
+        };
+        document.addEventListener('enemySplit', this.splitHandler);
+
+        // Listen for enemy heal events (from HealerEnemy)
+        this.healHandler = (e: Event) => {
+            const detail = (e as CustomEvent).detail;
+            const { position, radius, healAmount } = detail;
+            for (const enemy of this.enemies) {
+                if (!enemy.isAlive()) continue;
+                const dist = Vector3.Distance(position, enemy.getPosition());
+                if (dist <= radius) {
+                    enemy.heal(healAmount);
+                }
+            }
+        };
+        document.addEventListener('enemyHeal', this.healHandler);
     }
 
     /**
@@ -113,6 +147,15 @@ export class EnemyManager {
             case 'boss':
                 enemy = new BossEnemy(this.game, startPosition, path);
                 break;
+            case 'splitting':
+                enemy = new SplittingEnemy(this.game, startPosition, path);
+                break;
+            case 'healer':
+                enemy = new HealerEnemy(this.game, startPosition, path);
+                break;
+            case 'shield':
+                enemy = new ShieldEnemy(this.game, startPosition, path);
+                break;
             default:
                 enemy = new BasicEnemy(this.game, startPosition, path);
                 break;
@@ -184,6 +227,48 @@ export class EnemyManager {
     }
 
     /**
+     * Get the enemy furthest along the path within range (highest currentPathIndex)
+     */
+    public getFirstEnemy(position: Vector3, maxRange: number): Enemy | null {
+        let firstEnemy: Enemy | null = null;
+        let highestPathIndex = -1;
+
+        for (const enemy of this.enemies) {
+            if (!enemy.isAlive()) continue;
+            const distance = Vector3.Distance(position, enemy.getPosition());
+            if (distance > maxRange) continue;
+            const pathIndex = enemy.getPathIndex();
+            if (pathIndex > highestPathIndex) {
+                highestPathIndex = pathIndex;
+                firstEnemy = enemy;
+            }
+        }
+
+        return firstEnemy;
+    }
+
+    /**
+     * Get the enemy with highest current HP within range
+     */
+    public getStrongestEnemy(position: Vector3, maxRange: number): Enemy | null {
+        let strongestEnemy: Enemy | null = null;
+        let highestHP = -1;
+
+        for (const enemy of this.enemies) {
+            if (!enemy.isAlive()) continue;
+            const distance = Vector3.Distance(position, enemy.getPosition());
+            if (distance > maxRange) continue;
+            const hp = enemy.getHealth();
+            if (hp > highestHP) {
+                highestHP = hp;
+                strongestEnemy = enemy;
+            }
+        }
+
+        return strongestEnemy;
+    }
+
+    /**
      * Clean up resources
      */
     public dispose(): void {
@@ -191,5 +276,15 @@ export class EnemyManager {
             enemy.dispose();
         }
         this.enemies = [];
+
+        // Remove event listeners
+        if (this.splitHandler) {
+            document.removeEventListener('enemySplit', this.splitHandler);
+            this.splitHandler = null;
+        }
+        if (this.healHandler) {
+            document.removeEventListener('enemyHeal', this.healHandler);
+            this.healHandler = null;
+        }
     }
 }

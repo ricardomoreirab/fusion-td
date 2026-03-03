@@ -75,6 +75,20 @@ export const PALETTE = {
     TOWER_DUST_ROCK: new Color3(0.62, 0.52, 0.38),
     TOWER_DUST_VORTEX: new Color3(0.72, 0.62, 0.45),
 
+    // Ultimate Towers
+    TOWER_GEYSER_COPPER: new Color3(0.82, 0.55, 0.25),
+    TOWER_GEYSER_STEAM: new Color3(0.90, 0.92, 0.98),
+    TOWER_INFERNO_OBSIDIAN: new Color3(0.15, 0.08, 0.05),
+    TOWER_INFERNO_MAGMA: new Color3(1.00, 0.35, 0.00),
+    TOWER_GLACIER_ICE: new Color3(0.55, 0.80, 1.00),
+    TOWER_GLACIER_DEEP: new Color3(0.20, 0.40, 0.85),
+    TOWER_TEMPEST_CLOUD: new Color3(0.20, 0.20, 0.35),
+    TOWER_TEMPEST_BOLT: new Color3(0.80, 0.80, 1.00),
+    TOWER_QUAGMIRE_MUD: new Color3(0.28, 0.18, 0.08),
+    TOWER_QUAGMIRE_SLIME: new Color3(0.35, 0.45, 0.15),
+    TOWER_CYCLONE_SAND: new Color3(0.85, 0.75, 0.55),
+    TOWER_CYCLONE_STORM: new Color3(0.65, 0.58, 0.42),
+
     // Enemies - Basic (Goblin Warrior: earthy greens and browns)
     ENEMY_BASIC: new Color3(0.45, 0.58, 0.28),           // Olive-green skin
     ENEMY_BASIC_HORN: new Color3(0.55, 0.18, 0.18),      // Dark red (kept for accents)
@@ -105,6 +119,29 @@ export const PALETTE = {
     ENEMY_BOSS_CRYSTAL: new Color3(0.85, 0.18, 0.55),    // Magenta crystals
     ENEMY_BOSS_FIRE: new Color3(1.0, 0.30, 0.65),        // Hot magenta fire
     ENEMY_BOSS_DARK: new Color3(0.18, 0.05, 0.22),       // Near-black dark energy
+
+    // Splitting Enemy (Hydra) — green/teal multi-headed serpent
+    ENEMY_SPLITTING: new Color3(0.30, 0.65, 0.45),       // Teal-green body
+    ENEMY_SPLITTING_BELLY: new Color3(0.50, 0.80, 0.55), // Lighter belly
+    ENEMY_SPLITTING_EYE: new Color3(1.0, 0.55, 0.10),    // Orange eyes
+
+    // Healer Enemy (Shaman) — blue/purple mystic
+    ENEMY_HEALER: new Color3(0.40, 0.25, 0.65),          // Purple robes
+    ENEMY_HEALER_STAFF: new Color3(0.55, 0.40, 0.25),    // Wooden staff
+    ENEMY_HEALER_GLOW: new Color3(0.30, 0.95, 0.50),     // Green healing glow
+    ENEMY_HEALER_EYE: new Color3(0.50, 1.0, 0.80),       // Cyan-green eyes
+
+    // Shield Enemy (Paladin) — silver/gold armored
+    ENEMY_SHIELD: new Color3(0.60, 0.58, 0.65),          // Silver armor
+    ENEMY_SHIELD_GOLD: new Color3(0.85, 0.70, 0.25),     // Gold accents
+    ENEMY_SHIELD_PLATE: new Color3(0.45, 0.43, 0.50),    // Darker shield plate
+    ENEMY_SHIELD_EYE: new Color3(0.90, 0.85, 0.50),      // Golden eyes
+
+    // Champion (friendly summon)
+    CHAMPION_BODY: new Color3(0.85, 0.70, 0.25),     // Golden armor (#D9B340)
+    CHAMPION_CAPE: new Color3(0.15, 0.30, 0.65),     // Royal blue (#264DA6)
+    CHAMPION_HELM: new Color3(0.90, 0.80, 0.35),     // Bright gold (#E6CC59)
+    CHAMPION_WEAPON: new Color3(0.75, 0.72, 0.68),   // Silver blade (#BFB8AD)
 
     // UI
     UI_PANEL: 'rgba(28, 32, 40, 0.88)',

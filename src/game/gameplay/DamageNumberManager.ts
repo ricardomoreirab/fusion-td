@@ -119,6 +119,48 @@ export class DamageNumberManager {
         }
     }
 
+    /**
+     * Show a gold reward floating text at a position
+     */
+    public showReward(position: Vector3, reward: number): void {
+        const text = `+$${reward}`;
+
+        const textureSize = 128;
+        const texture = new DynamicTexture('rewardTex', { width: textureSize, height: 64 }, this.scene, false);
+        texture.hasAlpha = true;
+
+        const ctx = texture.getContext() as any;
+        ctx.clearRect(0, 0, textureSize, 64);
+        ctx.font = 'bold 48px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.strokeStyle = 'black';
+        ctx.lineWidth = 5;
+        ctx.strokeText(text, textureSize / 2, 32);
+        ctx.fillStyle = '#FFD700';
+        ctx.fillText(text, textureSize / 2, 32);
+        texture.update();
+
+        const plane = MeshBuilder.CreatePlane('rewardNum', { width: 1.4, height: 0.6 }, this.scene);
+        plane.position = new Vector3(position.x, position.y + 1.8, position.z);
+        plane.billboardMode = Mesh.BILLBOARDMODE_ALL;
+
+        const material = new StandardMaterial('rewardMat', this.scene);
+        material.diffuseTexture = texture;
+        material.emissiveColor = new Color3(1, 1, 1);
+        material.disableLighting = true;
+        material.useAlphaFromDiffuseTexture = true;
+        material.backFaceCulling = false;
+        plane.material = material;
+
+        this.activeNumbers.push({
+            mesh: plane,
+            lifetime: 0,
+            maxLifetime: 1.0,
+            startY: plane.position.y
+        });
+    }
+
     private getColorForElement(elementType: ElementType): string {
         switch (elementType) {
             case ElementType.FIRE: return '#FF6633';

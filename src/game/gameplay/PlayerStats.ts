@@ -21,8 +21,8 @@
  *   - Perfect wave bonuses heal 5 HP per wave, giving sustain without overhealing
  *   - This keeps tension: health is a finite resource that rewards careful play
  *
- * Sell Value: 50% of total investment (set in Tower.ts)
- *   - Repositioning costs about half your investment
+ * Sell Value: 60% of total investment (set in Tower.ts)
+ *   - Repositioning costs 40% of your investment
  *   - Not so punishing that players are afraid to experiment
  *   - Not so generous that constant repositioning is optimal
  *

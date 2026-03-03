@@ -128,6 +128,9 @@ export class WaveManager {
     private difficultyMultiplier: number = 1.0;
     private autoWaveTimer: number = 0;
     private autoWaveDelay: number = 5;
+    private firstWaveDelay: number = 10;
+    private firstWaveTimer: number = 0;
+    private firstWaveStarted: boolean = false;
     private parallelWaves: ParallelWave[] = [];
     private wavesPerLevel: number = 10;
     private levelIndex: number = 0;
@@ -219,67 +222,75 @@ export class WaveManager {
             name: 'Swift Shadows',
             description: 'These ones are fast! You may need towers that can keep up.'
         });
-        // Wave 4: First Mix
+        // Wave 4: First Mix — introducing Hydras (splitting enemies)
         this.waves.push({
             enemies: [
-                { type: 'basic', count: 8, delay: 1.5 },
-                { type: 'fast', count: 5, delay: 1.2 }
+                { type: 'basic', count: 6, delay: 1.5 },
+                { type: 'fast', count: 4, delay: 1.2 },
+                { type: 'splitting', count: 2, delay: 3.0 }
             ],
-            reward: 70,
-            name: 'First Mix',
-            description: 'Different enemy types working together. Diversify your defenses.'
+            reward: 75,
+            name: 'Hydra Brood',
+            description: 'Hydras split into mini-enemies on death! AOE towers help here.'
         });
         // Wave 5: The Wall
         this.waves.push({
             enemies: [
                 { type: 'basic', count: 6, delay: 1.4 },
-                { type: 'tank', count: 2, delay: 4.0 }
+                { type: 'tank', count: 2, delay: 4.0 },
+                { type: 'splitting', count: 2, delay: 2.5 }
             ],
             reward: 100,
             name: 'The Wall',
-            description: 'Armored enemies! They are slow but very tough. Focus fire on them.'
+            description: 'Armored enemies and hydras! Focus fire on tanks, AOE the rest.'
         });
-        // Wave 6: Speed Demons
+        // Wave 6: Shaman's Call — introducing Healers
         this.waves.push({
             enemies: [
-                { type: 'fast', count: 10, delay: 0.9 },
-                { type: 'basic', count: 4, delay: 1.5 }
+                { type: 'basic', count: 8, delay: 0.9 },
+                { type: 'healer', count: 2, delay: 3.0 },
+                { type: 'fast', count: 4, delay: 1.2 }
             ],
-            reward: 80,
-            name: 'Speed Demons',
-            description: 'A swarm of fast enemies! Slow towers and area damage shine here.'
+            reward: 90,
+            name: "Shaman's Call",
+            description: 'Shamans heal nearby enemies! Target them first!'
         });
         // Wave 7: Combined Arms
         this.waves.push({
             enemies: [
-                { type: 'basic', count: 10, delay: 1.2 },
+                { type: 'basic', count: 8, delay: 1.2 },
                 { type: 'fast', count: 6, delay: 1.0 },
-                { type: 'tank', count: 3, delay: 3.0 }
+                { type: 'tank', count: 3, delay: 3.0 },
+                { type: 'healer', count: 1, delay: 4.0 },
+                { type: 'splitting', count: 2, delay: 2.5 }
             ],
-            reward: 100,
+            reward: 110,
             name: 'Combined Arms',
             description: 'All enemy types at once. A balanced defense is your best weapon.'
         });
-        // Wave 8: The Swarm
+        // Wave 8: Iron Crusade — introducing Shield enemies
         this.waves.push({
             enemies: [
-                { type: 'basic', count: 16, delay: 0.7 },
-                { type: 'fast', count: 8, delay: 0.6 }
+                { type: 'basic', count: 10, delay: 0.7 },
+                { type: 'shield', count: 3, delay: 3.0 },
+                { type: 'healer', count: 1, delay: 4.0 }
             ],
-            reward: 90,
-            name: 'The Swarm',
-            description: 'Overwhelming numbers! Area damage towers earn their keep here.'
+            reward: 100,
+            name: 'Iron Crusade',
+            description: 'Paladins have shields that regenerate! Sustained DPS breaks through.'
         });
         // Wave 9: Iron March
         this.waves.push({
             enemies: [
-                { type: 'basic', count: 8, delay: 1.0 },
-                { type: 'tank', count: 6, delay: 2.0 },
-                { type: 'fast', count: 4, delay: 1.0 }
+                { type: 'basic', count: 6, delay: 1.0 },
+                { type: 'tank', count: 4, delay: 2.0 },
+                { type: 'shield', count: 3, delay: 2.5 },
+                { type: 'splitting', count: 3, delay: 2.0 },
+                { type: 'healer', count: 2, delay: 3.0 }
             ],
-            reward: 110,
+            reward: 120,
             name: 'Iron March',
-            description: 'Heavy armor incoming. Build up your strongest towers - a boss approaches.'
+            description: 'The full army approaches. Build up your strongest towers - a boss approaches.'
         });
         // Wave 10: THE WARLORD (boss)
         this.waves.push({
@@ -658,10 +669,21 @@ export class WaveManager {
 
         // If no wave is in progress, check if we should start one
         if (!this.waveInProgress) {
+            // First wave: auto-start after firstWaveDelay seconds
+            if (this.currentWave === 0 && !this.firstWaveStarted) {
+                this.firstWaveTimer += deltaTime;
+                if (this.firstWaveTimer >= this.firstWaveDelay) {
+                    this.firstWaveStarted = true;
+                    this.startNextWave();
+                    return;
+                }
+                return;
+            }
+
             // If all enemies are defeated, increment auto-wave timer
             if (this.enemyManager.getEnemyCount() === 0 && this.currentWave > 0) {
                 this.autoWaveTimer += deltaTime;
-                
+
                 // Start next wave automatically after delay
                 if (this.autoWaveTimer >= this.autoWaveDelay) {
                     console.log(`Auto-starting next wave after ${this.autoWaveDelay} seconds`);
@@ -670,7 +692,7 @@ export class WaveManager {
                     return;
                 }
             }
-            
+
             return;
         }
         
@@ -838,6 +860,7 @@ export class WaveManager {
     public startNextWave(): boolean {
         // Reset auto-wave timer
         this.autoWaveTimer = 0;
+        this.firstWaveStarted = true;
 
         // If a wave is already in progress, return false
         if (this.waveInProgress) {
@@ -1120,6 +1143,10 @@ export class WaveManager {
      * @returns Time in seconds until next auto-wave, or 0 if no auto-wave is pending
      */
     public getAutoWaveTimeRemaining(): number {
+        // First wave countdown
+        if (this.currentWave === 0 && !this.firstWaveStarted) {
+            return Math.max(0, this.firstWaveDelay - this.firstWaveTimer);
+        }
         if (this.waveInProgress || this.enemyManager.getEnemyCount() > 0 || this.absoluteWave === 0) {
             return 0;
         }
@@ -1352,5 +1379,17 @@ export class WaveManager {
      */
     public getPerfectWaveStreak(): number {
         return this.consecutivePerfectWaves;
+    }
+
+    /**
+     * Get enemy composition of the next wave for preview display.
+     * Returns array of { type, count } entries, or null if no next wave data.
+     */
+    public getNextWaveEnemies(): { type: string, count: number }[] | null {
+        const nextIndex = this.absoluteWave; // absoluteWave is 0-indexed for the next wave
+        if (nextIndex < this.waves.length) {
+            return this.waves[nextIndex].enemies.map(e => ({ type: e.type, count: e.count }));
+        }
+        return null;
     }
 } 

@@ -27,6 +27,13 @@ export enum EnemyType {
     ELECTRIC = 'electric'
 }
 
+// Targeting mode for tower priority
+export enum TargetingMode {
+    CLOSEST = 'closest',
+    FIRST = 'first',       // Furthest along path
+    STRONGEST = 'strongest' // Highest current HP
+}
+
 // Define status effects
 export enum StatusEffect {
     NONE = 'none',
@@ -68,7 +75,11 @@ export abstract class Tower {
     protected selectionIndicator: Mesh | null = null;
     protected maxLevel: number = 3;
     protected towerId: string;
-    
+    protected targetingMode: TargetingMode = TargetingMode.CLOSEST;
+
+    // Fusion tier: 0=base, 1=hybrid, 2=ultimate
+    protected fusionTier: number = 0;
+
     // Elemental properties
     protected elementType: ElementType = ElementType.NONE;
     protected secondaryEffectChance: number = 0; // Percentage chance (0-1)
@@ -81,7 +92,7 @@ export abstract class Tower {
     // Status effect tracking
     protected appliedStatusEffects: Map<Enemy, { effect: StatusEffect, endTime: number, strength: number }> = new Map();
 
-    constructor(game: Game, position: Vector3, range: number, damage: number, fireRate: number, cost: number) {
+    constructor(game: Game, position: Vector3, range: number, damage: number, fireRate: number, cost: number, skipMeshCreation: boolean = false) {
         this.game = game;
         this.scene = game.getScene();
         this.position = position;
@@ -92,9 +103,11 @@ export abstract class Tower {
         this.upgradeCost = Math.floor(cost * 1.0);
         this.sellValue = Math.floor(cost * 0.6);
         this.towerId = `tower_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
-        
-        // Create the tower mesh
-        this.createMesh();
+
+        // Create the tower mesh (skip if subclass needs field init first)
+        if (!skipMeshCreation) {
+            this.createMesh();
+        }
         
         // Add a small delay before the tower can target and fire
         setTimeout(() => {
@@ -456,6 +469,30 @@ export abstract class Tower {
     }
 
     /**
+     * Get the current targeting mode
+     */
+    public getTargetingMode(): TargetingMode {
+        return this.targetingMode;
+    }
+
+    /**
+     * Set the targeting mode
+     */
+    public setTargetingMode(mode: TargetingMode): void {
+        this.targetingMode = mode;
+    }
+
+    /**
+     * Cycle to the next targeting mode
+     */
+    public cycleTargetingMode(): TargetingMode {
+        const modes = [TargetingMode.CLOSEST, TargetingMode.FIRST, TargetingMode.STRONGEST];
+        const currentIndex = modes.indexOf(this.targetingMode);
+        this.targetingMode = modes[(currentIndex + 1) % modes.length];
+        return this.targetingMode;
+    }
+
+    /**
      * Upgrade the tower
      * @returns True if upgrade was successful
      */
@@ -466,10 +503,10 @@ export abstract class Tower {
         // Increase level
         this.level++;
 
-        // Significantly improved stats per upgrade (level 3 = ~3× base damage, ~1.56× range/fireRate)
+        // Diminishing returns on upgrades so "upgrade vs. new tower" is a real decision
         this.range *= 1.25;
-        this.damage *= 1.75;
-        this.fireRate *= 1.25;
+        this.damage *= 1.5;
+        this.fireRate *= 1.15;
         
         // Update costs
         this.upgradeCost = Math.floor(this.upgradeCost * this.upgradeMultiplier);
@@ -650,6 +687,31 @@ export abstract class Tower {
     public getElementType(): ElementType {
         return this.elementType;
     }
+
+    /**
+     * Get the fusion tier of this tower (0=base, 1=hybrid, 2=ultimate)
+     */
+    public getFusionTier(): number {
+        return this.fusionTier;
+    }
+
+    /**
+     * Get the type name of this tower (class name)
+     */
+    public getType(): string {
+        return this.constructor.name;
+    }
+
+    /**
+     * Temporarily boost fire rate
+     */
+    public applyFireRateBoost(multiplier: number, duration: number): void {
+        const originalRate = this.fireRate;
+        this.fireRate *= multiplier;
+        setTimeout(() => {
+            this.fireRate = originalRate;
+        }, duration * 1000);
+    }
     
     /**
      * Get the grid position of this tower
@@ -744,9 +806,9 @@ export abstract class Tower {
             upgradeCost += Math.floor(this.cost * Math.pow(this.upgradeMultiplier, i - 1));
         }
         
-        // Set sell value to 50% of total cost (reduced from 60%)
+        // Set sell value to 60% of total cost (Kingdom Rush sweet spot)
         const totalCost = baseCost + upgradeCost;
-        this.sellValue = Math.floor(totalCost * 0.5);
+        this.sellValue = Math.floor(totalCost * 0.6);
     }
 
     /**

@@ -27,7 +27,7 @@ export class FireTower extends ElementalTower {
 
         this.secondaryEffectChance = 0.4;
         this.statusEffectDuration = 3;
-        this.statusEffectStrength = 0.2;
+        this.statusEffectStrength = 3.0;
 
         this.targetPriorities = [EnemyType.WIND, EnemyType.EARTH, EnemyType.PLANT];
         this.weakAgainst = [EnemyType.WATER, EnemyType.ICE];

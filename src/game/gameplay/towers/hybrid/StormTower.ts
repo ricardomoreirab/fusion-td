@@ -24,8 +24,9 @@ export class StormTower extends Tower {
         const fireRate = 1.5;
         const cost = 275;
 
-        super(game, position, range, damage, fireRate, cost);
+        super(game, position, range, damage, fireRate, cost, true);
 
+        this.fusionTier = 1;
         this.secondaryEffectChance = 0.4;
         this.statusEffectDuration = 1;
         this.statusEffectStrength = 1.0;

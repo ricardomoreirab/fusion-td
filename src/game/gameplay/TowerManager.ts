@@ -1,7 +1,7 @@
 import { Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, Color4, ParticleSystem, Texture, Scene } from '@babylonjs/core';
 import { Game } from '../Game';
 import { Map } from './Map';
-import { Tower } from './towers/Tower';
+import { Tower, TargetingMode } from './towers/Tower';
 import { BasicTower } from './towers/BasicTower';
 import { FastTower } from './towers/FastTower';
 import { HeavyTower } from './towers/HeavyTower';
@@ -21,6 +21,13 @@ import { IceTower } from './towers/hybrid/IceTower';
 import { StormTower } from './towers/hybrid/StormTower';
 import { MudTower } from './towers/hybrid/MudTower';
 import { DustTower } from './towers/hybrid/DustTower';
+// Import ultimate towers
+import { GeyserTower } from './towers/ultimate/GeyserTower';
+import { InfernoTower } from './towers/ultimate/InfernoTower';
+import { GlacierTower } from './towers/ultimate/GlacierTower';
+import { TempestTower } from './towers/ultimate/TempestTower';
+import { QuagmireTower } from './towers/ultimate/QuagmireTower';
+import { CycloneTower } from './towers/ultimate/CycloneTower';
 
 export class TowerManager {
     private game: Game;
@@ -66,8 +73,22 @@ export class TowerManager {
             if (hasEnemies) {
                 const position = tower.getPosition();
                 const range = tower.getRange();
-                const target = this.enemyManager!.getClosestEnemy(position, range);
-                
+
+                // Use targeting mode to select the right enemy
+                let target = null;
+                switch (tower.getTargetingMode()) {
+                    case TargetingMode.FIRST:
+                        target = this.enemyManager!.getFirstEnemy(position, range);
+                        break;
+                    case TargetingMode.STRONGEST:
+                        target = this.enemyManager!.getStrongestEnemy(position, range);
+                        break;
+                    case TargetingMode.CLOSEST:
+                    default:
+                        target = this.enemyManager!.getClosestEnemy(position, range);
+                        break;
+                }
+
                 // Set the target (or null if no enemy in range)
                 tower.setTarget(target);
             } else {
@@ -138,6 +159,25 @@ export class TowerManager {
             case 'dustTower':
                 tower = new DustTower(this.game, position);
                 break;
+            // Ultimate tower types
+            case 'geyserTower':
+                tower = new GeyserTower(this.game, position);
+                break;
+            case 'infernoTower':
+                tower = new InfernoTower(this.game, position);
+                break;
+            case 'glacierTower':
+                tower = new GlacierTower(this.game, position);
+                break;
+            case 'tempestTower':
+                tower = new TempestTower(this.game, position);
+                break;
+            case 'quagmireTower':
+                tower = new QuagmireTower(this.game, position);
+                break;
+            case 'cycloneTower':
+                tower = new CycloneTower(this.game, position);
+                break;
             default:
                 console.error(`Unknown tower type: ${type}`);
                 return null;
@@ -151,9 +191,14 @@ export class TowerManager {
         
         // Check for possible tower combinations
         if (tower && type.includes('Tower') && type !== 'basicTower') {
-            this.towerCombiner.checkForCombinations(tower);
+            const fused = this.towerCombiner.checkForCombinations(tower);
+            if (fused) {
+                // The placed tower was consumed by fusion — return null so
+                // callers don't re-mark the original grid cell as occupied
+                return null;
+            }
         }
-        
+
         return tower;
     }
 
@@ -251,13 +296,24 @@ export class TowerManager {
     }
 
     /**
+     * Check if a tower still exists in this manager
+     */
+    public hasTower(tower: Tower): boolean {
+        return this.towers.includes(tower);
+    }
+
+    /**
      * Upgrade a tower
      * @param tower The tower to upgrade
      * @returns True if upgrade was successful
      */
     public upgradeTower(tower: Tower | null): boolean {
         if (!tower) return false;
-        return tower.upgrade();
+        const success = tower.upgrade();
+        if (success && tower.getFusionTier() === 1 && tower.getLevel() >= tower.getMaxLevel()) {
+            this.towerCombiner.checkTier2Combinations(tower);
+        }
+        return success;
     }
 
     /**

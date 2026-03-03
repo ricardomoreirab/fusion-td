@@ -8,7 +8,7 @@ export class FastTower extends Tower {
     private levelMeshes: Mesh[] = [];
 
     constructor(game: Game, position: Vector3) {
-        super(game, position, 8, 5, 4, 75);
+        super(game, position, 8, 5, 3, 75);
     }
 
     protected createMesh(): void {

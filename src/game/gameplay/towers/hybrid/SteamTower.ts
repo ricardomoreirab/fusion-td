@@ -22,8 +22,9 @@ export class SteamTower extends Tower {
         const fireRate = 1.0;
         const cost = 200;
 
-        super(game, position, range, damage, fireRate, cost);
+        super(game, position, range, damage, fireRate, cost, true);
 
+        this.fusionTier = 1;
         this.secondaryEffectChance = 0.5;
         this.statusEffectDuration = 3;
         this.statusEffectStrength = 0.3;
