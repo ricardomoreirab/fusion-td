@@ -62,6 +62,11 @@ export class MenuState implements GameState {
         // Background animation is handled via registerBeforeRender
     }
 
+    private isMobileDevice(): boolean {
+        return ('ontouchstart' in window || navigator.maxTouchPoints > 0) &&
+               window.innerWidth < 1024;
+    }
+
     private createBackground(): void {
         const scene = this.game.getScene();
 
@@ -200,150 +205,193 @@ export class MenuState implements GameState {
     }
 
     private createUI(): void {
-        // Create fullscreen UI
+        const isMobile = this.isMobileDevice();
+
+        // Create fullscreen UI with proper scaling for mobile
         this.ui = AdvancedDynamicTexture.CreateFullscreenUI('menuUI', true, this.game.getScene());
 
-        // Title "FUSION TD" at 80px, gold color, no subtitle
+        if (isMobile) {
+            this.ui.idealWidth = 600;
+            this.ui.useSmallestIdeal = true;
+        }
+
+        // Pointer-blocking background so touches don't fall through to the 3D scene
+        const touchBlocker = new Rectangle('menuTouchBlocker');
+        touchBlocker.width = '100%';
+        touchBlocker.height = '100%';
+        touchBlocker.thickness = 0;
+        touchBlocker.background = 'transparent';
+        touchBlocker.isPointerBlocker = true;
+        this.ui.addControl(touchBlocker);
+
+        // Title "FUSION TD" - responsive sizing
         const titleText = new TextBlock('titleText');
         titleText.text = 'FUSION TD';
         titleText.color = '#F5A623';
-        titleText.fontSize = 80;
-        titleText.top = '-200px';
+        titleText.fontSize = isMobile ? 52 : 80;
+        titleText.top = isMobile ? '-130px' : '-200px';
         titleText.fontFamily = 'Arial';
         titleText.fontWeight = 'bold';
         titleText.shadowColor = 'rgba(0,0,0,0.8)';
-        titleText.shadowBlur = 10;
-        titleText.shadowOffsetX = 4;
-        titleText.shadowOffsetY = 4;
+        titleText.shadowBlur = isMobile ? 6 : 10;
+        titleText.shadowOffsetX = isMobile ? 2 : 4;
+        titleText.shadowOffsetY = isMobile ? 2 : 4;
         titleText.outlineWidth = 2;
         titleText.outlineColor = '#B8860B';
-        this.ui.addControl(titleText);
+        touchBlocker.addControl(titleText);
 
-        // START GAME button - pill shape, 280px wide, 60px tall
+        // START GAME button - responsive pill shape
+        const btnWidth = isMobile ? '240px' : '280px';
+        const btnHeight = isMobile ? '54px' : '60px';
+        const btnFontSize = isMobile ? 20 : 24;
+
         const startButton = Button.CreateSimpleButton('startButton', 'START GAME');
-        startButton.width = '280px';
-        startButton.height = '60px';
+        startButton.width = btnWidth;
+        startButton.height = btnHeight;
         startButton.color = '#FFFFFF';
         startButton.background = '#4CAF50';
         startButton.cornerRadius = 32;
         startButton.thickness = 0;
         startButton.fontFamily = 'Arial';
-        startButton.fontSize = 24;
+        startButton.fontSize = btnFontSize;
         startButton.fontWeight = 'bold';
-        startButton.top = '-20px';
+        startButton.top = isMobile ? '-15px' : '-20px';
         startButton.shadowColor = 'rgba(0, 0, 0, 0.5)';
         startButton.shadowBlur = 8;
         startButton.shadowOffsetY = 3;
-        startButton.onPointerEnterObservable.add(() => {
-            startButton.background = '#66BB6A';
-            startButton.scaleX = 1.05;
-            startButton.scaleY = 1.05;
-        });
-        startButton.onPointerOutObservable.add(() => {
-            startButton.background = '#4CAF50';
-            startButton.scaleX = 1.0;
-            startButton.scaleY = 1.0;
-        });
+        if (!isMobile) {
+            startButton.onPointerEnterObservable.add(() => {
+                startButton.background = '#66BB6A';
+                startButton.scaleX = 1.05;
+                startButton.scaleY = 1.05;
+            });
+            startButton.onPointerOutObservable.add(() => {
+                startButton.background = '#4CAF50';
+                startButton.scaleX = 1.0;
+                startButton.scaleY = 1.0;
+            });
+        }
         startButton.onPointerUpObservable.add(() => {
             this.game.getStateManager().changeState('gameplay');
         });
-        this.ui.addControl(startButton);
+        touchBlocker.addControl(startButton);
 
-        // INSTRUCTIONS button - pill shape, 280px wide, 60px tall
+        // INSTRUCTIONS button - responsive pill shape
         const instructionsButton = Button.CreateSimpleButton('instructionsButton', 'INSTRUCTIONS');
-        instructionsButton.width = '280px';
-        instructionsButton.height = '60px';
+        instructionsButton.width = btnWidth;
+        instructionsButton.height = btnHeight;
         instructionsButton.color = '#FFFFFF';
         instructionsButton.background = '#2196F3';
         instructionsButton.cornerRadius = 32;
         instructionsButton.thickness = 0;
         instructionsButton.fontFamily = 'Arial';
-        instructionsButton.fontSize = 24;
+        instructionsButton.fontSize = btnFontSize;
         instructionsButton.fontWeight = 'bold';
-        instructionsButton.top = '60px';
+        instructionsButton.top = isMobile ? '55px' : '60px';
         instructionsButton.shadowColor = 'rgba(0, 0, 0, 0.5)';
         instructionsButton.shadowBlur = 8;
         instructionsButton.shadowOffsetY = 3;
-        instructionsButton.onPointerEnterObservable.add(() => {
-            instructionsButton.background = '#42A5F5';
-            instructionsButton.scaleX = 1.05;
-            instructionsButton.scaleY = 1.05;
-        });
-        instructionsButton.onPointerOutObservable.add(() => {
-            instructionsButton.background = '#2196F3';
-            instructionsButton.scaleX = 1.0;
-            instructionsButton.scaleY = 1.0;
-        });
+        if (!isMobile) {
+            instructionsButton.onPointerEnterObservable.add(() => {
+                instructionsButton.background = '#42A5F5';
+                instructionsButton.scaleX = 1.05;
+                instructionsButton.scaleY = 1.05;
+            });
+            instructionsButton.onPointerOutObservable.add(() => {
+                instructionsButton.background = '#2196F3';
+                instructionsButton.scaleX = 1.0;
+                instructionsButton.scaleY = 1.0;
+            });
+        }
         instructionsButton.onPointerUpObservable.add(() => {
             this.showInstructions();
         });
-        this.ui.addControl(instructionsButton);
+        touchBlocker.addControl(instructionsButton);
     }
 
     private showInstructions(): void {
-        // Dark panel background
+        const isMobile = this.isMobileDevice();
+
+        // Overlay to block background interaction and dim the scene
+        const overlay = new Rectangle('instructionsOverlay');
+        overlay.width = '100%';
+        overlay.height = '100%';
+        overlay.background = 'rgba(0, 0, 0, 0.5)';
+        overlay.thickness = 0;
+        overlay.isPointerBlocker = true;
+        this.ui?.addControl(overlay);
+
+        // Dark panel background - responsive sizing
         const panel = new Rectangle();
-        panel.width = '600px';
-        panel.height = '400px';
+        panel.width = isMobile ? '92%' : '600px';
+        panel.height = isMobile ? '70%' : '400px';
         panel.cornerRadius = 12;
         panel.background = 'rgba(28, 32, 40, 0.95)';
         panel.thickness = 1;
         panel.color = '#3A3F4B';
-        this.ui?.addControl(panel);
+        overlay.addControl(panel);
 
         // Title
         const titleText = new TextBlock('instructionsTitle');
         titleText.text = 'HOW TO PLAY';
         titleText.color = '#F5A623';
-        titleText.fontSize = 28;
+        titleText.fontSize = isMobile ? 22 : 28;
         titleText.fontWeight = 'bold';
-        titleText.top = '-160px';
+        titleText.top = isMobile ? '-38%' : '-160px';
         titleText.fontFamily = 'Arial';
         panel.addControl(titleText);
 
-        // Instructions text
+        // Instructions text - responsive
         const instructionsText = new TextBlock('instructionsText');
-        instructionsText.text =
-            '1. Place towers on the map to defend against enemies\n\n' +
-            '2. Enemies follow the path from the start to your base\n\n' +
-            '3. Each enemy that reaches your base reduces your health\n\n' +
-            '4. Destroy enemies to earn money for more towers\n\n' +
-            '5. Upgrade towers to increase their power\n\n' +
-            '6. Survive as many waves as you can!';
+        instructionsText.text = isMobile
+            ? '1. Place towers to defend against enemies\n\n' +
+              '2. Enemies follow the path to your base\n\n' +
+              '3. Enemies reaching your base reduce health\n\n' +
+              '4. Destroy enemies to earn money\n\n' +
+              '5. Upgrade towers to increase power\n\n' +
+              '6. Survive as many waves as you can!'
+            : '1. Place towers on the map to defend against enemies\n\n' +
+              '2. Enemies follow the path from the start to your base\n\n' +
+              '3. Each enemy that reaches your base reduces your health\n\n' +
+              '4. Destroy enemies to earn money for more towers\n\n' +
+              '5. Upgrade towers to increase their power\n\n' +
+              '6. Survive as many waves as you can!';
         instructionsText.color = '#B0B8C8';
-        instructionsText.fontSize = 18;
+        instructionsText.fontSize = isMobile ? 14 : 18;
         instructionsText.top = '0px';
         instructionsText.fontFamily = 'Arial';
         instructionsText.textWrapping = true;
         instructionsText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        instructionsText.paddingLeft = '30px';
-        instructionsText.paddingRight = '30px';
+        instructionsText.paddingLeft = isMobile ? '16px' : '30px';
+        instructionsText.paddingRight = isMobile ? '16px' : '30px';
         panel.addControl(instructionsText);
 
         // Close button - pill shape
         const closeButton = Button.CreateSimpleButton('closeButton', 'CLOSE');
-        closeButton.width = '200px';
-        closeButton.height = '50px';
+        closeButton.width = isMobile ? '160px' : '200px';
+        closeButton.height = isMobile ? '44px' : '50px';
         closeButton.color = '#FFFFFF';
         closeButton.background = '#E53935';
         closeButton.cornerRadius = 32;
         closeButton.thickness = 0;
         closeButton.fontFamily = 'Arial';
-        closeButton.fontSize = 20;
+        closeButton.fontSize = isMobile ? 18 : 20;
         closeButton.fontWeight = 'bold';
         closeButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        closeButton.top = '-20px';
+        closeButton.top = isMobile ? '-12px' : '-20px';
         closeButton.shadowColor = 'rgba(0, 0, 0, 0.4)';
         closeButton.shadowBlur = 5;
         closeButton.shadowOffsetY = 2;
-        closeButton.onPointerEnterObservable.add(() => {
-            closeButton.background = '#EF5350';
-        });
-        closeButton.onPointerOutObservable.add(() => {
-            closeButton.background = '#E53935';
-        });
+        if (!isMobile) {
+            closeButton.onPointerEnterObservable.add(() => {
+                closeButton.background = '#EF5350';
+            });
+            closeButton.onPointerOutObservable.add(() => {
+                closeButton.background = '#E53935';
+            });
+        }
         closeButton.onPointerUpObservable.add(() => {
-            this.ui?.removeControl(panel);
+            this.ui?.removeControl(overlay);
         });
         panel.addControl(closeButton);
     }
