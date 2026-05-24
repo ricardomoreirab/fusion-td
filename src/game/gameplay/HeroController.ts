@@ -69,6 +69,11 @@ export class HeroController {
         // Top-down follow camera — replace the old isometric camera from Game.setupScene
         this.camera = new FreeCamera('heroCam', new Vector3(0, this.cameraHeight, this.cameraOffsetZ), scene);
         this.camera.setTarget(Vector3.Zero());
+        // Snapshot the look-down rotation once. We never call setTarget() again — only
+        // position is lerped per frame. Calling setTarget() each frame recomputes rotation
+        // from the lerped position, producing a tiny drift each frame that reads as the
+        // map slowly rotating.
+        this.camera.rotation = this.camera.rotation.clone();
         scene.activeCamera = this.camera;
 
         // No user camera manipulation
@@ -209,14 +214,13 @@ export class HeroController {
             }
         }
 
-        // Camera follow
+        // Camera follow — position only, rotation is locked at construction.
         const targetCamPos = new Vector3(pos.x, this.cameraHeight, pos.z + this.cameraOffsetZ);
         this.camera.position = Vector3.Lerp(
             this.camera.position,
             targetCamPos,
             Math.min(1, deltaTime * 6),
         );
-        this.camera.setTarget(new Vector3(pos.x, 0, pos.z));
 
         // Basic auto-attack
         if (this.basicAttack) this.basicAttack.update(deltaTime);
