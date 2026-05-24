@@ -1,4 +1,4 @@
-import { Vector3 } from '@babylonjs/core';
+import { Vector3, Scene } from '@babylonjs/core';
 import { Game } from '../Game';
 import { Map } from './Map';
 import { Enemy } from './enemies/Enemy';
@@ -12,6 +12,7 @@ import { ShieldEnemy } from './enemies/ShieldEnemy';
 import { MiniEnemy } from './enemies/MiniEnemy';
 import { PlayerStats } from './PlayerStats';
 import { TowerManager } from './TowerManager';
+import { makeElite } from './EliteSpawner';
 
 export class EnemyManager {
     private game: Game;
@@ -22,6 +23,11 @@ export class EnemyManager {
     private compositePath: Vector3[] | null = null;
     private splitHandler: ((e: Event) => void) | null = null;
     private healHandler: ((e: Event) => void) | null = null;
+
+    // Survivors mode fields
+    private heroProvider: { getPosition: () => Vector3 } | null = null;
+    private arenaRadius: number = 25;
+    private onEliteDeathCallback: (position: Vector3, element: string) => void = () => {};
 
     constructor(game: Game, map: Map) {
         this.game = game;
@@ -76,6 +82,84 @@ export class EnemyManager {
     }
 
     /**
+     * Configure survivors mode: enemies spawn at arena perimeter and seek the hero.
+     */
+    public configureSurvivorsMode(heroProvider: { getPosition: () => Vector3 }, arenaRadius: number): void {
+        this.heroProvider = heroProvider;
+        this.arenaRadius = arenaRadius;
+
+        // Also update the mini-enemy split handler so spawned minis seek the hero too
+        if (this.splitHandler) {
+            document.removeEventListener('enemySplit', this.splitHandler);
+        }
+        this.splitHandler = (e: Event) => {
+            const detail = (e as CustomEvent).detail;
+            const { position, path, count } = detail;
+            for (let i = 0; i < count; i++) {
+                const offset = new Vector3((Math.random() - 0.5) * 1.5, 0, (Math.random() - 0.5) * 1.5);
+                const spawnPos = position.add(offset);
+                const mini = new MiniEnemy(this.game, spawnPos, this.heroProvider ? [] : [...path]);
+                if (this.towerManager) mini.setTowerManager(this.towerManager);
+                if (this.heroProvider) {
+                    mini.seekTarget = this.heroProvider;
+                }
+                this.enemies.push(mini);
+            }
+        };
+        document.addEventListener('enemySplit', this.splitHandler);
+    }
+
+    /**
+     * Register a callback triggered when an elite enemy dies.
+     */
+    public setOnEliteDeath(fn: (position: Vector3, element: string) => void): void {
+        this.onEliteDeathCallback = fn;
+    }
+
+    /**
+     * Spawn a single enemy in survivors mode at a random point on the arena perimeter.
+     * Pass eliteElement to make it an elite.
+     */
+    public spawnSurvivorsEnemy(type: string, eliteElement?: string): Enemy | null {
+        if (!this.heroProvider) return null;
+
+        const heroPos = this.heroProvider.getPosition();
+        const theta = Math.random() * Math.PI * 2;
+        const r = this.arenaRadius + 2;
+        const spawnPos = new Vector3(
+            heroPos.x + Math.cos(theta) * r,
+            0,
+            heroPos.z + Math.sin(theta) * r,
+        );
+
+        // Create enemy at spawn position with empty path
+        let enemy: Enemy;
+        switch (type) {
+            case 'basic':    enemy = new BasicEnemy(this.game, spawnPos, []); break;
+            case 'fast':     enemy = new FastEnemy(this.game, spawnPos, []); break;
+            case 'tank':     enemy = new TankEnemy(this.game, spawnPos, []); break;
+            case 'boss':     enemy = new BossEnemy(this.game, spawnPos, []); break;
+            case 'splitting':enemy = new SplittingEnemy(this.game, spawnPos, []); break;
+            case 'healer':   enemy = new HealerEnemy(this.game, spawnPos, []); break;
+            case 'shield':   enemy = new ShieldEnemy(this.game, spawnPos, []); break;
+            default:         enemy = new BasicEnemy(this.game, spawnPos, []); break;
+        }
+
+        if (this.towerManager) enemy.setTowerManager(this.towerManager);
+
+        // Set seekTarget BEFORE first update so the seek branch runs immediately
+        enemy.seekTarget = this.heroProvider;
+
+        // Apply elite treatment if requested
+        if (eliteElement) {
+            makeElite(enemy, eliteElement, this.game.getScene());
+        }
+
+        this.enemies.push(enemy);
+        return enemy;
+    }
+
+    /**
      * Set the composite path (spanning all segments) for new enemy spawning.
      */
     public setCompositePath(path: Vector3[]): void {
@@ -117,6 +201,11 @@ export class EnemyManager {
                 if (this.playerStats) {
                     this.playerStats.addMoney(enemy.getReward());
                     this.playerStats.addKill();
+                }
+
+                // Survivors mode: fire elite-death callback so a PowerDrop can be spawned
+                if (enemy.isElite && enemy.eliteDropElement) {
+                    this.onEliteDeathCallback(enemy.getPosition().clone(), enemy.eliteDropElement);
                 }
 
                 // Remove from enemies list
