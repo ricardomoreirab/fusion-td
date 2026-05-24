@@ -150,6 +150,9 @@ export class WaveManager {
     private segmentIndex: number = 0; // Which segment we're on
     private onSegmentComplete: (() => void) | null = null;
 
+    // Survivors-mode: optional callback triggered when a wave is fully cleared
+    private onWaveClearedCallback: (() => void) | null = null;
+
     // Spawn queue type includes optional elite element (for survivors mode)
     private enemiesLeftToSpawn: { type: string, delay: number, eliteElement?: string }[] = [];
     // Speed-based difficulty system
@@ -185,6 +188,16 @@ export class WaveManager {
      */
     public setOnSegmentComplete(callback: () => void): void {
         this.onSegmentComplete = callback;
+    }
+
+    /**
+     * Survivors mode: register a callback that fires once when a wave is fully
+     * cleared (all enemies spawned + defeated).  When this callback is set the
+     * WaveManager will NOT auto-start the next wave; the caller is responsible
+     * for calling `startNextWave()` explicitly (e.g. from the shop overlay).
+     */
+    public setOnWaveCleared(callback: () => void): void {
+        this.onWaveClearedCallback = callback;
     }
 
     /**
@@ -1050,11 +1063,18 @@ export class WaveManager {
             this.consecutivePerfectWaves = 0;
         }
 
-        // Reset auto-wave timer to start counting for next auto-wave
-        this.autoWaveTimer = 0;
-
         // Notify player stats of wave completion
         this.playerStats.addWaveCompleted();
+
+        // Survivors mode: fire the cleared callback; the caller starts the next
+        // wave manually (from the shop).  In TD mode, fall through to auto-timer.
+        if (this.onWaveClearedCallback) {
+            this.onWaveClearedCallback();
+            return; // skip auto-wave timer
+        }
+
+        // Reset auto-wave timer to start counting for next auto-wave
+        this.autoWaveTimer = 0;
 
         // Debug log to confirm wave completion
         console.log(`Wave ${this.absoluteWave} (segment ${this.segmentIndex + 1}, wave ${this.segmentWave}/10) completed in ${this.lastWaveClearTime.toFixed(2)} seconds. Speed multiplier: ${this.speedMultiplier.toFixed(2)}x.`);
@@ -1184,6 +1204,7 @@ export class WaveManager {
         this.healthAtWaveStart = 0;
         this.consecutivePerfectWaves = 0;
         this.onSegmentComplete = null;
+        this.onWaveClearedCallback = null;
 
         console.log('WaveManager disposed and reset');
     }

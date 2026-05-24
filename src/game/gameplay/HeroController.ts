@@ -26,6 +26,9 @@ export class HeroController {
     private isDead: boolean = false;
     private onDeathCallback: () => void = () => {};
 
+    // Move speed multiplier (from Swiftness shop purchases)
+    private moveSpeedMultiplier: number = 1.0;
+
     constructor(
         scene: Scene,
         hero: Champion,
@@ -103,6 +106,19 @@ export class HeroController {
         this.currentHealth = Math.min(this.maxHealth, this.currentHealth + amount);
     }
 
+    /** Increase max HP (and current HP) by amount — used by the Vitality shop item. */
+    public addMaxHealth(amount: number): void {
+        this.maxHealth += amount;
+    }
+
+    /**
+     * Update the base move-speed multiplier.
+     * @param multiplier — absolute multiplier (e.g. 1.1 after one Swiftness purchase)
+     */
+    public updateMoveSpeed(multiplier: number): void {
+        this.moveSpeedMultiplier = multiplier;
+    }
+
     public update(deltaTime: number): void {
         // Compute movement input from keyboard + external joystick
         let dx = this.externalDx;
@@ -116,7 +132,11 @@ export class HeroController {
         const len = Math.hypot(dx, dz);
         if (len > 1) { dx /= len; dz /= len; }
 
-        const velocity = new Vector3(dx * this.moveSpeed, 0, dz * this.moveSpeed);
+        const velocity = new Vector3(
+            dx * this.moveSpeed * this.moveSpeedMultiplier,
+            0,
+            dz * this.moveSpeed * this.moveSpeedMultiplier,
+        );
         this.hero.setPlayerVelocity(velocity);
 
         // Clamp hero position inside arena after Champion.update applies velocity

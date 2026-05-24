@@ -49,6 +49,35 @@ export class PlayerStats {
     private perfectWaves: number = 0;
     private gameStartTime: number = 0;
 
+    // ── Survivors-mode hero stats ───────────────────────────────────────────
+    /** Extra max HP from shop Vitality purchases */
+    public bonusMaxHealth: number = 0;
+    /** Cumulative move-speed multiplier (1.0 = base) */
+    public moveSpeedMultiplier: number = 1.0;
+    /** Cumulative pickup-radius multiplier */
+    public pickupRadiusMultiplier: number = 1.0;
+    /** Multiplier applied to all power damage (Power shop item) */
+    public powerDamageMultiplier: number = 1.0;
+    /** Multiplier applied to all power cooldowns (Haste shop item; lower = faster) */
+    public powerCooldownMultiplier: number = 1.0;
+    /** Multiplier applied to incoming contact damage (Bulwark item; lower = tankier) */
+    public damageReductionMultiplier: number = 1.0;
+    /** How many times each shop item has been purchased */
+    public purchaseCounts: Record<string, number> = {};
+
+    public getPurchaseCount(itemId: string): number {
+        return this.purchaseCounts[itemId] ?? 0;
+    }
+
+    public incrementPurchase(itemId: string): void {
+        this.purchaseCounts[itemId] = (this.purchaseCounts[itemId] ?? 0) + 1;
+    }
+
+    // ── Gold API aliases (survivors mode uses "gold" terminology) ──────────
+    public getGold(): number        { return this.getMoney(); }
+    public addGold(n: number): void { this.addMoney(n); }
+    public spendGold(n: number): boolean { return this.spendMoney(n); }
+
     constructor(health: number = 120, money: number = 300) {
         this.health = health;
         this.maxHealth = health; // Max health equals starting health
