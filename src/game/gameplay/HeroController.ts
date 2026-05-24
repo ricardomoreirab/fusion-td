@@ -18,8 +18,8 @@ export class HeroController {
     private arenaRadius: number;
     private keys: { [k: string]: boolean } = {};
     private moveSpeed: number;
-    private cameraHeight: number = 28;
-    private cameraOffsetZ: number = -10;
+    private cameraHeight: number = 30;
+    private cameraOffsetZ: number = 0; // 0 = pure top-down; negative = tilt back
 
     // External joystick input
     private externalDx: number = 0;
