@@ -99,6 +99,10 @@ export class HeroController {
         return { current: this.currentHealth, max: this.maxHealth };
     }
 
+    public heal(amount: number): void {
+        this.currentHealth = Math.min(this.maxHealth, this.currentHealth + amount);
+    }
+
     public update(deltaTime: number): void {
         // Compute movement input from keyboard + external joystick
         let dx = this.externalDx;

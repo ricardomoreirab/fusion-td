@@ -13,7 +13,12 @@ interface Wave {
     reward: number; // Bonus money for completing the wave
     name: string; // Display name for the wave
     description: string; // Flavor text / strategic hint
+    /** Survivors-mode elite specs for this wave */
+    elites?: { type: string; element: 'fire' | 'ice' | 'arcane' | 'physical' | 'storm'; count: number }[];
 }
+
+// Type for the spawn function injected by survivors mode
+type SpawnFn = (type: string, eliteElement?: string) => void;
 
 // Wave metadata for UI display
 export interface WaveInfo {
@@ -27,15 +32,24 @@ export interface WaveInfo {
 // Class to manage a single parallel wave
 class ParallelWave {
     private enemyManager: EnemyManager;
-    private enemiesLeftToSpawn: { type: string, delay: number }[] = [];
+    private spawnFn: SpawnFn;
+    private enemiesLeftToSpawn: { type: string, delay: number, eliteElement?: string }[] = [];
     private timeSinceLastSpawn: number = 0;
     private completed: boolean = false;
     private waveNumber: number;
     private reward: number;
     private difficultyMultiplier: number;
 
-    constructor(enemyManager: EnemyManager, enemies: { type: string, delay: number }[], waveNumber: number, reward: number, difficultyMultiplier: number) {
+    constructor(
+        enemyManager: EnemyManager,
+        enemies: { type: string, delay: number, eliteElement?: string }[],
+        waveNumber: number,
+        reward: number,
+        difficultyMultiplier: number,
+        spawnFn: SpawnFn,
+    ) {
         this.enemyManager = enemyManager;
+        this.spawnFn = spawnFn;
         this.enemiesLeftToSpawn = [...enemies]; // Clone the array
         this.waveNumber = waveNumber;
         this.reward = reward;
@@ -68,18 +82,9 @@ class ParallelWave {
 
         // Check if it's time to spawn the next enemy
         if (this.timeSinceLastSpawn >= this.enemiesLeftToSpawn[0].delay) {
-            // Spawn the enemy
-            const enemyType = this.enemiesLeftToSpawn[0].type;
-            const enemy = this.enemyManager.createEnemy(enemyType);
-            
-            // Apply difficulty multiplier with special handling for boss type
-            if (enemyType === 'boss') {
-                const bossMultiplier = 3.0; // Reduced from 4.0 for fairer boss encounters
-                enemy.applyDifficultyMultiplier(this.difficultyMultiplier * bossMultiplier);
-                console.log(`Boss enemy created in parallel wave with ${(this.difficultyMultiplier * bossMultiplier).toFixed(2)}x difficulty`);
-            } else {
-                enemy.applyDifficultyMultiplier(this.difficultyMultiplier);
-            }
+            // Spawn the enemy via the injected spawn function
+            const { type: enemyType, eliteElement } = this.enemiesLeftToSpawn[0];
+            this.spawnFn(enemyType, eliteElement);
 
             // Remove from queue
             this.enemiesLeftToSpawn.shift();
@@ -122,7 +127,6 @@ export class WaveManager {
     private waves: Wave[] = [];
     private currentWave: number = 0;
     private waveInProgress: boolean = false;
-    private enemiesLeftToSpawn: { type: string, delay: number }[] = [];
     private timeSinceLastSpawn: number = 0;
     private totalWaves: number = 10;
     private difficultyMultiplier: number = 1.0;
@@ -135,12 +139,19 @@ export class WaveManager {
     private wavesPerLevel: number = 10;
     private levelIndex: number = 0;
 
+    // Spawn function hook — survivors mode overrides this to spawn at arena perimeter
+    private spawnFn: SpawnFn = (type: string) => { this.createEnemyWithDifficulty(type); };
+    // When true (survivors mode), the parallel-wave system is disabled and only the serial queue runs
+    private disableParallelWaves: boolean = false;
+
     // Infinite mode tracking
     private absoluteWave: number = 0; // Total waves across all segments
     private segmentWave: number = 0; // 1-10 within current segment
     private segmentIndex: number = 0; // Which segment we're on
     private onSegmentComplete: (() => void) | null = null;
 
+    // Spawn queue type includes optional elite element (for survivors mode)
+    private enemiesLeftToSpawn: { type: string, delay: number, eliteElement?: string }[] = [];
     // Speed-based difficulty system
     private waveStartTime: number = 0;
     private baseClearTime: number = 60;
@@ -177,6 +188,17 @@ export class WaveManager {
     }
 
     /**
+     * Override the spawn function used by wave manager.
+     * Survivors mode passes its own function that spawns enemies at the arena perimeter.
+     * The default function calls createEnemyWithDifficulty (original TD behaviour).
+     * Setting a custom spawnFn also disables the parallel-wave system to prevent double spawns.
+     */
+    public setSpawnFn(fn: SpawnFn): void {
+        this.spawnFn = fn;
+        this.disableParallelWaves = true;
+    }
+
+    /**
      * Get the current segment index.
      */
     public getSegmentIndex(): number {
@@ -201,26 +223,32 @@ export class WaveManager {
     // Level 1: "The Enchanted Forest" (tutorial → first boss)
     // =================================================================
     private generateLevel1Waves(): void {
-        // Wave 1: First Contact
+        // Wave 1: First Contact — 1 fire elite
         this.waves.push({
             enemies: [{ type: 'basic', count: 5, delay: 2.5 }],
             reward: 50,
             name: 'First Contact',
-            description: 'A small scouting party approaches. Place your first defenses.'
+            description: 'A small scouting party approaches. Place your first defenses.',
+            elites: [{ type: 'basic', element: 'fire', count: 1 }],
         });
-        // Wave 2: The Trickle
+        // Wave 2: The Trickle — 1 ice elite
         this.waves.push({
             enemies: [{ type: 'basic', count: 8, delay: 1.8 }],
             reward: 55,
             name: 'The Trickle',
-            description: 'They keep coming. Make sure your towers cover the path.'
+            description: 'They keep coming. Make sure your towers cover the path.',
+            elites: [{ type: 'basic', element: 'ice', count: 1 }],
         });
-        // Wave 3: Swift Shadows
+        // Wave 3: Swift Shadows — 1 arcane fast elite, 1 storm elite
         this.waves.push({
             enemies: [{ type: 'fast', count: 6, delay: 1.5 }],
             reward: 60,
             name: 'Swift Shadows',
-            description: 'These ones are fast! You may need towers that can keep up.'
+            description: 'These ones are fast! You may need towers that can keep up.',
+            elites: [
+                { type: 'fast', element: 'arcane', count: 1 },
+                { type: 'basic', element: 'storm', count: 1 },
+            ],
         });
         // Wave 4: First Mix — introducing Hydras (splitting enemies)
         this.waves.push({
@@ -233,7 +261,7 @@ export class WaveManager {
             name: 'Hydra Brood',
             description: 'Hydras split into mini-enemies on death! AOE towers help here.'
         });
-        // Wave 5: The Wall
+        // Wave 5: The Wall — 2 elites
         this.waves.push({
             enemies: [
                 { type: 'basic', count: 6, delay: 1.4 },
@@ -242,7 +270,11 @@ export class WaveManager {
             ],
             reward: 100,
             name: 'The Wall',
-            description: 'Armored enemies and hydras! Focus fire on tanks, AOE the rest.'
+            description: 'Armored enemies and hydras! Focus fire on tanks, AOE the rest.',
+            elites: [
+                { type: 'tank', element: 'physical', count: 1 },
+                { type: 'basic', element: 'fire', count: 1 },
+            ],
         });
         // Wave 6: Shaman's Call — introducing Healers
         this.waves.push({
@@ -715,16 +747,16 @@ export class WaveManager {
         
         // Check if it's time to spawn the next enemy
         if (this.timeSinceLastSpawn >= this.enemiesLeftToSpawn[0].delay) {
-            // Spawn the enemy
-            const enemyType = this.enemiesLeftToSpawn[0].type;
-            const enemy = this.createEnemyWithDifficulty(enemyType);
-            
+            // Spawn the enemy via the injectable spawn function
+            const { type: enemyType, eliteElement } = this.enemiesLeftToSpawn[0];
+            this.spawnFn(enemyType, eliteElement);
+
             // Remove from queue
             this.enemiesLeftToSpawn.shift();
-            
+
             // Reset timer
             this.timeSinceLastSpawn = 0;
-            
+
             // If we still have enemies to spawn and the next one has zero delay, spawn it immediately
             if (this.enemiesLeftToSpawn.length > 0 && this.enemiesLeftToSpawn[0].delay === 0) {
                 this.timeSinceLastSpawn = Number.MAX_VALUE; // Force immediate spawn on next update
@@ -821,7 +853,11 @@ export class WaveManager {
      * @param reward The reward for completing this wave
      * @returns The created parallel wave
      */
-    private _createParallelWave(enemies: { type: string, delay: number }[], waveNumber: number, reward: number): ParallelWave {
+    private _createParallelWave(enemies: { type: string, delay: number, eliteElement?: string }[], waveNumber: number, reward: number): ParallelWave | null {
+        // In survivors mode, skip the parallel wave system entirely (prevents double spawns)
+        if (this.disableParallelWaves) {
+            return null;
+        }
         // Update the parallel wave multiplier based on how many waves will be active
         const activeWaveCount = this.parallelWaves.length + 1; // +1 for the wave we're about to create
         if (activeWaveCount > 1) {
@@ -829,20 +865,21 @@ export class WaveManager {
         } else {
             this.parallelWaveMultiplier = 1.0;
         }
-        
+
         // Calculate the effective difficulty with all multipliers
         const effectiveDifficulty = Math.min(
             this.difficultyMultiplier * this.speedMultiplier * this.parallelWaveMultiplier,
             20.0
         );
-        
+
         // Create a new parallel wave with the effective difficulty multiplier
         const parallelWave = new ParallelWave(
             this.enemyManager,
             enemies,
             waveNumber,
             reward,
-            effectiveDifficulty // Use the combined difficulty
+            effectiveDifficulty, // Use the combined difficulty
+            this.spawnFn,
         );
         
         // Add to parallel waves array
@@ -917,14 +954,27 @@ export class WaveManager {
         
         // Set up the enemies to spawn
         this.enemiesLeftToSpawn = [];
-        
+
         // Convert the wave format to a flat list of enemies with delays
         for (const enemyGroup of wave.enemies) {
             for (let i = 0; i < enemyGroup.count; i++) {
                 this.enemiesLeftToSpawn.push({
                     type: enemyGroup.type,
-                    delay: enemyGroup.delay
+                    delay: enemyGroup.delay,
                 });
+            }
+        }
+
+        // Survivors mode: queue elite spawns from wave config (staggered halfway through)
+        if (wave.elites && wave.elites.length > 0) {
+            for (const eliteSpec of wave.elites) {
+                for (let i = 0; i < eliteSpec.count; i++) {
+                    this.enemiesLeftToSpawn.push({
+                        type: eliteSpec.type,
+                        delay: 5.0, // Elites spawn with 5s gap between them
+                        eliteElement: eliteSpec.element,
+                    });
+                }
             }
         }
         
