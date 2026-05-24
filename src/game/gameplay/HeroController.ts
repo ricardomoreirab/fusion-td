@@ -1,14 +1,14 @@
 import { Scene, Vector3, FreeCamera, KeyboardEventTypes } from '@babylonjs/core';
 import { Champion } from './Champion';
-import { HeroBasicAttack, BasicAttackTarget, BasicAttackMode } from './HeroBasicAttack';
+import { HeroBasicAttack, BasicAttackTarget, BasicAttackMode, ProjectileShape } from './HeroBasicAttack';
 import { PowerSlotManager } from './PowerSlotManager';
 import { Enemy } from './enemies/Enemy';
 
 /** Per-class basic-attack configuration */
-const CLASS_ATTACK_CONFIG: Record<string, { mode: BasicAttackMode; fireRate: number; damage: number; range: number }> = {
-    barbarian: { mode: 'melee',      fireRate: 1.0, damage: 18, range: 3.5 },
-    ranger:    { mode: 'projectile', fireRate: 1.8, damage: 8,  range: 9   },
-    mage:      { mode: 'projectile', fireRate: 1.0, damage: 10, range: 8   },
+const CLASS_ATTACK_CONFIG: Record<string, { mode: BasicAttackMode; fireRate: number; damage: number; range: number; shape: ProjectileShape }> = {
+    barbarian: { mode: 'melee',      fireRate: 1.0, damage: 18, range: 3.5, shape: 'sphere'   },
+    ranger:    { mode: 'projectile', fireRate: 1.8, damage: 8,  range: 9,   shape: 'arrow'    },
+    mage:      { mode: 'projectile', fireRate: 1.0, damage: 10, range: 8,   shape: 'mageBolt' },
 };
 
 export class HeroController {
@@ -88,12 +88,13 @@ export class HeroController {
         // Build basic attack based on champion class
         const cfg = CLASS_ATTACK_CONFIG[championType] ?? CLASS_ATTACK_CONFIG['barbarian'];
         this.basicAttack = new HeroBasicAttack(scene, hero, {
-            mode:           cfg.mode,
-            fireRate:       cfg.fireRate,
-            damage:         cfg.damage,
-            range:          cfg.range,
-            targetProvider: () => this.targetProvider(),
-            enemyProvider:  () => this.enemyProvider?.() ?? [],
+            mode:             cfg.mode,
+            fireRate:         cfg.fireRate,
+            damage:           cfg.damage,
+            range:            cfg.range,
+            projectileShape:  cfg.shape,
+            targetProvider:   () => this.targetProvider(),
+            enemyProvider:    () => this.enemyProvider?.() ?? [],
         });
     }
 
