@@ -35,15 +35,22 @@ export function buildBarbarianMesh(scene: Scene, position: Vector3): BarbarianMe
     const darkLeather = new Color3(0.18, 0.10, 0.04);
 
     // --- Body: wide muscular bare-chested torso ---
-    const rootMesh = MeshBuilder.CreateBox('barbBody', {
-        width: 1.45,
-        height: 1.70,
-        depth: 0.90
-    }, scene);
-    makeFlatShaded(rootMesh);
+    // rootMesh is an invisible parent so we can z-scale the visible torso (`barbBodyVis`)
+    // into an oval cross-section without squishing every other child of the body.
+    const rootMesh = new Mesh('barbBody', scene);
     rootMesh.position = position.clone();
     rootMesh.position.y += 2.0;
-    rootMesh.material = createLowPolyMaterial('barbBodyMat', skinTone, scene);
+
+    const torsoVisible = MeshBuilder.CreateCylinder('barbBodyVis', {
+        height: 1.70,
+        diameterTop: 1.30,     // wider at chest
+        diameterBottom: 1.05,  // narrower at waist (slight V-taper)
+        tessellation: 8,
+    }, scene);
+    makeFlatShaded(torsoVisible);
+    torsoVisible.parent = rootMesh;
+    torsoVisible.scaling = new Vector3(1.0, 1.0, 0.72); // compress front-to-back depth
+    torsoVisible.material = createLowPolyMaterial('barbBodyMat', skinTone, scene);
 
     // Chest-pulse parent: groups pecs + chest war-paint stripe so the breath
     // pulse animation can scale them together. Empty Mesh — no geometry.
@@ -505,10 +512,10 @@ export function buildBarbarianMesh(scene: Scene, position: Vector3): BarbarianMe
     }
 
     // --- Right arm (axe arm) — thick upper arm + bracer on forearm ---
-    const swordArm = MeshBuilder.CreateBox('barbAxeArm', {
-        width: 0.38,
+    const swordArm = MeshBuilder.CreateCylinder('barbAxeArm', {
         height: 1.25,
-        depth: 0.38
+        diameter: 0.38,
+        tessellation: 6,
     }, scene);
     makeFlatShaded(swordArm);
     swordArm.parent = rootMesh;
@@ -516,21 +523,21 @@ export function buildBarbarianMesh(scene: Scene, position: Vector3): BarbarianMe
     swordArm.material = createLowPolyMaterial('barbAxeArmMat', skinTone, scene);
 
     // Bracer on axe-arm forearm (dark leather)
-    const axeBracer = MeshBuilder.CreateBox('barbAxeBracer', {
-        width: 0.42,
+    const axeBracer = MeshBuilder.CreateCylinder('barbAxeBracer', {
         height: 0.26,
-        depth: 0.42
+        diameter: 0.42,
+        tessellation: 6,
     }, scene);
     makeFlatShaded(axeBracer);
     axeBracer.parent = swordArm;
     axeBracer.position = new Vector3(0, -0.38, 0);
     axeBracer.material = createLowPolyMaterial('barbAxeBracerMat', leather, scene);
 
-    // Axe-hand wrap — small bandage box at the gripping hand
-    const axeHandWrap = MeshBuilder.CreateBox('barbAxeHandWrap', {
-        width: 0.34,
+    // Axe-hand wrap — small bandage at the gripping hand
+    const axeHandWrap = MeshBuilder.CreateCylinder('barbAxeHandWrap', {
         height: 0.18,
-        depth: 0.34,
+        diameter: 0.34,
+        tessellation: 6,
     }, scene);
     makeFlatShaded(axeHandWrap);
     axeHandWrap.parent = swordArm;
@@ -621,10 +628,10 @@ export function buildBarbarianMesh(scene: Scene, position: Vector3): BarbarianMe
     pommel.material = createLowPolyMaterial('barbAxePommelMat', steelGrey, scene);
 
     // --- Left arm (off-hand / clenched fist) ---
-    const shieldArm = MeshBuilder.CreateBox('barbOffArm', {
-        width: 0.38,
+    const shieldArm = MeshBuilder.CreateCylinder('barbOffArm', {
         height: 1.20,
-        depth: 0.38
+        diameter: 0.38,
+        tessellation: 6,
     }, scene);
     makeFlatShaded(shieldArm);
     shieldArm.parent = rootMesh;
@@ -632,10 +639,10 @@ export function buildBarbarianMesh(scene: Scene, position: Vector3): BarbarianMe
     shieldArm.material = createLowPolyMaterial('barbOffArmMat', skinTone, scene);
 
     // Bracer on off-arm
-    const offBracer = MeshBuilder.CreateBox('barbOffBracer', {
-        width: 0.42,
+    const offBracer = MeshBuilder.CreateCylinder('barbOffBracer', {
         height: 0.26,
-        depth: 0.42
+        diameter: 0.42,
+        tessellation: 6,
     }, scene);
     makeFlatShaded(offBracer);
     offBracer.parent = shieldArm;
@@ -657,10 +664,10 @@ export function buildBarbarianMesh(scene: Scene, position: Vector3): BarbarianMe
     }
 
     // Bloody hand wrap on the off-arm fist
-    const offFistWrap = MeshBuilder.CreateBox('barbOffFistWrap', {
-        width: 0.38,
+    const offFistWrap = MeshBuilder.CreateCylinder('barbOffFistWrap', {
         height: 0.32,
-        depth: 0.38,
+        diameter: 0.38,
+        tessellation: 6,
     }, scene);
     makeFlatShaded(offFistWrap);
     offFistWrap.parent = shieldArm;
@@ -681,20 +688,20 @@ export function buildBarbarianMesh(scene: Scene, position: Vector3): BarbarianMe
         bloodRed, 0.5, scene);
 
     // --- Bare legs (skin tone, knee cap detail) ---
-    const leftLeg = MeshBuilder.CreateBox('barbLeftLeg', {
-        width: 0.40,
+    const leftLeg = MeshBuilder.CreateCylinder('barbLeftLeg', {
         height: 1.05,
-        depth: 0.40
+        diameter: 0.40,
+        tessellation: 6,
     }, scene);
     makeFlatShaded(leftLeg);
     leftLeg.parent = rootMesh;
     leftLeg.position = new Vector3(-0.30, -1.22, 0);
     leftLeg.material = createLowPolyMaterial('barbLeftLegMat', skinTone, scene);
 
-    const rightLeg = MeshBuilder.CreateBox('barbRightLeg', {
-        width: 0.40,
+    const rightLeg = MeshBuilder.CreateCylinder('barbRightLeg', {
         height: 1.05,
-        depth: 0.40
+        diameter: 0.40,
+        tessellation: 6,
     }, scene);
     makeFlatShaded(rightLeg);
     rightLeg.parent = rootMesh;
@@ -714,21 +721,22 @@ export function buildBarbarianMesh(scene: Scene, position: Vector3): BarbarianMe
         kneeCap.material = createLowPolyMaterial(`barbKneeMat_${leg.name}`, skinDark, scene);
     }
 
-    // Rough leather boots (taller than standard, dark leather)
-    const leftBoot = MeshBuilder.CreateBox('barbBootL', {
-        width: 0.44,
+    // Rough leather boots (low-tess oval columns stretched forward for foot shape)
+    const leftBoot = MeshBuilder.CreateCylinder('barbBootL', {
         height: 0.30,
-        depth: 0.52
+        diameter: 0.44,
+        tessellation: 6,
     }, scene);
     makeFlatShaded(leftBoot);
     leftBoot.parent = leftLeg;
     leftBoot.position = new Vector3(0, -0.55, 0.06);
+    leftBoot.scaling = new Vector3(1.0, 1.0, 0.52 / 0.44); // stretch forward for foot
     leftBoot.material = createLowPolyMaterial('barbBootLMat', leather, scene);
 
-    const rightBoot = MeshBuilder.CreateBox('barbBootR', {
-        width: 0.44,
+    const rightBoot = MeshBuilder.CreateCylinder('barbBootR', {
         height: 0.30,
-        depth: 0.52
+        diameter: 0.44,
+        tessellation: 6,
     }, scene);
     makeFlatShaded(rightBoot);
     rightBoot.parent = rightLeg;
