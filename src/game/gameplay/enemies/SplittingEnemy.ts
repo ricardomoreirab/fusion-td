@@ -458,7 +458,7 @@ export class SplittingEnemy extends Enemy {
     }
 
     /**
-     * Create a death effect - dispatch split event AND particle burst
+     * Create a death effect - dispatch split event AND particle burst + expanding ring
      */
     protected createDeathEffect(): void {
         // Dispatch the split event so EnemyManager can spawn mini enemies
@@ -472,10 +472,51 @@ export class SplittingEnemy extends Enemy {
         });
         document.dispatchEvent(splitEvent);
 
+        // Expanding split burst ring at death position
+        this.spawnSplitBurstRing();
+
         // Call parent for the standard particle burst + gold text
         super.createDeathEffect();
 
         // Play sound effect
         this.game.getAssetManager().playSound('enemyDeath');
+    }
+
+    /**
+     * Expanding ring visual at split death — green/yellow disc that grows 0.5 → 4.0 over 0.6 s
+     */
+    private spawnSplitBurstRing(): void {
+        const ring = MeshBuilder.CreateDisc('splitBurstRing', { radius: 0.5, tessellation: 24 }, this.scene);
+        ring.rotation.x = Math.PI / 2;
+        ring.position = this.position.clone();
+        ring.position.y += 0.05;
+
+        const ringMat = new StandardMaterial('splitBurstRingMat_' + Math.random(), this.scene);
+        ringMat.emissiveColor = PALETTE.ENEMY_SPLITTING_EYE; // Orange-yellow burst
+        ringMat.alpha = 0.75;
+        ringMat.disableLighting = true;
+        ring.material = ringMat;
+
+        const startTime = performance.now();
+        const duration = 600; // ms
+        const startRadius = 0.5;
+        const endRadius = 4.0;
+
+        const observer = this.scene.onBeforeRenderObservable.add(() => {
+            if (ring.isDisposed()) {
+                this.scene.onBeforeRenderObservable.remove(observer);
+                return;
+            }
+            const elapsed = performance.now() - startTime;
+            const t = Math.min(elapsed / duration, 1.0);
+            const scale = (startRadius + (endRadius - startRadius) * t) / startRadius;
+            ring.scaling.set(scale, scale, scale);
+            ringMat.alpha = 0.75 * (1 - t);
+
+            if (t >= 1.0) {
+                this.scene.onBeforeRenderObservable.remove(observer);
+                ring.dispose();
+            }
+        });
     }
 }

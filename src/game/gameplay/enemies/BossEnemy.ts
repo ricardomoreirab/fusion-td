@@ -14,6 +14,9 @@ export class BossEnemy extends Enemy {
     private leftLeg: Mesh | null = null;
     private rightLeg: Mesh | null = null;
 
+    // Boss special visuals
+    private orbitingWisps: Mesh[] = [];
+
     constructor(game: Game, position: Vector3, path: Vector3[]) {
         // Boss enemy has very low speed, extremely high health, high damage, and very high reward
         super(game, position, path, 0.7, 500, 50, 150);
@@ -315,6 +318,33 @@ export class BossEnemy extends Enemy {
             wisp.material = createEmissiveMaterial(`bossWispMat${w}`, PALETTE.ENEMY_BOSS_CRYSTAL, 0.5, this.scene);
         }
 
+        // --- Ground glow: large red/purple disc at the boss's feet ──────────
+        const groundGlow = MeshBuilder.CreateDisc('bossGroundGlow', { radius: 2.0, tessellation: 20 }, this.scene);
+        groundGlow.parent = this.mesh;
+        groundGlow.rotation.x = Math.PI / 2;
+        groundGlow.position = new Vector3(0, -1.22, 0); // near feet
+        const groundGlowMat = new StandardMaterial('bossGroundGlowMat', this.scene);
+        groundGlowMat.emissiveColor = new Color3(0.55, 0.05, 0.40); // deep magenta
+        groundGlowMat.alpha = 0.45;
+        groundGlowMat.disableLighting = true;
+        groundGlow.material = groundGlowMat;
+
+        // --- Orbiting wisps: 3 small spheres slowly circling the boss ────────
+        this.orbitingWisps = [];
+        const wispOrbitRadius = 1.1;
+        for (let o = 0; o < 3; o++) {
+            const orb = MeshBuilder.CreateSphere(`bossOrbit${o}`, { diameter: 0.20, segments: 4 }, this.scene);
+            makeFlatShaded(orb);
+            // Not parented to mesh — positioned in animateParts via world coords
+            const orbMat = new StandardMaterial(`bossOrbitMat${o}`, this.scene);
+            orbMat.emissiveColor = PALETTE.ENEMY_BOSS_CRYSTAL;
+            orbMat.diffuseColor = PALETTE.ENEMY_BOSS_CRYSTAL;
+            orbMat.specularColor = Color3.Black();
+            orbMat.alpha = 0.85;
+            orb.material = orbMat;
+            this.orbitingWisps.push(orb);
+        }
+
         // Store original scale
         this.originalScale = 1.0;
     }
@@ -402,13 +432,47 @@ export class BossEnemy extends Enemy {
                 this.mesh.rotation.y = -angle + Math.PI / 2;
             }
         }
+
+        // --- Orbiting wisps: slowly rotate around the boss at varying heights ---
+        const orbitR = 1.2;
+        for (let o = 0; o < this.orbitingWisps.length; o++) {
+            const orb = this.orbitingWisps[o];
+            if (orb.isDisposed()) continue;
+            const baseAngle = (o / this.orbitingWisps.length) * Math.PI * 2;
+            const angle = baseAngle + t * 0.8; // slow orbit speed
+            const heightOffset = 0.5 + Math.sin(t * 0.9 + baseAngle) * 0.8;
+            orb.position.set(
+                this.position.x + Math.cos(angle) * orbitR,
+                this.position.y + 1.2 + heightOffset,
+                this.position.z + Math.sin(angle) * orbitR
+            );
+            // Pulse scale
+            const pulse = 0.9 + Math.sin(t * 2.5 + o * 2.1) * 0.25;
+            orb.scaling.setAll(pulse);
+        }
     }
 
     /**
-     * Clean up resources
+     * Override die() to also clean up orbiting wisps (not parented to mesh)
+     */
+    protected die(): void {
+        this.disposeOrbitingWisps();
+        super.die();
+    }
+
+    /**
+     * Clean up resources including orbiting wisps (not parented to mesh)
      */
     public dispose(): void {
+        this.disposeOrbitingWisps();
         super.dispose();
+    }
+
+    private disposeOrbitingWisps(): void {
+        for (const orb of this.orbitingWisps) {
+            if (!orb.isDisposed()) orb.dispose();
+        }
+        this.orbitingWisps = [];
     }
 
     /**
