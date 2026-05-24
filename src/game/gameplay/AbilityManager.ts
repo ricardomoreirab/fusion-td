@@ -974,6 +974,72 @@ export class AbilityManager {
     }
 
     // ========================================================================
+    // Shader pre-warm — call once at run start (during loading) so every
+    // ParticleSystem shader variant is compiled before the first ability fires.
+    // ========================================================================
+
+    public prewarmAbilityEffects(): void {
+        const scene = this.game.getScene();
+        const farAway = new Vector3(1000, -100, 1000);
+        const warmups: ParticleSystem[] = [];
+
+        // === BLENDMODE_ONEONE variant — covers meteor, frost, expBurst, lightning ===
+        // All four PS share this blend mode; one prewarm pass compiles the shader.
+        {
+            const ps = new ParticleSystem('prewarmOneOne', 60, scene);
+            ps.emitter = farAway;
+            ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
+            ps.color1 = new Color4(1, 0.5, 0, 1);
+            ps.color2 = new Color4(1, 0.2, 0, 1);
+            ps.colorDead = new Color4(0.3, 0, 0, 0);
+            ps.minSize = 0.1;
+            ps.maxSize = 0.5;
+            ps.minLifeTime = 0.1;
+            ps.maxLifeTime = 0.5;
+            ps.emitRate = 100;
+            ps.direction1 = new Vector3(-2, 2, -2);
+            ps.direction2 = new Vector3(2, 4, 2);
+            ps.minEmitPower = 1;
+            ps.maxEmitPower = 3;
+            ps.gravity = new Vector3(0, -8, 0);
+            ps.manualEmitCount = 60;
+            ps.start();
+            warmups.push(ps);
+        }
+
+        // === BLENDMODE_STANDARD variant — covers goldRainPS (default blend mode) ===
+        {
+            const ps = new ParticleSystem('prewarmStandard', 15, scene);
+            ps.emitter = farAway;
+            // blendMode intentionally left at default (BLENDMODE_STANDARD)
+            ps.color1 = new Color4(1, 0.85, 0.1, 1);
+            ps.color2 = new Color4(1, 0.7, 0, 1);
+            ps.colorDead = new Color4(0.6, 0.5, 0, 0);
+            ps.minSize = 0.15;
+            ps.maxSize = 0.3;
+            ps.minLifeTime = 0.5;
+            ps.maxLifeTime = 1.0;
+            ps.emitRate = 30;
+            ps.direction1 = new Vector3(-0.3, -2, -0.3);
+            ps.direction2 = new Vector3(0.3, -1, 0.3);
+            ps.minEmitPower = 1;
+            ps.maxEmitPower = 2;
+            ps.gravity = new Vector3(0, -5, 0);
+            ps.manualEmitCount = 15;
+            ps.start();
+            warmups.push(ps);
+        }
+
+        // Force a render so shaders compile now, before any ability is triggered.
+        scene.render();
+
+        for (const ps of warmups) {
+            ps.stop();
+            ps.dispose();
+        }
+    }
+
+    // ========================================================================
     // Convenience helpers (kept for backwards compat with existing callers)
     // ========================================================================
 

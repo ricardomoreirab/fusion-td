@@ -249,6 +249,7 @@ export class SurvivorsGameplayState implements GameState {
         this.abilityManager.configureForClass(this.currentChampionType);
         this.abilityManager.setHeroProvider(() => this.hero!.getPosition());
         this.abilityManager.setHero(this.hero);
+        this.abilityManager.prewarmAbilityEffects();
 
         // ---------- UI ----------
 
