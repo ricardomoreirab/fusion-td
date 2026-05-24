@@ -62,6 +62,8 @@ export class PlayerStats {
     public powerCooldownMultiplier: number = 1.0;
     /** Multiplier applied to incoming contact damage (Bulwark item; lower = tankier) */
     public damageReductionMultiplier: number = 1.0;
+    /** Multiplier applied to basic attack speed (Quickness item; higher = faster) */
+    public basicAttackSpeedMultiplier: number = 1.0;
     /** How many times each shop item has been purchased */
     public purchaseCounts: Record<string, number> = {};
 
