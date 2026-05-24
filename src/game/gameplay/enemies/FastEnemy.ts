@@ -19,6 +19,7 @@ export class FastEnemy extends Enemy {
 
         // Set as a flying enemy
         this.isFlying = true;
+        this.contactDamagePerSecond = 5;
     }
 
     /**

@@ -15,6 +15,7 @@ export class BasicEnemy extends Enemy {
     constructor(game: Game, position: Vector3, path: Vector3[]) {
         // Basic enemy has medium speed, medium health, medium damage, and low reward
         super(game, position, path, 3, 30, 10, 10);
+        this.contactDamagePerSecond = 8;
     }
 
     /**

@@ -14,6 +14,7 @@ export class MiniEnemy extends Enemy {
     constructor(game: Game, position: Vector3, path: Vector3[]) {
         // Mini enemy: fast, low HP, low damage, small reward
         super(game, position, path, 5, 10, 3, 5);
+        this.contactDamagePerSecond = 3;
     }
 
     protected createMesh(): void {

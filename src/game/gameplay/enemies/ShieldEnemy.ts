@@ -25,6 +25,7 @@ export class ShieldEnemy extends Enemy {
 
         // Set as a heavy enemy type (armored paladin)
         this.isHeavy = true;
+        this.contactDamagePerSecond = 12;
     }
 
     /**

@@ -18,6 +18,7 @@ export class TankEnemy extends Enemy {
 
         // Set as a heavy enemy type
         this.isHeavy = true;
+        this.contactDamagePerSecond = 20;
     }
 
     /**

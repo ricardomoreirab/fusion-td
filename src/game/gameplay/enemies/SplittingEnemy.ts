@@ -16,6 +16,7 @@ export class SplittingEnemy extends Enemy {
     constructor(game: Game, position: Vector3, path: Vector3[]) {
         // Splitting enemy: moderate speed, medium HP, medium damage, decent reward
         super(game, position, path, 2.5, 40, 8, 20);
+        this.contactDamagePerSecond = 10;
     }
 
     /**

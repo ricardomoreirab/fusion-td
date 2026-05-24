@@ -31,6 +31,7 @@ export class BossEnemy extends Enemy {
 
         // Add innate damage resistance for bosses (15%, reduced from 20%)
         this.damageResistance = 0.15;
+        this.contactDamagePerSecond = 30;
     }
 
     /**

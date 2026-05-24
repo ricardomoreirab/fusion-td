@@ -17,6 +17,7 @@ export class HealerEnemy extends Enemy {
     constructor(game: Game, position: Vector3, path: Vector3[]) {
         // Healer enemy: moderate speed, low HP, low damage, decent reward
         super(game, position, path, 3.5, 25, 5, 30);
+        this.contactDamagePerSecond = 4;
     }
 
     /**
