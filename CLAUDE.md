@@ -24,7 +24,8 @@ npm start          # dev server at localhost:9000
 - `src/game/states/GameOverState.ts` — death screen; survivors path passes `SurvivorsRunSummary` via `setSurvivorsSummary()`.
 
 ### Hero systems
-- `src/game/gameplay/Champion.ts` — hero mesh (751 lines). `controlMode: 'ai' | 'player'`. `setPlayerVelocity()`, `getPosition()`.
+- `src/game/gameplay/Champion.ts` — hero mesh + animation + spin/attack FX. `controlMode: 'ai' | 'player'`. `setPlayerVelocity()`, `getPosition()`.
+- `src/game/gameplay/champions/BarbarianBuilder.ts` — barbarian mesh construction (extracted from Champion.ts during the berserker refinement). Returns `BarbarianMeshParts`.
 - `src/game/gameplay/HeroController.ts` — WASD + joystick input, top-down follow camera, basic auto-attack, HP tracking, death callback.
 - `src/game/gameplay/HeroBasicAttack.ts` — projectile spawning for the hero's basic attack.
 
