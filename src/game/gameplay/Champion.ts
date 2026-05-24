@@ -61,7 +61,31 @@ export class Champion extends Enemy {
         const startPos = reversedPath.length > 0 ? reversedPath[0] : new Vector3(0, 0, 0);
         super(game, startPos, reversedPath, 1.5, 800, 0, 0);
         this.enemyManager = enemyManager;
+        // super() already called createMesh() before championType could be set,
+        // so it always built the default knight. If we need a different class,
+        // dispose the placeholder mesh and rebuild correctly.
         this.championType = championType;
+        if (championType !== 'knight') {
+            this.rebuildForType();
+        }
+    }
+
+    private rebuildForType(): void {
+        // Dispose limb references the knight builder set, so per-class
+        // animation doesn't try to drive disposed meshes.
+        this.swordArm = null;
+        this.shieldArm = null;
+        this.head = null;
+        this.leftLeg = null;
+        this.rightLeg = null;
+        this.cape = null;
+        // Dispose the knight body and all parented sub-meshes.
+        if (this.mesh) {
+            this.mesh.dispose(false, true);
+            this.mesh = null;
+        }
+        // Build the correct class mesh.
+        this.createMesh();
     }
 
     /**
