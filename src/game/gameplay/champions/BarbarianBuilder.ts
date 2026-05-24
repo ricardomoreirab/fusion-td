@@ -158,7 +158,123 @@ export function buildBarbarianMesh(scene: Scene, position: Vector3): BarbarianMe
         scarMark.position = new Vector3(0, -0.10, 0.20);
         scarMark.rotation.z = 0.3;
         scarMark.material = createEmissiveMaterial(`barbShoulderScarMat${side}`, warPaint, 0.25, scene);
+
+        // Two diagonal blood-red scars on the TOP of the shoulder (top-down readable)
+        for (let s = 0; s < 2; s++) {
+            const topScar = MeshBuilder.CreateBox(`barbShoulderTopScar${side}_${s}`, {
+                width: 0.22,
+                height: 0.025,
+                depth: 0.04,
+            }, scene);
+            makeFlatShaded(topScar);
+            topScar.parent = shoulder;
+            topScar.position = new Vector3(0.02 + s * 0.08, 0.24, -0.02 + s * 0.06);
+            topScar.rotation.y = 0.5 + s * 0.3;
+            topScar.material = createEmissiveMaterial(`barbShoulderTopScarMat${side}_${s}`,
+                bloodRed, 0.5, scene);
+        }
+
+        // Back-of-shoulder war-paint stripe — diagonal, fans outward when viewed from above
+        const backPaint = MeshBuilder.CreateBox(`barbBackPaint${side}`, {
+            width: 0.06,
+            height: 0.30,
+            depth: 0.45,
+        }, scene);
+        makeFlatShaded(backPaint);
+        backPaint.parent = shoulder;
+        backPaint.position = new Vector3(-0.02, -0.05, -0.22);
+        backPaint.rotation.x = 0.4 * side;
+        backPaint.rotation.z = 0.3 * side;
+        backPaint.material = createEmissiveMaterial(`barbBackPaintMat${side}`,
+            bloodRed, 0.6, scene);
+
+        // Torn pelt scrap over the shoulder
+        const pelt = MeshBuilder.CreateBox(`barbShoulderPelt${side}`, {
+            width: 0.45,
+            height: 0.30,
+            depth: 0.50,
+        }, scene);
+        makeFlatShaded(pelt);
+        pelt.parent = shoulder;
+        pelt.position = new Vector3(side * 0.05, 0.15, 0);
+        pelt.scaling = new Vector3(1.0, 1.0, 1.0);
+        pelt.material = createLowPolyMaterial(`barbShoulderPeltMat${side}`, fur, scene);
+
+        // 2 notch boxes carved into the bottom edge of the pelt (visual tears)
+        for (let n = 0; n < 2; n++) {
+            const notch = MeshBuilder.CreateBox(`barbPeltNotch${side}_${n}`, {
+                width: 0.10,
+                height: 0.12,
+                depth: 0.08,
+            }, scene);
+            makeFlatShaded(notch);
+            notch.parent = pelt;
+            notch.position = new Vector3((n - 0.5) * 0.20, -0.18, 0.20 - n * 0.10);
+            notch.material = createLowPolyMaterial(`barbPeltNotchMat${side}_${n}`, furLight, scene);
+        }
+
+        // 3 bone spikes poking through the pelt
+        for (let b = 0; b < 3; b++) {
+            const spike = MeshBuilder.CreateCylinder(`barbPeltSpike${side}_${b}`, {
+                height: 0.22,
+                diameterTop: 0.01,
+                diameterBottom: 0.05,
+                tessellation: 4,
+            }, scene);
+            makeFlatShaded(spike);
+            spike.parent = pelt;
+            spike.position = new Vector3((b - 1) * 0.14, 0.13, 0.05);
+            spike.rotation.z = (b - 1) * 0.25;
+            spike.rotation.x = -0.2;
+            spike.material = createLowPolyMaterial(`barbPeltSpikeMat${side}_${b}`, boneWhite, scene);
+        }
     }
+
+    // Bone necklace — ring of 8 small bone polyhedra around the neck base.
+    // Parented to head so it follows head rotation slightly; positioned low on the head.
+    const neckBoneCount = 8;
+    for (let i = 0; i < neckBoneCount; i++) {
+        const angle = (i / neckBoneCount) * Math.PI * 2;
+        const necklaceBone = MeshBuilder.CreatePolyhedron(`barbNeckBone${i}`, {
+            type: 1,
+            size: 0.045,
+        }, scene);
+        makeFlatShaded(necklaceBone);
+        necklaceBone.parent = rootMesh;
+        necklaceBone.position = new Vector3(
+            Math.cos(angle) * 0.36,
+            0.95,
+            Math.sin(angle) * 0.32,
+        );
+        necklaceBone.rotation.y = angle;
+        necklaceBone.scaling = new Vector3(1.0, 1.4, 1.0);
+        necklaceBone.material = createLowPolyMaterial(`barbNeckBoneMat${i}`, boneWhite, scene);
+    }
+
+    // Jagged battered armor plate — only on the right shoulder (asymmetric).
+    const armorPlate = MeshBuilder.CreateBox('barbArmorPlate', {
+        width: 0.42,
+        height: 0.36,
+        depth: 0.10,
+    }, scene);
+    makeFlatShaded(armorPlate);
+    armorPlate.parent = rootMesh;
+    armorPlate.position = new Vector3(0.88, 0.70, 0.18);
+    armorPlate.rotation.z = -0.35;
+    armorPlate.rotation.y = 0.20;
+    // Slightly darker than the steelGrey to read as battered/weathered.
+    const armorDark = new Color3(0.50, 0.50, 0.55);
+    armorPlate.material = createLowPolyMaterial('barbArmorPlateMat', armorDark, scene);
+
+    // Chipped corner — small darker polyhedron cut out the bottom-front
+    const armorChip = MeshBuilder.CreatePolyhedron('barbArmorChip', {
+        type: 1,
+        size: 0.06,
+    }, scene);
+    makeFlatShaded(armorChip);
+    armorChip.parent = armorPlate;
+    armorChip.position = new Vector3(0.18, -0.14, 0.04);
+    armorChip.material = createLowPolyMaterial('barbArmorChipMat', new Color3(0.35, 0.35, 0.38), scene);
 
     // --- Head: horned fur-trimmed skull cap + face ---
     // Skull cap base (flat-shaded sphere)
