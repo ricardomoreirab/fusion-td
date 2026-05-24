@@ -1,0 +1,153 @@
+import { Scene, Vector3, FreeCamera, KeyboardEventTypes } from '@babylonjs/core';
+import { Champion } from './Champion';
+import { HeroBasicAttack, BasicAttackTarget } from './HeroBasicAttack';
+
+export class HeroController {
+    private scene: Scene;
+    private hero: Champion;
+    private camera: FreeCamera;
+    private arenaRadius: number;
+    private keys: { [k: string]: boolean } = {};
+    private moveSpeed: number;
+    private cameraHeight: number = 28;
+    private cameraOffsetZ: number = -10;
+
+    // External joystick input
+    private externalDx: number = 0;
+    private externalDz: number = 0;
+
+    // Basic attack
+    private basicAttack: HeroBasicAttack | null = null;
+    private targetProvider: () => BasicAttackTarget | null = () => null;
+
+    // Hero HP
+    private maxHealth: number;
+    private currentHealth: number;
+    private isDead: boolean = false;
+    private onDeathCallback: () => void = () => {};
+
+    constructor(
+        scene: Scene,
+        hero: Champion,
+        arenaRadius: number,
+        moveSpeed: number = 7,
+        maxHealth: number = 100,
+    ) {
+        this.scene = scene;
+        this.hero = hero;
+        this.arenaRadius = arenaRadius;
+        this.moveSpeed = moveSpeed;
+        this.maxHealth = maxHealth;
+        this.currentHealth = maxHealth;
+
+        // Top-down follow camera
+        this.camera = new FreeCamera('heroCam', new Vector3(0, this.cameraHeight, this.cameraOffsetZ), scene);
+        this.camera.setTarget(Vector3.Zero());
+        scene.activeCamera = this.camera;
+
+        // No user camera manipulation
+        this.camera.inputs.clear();
+
+        // Keyboard input
+        scene.onKeyboardObservable.add((kbInfo) => {
+            const key = kbInfo.event.key.toLowerCase();
+            if (kbInfo.type === KeyboardEventTypes.KEYDOWN) {
+                this.keys[key] = true;
+            }
+            if (kbInfo.type === KeyboardEventTypes.KEYUP) {
+                this.keys[key] = false;
+            }
+        });
+
+        // Basic attack module
+        this.basicAttack = new HeroBasicAttack(scene, hero, {
+            fireRate: 1.5,
+            damage: 8,
+            range: 8,
+            targetProvider: () => this.targetProvider(),
+        });
+    }
+
+    public setExternalInput(dx: number, dz: number): void {
+        this.externalDx = dx;
+        this.externalDz = dz;
+    }
+
+    public setTargetProvider(fn: () => BasicAttackTarget | null): void {
+        this.targetProvider = fn;
+    }
+
+    public setOnDeath(fn: () => void): void {
+        this.onDeathCallback = fn;
+    }
+
+    public takeDamage(amount: number): void {
+        if (this.isDead) return;
+        this.currentHealth -= amount;
+        if (this.currentHealth <= 0) {
+            this.currentHealth = 0;
+            this.isDead = true;
+            this.onDeathCallback();
+        }
+    }
+
+    public getHealthRatio(): number {
+        return Math.max(0, this.currentHealth / this.maxHealth);
+    }
+
+    public getHealth(): { current: number; max: number } {
+        return { current: this.currentHealth, max: this.maxHealth };
+    }
+
+    public update(deltaTime: number): void {
+        // Compute movement input from keyboard + external joystick
+        let dx = this.externalDx;
+        let dz = this.externalDz;
+        if (this.keys['w'] || this.keys['arrowup']) dz += 1;
+        if (this.keys['s'] || this.keys['arrowdown']) dz -= 1;
+        if (this.keys['a'] || this.keys['arrowleft']) dx -= 1;
+        if (this.keys['d'] || this.keys['arrowright']) dx += 1;
+
+        // Normalize — cap at magnitude 1, allow joystick analog below 1
+        const len = Math.hypot(dx, dz);
+        if (len > 1) { dx /= len; dz /= len; }
+
+        const velocity = new Vector3(dx * this.moveSpeed, 0, dz * this.moveSpeed);
+        this.hero.setPlayerVelocity(velocity);
+
+        // Clamp hero position inside arena after Champion.update applies velocity
+        const pos = this.hero.getPosition();
+        const distFromCenter = Math.hypot(pos.x, pos.z);
+        if (distFromCenter > this.arenaRadius - 0.5) {
+            const k = (this.arenaRadius - 0.5) / distFromCenter;
+            pos.x *= k;
+            pos.z *= k;
+            (this.hero as any).position.x = pos.x;
+            (this.hero as any).position.z = pos.z;
+            if ((this.hero as any).mesh) {
+                (this.hero as any).mesh.position.x = pos.x;
+                (this.hero as any).mesh.position.z = pos.z;
+            }
+        }
+
+        // Camera follow
+        const targetCamPos = new Vector3(pos.x, this.cameraHeight, pos.z + this.cameraOffsetZ);
+        this.camera.position = Vector3.Lerp(
+            this.camera.position,
+            targetCamPos,
+            Math.min(1, deltaTime * 6),
+        );
+        this.camera.setTarget(new Vector3(pos.x, 0, pos.z));
+
+        // Basic auto-attack
+        if (this.basicAttack) this.basicAttack.update(deltaTime);
+    }
+
+    public getCamera(): FreeCamera {
+        return this.camera;
+    }
+
+    public dispose(): void {
+        this.camera.dispose();
+    }
+}

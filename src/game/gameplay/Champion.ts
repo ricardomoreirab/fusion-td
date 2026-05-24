@@ -12,7 +12,7 @@ import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '.
  * Extends Enemy for path movement, health bar, and mesh lifecycle.
  */
 export class Champion extends Enemy {
-    private enemyManager: EnemyManager;
+    private enemyManager: EnemyManager | null;
 
     // Player control
     public controlMode: 'ai' | 'player' = 'ai';
@@ -38,7 +38,7 @@ export class Champion extends Enemy {
     private rightLeg: Mesh | null = null;
     private cape: Mesh | null = null;
 
-    constructor(game: Game, reversedPath: Vector3[], enemyManager: EnemyManager) {
+    constructor(game: Game, reversedPath: Vector3[], enemyManager: EnemyManager | null = null) {
         // HP 800, Speed 1.5, Damage 0 (doesn't damage player), Reward 0
         const startPos = reversedPath.length > 0 ? reversedPath[0] : new Vector3(0, 0, 0);
         super(game, startPos, reversedPath, 1.5, 800, 0, 0);
@@ -669,6 +669,7 @@ export class Champion extends Enemy {
         this.attackTimer -= deltaTime;
         if (this.attackTimer > 0) return;
 
+        if (!this.enemyManager) return;
         const target = this.enemyManager.getClosestEnemy(this.position, this.attackRange);
         if (!target || !target.isAlive()) return;
 
@@ -683,6 +684,7 @@ export class Champion extends Enemy {
      * Apply a brief slow to all enemies within block radius
      */
     private blockNearbyEnemies(): void {
+        if (!this.enemyManager) return;
         const nearbyEnemies = this.enemyManager.getEnemiesInRange(this.position, this.blockRadius);
         for (const enemy of nearbyEnemies) {
             if (enemy.isAlive()) {
