@@ -92,12 +92,46 @@ export class PowerSlotManager {
         const cooldownMult = this.cooldownMultiplierProvider();
         for (const slot of this.slots) {
             if (!slot) continue;
+            // Skip passive enchantments — they have no cast loop
+            if (slot.def.mode === 'passive') continue;
             slot.state.cooldownRemaining -= deltaTime;
             if (slot.state.cooldownRemaining <= 0) {
-                slot.def.cast(slot.state, ctx);
+                if (slot.def.cast) {
+                    slot.def.cast(slot.state, ctx);
+                }
                 slot.state.cooldownRemaining = slot.def.cooldownFor(slot.state) * cooldownMult;
             }
         }
+    }
+
+    /**
+     * Returns all passive (enchantment) slots with their element and level.
+     * Used by HeroBasicAttack to apply enchantments on every melee/projectile hit.
+     */
+    public getActiveEnchantments(): { element: string; level: number; slot: PowerSlot }[] {
+        const result: { element: string; level: number; slot: PowerSlot }[] = [];
+        for (const slot of this.slots) {
+            if (!slot) continue;
+            if (slot.def.mode === 'passive') {
+                result.push({ element: slot.def.element, level: slot.state.level, slot });
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Total range bonus from passive enchantments that extend melee swing radius.
+     * (Heavy Strike contributes +0.3 per level.)
+     */
+    public getMeleeRangeBonus(): number {
+        let bonus = 0;
+        for (const slot of this.slots) {
+            if (!slot) continue;
+            if (slot.def.mode === 'passive' && slot.def.rangeBonus) {
+                bonus += slot.def.rangeBonus(slot.state.level);
+            }
+        }
+        return bonus;
     }
 
     /** Dispose all persistent slot data (blade meshes etc.) */
