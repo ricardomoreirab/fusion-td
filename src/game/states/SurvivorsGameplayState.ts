@@ -221,8 +221,11 @@ export class SurvivorsGameplayState implements GameState {
         // Wire basic-attack target provider to nearest alive enemy
         this.heroController.setTargetProvider(() => this.getNearestEnemy());
 
-        // Ability manager (Meteor Strike + Frost Nova ultimates)
+        // Ability manager — configure for chosen champion class
         this.abilityManager = new AbilityManager(this.game, this.enemyManager);
+        this.abilityManager.configureForClass(this.currentChampionType);
+        this.abilityManager.setHeroProvider(() => this.hero!.getPosition());
+        this.abilityManager.setHero(this.hero);
 
         // ---------- UI ----------
 
@@ -233,6 +236,7 @@ export class SurvivorsGameplayState implements GameState {
         });
 
         // HUD (HP bar, gold, power slots, ultimate buttons)
+        // Built AFTER configureForClass so HUD reads the correct ability IDs.
         this.hud = new HeroHud(this.ui, this.abilityManager);
 
         // Overlays
