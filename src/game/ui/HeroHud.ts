@@ -1,6 +1,7 @@
 import { AdvancedDynamicTexture, Rectangle, TextBlock, Control } from '@babylonjs/gui';
 import { PowerSlot } from '../gameplay/PowerSlotManager';
 import { AbilityManager } from '../gameplay/AbilityManager';
+import { getLayoutMode, getRenderWidth } from './responsive';
 
 // ─── Element glyph map ─────────────────────────────────────────────────────────
 // These are unicode characters that render reliably in most browsers via Canvas2D.
@@ -52,13 +53,35 @@ export class HeroHud {
     private slotPulseActive: boolean[] = [false, false, false, false];
     private prevCooldownRemaining: number[] = [-1, -1, -1, -1];
 
+    // Controls that need to be rebuilt on resize (includes TextBlock etc via Control base)
+    private builtControls: Control[] = [];
+    private resizeObserver: (() => void) | null = null;
+
+    // Track layout for rebuild
+    private isMobile: boolean = false;
+
     constructor(ui: AdvancedDynamicTexture, abilityManager?: AbilityManager) {
         this.ui = ui;
         this.abilityManager = abilityManager ?? null;
         this.build();
+
+        // Register resize listener
+        const engine = this.ui.getScene()?.getEngine();
+        if (engine) {
+            const handler = () => {
+                this.rebuild();
+            };
+            engine.onResizeObservable.add(handler);
+            this.resizeObserver = () => engine.onResizeObservable.removeCallback(handler);
+        }
     }
 
     private build(): void {
+        this.isMobile = getLayoutMode(this.ui) === 'mobile';
+        this.slotContainers = [];
+        this.ultimateContainers = [];
+        this.builtControls = [];
+
         // Low-HP danger pulse vignette — full screen red overlay, hidden by default
         this.lowHpVignette = new Rectangle('lowHpVignette');
         this.lowHpVignette.width = '100%';
@@ -69,6 +92,28 @@ export class HeroHud {
         this.lowHpVignette.isPointerBlocker = false;
         this.ui.addControl(this.lowHpVignette);
 
+        if (this.isMobile) {
+            this._buildMobile();
+        } else {
+            this._buildDesktop();
+        }
+    }
+
+    /** Dispose layout controls and rebuild with current viewport size. */
+    private rebuild(): void {
+        // Dispose all layout controls
+        if (this.lowHpVignette) {
+            this.lowHpVignette.dispose();
+        }
+        for (const ctrl of this.builtControls) {
+            ctrl.dispose();
+        }
+        this.build();
+    }
+
+    // ─── Desktop layout (original) ─────────────────────────────────────────────
+
+    private _buildDesktop(): void {
         // ── HP bar ────────────────────────────────────────────────────────────
         const hpBg = new Rectangle('hpBg');
         hpBg.width = '240px';
@@ -82,6 +127,7 @@ export class HeroHud {
         hpBg.left = '150px';
         hpBg.top = '-80px';
         this.ui.addControl(hpBg);
+        this.builtControls.push(hpBg);
 
         this.hpFill = new Rectangle('hpFill');
         this.hpFill.width = 1.0;
@@ -92,15 +138,13 @@ export class HeroHud {
         this.hpFill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         hpBg.addControl(this.hpFill);
 
-        // Danger-zone marker at 25% — thin bright yellow segment on the right 25%
+        // Danger-zone marker at 25%
         this.hpDangerZone = new Rectangle('hpDangerZone');
         this.hpDangerZone.width = '2px';
         this.hpDangerZone.height = '100%';
         this.hpDangerZone.thickness = 0;
         this.hpDangerZone.background = '#ffe040';
         this.hpDangerZone.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        // Sits at 75% from left → left offset = 75% of 240px = 180px, but in relative units
-        // We'll position it via left on the parent container approach
         this.hpDangerZone.left = '179px'; // 240 * 0.75 - 1
         hpBg.addControl(this.hpDangerZone);
 
@@ -121,6 +165,7 @@ export class HeroHud {
         this.goldText.height = '22px';
         this.goldText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         this.ui.addControl(this.goldText);
+        this.builtControls.push(this.goldText);
 
         // ── 4 power-slot icons — bottom row ──────────────────────────────────
         for (let i = 0; i < 4; i++) {
@@ -136,14 +181,13 @@ export class HeroHud {
             bg.left = `${150 + i * 60}px`;
             bg.top = '-15px';
             this.ui.addControl(bg);
+            this.builtControls.push(bg);
 
-            // Element glyph icon
             const icon = new TextBlock(`slotIcon_${i}`, '?');
             icon.color = '#888';
             icon.fontSize = 24;
             bg.addControl(icon);
 
-            // Level badge — bottom-right corner
             const level = new TextBlock(`slotLvl_${i}`, '');
             level.color = '#fff';
             level.fontSize = 11;
@@ -153,7 +197,6 @@ export class HeroHud {
             level.paddingBottom = '2px';
             bg.addControl(level);
 
-            // Cooldown mask: covers from top downwards proportional to remaining/total
             const cdMask = new Rectangle(`slotCd_${i}`);
             cdMask.width = 1.0;
             cdMask.height = 0;
@@ -167,6 +210,139 @@ export class HeroHud {
         }
 
         // ── Ultimate ability buttons ──────────────────────────────────────────
+        this._buildUltimateButtons(400, 56, 50, 22, 8, 15);
+    }
+
+    // ─── Mobile layout ─────────────────────────────────────────────────────────
+    //
+    // HP bar:   top-center, 80% vw capped at 320px
+    // Gold:     top-right corner
+    // Slots:    bottom-left, 40×40, starting after the joystick zone (~120px)
+    // Ultimates: bottom-right, 44×44
+
+    private _buildMobile(): void {
+        const vw = getRenderWidth(this.ui);
+        const hpBarW = Math.min(320, Math.round(vw * 0.80));
+        const slotSize = 40;
+        const slotSpacing = 46; // slotSize + 6px gap
+        // Joystick: left=30, width=110 → right edge = 140px. Start slots with 8px gap = 148px.
+        const slotStartLeft = 148;
+
+        // ── HP bar — top-center ───────────────────────────────────────────────
+        const hpBg = new Rectangle('hpBg');
+        hpBg.width = `${hpBarW}px`;
+        hpBg.height = '20px';
+        hpBg.thickness = 2;
+        hpBg.color = '#444';
+        hpBg.background = '#111';
+        hpBg.cornerRadius = 4;
+        hpBg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        hpBg.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        hpBg.top = '10px';
+        this.ui.addControl(hpBg);
+        this.builtControls.push(hpBg);
+
+        this.hpFill = new Rectangle('hpFill');
+        this.hpFill.width = 1.0;
+        this.hpFill.height = 1.0;
+        this.hpFill.thickness = 0;
+        this.hpFill.background = '#c33';
+        this.hpFill.cornerRadius = 3;
+        this.hpFill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        hpBg.addControl(this.hpFill);
+
+        this.hpDangerZone = new Rectangle('hpDangerZone');
+        this.hpDangerZone.width = '2px';
+        this.hpDangerZone.height = '100%';
+        this.hpDangerZone.thickness = 0;
+        this.hpDangerZone.background = '#ffe040';
+        this.hpDangerZone.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.hpDangerZone.left = `${Math.round(hpBarW * 0.75) - 1}px`;
+        hpBg.addControl(this.hpDangerZone);
+
+        this.hpText = new TextBlock('hpText', '');
+        this.hpText.color = '#fff';
+        this.hpText.fontSize = 11;
+        hpBg.addControl(this.hpText);
+
+        // ── Gold — top-right ──────────────────────────────────────────────────
+        this.goldText = new TextBlock('goldText', '');
+        this.goldText.color = '#ffd700';
+        this.goldText.fontSize = 14;
+        this.goldText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        this.goldText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.goldText.top = '10px';
+        this.goldText.paddingRight = '10px';
+        this.goldText.width = '100px';
+        this.goldText.height = '20px';
+        this.goldText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        this.ui.addControl(this.goldText);
+        this.builtControls.push(this.goldText);
+
+        // ── 4 power slots — bottom-left, 40×40 ───────────────────────────────
+        for (let i = 0; i < 4; i++) {
+            const bg = new Rectangle(`slotBg_${i}`);
+            bg.width = `${slotSize}px`;
+            bg.height = `${slotSize}px`;
+            bg.thickness = 2;
+            bg.color = '#555';
+            bg.background = '#1a1a2a';
+            bg.cornerRadius = 6;
+            bg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            bg.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+            bg.left = `${slotStartLeft + i * slotSpacing}px`;
+            bg.top = '-10px';
+            this.ui.addControl(bg);
+            this.builtControls.push(bg);
+
+            const icon = new TextBlock(`slotIcon_${i}`, '?');
+            icon.color = '#888';
+            icon.fontSize = 18;
+            bg.addControl(icon);
+
+            const level = new TextBlock(`slotLvl_${i}`, '');
+            level.color = '#fff';
+            level.fontSize = 9;
+            level.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+            level.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+            level.paddingRight = '2px';
+            level.paddingBottom = '2px';
+            bg.addControl(level);
+
+            const cdMask = new Rectangle(`slotCd_${i}`);
+            cdMask.width = 1.0;
+            cdMask.height = 0;
+            cdMask.thickness = 0;
+            cdMask.background = 'rgba(0,0,0,0.6)';
+            cdMask.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            cdMask.cornerRadius = 6;
+            bg.addControl(cdMask);
+
+            this.slotContainers.push({ bg, icon, level, cdMask });
+        }
+
+        // ── Ultimate buttons — bottom-right, 44×44 ────────────────────────────
+        // Right-aligned so they don't overlap with left-anchored power slots
+        this._buildMobileUltimateButtons();
+    }
+
+    /**
+     * Shared helper for building the 2 ultimate buttons.
+     * @param startLeft  left px offset of first button
+     * @param stride     px distance between button centers
+     * @param btnSize    width/height of each button (px)
+     * @param fontSize   glyph font size
+     * @param bottomOffset  how many px from bottom edge
+     * @param cdRadius   corner radius
+     */
+    private _buildUltimateButtons(
+        startLeft: number,
+        stride: number,
+        btnSize: number,
+        fontSize: number,
+        bottomOffset: number,
+        cdRadius: number,
+    ): void {
         const ultimateDefs = [
             { id: 'meteor',    label: '☄',  color: '#c04010', tooltip: 'Meteor Strike (45s)' },
             { id: 'frostNova', label: '❄',  color: '#2080c0', tooltip: 'Frost Nova (30s)' },
@@ -174,35 +350,94 @@ export class HeroHud {
 
         ultimateDefs.forEach((def, i) => {
             const bg = new Rectangle(`ultBg_${i}`);
-            bg.width = '50px';
-            bg.height = '50px';
+            bg.width = `${btnSize}px`;
+            bg.height = `${btnSize}px`;
             bg.thickness = 2;
             bg.color = def.color;
             bg.background = '#1a1a2a';
-            bg.cornerRadius = 8;
+            bg.cornerRadius = cdRadius;
             bg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
             bg.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-            bg.left = `${400 + i * 56}px`;
-            bg.top = '-15px';
+            bg.left = `${startLeft + i * stride}px`;
+            bg.top = `-${bottomOffset}px`;
             bg.isPointerBlocker = true;
             this.ui.addControl(bg);
+            this.builtControls.push(bg);
 
             const label = new TextBlock(`ultLbl_${i}`, def.label);
             label.color = '#fff';
-            label.fontSize = 22;
+            label.fontSize = fontSize;
             bg.addControl(label);
 
-            // Cooldown mask (covers top → bottom)
             const cdMask = new Rectangle(`ultCd_${i}`);
             cdMask.width = 1.0;
             cdMask.height = 0;
             cdMask.thickness = 0;
             cdMask.background = 'rgba(0,0,0,0.65)';
             cdMask.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-            cdMask.cornerRadius = 8;
+            cdMask.cornerRadius = cdRadius;
             bg.addControl(cdMask);
 
             // Click → fire ability
+            bg.onPointerClickObservable.add(() => {
+                if (!this.abilityManager) return;
+                if (def.id === 'frostNova') {
+                    this.abilityManager.triggerFrostNova();
+                } else if (def.id === 'meteor') {
+                    this.abilityManager.triggerMeteorAtNearest();
+                }
+            });
+
+            this.ultimateContainers.push({ bg, label, cdMask });
+        });
+    }
+
+    /**
+     * Mobile-specific ultimate buttons: RIGHT-aligned so they anchor to the right
+     * edge of the screen without conflicting with left-anchored power slots.
+     * Two 44×44 buttons, stacked with 8px gap, bottom-right corner.
+     */
+    private _buildMobileUltimateButtons(): void {
+        const ultimateDefs = [
+            { id: 'meteor',    label: '☄',  color: '#c04010' },
+            { id: 'frostNova', label: '❄',  color: '#2080c0' },
+        ];
+
+        const btnSize = 44;
+        const gap = 8;
+        // Two buttons side-by-side, right-aligned, 10px from right edge
+        ultimateDefs.forEach((def, i) => {
+            const bg = new Rectangle(`ultBg_${i}`);
+            bg.width = `${btnSize}px`;
+            bg.height = `${btnSize}px`;
+            bg.thickness = 2;
+            bg.color = def.color;
+            bg.background = '#1a1a2a';
+            bg.cornerRadius = 10;
+            // RIGHT alignment — measure from the right edge inward
+            bg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+            bg.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+            // i=0: rightmost, i=1: one step further left
+            bg.paddingRight = `${10 + i * (btnSize + gap)}px`;
+            bg.top = '-10px';
+            bg.isPointerBlocker = true;
+            this.ui.addControl(bg);
+            this.builtControls.push(bg);
+
+            const label = new TextBlock(`ultLbl_${i}`, def.label);
+            label.color = '#fff';
+            label.fontSize = 18;
+            bg.addControl(label);
+
+            const cdMask = new Rectangle(`ultCd_${i}`);
+            cdMask.width = 1.0;
+            cdMask.height = 0;
+            cdMask.thickness = 0;
+            cdMask.background = 'rgba(0,0,0,0.65)';
+            cdMask.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            cdMask.cornerRadius = 10;
+            bg.addControl(cdMask);
+
             bg.onPointerClickObservable.add(() => {
                 if (!this.abilityManager) return;
                 if (def.id === 'frostNova') {
@@ -239,7 +474,6 @@ export class HeroHud {
         // ── HP fill + pulsing red in danger zone ────────────────────────────
         this.hpFill.width = ratio;
         if (inDanger) {
-            // Bright pulsing red
             const pulse = 0.5 + 0.5 * Math.abs(Math.sin(this.lowHpPulseTime * Math.PI * 2.5));
             const r = Math.round(180 + 75 * pulse);
             const g = Math.round(30 * (1 - pulse));
@@ -269,14 +503,11 @@ export class HeroHud {
                 this.prevCooldownRemaining[i] = -1;
                 this.slotPulseActive[i] = false;
             } else {
-                // Glyph + color from element
                 const glyph = POWER_GLYPH[slot.def.id] ?? ELEMENT_GLYPH[slot.def.element] ?? '?';
                 const elemColor = ELEMENT_COLOR[slot.def.element] ?? '#fff';
                 icon.text = glyph;
                 icon.color = elemColor;
                 level.text = `L${slot.state.level}`;
-
-                // Border tracks element color
                 bg.color = elemColor;
 
                 const total = slot.def.cooldownFor(slot.state);
@@ -284,26 +515,22 @@ export class HeroHud {
                 const frac = Math.min(1, remaining / Math.max(0.001, total));
                 cdMask.height = frac;
 
-                // Detect fire-pulse: cooldown just reset (was near 0, now full)
                 const prev = this.prevCooldownRemaining[i];
                 if (prev >= 0 && prev < 0.05 && remaining > total * 0.9) {
-                    // Power just fired — start pulse
                     this.slotPulseActive[i] = true;
                     this.slotPulseTime[i] = 0;
                 }
                 this.prevCooldownRemaining[i] = remaining;
 
-                // Animate scale pulse when power fires
                 if (this.slotPulseActive[i]) {
                     this.slotPulseTime[i] += deltaTime;
                     const t = this.slotPulseTime[i];
-                    const period = 0.4; // 0.4s full pulse cycle
+                    const period = 0.4;
                     if (t >= period) {
                         this.slotPulseActive[i] = false;
                         bg.scaleX = 1;
                         bg.scaleY = 1;
                     } else {
-                        // 1.0 → 1.05 → 1.0 over period
                         const s = 1.0 + 0.05 * Math.sin((t / period) * Math.PI);
                         bg.scaleX = s;
                         bg.scaleY = s;
@@ -333,6 +560,10 @@ export class HeroHud {
     }
 
     public dispose(): void {
+        if (this.resizeObserver) {
+            this.resizeObserver();
+            this.resizeObserver = null;
+        }
         // Controls are owned by the AdvancedDynamicTexture; disposing the
         // texture takes care of them. Nothing extra needed here.
     }
