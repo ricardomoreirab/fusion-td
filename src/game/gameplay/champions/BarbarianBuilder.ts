@@ -183,21 +183,73 @@ export function buildBarbarianMesh(scene: Scene, position: Vector3): BarbarianMe
     helmCap.position = new Vector3(0, 0.20, 0);
     helmCap.material = createLowPolyMaterial('barbHelmCapMat', fur, scene);
 
-    // Two curved horns out the sides (made from cones)
-    for (let side = -1; side <= 1; side += 2) {
-        const horn = MeshBuilder.CreateCylinder(`barbHorn${side}`, {
-            height: 0.45,
-            diameterTop: 0.02,
-            diameterBottom: 0.14,
-            tessellation: 5
+    // 3 bone fragments poking up through the helm cap (tooth-like)
+    const bonePositions: Array<[number, number, number]> = [
+        [-0.10, 0.15, 0.05],
+        [ 0.04, 0.18, -0.06],
+        [ 0.12, 0.13, 0.08],
+    ];
+    for (let i = 0; i < bonePositions.length; i++) {
+        const [x, y, z] = bonePositions[i];
+        const boneFrag = MeshBuilder.CreatePolyhedron(`barbHelmBone${i}`, {
+            type: 1,
+            size: 0.05,
         }, scene);
-        makeFlatShaded(horn);
-        horn.parent = head;
-        horn.position = new Vector3(side * 0.28, 0.26, 0);
-        horn.rotation.z = side * 0.75; // angle outward
-        horn.rotation.x = -0.15;       // slight forward tilt
-        horn.material = createLowPolyMaterial(`barbHornMat${side}`, hornColor, scene);
+        makeFlatShaded(boneFrag);
+        boneFrag.parent = helmCap;
+        boneFrag.position = new Vector3(x, y, z);
+        boneFrag.scaling = new Vector3(0.7, 1.6, 0.7);
+        boneFrag.material = createLowPolyMaterial(`barbHelmBoneMat${i}`, boneWhite, scene);
     }
+
+    // War-paint slash across helmet top — front-to-back, top-down readable
+    const helmPaint = MeshBuilder.CreateBox('barbHelmPaint', {
+        width: 0.10,
+        height: 0.04,
+        depth: 0.45,
+    }, scene);
+    makeFlatShaded(helmPaint);
+    helmPaint.parent = helmCap;
+    helmPaint.position = new Vector3(0, 0.16, 0);
+    helmPaint.rotation.y = 0.15;
+    helmPaint.material = createEmissiveMaterial('barbHelmPaintMat', bloodRed, 0.7, scene);
+
+    // Asymmetric horns: tall straight on left, chipped/broken on right.
+    const hornLeft = MeshBuilder.CreateCylinder('barbHornLeft', {
+        height: 0.60,
+        diameterTop: 0.02,
+        diameterBottom: 0.14,
+        tessellation: 5,
+    }, scene);
+    makeFlatShaded(hornLeft);
+    hornLeft.parent = head;
+    hornLeft.position = new Vector3(-0.28, 0.30, 0);
+    hornLeft.rotation.z = -0.75;
+    hornLeft.rotation.x = -0.15;
+    hornLeft.material = createLowPolyMaterial('barbHornLeftMat', hornColor, scene);
+
+    const hornRight = MeshBuilder.CreateCylinder('barbHornRight', {
+        height: 0.35,
+        diameterTop: 0.10,
+        diameterBottom: 0.14,
+        tessellation: 5,
+    }, scene);
+    makeFlatShaded(hornRight);
+    hornRight.parent = head;
+    hornRight.position = new Vector3(0.28, 0.22, 0);
+    hornRight.rotation.z = 0.75;
+    hornRight.rotation.x = -0.15;
+    hornRight.material = createLowPolyMaterial('barbHornRightMat', hornColor, scene);
+
+    // Jagged break cap on the right horn — short blunt polyhedron on top
+    const hornRightBreak = MeshBuilder.CreatePolyhedron('barbHornRightBreak', {
+        type: 1,
+        size: 0.05,
+    }, scene);
+    makeFlatShaded(hornRightBreak);
+    hornRightBreak.parent = hornRight;
+    hornRightBreak.position = new Vector3(0, 0.20, 0);
+    hornRightBreak.material = createLowPolyMaterial('barbHornRightBreakMat', boneWhite, scene);
 
     // Eyes — glowing angry ember eyes
     for (let side = -1; side <= 1; side += 2) {
@@ -222,6 +274,31 @@ export function buildBarbarianMesh(scene: Scene, position: Vector3): BarbarianMe
     beard.parent = head;
     beard.position = new Vector3(0, -0.22, 0.20);
     beard.material = createLowPolyMaterial('barbBeardMat', fur, scene);
+
+    // Snarl jaw piece — small box jutting forward beneath the beard.
+    // Stored on the parts struct so animation can twitch it.
+    const snarlJaw = MeshBuilder.CreateBox('barbSnarlJaw', {
+        width: 0.20,
+        height: 0.10,
+        depth: 0.16,
+    }, scene);
+    makeFlatShaded(snarlJaw);
+    snarlJaw.parent = head;
+    snarlJaw.position = new Vector3(0, -0.34, 0.24);
+    snarlJaw.material = createLowPolyMaterial('barbSnarlJawMat', skinDark, scene);
+
+    // Teeth row — 3 small bone-white teeth boxes inside the jaw
+    for (let t = 0; t < 3; t++) {
+        const tooth = MeshBuilder.CreateBox(`barbSnarlTooth${t}`, {
+            width: 0.04,
+            height: 0.05,
+            depth: 0.03,
+        }, scene);
+        makeFlatShaded(tooth);
+        tooth.parent = snarlJaw;
+        tooth.position = new Vector3((t - 1) * 0.05, 0.03, 0.07);
+        tooth.material = createEmissiveMaterial(`barbSnarlToothMat${t}`, boneWhite, 0.2, scene);
+    }
 
     // --- Right arm (axe arm) — thick upper arm + bracer on forearm ---
     const swordArm = MeshBuilder.CreateBox('barbAxeArm', {
@@ -415,7 +492,7 @@ export function buildBarbarianMesh(scene: Scene, position: Vector3): BarbarianMe
         axeHead,
         kiltFlaps: [],
         beltTrophy: null,
-        snarlJaw: null,
+        snarlJaw,
         chestPulseGroup,
     };
 }
