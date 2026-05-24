@@ -2,7 +2,7 @@ import { Vector3, MeshBuilder, Mesh, Color3, Color4, ParticleSystem, StandardMat
 import { Game } from '../Game';
 import { Enemy } from './enemies/Enemy';
 import { EnemyManager } from './EnemyManager';
-import { StatusEffect } from './towers/Tower';
+import { StatusEffect } from './GameTypes';
 import { PALETTE } from '../rendering/StyleConstants';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../rendering/LowPolyMaterial';
 

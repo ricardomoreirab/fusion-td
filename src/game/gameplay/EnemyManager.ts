@@ -11,7 +11,6 @@ import { HealerEnemy } from './enemies/HealerEnemy';
 import { ShieldEnemy } from './enemies/ShieldEnemy';
 import { MiniEnemy } from './enemies/MiniEnemy';
 import { PlayerStats } from './PlayerStats';
-import { TowerManager } from './TowerManager';
 import { makeElite } from './EliteSpawner';
 
 export class EnemyManager {
@@ -19,7 +18,6 @@ export class EnemyManager {
     private map: Map;
     private enemies: Enemy[] = [];
     private playerStats: PlayerStats | null = null;
-    private towerManager: TowerManager | null = null;
     private compositePath: Vector3[] | null = null;
     private splitHandler: ((e: Event) => void) | null = null;
     private healHandler: ((e: Event) => void) | null = null;
@@ -41,8 +39,7 @@ export class EnemyManager {
                 const offset = new Vector3((Math.random() - 0.5) * 1.5, 0, (Math.random() - 0.5) * 1.5);
                 const spawnPos = position.add(offset);
                 const mini = new MiniEnemy(this.game, spawnPos, [...path]);
-                if (this.towerManager) mini.setTowerManager(this.towerManager);
-                this.enemies.push(mini);
+                        this.enemies.push(mini);
             }
         };
         document.addEventListener('enemySplit', this.splitHandler);
@@ -70,18 +67,6 @@ export class EnemyManager {
     }
 
     /**
-     * Set the tower manager reference for tower destruction capabilities
-     */
-    public setTowerManager(towerManager: TowerManager): void {
-        this.towerManager = towerManager;
-
-        // Update any existing enemies
-        for (const enemy of this.enemies) {
-            enemy.setTowerManager(towerManager);
-        }
-    }
-
-    /**
      * Configure survivors mode: enemies spawn at arena perimeter and seek the hero.
      */
     public configureSurvivorsMode(heroProvider: { getPosition: () => Vector3 }, arenaRadius: number): void {
@@ -99,8 +84,7 @@ export class EnemyManager {
                 const offset = new Vector3((Math.random() - 0.5) * 1.5, 0, (Math.random() - 0.5) * 1.5);
                 const spawnPos = position.add(offset);
                 const mini = new MiniEnemy(this.game, spawnPos, this.heroProvider ? [] : [...path]);
-                if (this.towerManager) mini.setTowerManager(this.towerManager);
-                if (this.heroProvider) {
+                        if (this.heroProvider) {
                     mini.seekTarget = this.heroProvider;
                 }
                 this.enemies.push(mini);
@@ -144,8 +128,6 @@ export class EnemyManager {
             case 'shield':   enemy = new ShieldEnemy(this.game, spawnPos, []); break;
             default:         enemy = new BasicEnemy(this.game, spawnPos, []); break;
         }
-
-        if (this.towerManager) enemy.setTowerManager(this.towerManager);
 
         // Set seekTarget BEFORE first update so the seek branch runs immediately
         enemy.seekTarget = this.heroProvider;
@@ -248,11 +230,6 @@ export class EnemyManager {
             default:
                 enemy = new BasicEnemy(this.game, startPosition, path);
                 break;
-        }
-
-        // Set tower manager reference if available
-        if (this.towerManager) {
-            enemy.setTowerManager(this.towerManager);
         }
 
         // Add to enemies list

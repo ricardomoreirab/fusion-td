@@ -1,8 +1,6 @@
 import { Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, Color4, Scene, ParticleSystem, Texture, DynamicTexture, Sound, Animation } from '@babylonjs/core';
 import { Game } from '../../Game';
-import { EnemyType, StatusEffect } from '../towers/Tower';
-import { TowerManager } from '../TowerManager';
-import { Tower } from '../towers/Tower';
+import { EnemyType, StatusEffect } from '../GameTypes';
 
 export class Enemy {
     protected game: Game;
@@ -28,13 +26,6 @@ export class Enemy {
     public contactDamagePerSecond: number = 10;
     public isElite: boolean = false;
     public eliteDropElement: string | null = null;
-    
-    // Tower destruction ability
-    protected canDestroyTowers: boolean = false;
-    protected towerDestructionRange: number = 0;
-    protected towerDestructionCooldown: number = 5; // 5 seconds cooldown
-    protected lastTowerDestructionTime: number = 0;
-    protected towerManager: TowerManager | null = null;
     
     // Elemental properties
     protected enemyType: EnemyType = EnemyType.NORMAL;
@@ -274,9 +265,6 @@ export class Enemy {
 
         // Update status effects
         this.updateStatusEffects(deltaTime);
-
-        // Check for tower destruction (for boss enemies)
-        this.checkTowerDestruction(deltaTime);
 
         // Don't move if frozen or stunned
         if (this.isFrozen || this.isStunned) {
@@ -1025,101 +1013,4 @@ export class Enemy {
         this.path.push(...additionalPoints);
     }
 
-    /**
-     * Set the tower manager reference
-     * @param towerManager The tower manager instance
-     */
-    public setTowerManager(towerManager: TowerManager): void {
-        this.towerManager = towerManager;
-    }
-    
-    /**
-     * Check for towers in destruction range and destroy one if cooldown allows
-     * @param deltaTime Time elapsed since last update
-     * @returns True if a tower was destroyed
-     */
-    protected checkTowerDestruction(deltaTime: number): boolean {
-        // Only process if this enemy can destroy towers
-        if (!this.canDestroyTowers || !this.towerManager || !this.mesh) {
-            return false;
-        }
-        
-        // Check cooldown
-        const currentTime = performance.now() / 1000;
-        if (currentTime - this.lastTowerDestructionTime < this.towerDestructionCooldown) {
-            return false;
-        }
-        
-        // Find the closest tower in range
-        const closestTower = this.towerManager.getClosestTower(this.position, this.towerDestructionRange);
-        if (closestTower) {
-            // Destroy the tower
-            this.destroyTower(closestTower);
-            
-            // Update cooldown time
-            this.lastTowerDestructionTime = currentTime;
-            return true;
-        }
-        
-        return false;
-    }
-    
-    /**
-     * Destroy a tower and create a destruction effect
-     * @param tower The tower to destroy
-     */
-    protected destroyTower(tower: Tower): void {
-        if (!this.towerManager) return;
-        
-        // Simply remove the tower without any special effects
-        this.towerManager.sellTower(tower);
-        
-        // Show a message on the screen
-        this.showTowerDestroyedMessage();
-        
-        // Log the tower destruction
-        console.log("Tower destroyed by boss enemy");
-    }
-    
-    /**
-     * Show a message when a tower is destroyed
-     */
-    protected showTowerDestroyedMessage(): void {
-        const scene = this.scene;
-        if (!scene) return;
-        
-        // Create a text block in the center of the screen
-        const message = document.createElement('div');
-        message.style.position = 'absolute';
-        message.style.top = '50%';
-        message.style.left = '50%';
-        message.style.transform = 'translate(-50%, -50%)';
-        message.style.background = 'rgba(200, 0, 0, 0.7)';
-        message.style.color = 'white';
-        message.style.padding = '15px 30px';
-        message.style.borderRadius = '5px';
-        message.style.fontFamily = 'Arial, sans-serif';
-        message.style.fontSize = '24px';
-        message.style.fontWeight = 'bold';
-        message.style.zIndex = '1000';
-        message.innerText = 'The boss destroyed your tower!';
-        
-        // Add to document
-        document.body.appendChild(message);
-        
-        // Remove after 2 seconds
-        setTimeout(() => {
-            document.body.removeChild(message);
-        }, 2000);
-    }
-    
-    /**
-     * Create a destruction effect at the tower position
-     * This method is kept empty to avoid trying to load external assets
-     * @param position The position of the destroyed tower
-     */
-    protected createTowerDestructionEffect(position: Vector3): void {
-        // Method intentionally left empty to prevent asset loading errors
-        console.log("Tower destroyed at position", position);
-    }
-} 
+}

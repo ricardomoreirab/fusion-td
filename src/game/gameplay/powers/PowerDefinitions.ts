@@ -1,6 +1,6 @@
 import { Scene, Vector3, MeshBuilder, StandardMaterial, Color3 } from '@babylonjs/core';
 import { Enemy } from '../enemies/Enemy';
-import { StatusEffect } from '../towers/Tower';
+import { StatusEffect } from '../GameTypes';
 
 export type PowerElement = 'fire' | 'ice' | 'arcane' | 'physical' | 'storm';
 

@@ -1,4 +1,4 @@
-import { Vector3, MeshBuilder, StandardMaterial, Color3, Mesh, Color4, Texture, ParticleSystem } from '@babylonjs/core';
+import { Vector3, MeshBuilder, StandardMaterial, Color3, Mesh, Color4 } from '@babylonjs/core';
 import { Game } from '../../Game';
 import { Enemy } from './Enemy';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../rendering/LowPolyMaterial';
@@ -9,9 +9,6 @@ export class BossEnemy extends Enemy {
     private head: Mesh | null = null;
     private leftArm: Mesh | null = null;
     private rightArm: Mesh | null = null;
-    private towerDestructionRangeIndicator: Mesh | null = null;
-    private isDestroyingTower: boolean = false;
-    private destructionTargetPosition: Vector3 | null = null;
     private jaw: Mesh | null = null;
     private crystals: Mesh[] = [];
     private leftLeg: Mesh | null = null;
@@ -20,14 +17,6 @@ export class BossEnemy extends Enemy {
     constructor(game: Game, position: Vector3, path: Vector3[]) {
         // Boss enemy has very low speed, extremely high health, high damage, and very high reward
         super(game, position, path, 0.7, 500, 50, 150);
-
-        // Enable tower destruction ability for boss
-        this.canDestroyTowers = true;
-        this.towerDestructionRange = 4.0;
-        this.towerDestructionCooldown = 4.0;
-
-        // Create visual range indicator for tower destruction
-        this.createTowerDestructionRangeIndicator();
 
         // Add innate damage resistance for bosses (15%, reduced from 20%)
         this.damageResistance = 0.15;
@@ -330,35 +319,6 @@ export class BossEnemy extends Enemy {
         this.originalScale = 1.0;
     }
 
-    /**
-     * Create a visual indicator for the tower destruction range
-     */
-    private createTowerDestructionRangeIndicator(): void {
-        // Create a semi-transparent disk to show the destruction range
-        this.towerDestructionRangeIndicator = MeshBuilder.CreateDisc(
-            'destructionRange',
-            {
-                radius: this.towerDestructionRange,
-                tessellation: 32,
-                sideOrientation: Mesh.DOUBLESIDE
-            },
-            this.scene
-        );
-
-        // Position at ground level
-        this.towerDestructionRangeIndicator.rotation.x = Math.PI / 2;
-        this.towerDestructionRangeIndicator.position.y = 0.05;
-
-        // Create material
-        const material = new StandardMaterial('destructionRangeMaterial', this.scene);
-        material.diffuseColor = new Color3(0.8, 0.2, 0.2);
-        material.alpha = 0.2;
-        material.emissiveColor = new Color3(0.5, 0.1, 0.1);
-        this.towerDestructionRangeIndicator.material = material;
-
-        // Initially invisible
-        this.towerDestructionRangeIndicator.setEnabled(false);
-    }
 
     /**
      * Update the boss enemy
@@ -374,153 +334,10 @@ export class BossEnemy extends Enemy {
         // Animate parts
         this.animateParts(deltaTime);
 
-        // Check for tower destruction with visual effects
-        const destroyed = this.checkTowerDestruction(deltaTime);
-
-        // If we just targeted a tower to destroy, play the destruction animation
-        if (destroyed && this.towerDestructionRangeIndicator) {
-            this.isDestroyingTower = true;
-
-            // Flash the range indicator
-            this.towerDestructionRangeIndicator.setEnabled(true);
-            this.towerDestructionRangeIndicator.position = new Vector3(
-                this.position.x,
-                0.05,
-                this.position.z
-            );
-
-            // Hide after a short time
-            setTimeout(() => {
-                if (this.towerDestructionRangeIndicator) {
-                    this.towerDestructionRangeIndicator.setEnabled(false);
-                }
-                this.isDestroyingTower = false;
-            }, 500);
-        }
-
         // Call parent update method (handles movement and status effects)
         return super.update(deltaTime);
     }
 
-    /**
-     * Override the tower destruction effect for boss
-     */
-    protected createTowerDestructionEffect(position: Vector3): void {
-        // Store the target position for animation
-        this.destructionTargetPosition = position.clone();
-
-        // Create a larger, more impressive explosion for boss
-        const explosion = new ParticleSystem("bossDestructionExplosion", 200, this.scene);
-        explosion.particleTexture = new Texture("assets/particles/flare.png", this.scene);
-        explosion.emitter = position;
-        explosion.minEmitBox = new Vector3(-1, 0, -1);
-        explosion.maxEmitBox = new Vector3(1, 2, 1);
-
-        // Set particle properties for a more dramatic effect
-        explosion.color1 = new Color4(1, 0.5, 0.1, 1);
-        explosion.color2 = new Color4(1, 0.2, 0.1, 1);
-        explosion.colorDead = new Color4(0.1, 0, 0, 0);
-
-        explosion.minSize = 0.8;
-        explosion.maxSize = 2.5;
-
-        explosion.minLifeTime = 0.5;
-        explosion.maxLifeTime = 2.0;
-
-        explosion.emitRate = 200;
-        explosion.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-        explosion.gravity = new Vector3(0, 10, 0);
-        explosion.direction1 = new Vector3(-3, 8, -3);
-        explosion.direction2 = new Vector3(3, 10, 3);
-
-        explosion.minAngularSpeed = 0;
-        explosion.maxAngularSpeed = Math.PI * 2;
-
-        explosion.minEmitPower = 2;
-        explosion.maxEmitPower = 5;
-
-        explosion.targetStopDuration = 0.5;
-
-        // Add secondary smoke effect
-        const smoke = new ParticleSystem("destructionSmoke", 50, this.scene);
-        smoke.particleTexture = new Texture("assets/particles/smoke.png", this.scene);
-        smoke.emitter = position;
-        smoke.minEmitBox = new Vector3(-1, 0, -1);
-        smoke.maxEmitBox = new Vector3(1, 0.5, 1);
-
-        // Set smoke properties
-        smoke.color1 = new Color4(0.2, 0.2, 0.2, 0.7);
-        smoke.color2 = new Color4(0.1, 0.1, 0.1, 0.7);
-        smoke.colorDead = new Color4(0, 0, 0, 0);
-
-        smoke.minSize = 2;
-        smoke.maxSize = 4;
-
-        smoke.minLifeTime = 2.0;
-        smoke.maxLifeTime = 5.0;
-
-        smoke.emitRate = 30;
-        smoke.gravity = new Vector3(0, 2, 0);
-        smoke.direction1 = new Vector3(-0.5, 1, -0.5);
-        smoke.direction2 = new Vector3(0.5, 1, 0.5);
-
-        smoke.minAngularSpeed = 0;
-        smoke.maxAngularSpeed = Math.PI / 4;
-
-        smoke.minEmitPower = 0.5;
-        smoke.maxEmitPower = 1;
-
-        // Start the effects
-        explosion.start();
-        smoke.start();
-
-        // Play a louder destruction sound
-        const sound = new Audio(`assets/audio/explosion_large.mp3`);
-        sound.volume = 0.8;
-        sound.play();
-
-        // Clean up after effects complete
-        setTimeout(() => {
-            explosion.dispose();
-            smoke.dispose();
-        }, 5000);
-
-        // Show an on-screen message
-        this.showTowerDestructionMessage();
-    }
-
-    /**
-     * Show a message on screen when a tower is destroyed
-     */
-    private showTowerDestructionMessage(): void {
-        // Create a div element for the message
-        const messageElement = document.createElement('div');
-        messageElement.style.position = 'absolute';
-        messageElement.style.top = '30%';
-        messageElement.style.left = '50%';
-        messageElement.style.transform = 'translate(-50%, -50%)';
-        messageElement.style.color = '#ff3030';
-        messageElement.style.fontSize = '32px';
-        messageElement.style.fontWeight = 'bold';
-        messageElement.style.textShadow = '2px 2px 4px #000';
-        messageElement.style.fontFamily = 'Arial, sans-serif';
-        messageElement.style.zIndex = '1000';
-        messageElement.style.pointerEvents = 'none';
-        messageElement.style.opacity = '1';
-        messageElement.style.transition = 'opacity 0.5s';
-        messageElement.innerHTML = 'BOSS DESTROYED A TOWER!';
-
-        // Add to document
-        document.body.appendChild(messageElement);
-
-        // Fade and remove after 2 seconds
-        setTimeout(() => {
-            messageElement.style.opacity = '0';
-            setTimeout(() => {
-                document.body.removeChild(messageElement);
-            }, 500);
-        }, 2000);
-    }
 
     /**
      * Animate boss parts - menacing, ground-shaking titan walk
@@ -548,51 +365,24 @@ export class BossEnemy extends Enemy {
 
         // --- Head: menacing scanning and jaw movement ---
         if (this.head) {
-            // If destroying a tower, lock gaze on target
-            if (this.isDestroyingTower && this.destructionTargetPosition) {
-                const direction = this.destructionTargetPosition.subtract(this.position);
-                direction.y = 0;
-
-                if (direction.length() > 0.1) {
-                    const angle = Math.atan2(direction.z, direction.x);
-                    this.head.rotation.y = -angle + Math.PI / 2;
-                }
-                // Head rears back during attack
-                this.head.position.y = 1.45 + 0.15;
-            } else {
-                // Normal: slow ominous head movement
-                this.head.position.y = 1.45 + Math.sin(t * 1.8) * 0.06;
-                this.head.rotation.y = Math.sin(t * 0.6) * 0.18;
-                this.head.rotation.x = Math.sin(t * 0.4) * 0.05;
-            }
+            // Normal: slow ominous head movement
+            this.head.position.y = 1.45 + Math.sin(t * 1.8) * 0.06;
+            this.head.rotation.y = Math.sin(t * 0.6) * 0.18;
+            this.head.rotation.x = Math.sin(t * 0.4) * 0.05;
         }
 
-        // --- Jaw: slow breathing open/close, faster during attack ---
+        // --- Jaw: slow breathing open/close ---
         if (this.jaw) {
-            if (this.isDestroyingTower) {
-                // Wide open roar during attack
-                this.jaw.rotation.x = 0.35;
-            } else {
-                // Slow breathing
-                this.jaw.rotation.x = Math.max(0, Math.sin(t * 1.2)) * 0.12;
-            }
+            this.jaw.rotation.x = Math.max(0, Math.sin(t * 1.2)) * 0.12;
         }
 
-        // --- Arms: heavy swaying, raised during attack ---
+        // --- Arms: heavy swaying ---
         if (this.leftArm && this.rightArm) {
-            if (this.isDestroyingTower) {
-                // Both arms raised for attack
-                this.leftArm.rotation.x = -Math.PI / 3;
-                this.rightArm.rotation.x = -Math.PI / 3;
-                this.leftArm.rotation.z = Math.PI / 6;
-                this.rightArm.rotation.z = -Math.PI / 6;
-            } else {
-                // Heavy pendulum swing, slightly out of phase
-                this.leftArm.rotation.x = Math.sin(t * 1.5 + Math.PI) * 0.20;
-                this.rightArm.rotation.x = Math.sin(t * 1.5) * 0.20;
-                this.leftArm.rotation.z = Math.PI / 10 + Math.sin(t * 0.8) * 0.05;
-                this.rightArm.rotation.z = -Math.PI / 10 - Math.sin(t * 0.8) * 0.05;
-            }
+            // Heavy pendulum swing, slightly out of phase
+            this.leftArm.rotation.x = Math.sin(t * 1.5 + Math.PI) * 0.20;
+            this.rightArm.rotation.x = Math.sin(t * 1.5) * 0.20;
+            this.leftArm.rotation.z = Math.PI / 10 + Math.sin(t * 0.8) * 0.05;
+            this.rightArm.rotation.z = -Math.PI / 10 - Math.sin(t * 0.8) * 0.05;
         }
 
         // --- Crystals: slow pulsing glow (via scale) ---
@@ -618,13 +408,6 @@ export class BossEnemy extends Enemy {
      * Clean up resources
      */
     public dispose(): void {
-        // Dispose of tower destruction range indicator
-        if (this.towerDestructionRangeIndicator) {
-            this.towerDestructionRangeIndicator.dispose();
-            this.towerDestructionRangeIndicator = null;
-        }
-
-        // Call parent dispose
         super.dispose();
     }
 

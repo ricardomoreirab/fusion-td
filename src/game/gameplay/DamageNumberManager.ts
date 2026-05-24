@@ -1,6 +1,6 @@
 import { Vector3, Mesh, MeshBuilder, StandardMaterial, DynamicTexture, Scene, Color3 } from '@babylonjs/core';
 import { Game } from '../Game';
-import { ElementType } from './towers/Tower';
+import { ElementType } from './GameTypes';
 
 interface DamageNumber {
     mesh: Mesh;
