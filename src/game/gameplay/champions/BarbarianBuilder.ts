@@ -590,77 +590,169 @@ export function buildBarbarianMesh(scene: Scene, position: Vector3): BarbarianMe
     axeHandBlood.position = new Vector3(0.04, 0.10, 0.08);
     axeHandBlood.material = createEmissiveMaterial('barbAxeHandBloodMat', bloodRed, 0.5, scene);
 
-    // --- Battle axe held in the dominant hand ---
-    // Shaft: long dark wood cylinder
+    // ===== Greatcleaver — oversized double-bit berserker axe =====
+
+    // Shaft — slightly longer than before
     const axeShaft = MeshBuilder.CreateCylinder('barbAxeShaft', {
-        height: 1.40,
+        height: 1.55,
         diameterTop: 0.10,
         diameterBottom: 0.10,
-        tessellation: 6
+        tessellation: 6,
     }, scene);
     makeFlatShaded(axeShaft);
     axeShaft.parent = swordArm;
-    axeShaft.position = new Vector3(0.05, -0.85, 0.18);
+    axeShaft.position = new Vector3(0.05, -0.95, 0.18);
     axeShaft.rotation.z = 0.08;
     axeShaft.material = createLowPolyMaterial('barbAxeShaftMat', wood, scene);
 
-    // Leather grip wrap (short dark ring at the grip point)
+    // 3 bone rings wrapping the shaft above the grip
+    for (let r = 0; r < 3; r++) {
+        const ring = MeshBuilder.CreateCylinder(`barbAxeShaftRing${r}`, {
+            height: 0.05,
+            diameterTop: 0.13,
+            diameterBottom: 0.13,
+            tessellation: 6,
+        }, scene);
+        makeFlatShaded(ring);
+        ring.parent = axeShaft;
+        ring.position = new Vector3(0, 0.30 + r * 0.10, 0);
+        ring.material = createLowPolyMaterial(`barbAxeShaftRingMat${r}`, boneWhite, scene);
+    }
+
+    // Leather grip wrap (unchanged in spirit)
     const gripWrap = MeshBuilder.CreateCylinder('barbAxeGrip', {
         height: 0.22,
         diameterTop: 0.14,
         diameterBottom: 0.14,
-        tessellation: 6
+        tessellation: 6,
     }, scene);
     makeFlatShaded(gripWrap);
     gripWrap.parent = axeShaft;
     gripWrap.position = new Vector3(0, 0.15, 0);
     gripWrap.material = createLowPolyMaterial('barbAxeGripMat', leather, scene);
 
-    // Axe head body (flattened steel box — the main blade mass)
+    // ===== Main axe head body — ~50% larger than before =====
     const axeHead = MeshBuilder.CreateBox('barbAxeHead', {
-        width: 0.42,
-        height: 0.52,
-        depth: 0.12
+        width: 0.65,
+        height: 0.75,
+        depth: 0.18,
     }, scene);
     makeFlatShaded(axeHead);
     axeHead.parent = axeShaft;
-    axeHead.position = new Vector3(0.14, 0.64, 0);
-    axeHead.rotation.z = 0.15; // slight forward lean
+    axeHead.position = new Vector3(0.18, 0.72, 0);
+    axeHead.rotation.z = 0.15;
     axeHead.material = createLowPolyMaterial('barbAxeHeadMat', steelGrey, scene);
 
-    // Leading edge of axe blade (bright thin strip — the sharpened edge)
-    const axeEdge = MeshBuilder.CreateBox('barbAxeEdge', {
-        width: 0.06,
-        height: 0.52,
-        depth: 0.14
-    }, scene);
-    makeFlatShaded(axeEdge);
-    axeEdge.parent = axeHead;
-    axeEdge.position = new Vector3(0.22, 0, 0);
-    axeEdge.material = createEmissiveMaterial('barbAxeEdgeMat', steelSharp, 0.35, scene);
+    // Jagged tooth edge — 3 stacked notched boxes of varying widths along the cutting side
+    const toothWidths = [0.10, 0.06, 0.08];
+    const toothHeights = [0.26, 0.22, 0.24];
+    const toothYs = [-0.22, 0.00, 0.22];
+    for (let t = 0; t < 3; t++) {
+        const tooth = MeshBuilder.CreateBox(`barbAxeTooth${t}`, {
+            width: toothWidths[t],
+            height: toothHeights[t],
+            depth: 0.20,
+        }, scene);
+        makeFlatShaded(tooth);
+        tooth.parent = axeHead;
+        tooth.position = new Vector3(0.32 + (t % 2) * 0.02, toothYs[t], 0);
+        tooth.material = createEmissiveMaterial(`barbAxeToothMat${t}`, steelSharp, 0.35, scene);
+    }
 
-    // Back spike of axe head (small spike on the non-blade side)
-    const axeBackSpike = MeshBuilder.CreateCylinder('barbAxeBackSpike', {
-        height: 0.20,
-        diameterTop: 0.02,
-        diameterBottom: 0.08,
-        tessellation: 4
+    // Second (back) blade — smaller mirror blade on the spike side, creates double-bit silhouette
+    const backBlade = MeshBuilder.CreateBox('barbAxeBackBlade', {
+        width: 0.45,
+        height: 0.40,
+        depth: 0.12,
     }, scene);
-    makeFlatShaded(axeBackSpike);
-    axeBackSpike.parent = axeHead;
-    axeBackSpike.position = new Vector3(-0.22, 0.10, 0);
-    axeBackSpike.rotation.z = Math.PI / 2;
-    axeBackSpike.material = createLowPolyMaterial('barbAxeBackSpikeMat', steelGrey, scene);
+    makeFlatShaded(backBlade);
+    backBlade.parent = axeHead;
+    backBlade.position = new Vector3(-0.40, 0.05, 0);
+    backBlade.rotation.z = -0.15;
+    backBlade.material = createLowPolyMaterial('barbAxeBackBladeMat', steelGrey, scene);
 
-    // Pommel cap at bottom of shaft (small polyhedron)
-    const pommel = MeshBuilder.CreatePolyhedron('barbAxePommel', {
-        type: 1, // octahedron
-        size: 0.07
+    // 2 jagged teeth on the back blade
+    for (let t = 0; t < 2; t++) {
+        const backTooth = MeshBuilder.CreateBox(`barbAxeBackTooth${t}`, {
+            width: 0.08,
+            height: 0.18,
+            depth: 0.14,
+        }, scene);
+        makeFlatShaded(backTooth);
+        backTooth.parent = backBlade;
+        backTooth.position = new Vector3(-0.22, t === 0 ? -0.12 : 0.12, 0);
+        backTooth.material = createEmissiveMaterial(`barbAxeBackToothMat${t}`, steelSharp, 0.3, scene);
+    }
+
+    // 3 bone inlays along the side face of the main head
+    for (let i = 0; i < 3; i++) {
+        const inlay = MeshBuilder.CreatePolyhedron(`barbAxeInlay${i}`, {
+            type: 1,
+            size: 0.05,
+        }, scene);
+        makeFlatShaded(inlay);
+        inlay.parent = axeHead;
+        inlay.position = new Vector3(-0.05 + i * 0.10, -0.20 + i * 0.20, 0.10);
+        inlay.material = createLowPolyMaterial(`barbAxeInlayMat${i}`, boneWhite, scene);
+    }
+
+    // 3 blood-drip emissive strips running down the side of the main blade
+    for (let d = 0; d < 3; d++) {
+        const drip = MeshBuilder.CreateBox(`barbAxeBloodDrip${d}`, {
+            width: 0.025,
+            height: 0.32,
+            depth: 0.03,
+        }, scene);
+        makeFlatShaded(drip);
+        drip.parent = axeHead;
+        drip.position = new Vector3(0.20 - d * 0.10, -0.10 - d * 0.05, 0.09);
+        drip.material = createEmissiveMaterial(`barbAxeBloodDripMat${d}`, bloodRed, 0.6, scene);
+    }
+
+    // Skull pommel — replaces the octahedron
+    const pommelSkull = MeshBuilder.CreateSphere('barbAxePommelSkull', {
+        diameter: 0.13,
+        segments: 4,
     }, scene);
-    makeFlatShaded(pommel);
-    pommel.parent = axeShaft;
-    pommel.position = new Vector3(0, -0.72, 0);
-    pommel.material = createLowPolyMaterial('barbAxePommelMat', steelGrey, scene);
+    makeFlatShaded(pommelSkull);
+    pommelSkull.parent = axeShaft;
+    pommelSkull.position = new Vector3(0, -0.80, 0);
+    pommelSkull.material = createLowPolyMaterial('barbAxePommelSkullMat', boneWhite, scene);
+
+    const pommelJaw = MeshBuilder.CreateBox('barbAxePommelJaw', {
+        width: 0.09,
+        height: 0.04,
+        depth: 0.07,
+    }, scene);
+    makeFlatShaded(pommelJaw);
+    pommelJaw.parent = pommelSkull;
+    pommelJaw.position = new Vector3(0, -0.06, 0.01);
+    pommelJaw.material = createLowPolyMaterial('barbAxePommelJawMat',
+        new Color3(0.85, 0.80, 0.70), scene);
+
+    // 3 hanging trophy strips dangling from the junction of head and shaft
+    const stripLengths = [0.18, 0.25, 0.20];
+    for (let s = 0; s < 3; s++) {
+        const strip = MeshBuilder.CreateBox(`barbAxeTrophyStrip${s}`, {
+            width: 0.025,
+            height: stripLengths[s],
+            depth: 0.025,
+        }, scene);
+        makeFlatShaded(strip);
+        strip.parent = axeShaft;
+        strip.position = new Vector3(0.08 + (s - 1) * 0.04, 0.50 - stripLengths[s] * 0.5, 0.05);
+        strip.material = createLowPolyMaterial(`barbAxeTrophyStripMat${s}`, darkLeather, scene);
+
+        // Small bone bead at end of strip
+        const stripBone = MeshBuilder.CreatePolyhedron(`barbAxeTrophyStripBone${s}`, {
+            type: 1,
+            size: 0.025,
+        }, scene);
+        makeFlatShaded(stripBone);
+        stripBone.parent = strip;
+        stripBone.position = new Vector3(0, -stripLengths[s] * 0.5 - 0.02, 0);
+        stripBone.material = createLowPolyMaterial(`barbAxeTrophyStripBoneMat${s}`, boneWhite, scene);
+    }
 
     // --- Left arm (off-hand / clenched fist) ---
     const shieldArm = MeshBuilder.CreateCylinder('barbOffArm', {
