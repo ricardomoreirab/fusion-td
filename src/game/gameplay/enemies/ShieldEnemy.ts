@@ -19,6 +19,9 @@ export class ShieldEnemy extends Enemy {
     private lastHitTime: number = 0;
     private shieldMesh: Mesh | null = null;
 
+    // Shield dome — translucent sphere around the enemy, visible when shield > 0
+    private shieldDome: Mesh | null = null;
+
     constructor(game: Game, position: Vector3, path: Vector3[]) {
         // Shield enemy: HP 50, Speed 2.0, Damage 15, Reward $35
         super(game, position, path, 2.0, 50, 15, 35);
@@ -322,6 +325,18 @@ export class ShieldEnemy extends Enemy {
         rightBoot.position = new Vector3(0, -0.30, 0.04);
         rightBoot.material = createLowPolyMaterial('shieldRightBootMat', PALETTE.ENEMY_SHIELD_PLATE, this.scene);
 
+        // --- Shield dome: translucent blue sphere surrounding the enemy ---
+        // Alpha is proportional to shield fraction; invisible when shield is depleted.
+        this.shieldDome = MeshBuilder.CreateSphere('shieldDome', { diameter: 1.80, segments: 6 }, this.scene);
+        this.shieldDome.parent = this.mesh;
+        this.shieldDome.position = new Vector3(0, 0.15, 0);
+        const domeMat = new StandardMaterial('shieldDomeMat', this.scene);
+        domeMat.diffuseColor = new Color3(0.40, 0.60, 1.0);
+        domeMat.emissiveColor = new Color3(0.15, 0.30, 0.60);
+        domeMat.specularColor = Color3.Black();
+        domeMat.alpha = 0.35; // full shield = 0.35
+        this.shieldDome.material = domeMat;
+
         // Store original scale
         this.originalScale = 1.0;
     }
@@ -345,6 +360,8 @@ export class ShieldEnemy extends Enemy {
     private updateShieldVisual(): void {
         if (!this.shieldMesh) return;
 
+        const shieldFraction = this.maxShield > 0 ? this.shield / this.maxShield : 0;
+
         if (this.shield > 0) {
             // Shield active: semi-transparent blue tint with emissive glow
             this.shieldMesh.setEnabled(true);
@@ -364,6 +381,35 @@ export class ShieldEnemy extends Enemy {
                 mat.alpha = 1.0;
             }
         }
+
+        // Update dome visibility: alpha = shieldFraction × 0.35
+        if (this.shieldDome) {
+            const domeMat = this.shieldDome.material as StandardMaterial;
+            if (domeMat) {
+                domeMat.alpha = shieldFraction * 0.35;
+            }
+            this.shieldDome.setEnabled(shieldFraction > 0);
+        }
+    }
+
+    /**
+     * Flash the shield dome brightly then fade when shield regen kicks in.
+     */
+    private flashShieldRegen(): void {
+        if (!this.shieldDome) return;
+        const domeMat = this.shieldDome.material as StandardMaterial;
+        if (!domeMat) return;
+
+        domeMat.alpha = 0.55;
+        const startTime = performance.now();
+        const observer = this.scene.onBeforeRenderObservable.add(() => {
+            const elapsed = performance.now() - startTime;
+            const t = Math.min(elapsed / 300, 1.0);
+            domeMat.alpha = 0.55 - (0.55 - 0.35) * t;
+            if (t >= 1.0) {
+                this.scene.onBeforeRenderObservable.remove(observer);
+            }
+        });
     }
 
     /**
@@ -501,6 +547,10 @@ export class ShieldEnemy extends Enemy {
             if (performance.now() - this.lastHitTime > 5000) {
                 this.shield = this.maxShield;
                 this.updateShieldVisual();
+                // Brief bright flash to signal regen
+                this.flashShieldRegen();
+                // Reset lastHitTime so we don't flash every frame
+                this.lastHitTime = -1;
             }
         }
 

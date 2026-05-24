@@ -14,6 +14,9 @@ export class HealerEnemy extends Enemy {
     private leftArm: Mesh | null = null;
     private rightArm: Mesh | null = null;
 
+    // Ground glow disc under healer (constant soft indicator)
+    private groundGlow: Mesh | null = null;
+
     constructor(game: Game, position: Vector3, path: Vector3[]) {
         // Healer enemy: moderate speed, low HP, low damage, decent reward
         super(game, position, path, 3.5, 25, 5, 30);
@@ -160,6 +163,17 @@ export class HealerEnemy extends Enemy {
         this.auraRing.position = new Vector3(0, -0.50, 0);
         this.auraRing.material = createEmissiveMaterial('healerAuraRingMat', PALETTE.ENEMY_HEALER_GLOW, 1.2, this.scene);
 
+        // --- Ground glow: soft constant disc at feet so players spot healers at a glance ---
+        this.groundGlow = MeshBuilder.CreateDisc('healerGroundGlow', { radius: 0.70, tessellation: 16 }, this.scene);
+        this.groundGlow.parent = this.mesh;
+        this.groundGlow.rotation.x = Math.PI / 2;
+        this.groundGlow.position = new Vector3(0, -0.52, 0);
+        const groundGlowMat = new StandardMaterial('healerGroundGlowMat', this.scene);
+        groundGlowMat.emissiveColor = PALETTE.ENEMY_HEALER_GLOW;
+        groundGlowMat.alpha = 0.35;
+        groundGlowMat.disableLighting = true;
+        this.groundGlow.material = groundGlowMat;
+
         // Store original scale
         this.originalScale = 1.0;
     }
@@ -273,6 +287,9 @@ export class HealerEnemy extends Enemy {
                 }
             });
             document.dispatchEvent(healEvent);
+
+            // Expanding pulse ring visual at healer's feet
+            this.spawnHealPulseRing();
         }
 
         // Update walking animation
@@ -389,5 +406,45 @@ export class HealerEnemy extends Enemy {
                 particleSystem.dispose();
             }, 1000);
         }, 1000);
+    }
+
+    /**
+     * Spawn an expanding green ring at the healer's feet to telegraph a heal pulse.
+     * Ring animates from radius 0.5 → 3.0 over 0.5 s then disposes.
+     */
+    private spawnHealPulseRing(): void {
+        const ring = MeshBuilder.CreateDisc('healPulseRing', { radius: 0.5, tessellation: 24 }, this.scene);
+        ring.rotation.x = Math.PI / 2;
+        ring.position = this.position.clone();
+        ring.position.y += 0.05;
+
+        const ringMat = new StandardMaterial('healPulseRingMat_' + Math.random(), this.scene);
+        ringMat.emissiveColor = PALETTE.ENEMY_HEALER_GLOW;
+        ringMat.alpha = 0.60;
+        ringMat.disableLighting = true;
+        ring.material = ringMat;
+
+        const startTime = performance.now();
+        const duration = 500; // ms
+        const startRadius = 0.5;
+        const endRadius = 3.0;
+
+        const observer = this.scene.onBeforeRenderObservable.add(() => {
+            if (ring.isDisposed()) {
+                this.scene.onBeforeRenderObservable.remove(observer);
+                return;
+            }
+            const elapsed = performance.now() - startTime;
+            const t = Math.min(elapsed / duration, 1.0);
+            const radius = startRadius + (endRadius - startRadius) * t;
+            const scale = radius / startRadius;
+            ring.scaling.set(scale, scale, scale);
+            ringMat.alpha = 0.60 * (1 - t);
+
+            if (t >= 1.0) {
+                this.scene.onBeforeRenderObservable.remove(observer);
+                ring.dispose();
+            }
+        });
     }
 }
