@@ -2,163 +2,156 @@ import { Vector3, Mesh, MeshBuilder, StandardMaterial, DynamicTexture, Scene, Co
 import { Game } from '../Game';
 import { ElementType } from './GameTypes';
 
-interface DamageNumber {
+/**
+ * Pre-allocated reusable damage-number slot. We keep N of these alive for the
+ * lifetime of the manager and recycle them on each showDamage/showReward call.
+ *
+ * Why: the original implementation allocated a fresh DynamicTexture + Mesh +
+ * StandardMaterial on every hit. During wave bursts (e.g. Frost Nova hitting
+ * 20+ enemies at once) that was 20+ GPU texture uploads in one frame — the
+ * dominant cause of mid-game ~1 second freezes.
+ */
+interface DamageNumberSlot {
     mesh: Mesh;
+    texture: DynamicTexture;
+    material: StandardMaterial;
+    inUse: boolean;
     lifetime: number;
     maxLifetime: number;
     startY: number;
 }
 
+const POOL_SIZE = 24;
+const TEX_WIDTH = 128;
+const TEX_HEIGHT = 64;
+
 export class DamageNumberManager {
-    private game: Game;
     private scene: Scene;
-    private activeNumbers: DamageNumber[] = [];
+    private pool: DamageNumberSlot[] = [];
+    private nextSlotIdx: number = 0;
 
     constructor(game: Game) {
-        this.game = game;
         this.scene = game.getScene();
+
+        for (let i = 0; i < POOL_SIZE; i++) {
+            const texture = new DynamicTexture(`dmgTex${i}`, { width: TEX_WIDTH, height: TEX_HEIGHT }, this.scene, false);
+            texture.hasAlpha = true;
+
+            const material = new StandardMaterial(`dmgMat${i}`, this.scene);
+            material.diffuseTexture = texture;
+            material.emissiveColor = new Color3(1, 1, 1);
+            material.disableLighting = true;
+            material.useAlphaFromDiffuseTexture = true;
+            material.backFaceCulling = false;
+
+            const mesh = MeshBuilder.CreatePlane(`dmgNum${i}`, { width: 1.2, height: 0.6 }, this.scene);
+            mesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
+            mesh.material = material;
+            mesh.setEnabled(false);
+
+            this.pool.push({
+                mesh,
+                texture,
+                material,
+                inUse: false,
+                lifetime: 0,
+                maxLifetime: 0,
+                startY: 0,
+            });
+        }
+    }
+
+    /**
+     * Take a slot from the pool. If everything is in use, recycle the oldest
+     * one — bursting beyond POOL_SIZE simultaneously is rare and dropping a
+     * stale floating number is better than allocating new GPU resources.
+     */
+    private acquireSlot(): DamageNumberSlot {
+        for (let i = 0; i < POOL_SIZE; i++) {
+            const idx = (this.nextSlotIdx + i) % POOL_SIZE;
+            if (!this.pool[idx].inUse) {
+                this.nextSlotIdx = (idx + 1) % POOL_SIZE;
+                return this.pool[idx];
+            }
+        }
+        const slot = this.pool[this.nextSlotIdx];
+        this.nextSlotIdx = (this.nextSlotIdx + 1) % POOL_SIZE;
+        return slot;
+    }
+
+    private drawText(slot: DamageNumberSlot, text: string, color: string, fontSize: number): void {
+        const ctx = slot.texture.getContext() as CanvasRenderingContext2D;
+        ctx.clearRect(0, 0, TEX_WIDTH, TEX_HEIGHT);
+        ctx.font = `bold ${fontSize}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.strokeStyle = 'black';
+        ctx.lineWidth = 5;
+        ctx.strokeText(text, TEX_WIDTH / 2, TEX_HEIGHT / 2);
+        ctx.fillStyle = color;
+        ctx.fillText(text, TEX_WIDTH / 2, TEX_HEIGHT / 2);
+        slot.texture.update();
     }
 
     public showDamage(position: Vector3, damage: number, elementType: ElementType = ElementType.NONE): void {
-        const color = this.getColorForElement(elementType);
-        const text = Math.round(damage).toString();
+        const slot = this.acquireSlot();
+        this.drawText(slot, Math.round(damage).toString(), this.getColorForElement(elementType), 56);
+        slot.mesh.position.x = position.x + (Math.random() - 0.5) * 0.5;
+        slot.mesh.position.y = position.y + 1.5;
+        slot.mesh.position.z = position.z + (Math.random() - 0.5) * 0.5;
+        slot.material.alpha = 1;
+        slot.inUse = true;
+        slot.lifetime = 0;
+        slot.maxLifetime = 0.8;
+        slot.startY = slot.mesh.position.y;
+        slot.mesh.setEnabled(true);
+    }
 
-        // Create dynamic texture for the text
-        const textureSize = 128;
-        const texture = new DynamicTexture('dmgTex', { width: textureSize, height: 64 }, this.scene, false);
-        texture.hasAlpha = true;
-
-        const ctx = texture.getContext() as any;
-        ctx.clearRect(0, 0, textureSize, 64);
-
-        // Draw text with outline
-        ctx.font = 'bold 56px Arial';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-
-        // Black outline
-        ctx.strokeStyle = 'black';
-        ctx.lineWidth = 5;
-        ctx.strokeText(text, textureSize / 2, 32);
-
-        // Colored fill
-        ctx.fillStyle = color;
-        ctx.fillText(text, textureSize / 2, 32);
-
-        texture.update();
-
-        // Create a plane that billboards toward camera
-        const plane = MeshBuilder.CreatePlane('dmgNum', { width: 1.2, height: 0.6 }, this.scene);
-        plane.position = new Vector3(
-            position.x + (Math.random() - 0.5) * 0.5,
-            position.y + 1.5,
-            position.z + (Math.random() - 0.5) * 0.5
-        );
-        plane.billboardMode = Mesh.BILLBOARDMODE_ALL;
-
-        const material = new StandardMaterial('dmgMat', this.scene);
-        material.diffuseTexture = texture;
-        material.emissiveColor = new Color3(1, 1, 1);
-        material.disableLighting = true;
-        material.useAlphaFromDiffuseTexture = true;
-        material.backFaceCulling = false;
-        plane.material = material;
-
-        this.activeNumbers.push({
-            mesh: plane,
-            lifetime: 0,
-            maxLifetime: 0.8,
-            startY: plane.position.y
-        });
+    public showReward(position: Vector3, reward: number): void {
+        const slot = this.acquireSlot();
+        this.drawText(slot, `+$${reward}`, '#FFD700', 48);
+        slot.mesh.position.x = position.x;
+        slot.mesh.position.y = position.y + 1.8;
+        slot.mesh.position.z = position.z;
+        slot.material.alpha = 1;
+        slot.inUse = true;
+        slot.lifetime = 0;
+        slot.maxLifetime = 1.0;
+        slot.startY = slot.mesh.position.y;
+        slot.mesh.setEnabled(true);
     }
 
     public update(deltaTime: number): void {
-        const toRemove: number[] = [];
+        for (let i = 0; i < this.pool.length; i++) {
+            const slot = this.pool[i];
+            if (!slot.inUse) continue;
 
-        for (let i = 0; i < this.activeNumbers.length; i++) {
-            const dn = this.activeNumbers[i];
-            dn.lifetime += deltaTime;
+            slot.lifetime += deltaTime;
+            const progress = slot.lifetime / slot.maxLifetime;
 
-            const progress = dn.lifetime / dn.maxLifetime;
+            slot.mesh.position.y = slot.startY + progress * 2.0;
 
-            // Float upward
-            dn.mesh.position.y = dn.startY + progress * 2.0;
-
-            // Fade out in the second half
             if (progress > 0.5) {
-                const fadeProgress = (progress - 0.5) / 0.5;
-                (dn.mesh.material as StandardMaterial).alpha = 1 - fadeProgress;
+                slot.material.alpha = 1 - (progress - 0.5) / 0.5;
             }
 
-            // Pop-in scale: 0 → 1.5 → 1.0 in first 200ms (25% of 0.8s lifetime)
+            const popDuration = 0.25;
             let scale: number;
-            const popDuration = 0.25; // 25% of lifetime
             if (progress < popDuration / 2) {
-                // Scale from 0 to 1.5
                 scale = (progress / (popDuration / 2)) * 1.5;
             } else if (progress < popDuration) {
-                // Scale from 1.5 back to 1.0
                 const t = (progress - popDuration / 2) / (popDuration / 2);
                 scale = 1.5 - t * 0.5;
             } else {
                 scale = 1.0;
             }
-            dn.mesh.scaling.setAll(scale);
+            slot.mesh.scaling.setAll(scale);
 
             if (progress >= 1) {
-                toRemove.push(i);
+                slot.inUse = false;
+                slot.mesh.setEnabled(false);
             }
         }
-
-        // Remove expired numbers (iterate backwards)
-        for (let i = toRemove.length - 1; i >= 0; i--) {
-            const dn = this.activeNumbers[toRemove[i]];
-            dn.mesh.dispose();
-            (dn.mesh.material as StandardMaterial)?.dispose();
-            this.activeNumbers.splice(toRemove[i], 1);
-        }
-    }
-
-    /**
-     * Show a gold reward floating text at a position
-     */
-    public showReward(position: Vector3, reward: number): void {
-        const text = `+$${reward}`;
-
-        const textureSize = 128;
-        const texture = new DynamicTexture('rewardTex', { width: textureSize, height: 64 }, this.scene, false);
-        texture.hasAlpha = true;
-
-        const ctx = texture.getContext() as any;
-        ctx.clearRect(0, 0, textureSize, 64);
-        ctx.font = 'bold 48px Arial';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.strokeStyle = 'black';
-        ctx.lineWidth = 5;
-        ctx.strokeText(text, textureSize / 2, 32);
-        ctx.fillStyle = '#FFD700';
-        ctx.fillText(text, textureSize / 2, 32);
-        texture.update();
-
-        const plane = MeshBuilder.CreatePlane('rewardNum', { width: 1.4, height: 0.6 }, this.scene);
-        plane.position = new Vector3(position.x, position.y + 1.8, position.z);
-        plane.billboardMode = Mesh.BILLBOARDMODE_ALL;
-
-        const material = new StandardMaterial('rewardMat', this.scene);
-        material.diffuseTexture = texture;
-        material.emissiveColor = new Color3(1, 1, 1);
-        material.disableLighting = true;
-        material.useAlphaFromDiffuseTexture = true;
-        material.backFaceCulling = false;
-        plane.material = material;
-
-        this.activeNumbers.push({
-            mesh: plane,
-            lifetime: 0,
-            maxLifetime: 1.0,
-            startY: plane.position.y
-        });
     }
 
     private getColorForElement(elementType: ElementType): string {
@@ -172,10 +165,11 @@ export class DamageNumberManager {
     }
 
     public dispose(): void {
-        for (const dn of this.activeNumbers) {
-            dn.mesh.dispose();
-            (dn.mesh.material as StandardMaterial)?.dispose();
+        for (const slot of this.pool) {
+            slot.mesh.dispose();
+            slot.material.dispose();
+            slot.texture.dispose();
         }
-        this.activeNumbers = [];
+        this.pool = [];
     }
 }

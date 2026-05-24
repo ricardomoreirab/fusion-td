@@ -79,22 +79,27 @@ function spawnTrailParticle(
         scene,
     ) as Mesh;
     part.position.copyFrom(position);
-    const mat = new StandardMaterial(`trailMat_${performance.now()}_${Math.random()}`, scene);
-    mat.emissiveColor = color;
-    mat.diffuseColor = new Color3(0, 0, 0);
-    mat.alpha = 0.7;
-    part.material = mat;
+    // Share the trail material across every in-flight trail of the same color.
+    // The previous code allocated a new StandardMaterial per call (~20 Hz per
+    // projectile, several projectiles in flight) — that allocation churn was
+    // the dominant GC pressure during sustained power use.
+    const matKey = `trailMat_${color.r.toFixed(2)}_${color.g.toFixed(2)}_${color.b.toFixed(2)}`;
+    part.material = getCachedMaterial(scene, matKey, m => {
+        m.emissiveColor = color;
+        m.diffuseColor = new Color3(0, 0, 0);
+        m.alpha = 0.7;
+    });
     const startScale = 1;
     let elapsed = 0;
     const obs = scene.onBeforeRenderObservable.add(() => {
         const dt = scene.getEngine().getDeltaTime() / 1000;
         elapsed += dt;
         const t = Math.min(elapsed / duration, 1);
+        // Fade via mesh scale only (per-instance) — sharing the material means
+        // we can no longer mutate alpha per particle.
         part.scaling.setAll(startScale * (1 - t));
-        mat.alpha = 0.7 * (1 - t);
         if (t >= 1) {
             part.dispose();
-            mat.dispose();
             scene.onBeforeRenderObservable.remove(obs);
         }
     });
