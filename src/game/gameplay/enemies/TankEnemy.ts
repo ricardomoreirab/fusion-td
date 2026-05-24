@@ -221,6 +221,52 @@ export class TankEnemy extends Enemy {
         rearPlate.rotation.x = -0.3;
         rearPlate.material = createLowPolyMaterial('tankRearMat', PALETTE.ENEMY_TANK_SHELL, this.scene);
 
+        // --- Armor plates: dark metallic slabs on the sides for a bulkier silhouette ---
+        const armorPlateColor = new Color3(0.22, 0.20, 0.26); // Near-black dark metal
+
+        const leftPlate = MeshBuilder.CreateBox('tankLeftPlate', {
+            width: 0.10,
+            height: 0.38,
+            depth: 0.75
+        }, this.scene);
+        makeFlatShaded(leftPlate);
+        leftPlate.parent = this.mesh;
+        leftPlate.position = new Vector3(-0.72, 0.05, 0);
+        leftPlate.material = createLowPolyMaterial('tankLeftPlateMat', armorPlateColor, this.scene);
+
+        const rightPlate = MeshBuilder.CreateBox('tankRightPlate', {
+            width: 0.10,
+            height: 0.38,
+            depth: 0.75
+        }, this.scene);
+        makeFlatShaded(rightPlate);
+        rightPlate.parent = this.mesh;
+        rightPlate.position = new Vector3(0.72, 0.05, 0);
+        rightPlate.material = createLowPolyMaterial('tankRightPlateMat', armorPlateColor, this.scene);
+
+        // Front armor brow: thick horizontal slab above the head for an imposing forehead
+        const frontBrow = MeshBuilder.CreateBox('tankFrontBrow', {
+            width: 0.70,
+            height: 0.14,
+            depth: 0.16
+        }, this.scene);
+        makeFlatShaded(frontBrow);
+        frontBrow.parent = this.mesh;
+        frontBrow.position = new Vector3(0, 0.22, 0.60);
+        frontBrow.material = createLowPolyMaterial('tankFrontBrowMat', armorPlateColor, this.scene);
+
+        // Helmet horn: small polyhedron spike on top centre for an intimidating silhouette
+        const helmetHorn = MeshBuilder.CreateCylinder('tankHelmetHorn', {
+            height: 0.28,
+            diameterTop: 0.0,
+            diameterBottom: 0.12,
+            tessellation: 4
+        }, this.scene);
+        makeFlatShaded(helmetHorn);
+        helmetHorn.parent = this.shellTop;
+        helmetHorn.position = new Vector3(0, 0.28, 0);
+        helmetHorn.material = createLowPolyMaterial('tankHelmetHornMat', armorPlateColor, this.scene);
+
         // Store original scale
         this.originalScale = 1.0;
     }

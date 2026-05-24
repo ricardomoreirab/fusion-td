@@ -13,6 +13,11 @@ export class FastEnemy extends Enemy {
     private cloakRight: Mesh | null = null;
     private tailWisp: Mesh | null = null;
 
+    // Motion-trail ghost meshes (3 trailing copies)
+    private ghostTrails: Mesh[] = [];
+    // Previous positions ring buffer for smooth trailing
+    private trailPositions: Array<{ x: number; y: number; z: number }> = [];
+
     constructor(game: Game, position: Vector3, path: Vector3[]) {
         // Fast enemy has 2x speed, low health, low damage, and medium reward
         super(game, position, path, 6, 20, 5, 15);
@@ -192,6 +197,28 @@ export class FastEnemy extends Enemy {
         coreGlow.position = new Vector3(0, 0.20, 0.12);
         coreGlow.material = createEmissiveMaterial('fastCoreGlowMat', PALETTE.ENEMY_FAST_EYE, 1.5, this.scene);
 
+        // --- Motion trail: 3 ghost clones of the body, fading behind the wraith ---
+        this.ghostTrails = [];
+        for (let g = 0; g < 3; g++) {
+            const ghost = MeshBuilder.CreateCylinder(`fastGhost${g}`, {
+                height: 1.1,
+                diameterTop: 0.50,
+                diameterBottom: 0.08,
+                tessellation: 5
+            }, this.scene);
+            makeFlatShaded(ghost);
+            ghost.position = this.position.clone();
+            ghost.position.y += 1.3;
+            const ghostMat = new StandardMaterial(`fastGhostMat${g}`, this.scene);
+            ghostMat.diffuseColor = PALETTE.ENEMY_FAST;
+            ghostMat.emissiveColor = PALETTE.ENEMY_FAST_WISP.scale(0.5);
+            ghostMat.specularColor = Color3.Black();
+            // Fade out progressively: ghost 0 = most opaque, ghost 2 = most transparent
+            ghostMat.alpha = 0.30 - g * 0.09;
+            ghost.material = ghostMat;
+            this.ghostTrails.push(ghost);
+        }
+
         // Store original scale
         this.originalScale = 1.0;
     }
@@ -297,11 +324,38 @@ export class FastEnemy extends Enemy {
         if (!this.isFrozen && !this.isStunned && this.currentPathIndex < this.path.length) {
             this.flyTime += deltaTime * 6;
 
+            // Record position history for trail (store last 9 positions in a ring buffer)
+            this.trailPositions.unshift({
+                x: this.position.x,
+                y: this.position.y + 1.3 + Math.sin(this.flyTime * 0.6) * 0.25,
+                z: this.position.z
+            });
+            if (this.trailPositions.length > 9) this.trailPositions.length = 9;
+
+            // Update ghost trail positions (sample every 3 frames back)
+            for (let g = 0; g < this.ghostTrails.length; g++) {
+                const ghost = this.ghostTrails[g];
+                if (ghost.isDisposed()) continue;
+                const histIdx = Math.min((g + 1) * 3, this.trailPositions.length - 1);
+                if (histIdx < this.trailPositions.length) {
+                    const hp = this.trailPositions[histIdx];
+                    ghost.position.set(hp.x, hp.y, hp.z);
+                    ghost.rotation.y = this.mesh ? this.mesh.rotation.y : 0;
+                    ghost.scaling.copyFrom(this.mesh ? this.mesh.scaling : ghost.scaling);
+                }
+            }
+
             if (this.mesh) {
                 // Ethereal floating: slow sinusoidal hover with slight figure-8
                 const hoverY = Math.sin(this.flyTime * 0.6) * 0.25;
-                const hoverX = Math.sin(this.flyTime * 0.3) * 0.08;
                 this.mesh.position.y = this.position.y + 1.3 + hoverY;
+
+                // Subtle emissive pulse on body
+                const bodyMat = this.mesh.material as StandardMaterial;
+                if (bodyMat) {
+                    const pulse = 0.5 + 0.3 * Math.sin(this.flyTime * 2.5);
+                    bodyMat.emissiveColor = PALETTE.ENEMY_FAST_WISP.scale(pulse);
+                }
 
                 // Gentle body tilt as it sways
                 this.mesh.rotation.z = Math.sin(this.flyTime * 0.4) * 0.12;
@@ -367,5 +421,16 @@ export class FastEnemy extends Enemy {
 
         // Play a special sound for fast enemy death
         this.game.getAssetManager().playSound('enemyDeath');
+    }
+
+    /**
+     * Clean up ghost trail meshes in addition to base cleanup
+     */
+    public dispose(): void {
+        for (const ghost of this.ghostTrails) {
+            if (!ghost.isDisposed()) ghost.dispose();
+        }
+        this.ghostTrails = [];
+        super.dispose();
     }
 }

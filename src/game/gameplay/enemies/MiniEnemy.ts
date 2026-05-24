@@ -18,16 +18,18 @@ export class MiniEnemy extends Enemy {
     }
 
     protected createMesh(): void {
-        // Small blob body
+        // Small blob body — bumped 1.1× from original 0.40/0.30/0.35 for readability
         this.mesh = MeshBuilder.CreateBox('miniEnemyBody', {
-            width: 0.40,
-            height: 0.30,
-            depth: 0.35
+            width: 0.44,
+            height: 0.33,
+            depth: 0.39
         }, this.scene);
         makeFlatShaded(this.mesh);
         this.mesh.position = this.position.clone();
-        this.mesh.position.y += 0.25;
-        this.mesh.material = createLowPolyMaterial('miniBodyMat', PALETTE.ENEMY_SPLITTING, this.scene);
+        this.mesh.position.y += 0.28;
+        // Slightly brighter tint (splitter parentage cue) — lighter cyan-green
+        const miniBodyColor = PALETTE.ENEMY_SPLITTING_BELLY;
+        this.mesh.material = createLowPolyMaterial('miniBodyMat', miniBodyColor, this.scene);
 
         // Belly
         const belly = MeshBuilder.CreateBox('miniBelly', {
@@ -67,7 +69,7 @@ export class MiniEnemy extends Enemy {
         this.healthBarOutlineMesh = MeshBuilder.CreateBox('healthBarOutline', {
             width: 0.65, height: 0.10, depth: 0.03
         }, this.scene);
-        this.healthBarOutlineMesh.position = new Vector3(this.position.x, this.position.y + 0.9, this.position.z);
+        this.healthBarOutlineMesh.position = new Vector3(this.position.x, this.position.y + 1.0, this.position.z);
         const outlineMat = new StandardMaterial('healthBarOutlineMat', this.scene);
         outlineMat.diffuseColor = new Color3(0, 0, 0);
         outlineMat.specularColor = Color3.Black();
@@ -76,7 +78,7 @@ export class MiniEnemy extends Enemy {
         this.healthBarBackgroundMesh = MeshBuilder.CreateBox('healthBarBg', {
             width: 0.6, height: 0.06, depth: 0.04
         }, this.scene);
-        this.healthBarBackgroundMesh.position = new Vector3(this.position.x, this.position.y + 0.9, this.position.z);
+        this.healthBarBackgroundMesh.position = new Vector3(this.position.x, this.position.y + 1.0, this.position.z);
         const bgMat = new StandardMaterial('healthBarBgMat', this.scene);
         bgMat.diffuseColor = new Color3(0.3, 0.3, 0.3);
         bgMat.specularColor = Color3.Black();
@@ -85,7 +87,7 @@ export class MiniEnemy extends Enemy {
         this.healthBarMesh = MeshBuilder.CreateBox('healthBar', {
             width: 0.6, height: 0.06, depth: 0.05
         }, this.scene);
-        this.healthBarMesh.position = new Vector3(this.position.x, this.position.y + 0.9, this.position.z);
+        this.healthBarMesh.position = new Vector3(this.position.x, this.position.y + 1.0, this.position.z);
         const healthMat = new StandardMaterial('healthBarMat', this.scene);
         healthMat.diffuseColor = new Color3(0.2, 0.8, 0.2);
         healthMat.specularColor = Color3.Black();
@@ -111,13 +113,13 @@ export class MiniEnemy extends Enemy {
 
         if (this.healthBarOutlineMesh && !this.healthBarOutlineMesh.isDisposed()) {
             this.healthBarOutlineMesh.position.x = this.position.x;
-            this.healthBarOutlineMesh.position.y = this.position.y + 0.9;
+            this.healthBarOutlineMesh.position.y = this.position.y + 1.0;
             this.healthBarOutlineMesh.position.z = this.position.z;
         }
         this.healthBarBackgroundMesh.position.x = this.position.x;
-        this.healthBarBackgroundMesh.position.y = this.position.y + 0.9;
+        this.healthBarBackgroundMesh.position.y = this.position.y + 1.0;
         this.healthBarBackgroundMesh.position.z = this.position.z;
-        this.healthBarMesh.position.y = this.position.y + 0.9;
+        this.healthBarMesh.position.y = this.position.y + 1.0;
         this.healthBarMesh.position.z = this.position.z;
     }
 
@@ -128,7 +130,7 @@ export class MiniEnemy extends Enemy {
         if (!this.isFrozen && !this.isStunned && this.currentPathIndex < this.path.length && this.mesh) {
             this.walkTime += deltaTime * 8;
             const bobAmount = Math.abs(Math.sin(this.walkTime)) * 0.04;
-            this.mesh.position.y = this.position.y + 0.25 + bobAmount;
+            this.mesh.position.y = this.position.y + 0.28 + bobAmount;
             this.mesh.rotation.z = Math.sin(this.walkTime) * 0.1;
 
             if (this.currentPathIndex < this.path.length) {
