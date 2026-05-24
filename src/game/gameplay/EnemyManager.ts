@@ -101,6 +101,33 @@ export class EnemyManager {
     }
 
     /**
+     * Pre-warm enemy meshes/materials/shaders by instantiating one of every type
+     * at a far-off position and forcing a render. Eliminates the first-spawn
+     * freeze that hits the moment a never-before-seen enemy type appears in a
+     * wave (shader compilation + flat-shading vertex rebuild + GPU buffer upload
+     * all happen on the first render frame of a given type).
+     *
+     * Safe to call once at survivors-mode start. The pre-warm enemies are NOT
+     * added to the enemies[] array, so they don't participate in gameplay; they
+     * are disposed immediately after the warmup render.
+     */
+    public prewarmEnemyTypes(): void {
+        const farAway = new Vector3(1000, 0, 1000);
+        const warmup: Enemy[] = [
+            new BasicEnemy(this.game, farAway, []),
+            new FastEnemy(this.game, farAway, []),
+            new TankEnemy(this.game, farAway, []),
+            new BossEnemy(this.game, farAway, []),
+            new SplittingEnemy(this.game, farAway, []),
+            new HealerEnemy(this.game, farAway, []),
+            new ShieldEnemy(this.game, farAway, []),
+            new MiniEnemy(this.game, farAway, []),
+        ];
+        this.game.getScene().render();
+        for (const e of warmup) e.dispose();
+    }
+
+    /**
      * Spawn a single enemy in survivors mode at a random point on the arena perimeter.
      * Pass eliteElement to make it an elite.
      */

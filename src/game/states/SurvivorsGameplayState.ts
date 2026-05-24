@@ -165,6 +165,10 @@ export class SurvivorsGameplayState implements GameState {
             this.map.getArenaRadius(),
         );
 
+        // Pre-warm all enemy types so the first spawn of each doesn't hitch
+        // the frame with shader compilation and GPU buffer uploads.
+        this.enemyManager.prewarmEnemyTypes();
+
         // Power slot manager — consults playerStats for damage/cooldown multipliers
         this.powerSlots = new PowerSlotManager(
             this.scene,
