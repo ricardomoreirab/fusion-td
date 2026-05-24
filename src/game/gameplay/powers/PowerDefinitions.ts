@@ -105,9 +105,57 @@ function spawnTrailParticle(
     });
 }
 
+// =============================================================================
+// BOLT SEGMENT POOL — 30 pre-allocated unit-depth boxes (5 segs × 6 bolts).
+// Boxes are created with depth=1.0; callers set scaling.z = segLen per use.
+// =============================================================================
+
+const BOLT_POOL_SIZE = 30;
+const boltPool: Mesh[] = [];
+let boltPoolInitialized = false;
+
+function acquireBoltSegment(scene: Scene): Mesh {
+    if (!boltPoolInitialized) {
+        for (let i = 0; i < BOLT_POOL_SIZE; i++) {
+            const box = MeshBuilder.CreateBox(
+                `boltSeg${i}`,
+                { width: 0.07, height: 0.07, depth: 1.0 },
+                scene,
+            ) as Mesh;
+            box.setEnabled(false);
+            boltPool.push(box);
+        }
+        boltPoolInitialized = true;
+    }
+    for (const b of boltPool) {
+        if (!b.isEnabled()) {
+            b.setEnabled(true);
+            return b;
+        }
+    }
+    // Fallback: pool exhausted — create one that will be disposed normally.
+    return MeshBuilder.CreateBox(
+        `boltSegX${performance.now()}`,
+        { width: 0.07, height: 0.07, depth: 1.0 },
+        scene,
+    ) as Mesh;
+}
+
+function releaseBoltSegment(mesh: Mesh): void {
+    if (boltPool.indexOf(mesh) >= 0) {
+        mesh.setEnabled(false);
+        mesh.scaling.setAll(1);
+        mesh.rotation.set(0, 0, 0);
+    } else {
+        mesh.dispose();
+    }
+}
+
 /**
  * Spawns a jagged (zigzag) lightning bolt between two positions using
  * 5 short box segments with random perpendicular offsets.
+ * Segments are drawn from the module-level bolt pool to avoid per-bolt
+ * mesh allocation churn.
  */
 function spawnJaggedBolt(scene: Scene, from: Vector3, to: Vector3, color: Color3, duration: number = 0.2): void {
     const segments = 5;
@@ -116,6 +164,7 @@ function spawnJaggedBolt(scene: Scene, from: Vector3, to: Vector3, color: Color3
     const length = dir.length();
     if (length < 0.1) return;
     const perp = new Vector3(-dir.z, 0, dir.x).normalize();
+    const matKey = `jaggedBoltMat_${color.r.toFixed(1)}_${color.b.toFixed(1)}`;
     for (let i = 0; i < segments; i++) {
         const tStart = i / segments;
         const tEnd = (i + 1) / segments;
@@ -126,15 +175,14 @@ function spawnJaggedBolt(scene: Scene, from: Vector3, to: Vector3, color: Color3
         if (i < segments - 1) endP.addInPlace(perp.scale((Math.random() - 0.5) * length * 0.15));
         const segMid = Vector3.Center(startP, endP);
         const segLen = Vector3.Distance(startP, endP);
-        const seg = MeshBuilder.CreateBox(
-            `bolt_${i}_${Math.random()}`,
-            { width: 0.07, height: 0.07, depth: segLen },
-            scene,
-        ) as Mesh;
-        seg.position.copyFrom(segMid);
         const segDir = endP.subtract(startP);
+        const seg = acquireBoltSegment(scene);
+        seg.scaling.z = segLen;
+        seg.scaling.x = 1;
+        seg.scaling.y = 1;
+        seg.position.copyFrom(segMid);
         seg.rotation.y = Math.atan2(segDir.x, segDir.z);
-        seg.material = getCachedMaterial(scene, `jaggedBoltMat_${color.r.toFixed(1)}_${color.b.toFixed(1)}`, m => {
+        seg.material = getCachedMaterial(scene, matKey, m => {
             m.emissiveColor = color;
             m.alpha = 0.95;
         });
@@ -150,7 +198,7 @@ function spawnJaggedBolt(scene: Scene, from: Vector3, to: Vector3, color: Color3
             if (mMat) mMat.alpha = 0.95 * (1 - t);
         }
         if (t >= 1) {
-            for (const m of meshes) m.dispose();
+            for (const m of meshes) releaseBoltSegment(m);
             scene.onBeforeRenderObservable.remove(obs);
         }
     });

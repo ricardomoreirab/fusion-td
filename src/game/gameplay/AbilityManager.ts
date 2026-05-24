@@ -4,6 +4,49 @@ import { EnemyManager } from './EnemyManager';
 import { PlayerStats } from './PlayerStats';
 import { StatusEffect } from './GameTypes';
 import { createEmissiveMaterial } from '../rendering/LowPolyMaterial';
+import { getCachedMaterial } from '../rendering/MaterialCache';
+
+// =============================================================================
+// WHIRLWIND RING POOL — 8 pre-allocated torus meshes reused across ring spawns.
+// Material is cached once (shared); alpha fade is done via scale-only so the
+// shared material isn't mutated per-instance.
+// =============================================================================
+
+const WHIRLWIND_POOL_SIZE = 8;
+const whirlwindPool: Mesh[] = [];
+let whirlwindPoolInit = false;
+
+function acquireWhirlwindRing(scene: Scene): Mesh {
+    if (!whirlwindPoolInit) {
+        for (let i = 0; i < WHIRLWIND_POOL_SIZE; i++) {
+            const t = MeshBuilder.CreateTorus(
+                `whirlwindRing${i}`,
+                { diameter: 1.0, thickness: 0.08, tessellation: 16 },
+                scene,
+            ) as Mesh;
+            t.setEnabled(false);
+            t.material = getCachedMaterial(scene, 'whirlwindRingMat', m => {
+                m.emissiveColor = new Color3(0.5, 0.8, 1.0);
+                m.diffuseColor = new Color3(0, 0, 0);
+                m.alpha = 0.85;
+            });
+            whirlwindPool.push(t);
+        }
+        whirlwindPoolInit = true;
+    }
+    for (const r of whirlwindPool) {
+        if (!r.isEnabled()) {
+            r.setEnabled(true);
+            return r;
+        }
+    }
+    // Fallback: pool exhausted — allocate fresh, will be disposed on completion.
+    return MeshBuilder.CreateTorus(
+        `whirlwindRingX${performance.now()}`,
+        { diameter: 1.0, thickness: 0.08, tessellation: 16 },
+        scene,
+    ) as Mesh;
+}
 
 export interface Ability {
     name: string;
@@ -405,30 +448,34 @@ export class AbilityManager {
     }
 
     private spawnWhirlwindRing(center: Vector3, radius: number): void {
-        const ring = MeshBuilder.CreateTorus('whirlwindRing', {
-            diameter: radius * 0.6,
-            thickness: 0.25,
-            tessellation: 20,
-        }, this.scene);
-        ring.position = new Vector3(center.x, center.y + 0.3, center.z);
-        const mat = createEmissiveMaterial('whirlwindMat', new Color3(0.5, 0.8, 1.0), 0.85, this.scene);
-        (mat as StandardMaterial).alpha = 0.7;
-        ring.material = mat;
+        const scene = this.scene;
+        const ring = acquireWhirlwindRing(scene);
+        const isPooled = whirlwindPool.indexOf(ring) >= 0;
 
-        const expandAnim = new Animation('wwExpand', 'scaling', 30,
-            Animation.ANIMATIONTYPE_VECTOR3, Animation.ANIMATIONLOOPMODE_CONSTANT);
-        expandAnim.setKeys([
-            { frame: 0, value: new Vector3(0.3, 1, 0.3) },
-            { frame: 12, value: new Vector3(1.0, 1, 1.0) },
-        ]);
-        const fadeAnim = new Animation('wwFade', 'material.alpha', 30,
-            Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT);
-        fadeAnim.setKeys([
-            { frame: 0, value: 0.7 },
-            { frame: 12, value: 0.0 },
-        ]);
-        ring.animations = [expandAnim, fadeAnim];
-        this.scene.beginAnimation(ring, 0, 12, false, 1, () => ring.dispose());
+        // Diameter stored as scaling; pool torus has diameter=1.0, so scale by target.
+        const targetScale = radius * 0.6;
+        ring.position.set(center.x, center.y + 0.3, center.z);
+        // Start small, expand to targetScale over the duration (scale-only fade).
+        ring.scaling.set(targetScale * 0.3, 1, targetScale * 0.3);
+
+        const duration = 0.4; // seconds (~12 frames at 30 fps, matching original)
+        let elapsed = 0;
+        const obs = scene.onBeforeRenderObservable.add(() => {
+            const dt = scene.getEngine().getDeltaTime() / 1000;
+            elapsed += dt;
+            const t = Math.min(elapsed / duration, 1);
+            const s = targetScale * (0.3 + 0.7 * t);
+            ring.scaling.set(s, 1 - t, s); // shrink vertically to "vanish"
+            if (t >= 1) {
+                scene.onBeforeRenderObservable.remove(obs);
+                if (isPooled) {
+                    ring.setEnabled(false);
+                    ring.scaling.setAll(1);
+                } else {
+                    ring.dispose();
+                }
+            }
+        });
     }
 
     // ========================================================================
