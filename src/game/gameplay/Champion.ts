@@ -1034,6 +1034,72 @@ export class Champion extends Enemy {
                 this.barbSnarlJaw.rotation.x = 0;
             }
         }
+
+        // 6. Heavy footstep dust — emit when the stride phase crosses zero,
+        //    using which foot is "planted" (sign of sin(walkTime)).
+        const stepSign = Math.sign(Math.sin(this.walkTime));
+        if (stepSign !== 0 && stepSign !== this.barbLastStepSign) {
+            // Use the leg whose phase matches the new sign as the foot position.
+            const foot = stepSign > 0 ? this.rightLeg : this.leftLeg;
+            if (foot && this.mesh) {
+                const footWorld = foot.getAbsolutePosition().clone();
+                footWorld.y = 0.05;
+                this.spawnFootstepDust(footWorld);
+            }
+            this.barbLastStepSign = stepSign;
+        }
+    }
+
+    /** Barbarian-only: small brown dust burst at a foot's world position. */
+    private spawnFootstepDust(worldPos: Vector3): void {
+        const ps = new ParticleSystem('barbFootDust', 8, this.scene);
+        ps.emitter = worldPos;
+        ps.minEmitBox = new Vector3(-0.10, 0, -0.10);
+        ps.maxEmitBox = new Vector3(0.10, 0, 0.10);
+        ps.color1 = new Color4(0.50, 0.35, 0.20, 1);
+        ps.color2 = new Color4(0.35, 0.25, 0.15, 1);
+        ps.colorDead = new Color4(0.25, 0.20, 0.15, 0);
+        ps.minSize = 0.08;
+        ps.maxSize = 0.18;
+        ps.minLifeTime = 0.2;
+        ps.maxLifeTime = 0.4;
+        ps.emitRate = 80;
+        ps.manualEmitCount = 8; // one-shot
+        ps.blendMode = ParticleSystem.BLENDMODE_STANDARD;
+        ps.direction1 = new Vector3(-0.5, 0.4, -0.5);
+        ps.direction2 = new Vector3(0.5, 0.8, 0.5);
+        ps.minEmitPower = 0.4;
+        ps.maxEmitPower = 1.2;
+        ps.gravity = new Vector3(0, -0.5, 0);
+        ps.start();
+        setTimeout(() => { ps.stop(); setTimeout(() => ps.dispose(), 500); }, 100);
+    }
+
+    /** Barbarian-only: small red splatter at a target position on basic-attack hit. */
+    private spawnBloodSplatter(targetPos: Vector3): void {
+        const splatPos = targetPos.clone();
+        splatPos.y += 0.8;
+        const ps = new ParticleSystem('barbBloodSplatter', 10, this.scene);
+        ps.emitter = splatPos;
+        ps.minEmitBox = new Vector3(-0.10, 0, -0.10);
+        ps.maxEmitBox = new Vector3(0.10, 0, 0.10);
+        ps.color1 = new Color4(0.70, 0.10, 0.05, 1);
+        ps.color2 = new Color4(0.45, 0.05, 0.02, 1);
+        ps.colorDead = new Color4(0.10, 0, 0, 0);
+        ps.minSize = 0.08;
+        ps.maxSize = 0.16;
+        ps.minLifeTime = 0.25;
+        ps.maxLifeTime = 0.5;
+        ps.emitRate = 40;
+        ps.manualEmitCount = 10; // one-shot
+        ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
+        ps.direction1 = new Vector3(-1, 0.3, -1);
+        ps.direction2 = new Vector3(1, 1, 1);
+        ps.minEmitPower = 1;
+        ps.maxEmitPower = 2.5;
+        ps.gravity = new Vector3(0, -4, 0);
+        ps.start();
+        setTimeout(() => { ps.stop(); setTimeout(() => ps.dispose(), 500); }, 100);
     }
 
     /** Barbarian-only: animate the spin arc ring (scale out + fade) and tear down FX when done. */
@@ -1095,8 +1161,13 @@ export class Champion extends Enemy {
         target.takeDamage(this.attackDamage);
         this.attackTimer = this.attackCooldown;
 
-        // Visual: sword swing flash
+        // Visual: sword swing flash (shared)
         this.createAttackEffect(target.getPosition());
+
+        // Barbarian-only blood splatter on the target
+        if (this.championType === 'barbarian') {
+            this.spawnBloodSplatter(target.getPosition());
+        }
     }
 
     /**
