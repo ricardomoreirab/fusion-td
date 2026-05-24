@@ -11,7 +11,7 @@ import { WaveManager } from '../gameplay/WaveManager';
 import { PlayerStats } from '../gameplay/PlayerStats';
 import { PowerDrop } from '../gameplay/PowerDrop';
 import { PowerSlotManager } from '../gameplay/PowerSlotManager';
-import { POWER_DEFS, getPowerByElement, PowerElement } from '../gameplay/powers/PowerDefinitions';
+import { POWER_DEFS, getPowerByElementAndClass, getPowerMapForClass, PowerElement, ChampionType } from '../gameplay/powers/PowerDefinitions';
 import { Enemy } from '../gameplay/enemies/Enemy';
 import { BasicAttackTarget } from '../gameplay/HeroBasicAttack';
 import { PowerChoiceOverlay, PowerCard } from '../ui/PowerChoiceOverlay';
@@ -57,6 +57,7 @@ export class SurvivorsGameplayState implements GameState {
 
     // Run tracking for game-over summary
     private runStartTime: number = 0;
+    private currentChampionType: ChampionType = 'mage';
 
     // UI modules
     private hud: HeroHud | null = null;
@@ -100,22 +101,21 @@ export class SurvivorsGameplayState implements GameState {
             {
                 type: 'knight',
                 name: 'Knight',
-                summary: 'HP: 120  Speed: 7  Attack: 40 dmg\nTough frontliner with high health.',
-                startingPower: 'Arcane Nova',
+                summary: 'HP: 140  Speed: 6  Attack: 18 melee\nElement orbs enchant your sword. Heavy frontliner.',
                 color: '#C0A060',
             },
             {
                 type: 'ranger',
                 name: 'Ranger',
-                summary: 'HP: 90  Speed: 9  Attack: 25 dmg\nFast and nimble, prefers distance.',
-                startingPower: 'Fireball',
+                summary: 'HP: 90  Speed: 9  Attack: 8 ranged\nElement orbs unlock arrow variants. Fast and nimble.',
+                startingPower: 'Fire Arrow',
                 color: '#60C080',
             },
             {
                 type: 'mage',
                 name: 'Mage',
-                summary: 'HP: 80  Speed: 7  Attack: 35 dmg\nFragile but powerful elemental caster.',
-                startingPower: 'Lightning Chain',
+                summary: 'HP: 80  Speed: 7  Attack: 10 ranged\nElement orbs unlock spells. Fragile but devastating.',
+                startingPower: 'Arcane Nova',
                 color: '#6080C0',
             },
         ];
@@ -127,12 +127,13 @@ export class SurvivorsGameplayState implements GameState {
         if (!this.scene || !this.ui || !this.map) return;
 
         this.runStartTime = performance.now();
+        this.currentChampionType = (championType as ChampionType) ?? 'mage';
 
         // Stat variants by champion type
         const variants: Record<string, { hp: number; speed: number; startPower?: string }> = {
-            knight: { hp: 120, speed: 7,  startPower: 'arcaneNova' },
-            ranger: { hp: 90,  speed: 9,  startPower: 'fireball' },
-            mage:   { hp: 80,  speed: 7,  startPower: 'lightningChain' },
+            knight: { hp: 140, speed: 6  },
+            ranger: { hp: 90,  speed: 9,  startPower: 'ranger_fire' },
+            mage:   { hp: 80,  speed: 7,  startPower: 'mage_arcane' },
         };
         const variant = variants[championType] ?? variants['knight'];
 
@@ -146,6 +147,7 @@ export class SurvivorsGameplayState implements GameState {
             this.map.getArenaRadius(),
             variant.speed,
             variant.hp,
+            championType,
         );
 
         this.heroController.setOnDeath(() => {
@@ -176,6 +178,10 @@ export class SurvivorsGameplayState implements GameState {
         if (variant.startPower && POWER_DEFS[variant.startPower]) {
             this.powerSlots.addPower(variant.startPower);
         }
+
+        // Wire enemy provider and power slots into HeroController for melee AOE + enchantments
+        this.heroController.setEnemyProvider(() => this.enemyManager!.getEnemies());
+        this.heroController.setPowerSlots(this.powerSlots);
 
         // Elite death → spawn a PowerDrop
         this.enemyManager.setOnEliteDeath((pos, element) => {
@@ -381,7 +387,7 @@ export class SurvivorsGameplayState implements GameState {
         // Don't open if another overlay is already up
         if (this.powerChoice.isOpen() || this.replaceSlotOverlay?.isOpen()) return;
 
-        const orbDef = getPowerByElement(element as PowerElement) ?? Object.values(POWER_DEFS)[0];
+        const orbDef = getPowerByElementAndClass(element as PowerElement, this.currentChampionType) ?? Object.values(POWER_DEFS)[0];
         const cards: PowerCard[] = [];
 
         // Card A: the orb's power
@@ -421,8 +427,13 @@ export class SurvivorsGameplayState implements GameState {
                 onPick: () => this.powerSlots!.levelUp(target.def.id),
             });
         } else {
-            const rolls = Object.values(POWER_DEFS).filter(d => d.id !== orbDef.id);
-            const altDef = rolls[Math.floor(Math.random() * rolls.length)];
+            // Offer a random class-specific power the player doesn't already own
+            const classMap = getPowerMapForClass(this.currentChampionType);
+            const classPowerIds = Object.values(classMap).filter(id => id !== orbDef.id && !this.powerSlots!.hasPower(id));
+            const altId = classPowerIds.length > 0
+                ? classPowerIds[Math.floor(Math.random() * classPowerIds.length)]
+                : Object.values(classMap).filter(id => id !== orbDef.id)[0];
+            const altDef = POWER_DEFS[altId];
             cards.push({
                 kind:     'wildcard',
                 title:    altDef.name,
@@ -576,13 +587,26 @@ export class SurvivorsGameplayState implements GameState {
                 description: '-5% contact damage taken',
                 baseCost:    45,
                 costGrowth:  1.5,
-                isCapped:    (count) => this.playerStats!.damageReductionMultiplier <= 0.2,
+                isCapped:    () => this.playerStats!.damageReductionMultiplier <= 0.2,
                 apply: () => {
                     this.playerStats!.incrementPurchase('bulwark');
                     this.playerStats!.damageReductionMultiplier = Math.max(
                         0.2,
                         this.playerStats!.damageReductionMultiplier * 0.95,
                     );
+                },
+            },
+            {
+                id:          'quickness',
+                name:        'Quickness',
+                description: '+10% basic attack speed',
+                baseCost:    45,
+                costGrowth:  1.6,
+                isCapped:    () => false,
+                apply: () => {
+                    this.playerStats!.incrementPurchase('quickness');
+                    this.playerStats!.basicAttackSpeedMultiplier *= 1.10;
+                    this.heroController!.updateBasicAttackSpeed(this.playerStats!.basicAttackSpeedMultiplier);
                 },
             },
         ];
