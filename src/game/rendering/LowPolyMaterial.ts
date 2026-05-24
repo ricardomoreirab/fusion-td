@@ -8,6 +8,7 @@ export function createLowPolyMaterial(name: string, color: Color3, scene: Scene)
     mat.diffuseColor = color;
     mat.specularColor = Color3.Black();
     mat.specularPower = 0;
+    mat.freeze();
     return mat;
 }
 
@@ -15,8 +16,14 @@ export function createLowPolyMaterial(name: string, color: Color3, scene: Scene)
  * Create a flat-shaded emissive material (for glowing elements like portals, crystals).
  */
 export function createEmissiveMaterial(name: string, color: Color3, emissiveStrength: number, scene: Scene): StandardMaterial {
-    const mat = createLowPolyMaterial(name, color, scene);
+    // Build the material directly (not via createLowPolyMaterial) so we can freeze
+    // only after all properties are set — including emissiveColor.
+    const mat = new StandardMaterial(name, scene);
+    mat.diffuseColor = color;
+    mat.specularColor = Color3.Black();
+    mat.specularPower = 0;
     mat.emissiveColor = color.scale(emissiveStrength);
+    mat.freeze();
     return mat;
 }
 

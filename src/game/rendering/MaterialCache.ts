@@ -36,6 +36,7 @@ export function getCachedMaterial(
     if (!mat || mat.isReady() === false) {
         mat = new StandardMaterial(key, scene);
         setup(mat);
+        mat.freeze();
         cache.set(key, mat);
     }
     return mat;

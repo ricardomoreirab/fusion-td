@@ -2182,6 +2182,19 @@ export class Map {
             makeFlatShaded(flame);
             this.arenaDecorations.push(flame);
         }
+
+        // Top-down camera always sees the whole arena — skip per-mesh frustum culling.
+        // Apply to arena decorations (border tiles, rocks, grass, etc.).
+        for (const m of this.arenaDecorations) {
+            m.alwaysSelectAsActiveMesh = true;
+        }
+        // Also apply to the ground disc layers pushed just above (last 5 groundMeshes).
+        // The survivors arena adds exactly groundLayers.length discs to groundMeshes.
+        const groundDiscCount = groundLayers.length;
+        const groundMeshCount = this.groundMeshes.length;
+        for (let i = groundMeshCount - groundDiscCount; i < groundMeshCount; i++) {
+            this.groundMeshes[i].alwaysSelectAsActiveMesh = true;
+        }
     }
 
     public getArenaRadius(): number {

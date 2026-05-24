@@ -29,8 +29,12 @@ export class Game {
         // Initialize the Babylon engine
         this.engine = new Engine(this.canvas, true);
         
-        // Create the main scene
-        this.scene = new Scene(this.engine);
+        // Create the main scene (pass mesh-map options at construction — they are read-only after that)
+        this.scene = new Scene(this.engine, {
+            useGeometryUniqueIdsMap: true,
+            useMaterialMeshMap: true,
+            useClonedMeshMap: true,
+        });
         this.scene.clearColor = PALETTE.SKY.clone();
         
         // Initialize managers
@@ -116,6 +120,14 @@ export class Game {
     }
 
     private setupScene(): void {
+        // ─── Scene-level perf flags ───────────────────────────────────────────
+        this.scene.blockMaterialDirtyMechanism = true; // we never restructure materials at runtime
+        this.scene.fogEnabled = false;
+        this.scene.shadowsEnabled = false;
+        this.scene.skipPointerMovePicking = true;       // top-down game has no hover-pick UX
+        // useGeometryUniqueIdsMap / useMaterialMeshMap / useClonedMeshMap are
+        // constructor-only (SceneOptions) — passed above in new Scene(...).
+
         // Warm hemisphere light for low-poly stylized look
         const light = new HemisphericLight('light', new Vector3(0, 1, 0), this.scene);
         light.diffuse = PALETTE.LIGHT_DIFFUSE.clone();
@@ -128,6 +140,7 @@ export class Game {
         // Glow layer for emissive elements (portals, tower effects)
         const glowLayer = new GlowLayer('glowLayer', this.scene);
         glowLayer.intensity = 0.4;
+        glowLayer.blurKernelSize = 16; // default 32 — half the blur work per frame
 
         // Tilted isometric beta angle: ~60° from pole (30° above horizon)
         // gives a dramatic 3/4 view that shows tower sides clearly
