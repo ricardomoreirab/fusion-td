@@ -326,8 +326,41 @@ export class HeroHud {
         this._buildMobileUltimateButtons();
     }
 
+    // ─── Ultimate button display metadata ─────────────────────────────────────
+    // Glyph, border color, and tooltip label for each known ability id.
+    private static readonly ULT_DISPLAY: Record<string, { glyph: string; color: string; label: string }> = {
+        meteor:         { glyph: '☄',  color: '#c04010', label: 'Meteor Strike (45s)' },
+        frostNova:      { glyph: '❄',  color: '#3080c0', label: 'Frost Nova (30s)' },
+        whirlwind:      { glyph: '\u{1F300}', color: '#4090d0', label: 'Whirlwind (35s)' },
+        smash:          { glyph: '\u{1F4A5}', color: '#d06030', label: 'Smash (25s)' },
+        volley:         { glyph: '\u{1F3F9}', color: '#60c060', label: 'Volley (30s)' },
+        explosiveArrow: { glyph: '\u{1F4A2}', color: '#e06030', label: 'Explosive Arrow (25s)' },
+    };
+
     /**
-     * Shared helper for building the 2 ultimate buttons.
+     * Resolve the registered ability IDs from the AbilityManager, mapping each
+     * to display metadata. Falls back to mage defaults when no manager is set.
+     */
+    private _resolveUltimateDefs(): { id: string; label: string; color: string }[] {
+        const fallback = [
+            { id: 'meteor',    label: '☄', color: '#c04010' },
+            { id: 'frostNova', label: '❄', color: '#3080c0' },
+        ];
+        if (!this.abilityManager) return fallback;
+        const ids = this.abilityManager.getRegisteredAbilityIds();
+        if (ids.length === 0) return fallback;
+        return ids.map(id => {
+            const meta = HeroHud.ULT_DISPLAY[id];
+            return {
+                id,
+                label: meta?.glyph ?? '◉',
+                color: meta?.color ?? '#808080',
+            };
+        });
+    }
+
+    /**
+     * Shared helper for building ultimate buttons (desktop).
      * @param startLeft  left px offset of first button
      * @param stride     px distance between button centers
      * @param btnSize    width/height of each button (px)
@@ -343,10 +376,7 @@ export class HeroHud {
         bottomOffset: number,
         cdRadius: number,
     ): void {
-        const ultimateDefs = [
-            { id: 'meteor',    label: '☄',  color: '#c04010', tooltip: 'Meteor Strike (45s)' },
-            { id: 'frostNova', label: '❄',  color: '#2080c0', tooltip: 'Frost Nova (30s)' },
-        ];
+        const ultimateDefs = this._resolveUltimateDefs();
 
         ultimateDefs.forEach((def, i) => {
             const bg = new Rectangle(`ultBg_${i}`);
@@ -378,14 +408,11 @@ export class HeroHud {
             cdMask.cornerRadius = cdRadius;
             bg.addControl(cdMask);
 
-            // Click → fire ability
+            // Click → fire ability via AbilityManager.activate()
+            const capturedId = def.id;
             bg.onPointerClickObservable.add(() => {
                 if (!this.abilityManager) return;
-                if (def.id === 'frostNova') {
-                    this.abilityManager.triggerFrostNova();
-                } else if (def.id === 'meteor') {
-                    this.abilityManager.triggerMeteorAtNearest();
-                }
+                this.abilityManager.activate(capturedId);
             });
 
             this.ultimateContainers.push({ bg, label, cdMask });
@@ -395,17 +422,12 @@ export class HeroHud {
     /**
      * Mobile-specific ultimate buttons: RIGHT-aligned, stacked VERTICALLY so they
      * occupy only 44px of horizontal space and never conflict with the power slots.
-     * btn0 (meteor) is at the bottom-right, btn1 (frostNova) is one row above it.
      */
     private _buildMobileUltimateButtons(): void {
-        const ultimateDefs = [
-            { id: 'meteor',    label: '☄',  color: '#c04010' },
-            { id: 'frostNova', label: '❄',  color: '#2080c0' },
-        ];
+        const ultimateDefs = this._resolveUltimateDefs();
 
         const btnSize = 44;
         const gap = 8;
-        // Stack vertically from bottom: btn0 at -10px, btn1 at -(10+btnSize+gap)
         ultimateDefs.forEach((def, i) => {
             const bg = new Rectangle(`ultBg_${i}`);
             bg.width = `${btnSize}px`;
@@ -436,13 +458,10 @@ export class HeroHud {
             cdMask.cornerRadius = 10;
             bg.addControl(cdMask);
 
+            const capturedId = def.id;
             bg.onPointerClickObservable.add(() => {
                 if (!this.abilityManager) return;
-                if (def.id === 'frostNova') {
-                    this.abilityManager.triggerFrostNova();
-                } else if (def.id === 'meteor') {
-                    this.abilityManager.triggerMeteorAtNearest();
-                }
+                this.abilityManager.activate(capturedId);
             });
 
             this.ultimateContainers.push({ bg, label, cdMask });
@@ -542,15 +561,16 @@ export class HeroHud {
 
         // ── Ultimate cooldown overlays ──────────────────────────────────────
         if (this.abilityManager) {
-            const ultimateIds = ['meteor', 'frostNova'];
-            const ultimateCooldowns = [45, 30];
+            const registeredIds = this.abilityManager.getRegisteredAbilityIds();
             for (let i = 0; i < this.ultimateContainers.length; i++) {
                 const { cdMask } = this.ultimateContainers[i];
-                const ability = this.abilityManager.getAbility(ultimateIds[i]);
+                const abilityId = registeredIds[i];
+                if (!abilityId) continue;
+                const ability = this.abilityManager.getAbility(abilityId);
                 if (ability) {
                     const frac = ability.isReady
                         ? 0
-                        : Math.min(1, ability.currentCooldown / Math.max(0.001, ultimateCooldowns[i]));
+                        : Math.min(1, ability.currentCooldown / Math.max(0.001, ability.cooldown));
                     cdMask.height = frac;
                 }
             }
