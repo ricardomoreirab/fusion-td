@@ -153,6 +153,12 @@ export class WaveManager {
     // Survivors-mode: optional callback triggered when a wave is fully cleared
     private onWaveClearedCallback: (() => void) | null = null;
 
+    // Survivors-mode rate scaling
+    // - spawnRateMultiplier > 1 means delays between spawns are divided (faster cadence)
+    // - enemyCountMultiplier > 1 means each enemy group's count is multiplied (more enemies/wave)
+    private spawnRateMultiplier: number = 1.0;
+    private enemyCountMultiplier: number = 1.0;
+
     // Spawn queue type includes optional elite element (for survivors mode)
     private enemiesLeftToSpawn: { type: string, delay: number, eliteElement?: string }[] = [];
     // Speed-based difficulty system
@@ -206,6 +212,15 @@ export class WaveManager {
      * The default function calls createEnemyWithDifficulty (original TD behaviour).
      * Setting a custom spawnFn also disables the parallel-wave system to prevent double spawns.
      */
+    /**
+     * Survivors-mode rate scaling. spawnRate > 1 = faster spawn cadence;
+     * countMult > 1 = more enemies per wave. Default 1.0 / 1.0 = unchanged.
+     */
+    public setSurvivorsRates(spawnRate: number, countMult: number): void {
+        this.spawnRateMultiplier = spawnRate;
+        this.enemyCountMultiplier = countMult;
+    }
+
     public setSpawnFn(fn: SpawnFn): void {
         this.spawnFn = fn;
         this.disableParallelWaves = true;
@@ -758,8 +773,9 @@ export class WaveManager {
         // Update spawn timer
         this.timeSinceLastSpawn += deltaTime;
         
-        // Check if it's time to spawn the next enemy
-        if (this.timeSinceLastSpawn >= this.enemiesLeftToSpawn[0].delay) {
+        // Check if it's time to spawn the next enemy (delay scaled by survivors rate)
+        const effectiveDelay = this.enemiesLeftToSpawn[0].delay / this.spawnRateMultiplier;
+        if (this.timeSinceLastSpawn >= effectiveDelay) {
             // Spawn the enemy via the injectable spawn function
             const { type: enemyType, eliteElement } = this.enemiesLeftToSpawn[0];
             this.spawnFn(enemyType, eliteElement);
@@ -969,8 +985,10 @@ export class WaveManager {
         this.enemiesLeftToSpawn = [];
 
         // Convert the wave format to a flat list of enemies with delays
+        // (survivors mode multiplies count per group)
         for (const enemyGroup of wave.enemies) {
-            for (let i = 0; i < enemyGroup.count; i++) {
+            const scaledCount = Math.max(1, Math.round(enemyGroup.count * this.enemyCountMultiplier));
+            for (let i = 0; i < scaledCount; i++) {
                 this.enemiesLeftToSpawn.push({
                     type: enemyGroup.type,
                     delay: enemyGroup.delay,

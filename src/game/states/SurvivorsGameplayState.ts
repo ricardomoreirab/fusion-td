@@ -204,6 +204,10 @@ export class SurvivorsGameplayState implements GameState {
 
         this.waveManager = new WaveManager(this.enemyManager, this.playerStats);
 
+        // Survivors mode: crank up spawn cadence and per-wave enemy count
+        // so the arena feels swarmed (Vampire Survivors-y) instead of TD-paced.
+        this.waveManager.setSurvivorsRates(2.2, 1.6);
+
         // Survivors-mode: manual wave start after the shop
         this.waveManager.setOnWaveCleared(() => {
             this.openShop();
