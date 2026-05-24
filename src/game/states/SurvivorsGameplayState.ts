@@ -137,7 +137,7 @@ export class SurvivorsGameplayState implements GameState {
         const variant = variants[championType] ?? variants['knight'];
 
         // Spawn hero — Champion in player-controlled mode
-        this.hero = new Champion(this.game, [], null);
+        this.hero = new Champion(this.game, [], null, championType as 'knight' | 'ranger' | 'mage');
         this.hero.controlMode = 'player';
 
         this.heroController = new HeroController(
