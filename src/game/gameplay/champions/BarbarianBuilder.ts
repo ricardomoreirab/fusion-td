@@ -29,6 +29,11 @@ export function buildBarbarianMesh(scene: Scene, position: Vector3): BarbarianMe
     const warPaint    = new Color3(0.75, 0.12, 0.10);
     const hornColor   = new Color3(0.50, 0.42, 0.28);
 
+    // Berserker palette additions
+    const boneWhite   = new Color3(0.92, 0.88, 0.78);
+    const bloodRed    = new Color3(0.55, 0.06, 0.05);
+    const darkLeather = new Color3(0.18, 0.10, 0.04);
+
     // --- Body: wide muscular bare-chested torso ---
     const rootMesh = MeshBuilder.CreateBox('barbBody', {
         width: 1.45,
@@ -40,6 +45,12 @@ export function buildBarbarianMesh(scene: Scene, position: Vector3): BarbarianMe
     rootMesh.position.y += 2.0;
     rootMesh.material = createLowPolyMaterial('barbBodyMat', skinTone, scene);
 
+    // Chest-pulse parent: groups pecs + chest war-paint stripe so the breath
+    // pulse animation can scale them together. Empty Mesh — no geometry.
+    const chestPulseGroup = new Mesh('barbChestGroup', scene);
+    chestPulseGroup.parent = rootMesh;
+    chestPulseGroup.position = Vector3.Zero();
+
     // Pec / chest muscle definition — slightly darker plane front center
     const pecLeft = MeshBuilder.CreateBox('barbPecL', {
         width: 0.52,
@@ -47,7 +58,7 @@ export function buildBarbarianMesh(scene: Scene, position: Vector3): BarbarianMe
         depth: 0.06
     }, scene);
     makeFlatShaded(pecLeft);
-    pecLeft.parent = rootMesh;
+    pecLeft.parent = chestPulseGroup;
     pecLeft.position = new Vector3(-0.22, 0.28, 0.48);
     pecLeft.material = createLowPolyMaterial('barbPecLMat', skinDark, scene);
 
@@ -57,7 +68,7 @@ export function buildBarbarianMesh(scene: Scene, position: Vector3): BarbarianMe
         depth: 0.06
     }, scene);
     makeFlatShaded(pecRight);
-    pecRight.parent = rootMesh;
+    pecRight.parent = chestPulseGroup;
     pecRight.position = new Vector3(0.22, 0.28, 0.48);
     pecRight.material = createLowPolyMaterial('barbPecRMat', skinDark, scene);
 
@@ -68,7 +79,7 @@ export function buildBarbarianMesh(scene: Scene, position: Vector3): BarbarianMe
         depth: 0.05
     }, scene);
     makeFlatShaded(warpaint);
-    warpaint.parent = rootMesh;
+    warpaint.parent = chestPulseGroup;
     warpaint.position = new Vector3(0, 0.05, 0.48);
     warpaint.rotation.z = 0.35; // diagonal slash
     warpaint.material = createEmissiveMaterial('barbWarpaintMat', warPaint, 0.7, scene);
@@ -405,6 +416,6 @@ export function buildBarbarianMesh(scene: Scene, position: Vector3): BarbarianMe
         kiltFlaps: [],
         beltTrophy: null,
         snarlJaw: null,
-        chestPulseGroup: null,
+        chestPulseGroup,
     };
 }
