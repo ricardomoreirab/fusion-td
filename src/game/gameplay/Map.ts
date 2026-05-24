@@ -1,4 +1,4 @@
-import { Vector3, MeshBuilder, Mesh, Scene, Color3, Color4, ParticleSystem, ShadowGenerator, DirectionalLight } from '@babylonjs/core';
+import { Vector3, MeshBuilder, Mesh, Scene, Color3, Color4, ParticleSystem, ShadowGenerator, DirectionalLight, StandardMaterial } from '@babylonjs/core';
 import { Game } from '../Game';
 import { PALETTE, MapThemePalette, MAP_THEMES } from '../rendering/StyleConstants';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../rendering/LowPolyMaterial';
@@ -62,6 +62,7 @@ export class Map {
     private endPortalMeshes: Mesh[] = [];
     private farWallMeshes: Mesh[] = [];
     private nearWallMeshes: Mesh[] = [];
+    private arenaRadius: number = 25;
 
     constructor(game: Game, config?: LevelConfig, zOffset?: number, suppressStartPortal?: boolean, suppressEndPortal?: boolean) {
         this.game = game;
@@ -2035,6 +2036,34 @@ export class Map {
             makeFlatShaded(stone);
             this.groundMeshes.push(stone);
         }
+    }
+
+    public buildSurvivorsArena(radius: number = 25): void {
+        const scene = this.scene;
+        this.arenaRadius = radius;
+
+        // Circular ground
+        const ground = MeshBuilder.CreateDisc('survivorsGround', { radius, tessellation: 64 }, scene);
+        ground.rotation.x = Math.PI / 2;
+        const groundMat = new StandardMaterial('survivorsGroundMat', scene);
+        groundMat.diffuseColor = new Color3(0.18, 0.22, 0.16);
+        groundMat.specularColor = new Color3(0, 0, 0);
+        ground.material = groundMat;
+        ground.position.y = 0;
+        this.groundMeshes.push(ground);
+
+        // Boundary ring (decorative): thin torus
+        const ring = MeshBuilder.CreateTorus('arenaRing', { diameter: radius * 2, thickness: 0.4, tessellation: 64 }, scene);
+        const ringMat = new StandardMaterial('arenaRingMat', scene);
+        ringMat.diffuseColor = new Color3(0.45, 0.4, 0.2);
+        ringMat.emissiveColor = new Color3(0.25, 0.2, 0.1);
+        ring.material = ringMat;
+        ring.position.y = 0.05;
+        this.groundMeshes.push(ring);
+    }
+
+    public getArenaRadius(): number {
+        return this.arenaRadius;
     }
 
     public dispose(): void {
