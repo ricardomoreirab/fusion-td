@@ -6,9 +6,9 @@ import { Enemy } from './enemies/Enemy';
 
 /** Per-class basic-attack configuration */
 const CLASS_ATTACK_CONFIG: Record<string, { mode: BasicAttackMode; fireRate: number; damage: number; range: number }> = {
-    knight: { mode: 'melee',      fireRate: 1.0, damage: 18, range: 3.5 },
-    ranger: { mode: 'projectile', fireRate: 1.8, damage: 8,  range: 9   },
-    mage:   { mode: 'projectile', fireRate: 1.0, damage: 10, range: 8   },
+    barbarian: { mode: 'melee',      fireRate: 1.0, damage: 18, range: 3.5 },
+    ranger:    { mode: 'projectile', fireRate: 1.8, damage: 8,  range: 9   },
+    mage:      { mode: 'projectile', fireRate: 1.0, damage: 10, range: 8   },
 };
 
 export class HeroController {
@@ -45,7 +45,7 @@ export class HeroController {
         arenaRadius: number,
         moveSpeed: number = 7,
         maxHealth: number = 100,
-        championType: string = 'knight',
+        championType: string = 'barbarian',
     ) {
         this.scene = scene;
         this.hero = hero;
@@ -74,7 +74,7 @@ export class HeroController {
         });
 
         // Build basic attack based on champion class
-        const cfg = CLASS_ATTACK_CONFIG[championType] ?? CLASS_ATTACK_CONFIG['knight'];
+        const cfg = CLASS_ATTACK_CONFIG[championType] ?? CLASS_ATTACK_CONFIG['barbarian'];
         this.basicAttack = new HeroBasicAttack(scene, hero, {
             mode:           cfg.mode,
             fireRate:       cfg.fireRate,

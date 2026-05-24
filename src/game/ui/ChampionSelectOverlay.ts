@@ -9,15 +9,15 @@ export interface ChampionOption {
 }
 
 // Class glyphs by champion type — unicode that renders well in Canvas2D
-// 'knight' → ⚔, 'ranger' → 🏹, 'mage' → 🔮, fallback to a star
+// 'barbarian' → 🪓, 'ranger' → 🏹, 'mage' → 🔮, fallback to a star
 const CLASS_GLYPH: Record<string, string> = {
-    knight:  '⚔',
-    ranger:  '🏹',
-    mage:    '🔮',
-    warrior: '⚔',
-    archer:  '🏹',
-    wizard:  '🔮',
-    rogue:   '✦',
+    barbarian: '🪓',
+    ranger:    '🏹',
+    mage:      '🔮',
+    warrior:   '⚔',
+    archer:    '🏹',
+    wizard:    '🔮',
+    rogue:     '✦',
 };
 
 function getClassGlyph(type: string): string {

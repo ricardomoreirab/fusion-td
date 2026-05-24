@@ -5,7 +5,7 @@ import { getCachedMaterial } from '../../rendering/MaterialCache';
 import { acquireProjectile, releaseProjectile } from '../../rendering/ProjectilePool';
 
 export type PowerElement = 'fire' | 'ice' | 'arcane' | 'physical' | 'storm';
-export type ChampionType = 'knight' | 'ranger' | 'mage';
+export type ChampionType = 'barbarian' | 'ranger' | 'mage';
 
 export interface PowerRuntimeState {
     level: number;
@@ -793,14 +793,14 @@ function chainLightning(fromPos: Vector3, damage: number, enemies: Enemy[], excl
 }
 
 // =============================================================================
-// KNIGHT ENCHANTMENTS (passive)
+// BARBARIAN ENCHANTMENTS (passive)
 // =============================================================================
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Flaming Edge — burn DoT on hit
 // ─────────────────────────────────────────────────────────────────────────────
-const knightFireDef: PowerDefinition = {
-    id: 'knight_fire',
+const barbarianFireDef: PowerDefinition = {
+    id: 'barbarian_fire',
     name: 'Flaming Edge',
     element: 'fire',
     icon: '🔥',
@@ -820,8 +820,8 @@ const knightFireDef: PowerDefinition = {
 // ─────────────────────────────────────────────────────────────────────────────
 // Frostbite — slow on hit
 // ─────────────────────────────────────────────────────────────────────────────
-const knightIceDef: PowerDefinition = {
-    id: 'knight_ice',
+const barbarianIceDef: PowerDefinition = {
+    id: 'barbarian_ice',
     name: 'Frostbite',
     element: 'ice',
     icon: '❄️',
@@ -841,8 +841,8 @@ const knightIceDef: PowerDefinition = {
 // ─────────────────────────────────────────────────────────────────────────────
 // Arcane Bite — bonus arcane damage on hit
 // ─────────────────────────────────────────────────────────────────────────────
-const knightArcaneDef: PowerDefinition = {
-    id: 'knight_arcane',
+const barbarianArcaneDef: PowerDefinition = {
+    id: 'barbarian_arcane',
     name: 'Arcane Bite',
     element: 'arcane',
     icon: '✦',
@@ -862,8 +862,8 @@ const knightArcaneDef: PowerDefinition = {
 // ─────────────────────────────────────────────────────────────────────────────
 // Heavy Strike — bonus physical damage + expanded swing radius
 // ─────────────────────────────────────────────────────────────────────────────
-const knightPhysicalDef: PowerDefinition = {
-    id: 'knight_physical',
+const barbarianPhysicalDef: PowerDefinition = {
+    id: 'barbarian_physical',
     name: 'Heavy Strike',
     element: 'physical',
     icon: '⚔️',
@@ -884,8 +884,8 @@ const knightPhysicalDef: PowerDefinition = {
 // ─────────────────────────────────────────────────────────────────────────────
 // Shock Chain — 30% damage to a nearby enemy per level (max 3)
 // ─────────────────────────────────────────────────────────────────────────────
-const knightStormDef: PowerDefinition = {
-    id: 'knight_storm',
+const barbarianStormDef: PowerDefinition = {
+    id: 'barbarian_storm',
     name: 'Shock Chain',
     element: 'storm',
     icon: '⚡',
@@ -951,12 +951,12 @@ export const POWER_DEFS: Record<string, PowerDefinition> = {
     ranger_arcane:   rangerArcaneDef,
     ranger_physical: rangerPhysicalDef,
     ranger_storm:    rangerStormDef,
-    // Knight enchantments
-    knight_fire:     knightFireDef,
-    knight_ice:      knightIceDef,
-    knight_arcane:   knightArcaneDef,
-    knight_physical: knightPhysicalDef,
-    knight_storm:    knightStormDef,
+    // Barbarian enchantments
+    barbarian_fire:     barbarianFireDef,
+    barbarian_ice:      barbarianIceDef,
+    barbarian_arcane:   barbarianArcaneDef,
+    barbarian_physical: barbarianPhysicalDef,
+    barbarian_storm:    barbarianStormDef,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -964,12 +964,12 @@ export const POWER_DEFS: Record<string, PowerDefinition> = {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const POWER_MAP: Record<ChampionType, Record<PowerElement, string>> = {
-    knight: {
-        fire:     'knight_fire',
-        ice:      'knight_ice',
-        arcane:   'knight_arcane',
-        physical: 'knight_physical',
-        storm:    'knight_storm',
+    barbarian: {
+        fire:     'barbarian_fire',
+        ice:      'barbarian_ice',
+        arcane:   'barbarian_arcane',
+        physical: 'barbarian_physical',
+        storm:    'barbarian_storm',
     },
     ranger: {
         fire:     'ranger_fire',

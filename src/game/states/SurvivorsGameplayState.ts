@@ -99,10 +99,10 @@ export class SurvivorsGameplayState implements GameState {
         this.championSelect = new ChampionSelectOverlay(this.ui);
         const championOptions: ChampionOption[] = [
             {
-                type: 'knight',
-                name: 'Knight',
-                summary: 'HP: 140  Speed: 6  Attack: 18 melee\nElement orbs enchant your sword. Heavy frontliner.',
-                color: '#C0A060',
+                type: 'barbarian',
+                name: 'Barbarian',
+                summary: 'HP: 140  Speed: 6  Attack: 18 melee\nElement orbs enchant your axe. Brutal frontliner.',
+                color: '#A0413A',
             },
             {
                 type: 'ranger',
@@ -131,14 +131,14 @@ export class SurvivorsGameplayState implements GameState {
 
         // Stat variants by champion type
         const variants: Record<string, { hp: number; speed: number; startPower?: string }> = {
-            knight: { hp: 140, speed: 6  },
-            ranger: { hp: 90,  speed: 9,  startPower: 'ranger_fire' },
-            mage:   { hp: 80,  speed: 7,  startPower: 'mage_arcane' },
+            barbarian: { hp: 140, speed: 6  },
+            ranger:    { hp: 90,  speed: 9,  startPower: 'ranger_fire' },
+            mage:      { hp: 80,  speed: 7,  startPower: 'mage_arcane' },
         };
-        const variant = variants[championType] ?? variants['knight'];
+        const variant = variants[championType] ?? variants['barbarian'];
 
         // Spawn hero — Champion in player-controlled mode
-        this.hero = new Champion(this.game, [], null, championType as 'knight' | 'ranger' | 'mage');
+        this.hero = new Champion(this.game, [], null, championType as 'barbarian' | 'ranger' | 'mage');
         this.hero.controlMode = 'player';
 
         this.heroController = new HeroController(

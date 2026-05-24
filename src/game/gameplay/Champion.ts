@@ -15,7 +15,7 @@ export class Champion extends Enemy {
     private enemyManager: EnemyManager | null;
 
     /** Visual class type — determines which mesh is built */
-    public readonly championType: 'knight' | 'ranger' | 'mage';
+    public readonly championType: 'barbarian' | 'ranger' | 'mage';
 
     // Player control
     public controlMode: 'ai' | 'player' = 'ai';
@@ -58,7 +58,7 @@ export class Champion extends Enemy {
         game: Game,
         reversedPath: Vector3[],
         enemyManager: EnemyManager | null = null,
-        championType: 'knight' | 'ranger' | 'mage' = 'knight',
+        championType: 'barbarian' | 'ranger' | 'mage' = 'barbarian',
     ) {
         // HP 800, Speed 1.5, Damage 0 (doesn't damage player), Reward 0
         const startPos = reversedPath.length > 0 ? reversedPath[0] : new Vector3(0, 0, 0);
@@ -68,7 +68,7 @@ export class Champion extends Enemy {
         // so it always built the default knight. If we need a different class,
         // dispose the placeholder mesh and rebuild correctly.
         this.championType = championType;
-        if (championType !== 'knight') {
+        if (championType !== 'barbarian') {
             this.rebuildForType();
         }
     }
@@ -120,17 +120,17 @@ export class Champion extends Enemy {
      */
     protected createMesh(): void {
         switch (this.championType) {
-            case 'ranger': this.createRangerMesh(); break;
-            case 'mage':   this.createMageMesh();   break;
-            case 'knight':
-            default:       this.createKnightMesh();  break;
+            case 'ranger': this.createRangerMesh();    break;
+            case 'mage':   this.createMageMesh();      break;
+            case 'barbarian':
+            default:       this.createBarbarianMesh(); break;
         }
     }
 
     // =========================================================================
-    // KNIGHT — the original golden plate-armored warrior
+    // BARBARIAN — axe-wielding rugged warrior
     // =========================================================================
-    private createKnightMesh(): void {
+    private createBarbarianMesh(): void {
         const scene = this.scene;
 
         // --- Body: broad armored torso (scaled up ~1.5x from original) ---
@@ -1314,7 +1314,7 @@ export class Champion extends Enemy {
                 this.shieldArm.rotation.x = -0.2;
             } else {
                 this.shieldArm.rotation.x = Math.sin(this.walkTime + Math.PI) * 0.25;
-                this.shieldArm.rotation.z = (this.championType === 'knight' ? 0.15 : -0.15)
+                this.shieldArm.rotation.z = (this.championType === 'barbarian' ? 0.15 : -0.15)
                     + Math.sin(this.walkTime * 0.7) * 0.04;
             }
         }
