@@ -1,4 +1,4 @@
-import { Scene, Vector3, MeshBuilder, Color3 } from '@babylonjs/core';
+import { Scene, Vector3, MeshBuilder, Mesh, Color3 } from '@babylonjs/core';
 import { Champion } from './Champion';
 import { PowerSlotManager } from './PowerSlotManager';
 import { EnchantmentHitContext } from './powers/PowerDefinitions';
@@ -14,6 +14,8 @@ export interface BasicAttackTarget {
 
 export type BasicAttackMode = 'projectile' | 'melee';
 
+export type ProjectileShape = 'sphere' | 'arrow' | 'mageBolt';
+
 export class HeroBasicAttack {
     private scene: Scene;
     private hero: Champion;
@@ -26,6 +28,7 @@ export class HeroBasicAttack {
     private mode: BasicAttackMode;
     private targetProvider: () => BasicAttackTarget | null;
     private powerSlots: PowerSlotManager | null = null;
+    private projectileShape: ProjectileShape;
 
     // For melee: reference to full enemy list for AOE
     private enemyProvider: (() => Enemy[]) | null = null;
@@ -40,6 +43,7 @@ export class HeroBasicAttack {
             range: number;
             targetProvider: () => BasicAttackTarget | null;
             enemyProvider?: () => Enemy[];
+            projectileShape?: ProjectileShape;
         },
     ) {
         this.scene = scene;
@@ -50,6 +54,7 @@ export class HeroBasicAttack {
         this.mode = opts.mode;
         this.targetProvider = opts.targetProvider;
         this.enemyProvider = opts.enemyProvider ?? null;
+        this.projectileShape = opts.projectileShape ?? 'sphere';
     }
 
     /** Wire up the power slot manager so enchantments apply on each hit. */
@@ -189,14 +194,66 @@ export class HeroBasicAttack {
     // ─────────────────────────────────────────────────────────────────────────
     // Projectile
     // ─────────────────────────────────────────────────────────────────────────
+
+    /** Build the projectile mesh for this attack's configured shape. */
+    private createProjectileMesh(): Mesh {
+        const scene = this.scene;
+        switch (this.projectileShape) {
+            case 'arrow': {
+                // Elongated shaft with a cone tip and fletching fins
+                const shaft = MeshBuilder.CreateCylinder('arrowShaft',
+                    { height: 0.6, diameterTop: 0.04, diameterBottom: 0.04, tessellation: 6 }, scene);
+                const tip = MeshBuilder.CreateCylinder('arrowTip',
+                    { height: 0.15, diameterTop: 0, diameterBottom: 0.10, tessellation: 6 }, scene);
+                tip.position.y = 0.375; // tip at the front end of the shaft
+                tip.parent = shaft;
+                const fletching = MeshBuilder.CreateBox('arrowFletch',
+                    { width: 0.10, height: 0.10, depth: 0.02 }, scene);
+                fletching.position.y = -0.30;
+                fletching.parent = shaft;
+                // Rotate so the shaft points along the Z axis (flight direction set per-frame)
+                shaft.rotation.x = Math.PI / 2;
+                return shaft;
+            }
+            case 'mageBolt': {
+                // Slightly larger glowing orb with a halo ring
+                const orb = MeshBuilder.CreateSphere('mageBolt',
+                    { diameter: 0.4, segments: 4 }, scene);
+                const halo = MeshBuilder.CreateTorus('mageBoltHalo',
+                    { diameter: 0.55, thickness: 0.05, tessellation: 12 }, scene);
+                halo.parent = orb;
+                halo.rotation.x = Math.PI / 2;
+                return orb;
+            }
+            case 'sphere':
+            default:
+                return MeshBuilder.CreateSphere('basicProj', { diameter: 0.3, segments: 4 }, scene);
+        }
+    }
+
     private spawnProjectile(from: Vector3, target: BasicAttackTarget): void {
         const scene = this.scene;
-        const proj = acquireProjectile(scene, 'basic_attack_proj', () =>
-            MeshBuilder.CreateSphere('basicProj', { diameter: 0.3 }, scene));
+        const poolKey = `basic_attack_proj_${this.projectileShape}`;
+        const proj = acquireProjectile(scene, poolKey, () => this.createProjectileMesh());
         proj.position.copyFrom(from);
         proj.position.y = 1;
-        proj.material = getCachedMaterial(scene, 'basic_attack_proj_mat', m => {
-            m.emissiveColor = new Color3(1, 0.9, 0.4);
+
+        const matKey = `basic_attack_proj_mat_${this.projectileShape}`;
+        proj.material = getCachedMaterial(scene, matKey, m => {
+            switch (this.projectileShape) {
+                case 'arrow':
+                    m.emissiveColor = new Color3(0.7, 0.5, 0.3);
+                    m.diffuseColor  = new Color3(0.7, 0.5, 0.3);
+                    break;
+                case 'mageBolt':
+                    m.emissiveColor = new Color3(0.6, 0.4, 1.0);
+                    m.diffuseColor  = new Color3(0.2, 0.1, 0.4);
+                    break;
+                case 'sphere':
+                default:
+                    m.emissiveColor = new Color3(1, 0.9, 0.4);
+                    break;
+            }
         });
 
         const speed = 22;
@@ -204,11 +261,12 @@ export class HeroBasicAttack {
         const capturedDamage = this.damage;
         const heroPos = from;
         const allEnemies = this.enemyProvider ? this.enemyProvider() : [];
+        const shape = this.projectileShape;
 
         const observer = this.scene.onBeforeRenderObservable.add(() => {
             if (!observer) return;
             if (!target.isAlive()) {
-                releaseProjectile('basic_attack_proj', proj);
+                releaseProjectile(poolKey, proj);
                 this.scene.onBeforeRenderObservable.remove(observer);
                 return;
             }
@@ -216,11 +274,16 @@ export class HeroBasicAttack {
             targetPos.y = 1;
             const dir = targetPos.subtract(proj.position);
             const dist = dir.length();
+
+            // Orient arrow to face travel direction
+            if (shape === 'arrow' && dist > 0.01) {
+                proj.rotation.y = Math.atan2(dir.x, dir.z);
+            }
+
             if (dist < 0.4) {
                 target.takeDamage(capturedDamage);
                 // Apply enchantments on projectile hit
                 if (this.powerSlots) {
-                    // Find the corresponding Enemy object for enchantments
                     const enemyHit = allEnemies.find(e => {
                         const ep = e.getPosition();
                         const dx = ep.x - target.position.x;
@@ -231,7 +294,7 @@ export class HeroBasicAttack {
                         this.applyEnchantments(enemyHit, heroPos, allEnemies);
                     }
                 }
-                releaseProjectile('basic_attack_proj', proj);
+                releaseProjectile(poolKey, proj);
                 this.scene.onBeforeRenderObservable.remove(observer);
                 return;
             }
@@ -241,7 +304,7 @@ export class HeroBasicAttack {
 
             // Safety: release after 3s of flight
             if (performance.now() / 1000 - startTime > 3) {
-                releaseProjectile('basic_attack_proj', proj);
+                releaseProjectile(poolKey, proj);
                 this.scene.onBeforeRenderObservable.remove(observer);
             }
         });
