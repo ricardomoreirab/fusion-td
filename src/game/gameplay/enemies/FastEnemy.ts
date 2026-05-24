@@ -197,10 +197,11 @@ export class FastEnemy extends Enemy {
         coreGlow.position = new Vector3(0, 0.20, 0.12);
         coreGlow.material = createEmissiveMaterial('fastCoreGlowMat', PALETTE.ENEMY_FAST_EYE, 1.5, this.scene);
 
-        // --- Motion trail: 3 ghost clones of the body, fading behind the wraith ---
+        // --- Motion trail: 1 ghost clone of the body trailing behind the wraith ---
+        // Reduced from 3 → 1 to cut FastEnemy mesh count and draw calls.
         this.ghostTrails = [];
-        for (let g = 0; g < 3; g++) {
-            const ghost = MeshBuilder.CreateCylinder(`fastGhost${g}`, {
+        {
+            const ghost = MeshBuilder.CreateCylinder('fastGhost0', {
                 height: 1.1,
                 diameterTop: 0.50,
                 diameterBottom: 0.08,
@@ -209,12 +210,11 @@ export class FastEnemy extends Enemy {
             makeFlatShaded(ghost);
             ghost.position = this.position.clone();
             ghost.position.y += 1.3;
-            const ghostMat = new StandardMaterial(`fastGhostMat${g}`, this.scene);
+            const ghostMat = new StandardMaterial('fastGhostMat', this.scene);
             ghostMat.diffuseColor = PALETTE.ENEMY_FAST;
             ghostMat.emissiveColor = PALETTE.ENEMY_FAST_WISP.scale(0.5);
             ghostMat.specularColor = Color3.Black();
-            // Fade out progressively: ghost 0 = most opaque, ghost 2 = most transparent
-            ghostMat.alpha = 0.30 - g * 0.09;
+            ghostMat.alpha = 0.22;
             ghost.material = ghostMat;
             this.ghostTrails.push(ghost);
         }
