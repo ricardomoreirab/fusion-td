@@ -22,6 +22,12 @@ export class Enemy {
     protected path: Vector3[] = [];
     protected currentPathIndex: number = 0;
     protected originalScale: number = 1.0; // Store original scale for health-based scaling
+
+    // Survivors-mode seek-target fields
+    public seekTarget: { getPosition: () => Vector3 } | null = null;
+    public contactDamagePerSecond: number = 10;
+    public isElite: boolean = false;
+    public eliteDropElement: string | null = null;
     
     // Tower destruction ability
     protected canDestroyTowers: boolean = false;
@@ -227,18 +233,56 @@ export class Enemy {
      */
     public update(deltaTime: number): boolean {
         if (!this.alive || !this.mesh) return false;
-        
+
+        // --- Survivors seek-target branch ---
+        if (this.seekTarget) {
+            // Always tick status effects so slow/freeze/stun/burn still work
+            this.updateStatusEffects(deltaTime);
+
+            // Don't move if frozen or stunned
+            if (this.isFrozen || this.isStunned) {
+                return false;
+            }
+
+            const targetPos = this.seekTarget.getPosition();
+            const dir = targetPos.subtract(this.position);
+            dir.y = 0;
+            const dist = dir.length();
+
+            if (dist > 0.001) {
+                dir.normalize();
+                // Respect slow/freeze speed modifications already applied to this.speed
+                this.position.addInPlace(dir.scale(this.speed * deltaTime));
+            }
+
+            if (this.mesh && !this.mesh.isDisposed()) {
+                this.mesh.position.copyFrom(this.position);
+                if (dist > 0.01) {
+                    this.mesh.rotation.y = Math.atan2(-dir.x, -dir.z);
+                }
+            }
+
+            // Update health bar
+            if (this.healthBarMesh && !this.healthBarMesh.isDisposed() &&
+                this.healthBarBackgroundMesh && !this.healthBarBackgroundMesh.isDisposed()) {
+                this.updateHealthBar();
+            }
+
+            return false; // Never "reach end of path" in survivors mode
+        }
+        // --- End survivors branch ---
+
         // Update status effects
         this.updateStatusEffects(deltaTime);
-        
+
         // Check for tower destruction (for boss enemies)
         this.checkTowerDestruction(deltaTime);
-        
+
         // Don't move if frozen or stunned
         if (this.isFrozen || this.isStunned) {
             return false;
         }
-        
+
         // If we've reached the end of the path, return true
         if (this.currentPathIndex >= this.path.length) {
             return true;
