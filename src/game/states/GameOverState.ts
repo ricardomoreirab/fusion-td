@@ -4,14 +4,27 @@ import { Game } from '../Game';
 import { GameState } from './GameState';
 import { PlayerStats } from '../gameplay/PlayerStats';
 
+export interface SurvivorsRunSummary {
+    waveReached: number;
+    timeSurvivedSec: number;
+    kills: number;
+    goldCollected: number;
+    finalLoadout: { name: string; level: number; icon: string }[];
+}
+
 export class GameOverState implements GameState {
     private game: Game;
     private ui: AdvancedDynamicTexture | null = null;
     private playerWon: boolean = false;
     private playerStats: PlayerStats | null = null;
+    private survivorsSummary: SurvivorsRunSummary | null = null;
 
     constructor(game: Game) {
         this.game = game;
+    }
+
+    public setSurvivorsSummary(summary: SurvivorsRunSummary): void {
+        this.survivorsSummary = summary;
     }
 
     public enter(): void {
@@ -41,6 +54,7 @@ export class GameOverState implements GameState {
             this.ui = null;
         }
         this.playerStats = null;
+        this.survivorsSummary = null;
     }
 
     public update(deltaTime: number): void {
@@ -78,6 +92,12 @@ export class GameOverState implements GameState {
         background.thickness = 0;
         background.isPointerBlocker = true;
         this.ui.addControl(background);
+
+        // If we have a survivors run summary, render it instead of the TD stats
+        if (this.survivorsSummary) {
+            this.createSurvivorsUI(isMobile, isLandscape);
+            return;
+        }
 
         // Title: "VICTORY" or "DEFEAT" with gold outline - responsive
         const titleText = new TextBlock('titleText');
@@ -189,7 +209,7 @@ export class GameOverState implements GameState {
             });
         }
         restartButton.onPointerUpObservable.add(() => {
-            this.game.getStateManager().changeState('gameplay');
+            this.game.getStateManager().changeState('survivors');
         });
         this.ui.addControl(restartButton);
 
@@ -224,5 +244,117 @@ export class GameOverState implements GameState {
             this.game.getStateManager().changeState('menu');
         });
         this.ui.addControl(menuButton);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Survivors-mode game-over screen
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private createSurvivorsUI(isMobile: boolean, isLandscape: boolean): void {
+        if (!this.ui || !this.survivorsSummary) return;
+        const s = this.survivorsSummary;
+
+        // "DEFEAT" title
+        const titleText = new TextBlock('svTitleText', 'DEFEATED');
+        titleText.color = '#E53935';
+        titleText.fontSize = isLandscape ? 32 : (isMobile ? 48 : 72);
+        titleText.top = isLandscape ? '-130px' : (isMobile ? '-175px' : '-230px');
+        titleText.fontFamily = 'Arial';
+        titleText.fontWeight = 'bold';
+        titleText.outlineWidth = 2;
+        titleText.outlineColor = '#F5A623';
+        this.ui.addControl(titleText);
+
+        const subtitleText = new TextBlock('svSubtitle', 'Your run has ended');
+        subtitleText.color = '#888';
+        subtitleText.fontSize = isLandscape ? 12 : (isMobile ? 16 : 20);
+        subtitleText.top = isLandscape ? '-92px' : (isMobile ? '-128px' : '-175px');
+        subtitleText.fontFamily = 'Arial';
+        this.ui.addControl(subtitleText);
+
+        // Stats panel
+        const statsPanel = new Rectangle('svStatsPanel');
+        statsPanel.width = isLandscape ? '300px' : (isMobile ? '320px' : '440px');
+        statsPanel.height = isLandscape ? '150px' : (isMobile ? '230px' : '270px');
+        statsPanel.background = 'rgba(20, 24, 36, 0.97)';
+        statsPanel.cornerRadius = 14;
+        statsPanel.thickness = 1;
+        statsPanel.color = '#3A3F4B';
+        statsPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        statsPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        statsPanel.top = isLandscape ? '-15px' : (isMobile ? '-10px' : '-15px');
+        this.ui.addControl(statsPanel);
+
+        const statsHeader = new TextBlock('svStatsHeader', 'RUN SUMMARY');
+        statsHeader.color = '#F5A623';
+        statsHeader.fontSize = isLandscape ? 14 : (isMobile ? 18 : 22);
+        statsHeader.fontWeight = 'bold';
+        statsHeader.top = isLandscape ? '-52px' : (isMobile ? '-80px' : '-95px');
+        statsHeader.fontFamily = 'Arial';
+        statsPanel.addControl(statsHeader);
+
+        const mins = Math.floor(s.timeSurvivedSec / 60);
+        const secs = Math.floor(s.timeSurvivedSec % 60);
+        const timeStr = `${mins}:${secs.toString().padStart(2, '0')}`;
+        const loadoutStr = s.finalLoadout.length > 0
+            ? s.finalLoadout.map(p => `${p.icon} ${p.name} Lv${p.level}`).join('  ')
+            : '(no powers)';
+
+        const statsLines = [
+            `Wave Reached:   ${s.waveReached}`,
+            `Time Survived:  ${timeStr}`,
+            `Enemies Slain:  ${s.kills}`,
+            `Gold Collected: ${s.goldCollected}`,
+            `Powers:  ${loadoutStr}`,
+        ];
+
+        const statsText = new TextBlock('svStatsText');
+        statsText.text = statsLines.join('\n');
+        statsText.color = '#FFFFFF';
+        statsText.fontSize = isLandscape ? 10 : (isMobile ? 13 : 17);
+        statsText.fontFamily = 'Arial';
+        statsText.lineSpacing = isLandscape ? '2px' : (isMobile ? '5px' : '8px');
+        statsText.top = isLandscape ? '8px' : (isMobile ? '12px' : '15px');
+        statsText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        statsText.paddingLeft = isLandscape ? '16px' : (isMobile ? '20px' : '30px');
+        statsText.textWrapping = true;
+        statsPanel.addControl(statsText);
+
+        // Buttons
+        const btnWidth = isLandscape ? '180px' : (isMobile ? '240px' : '280px');
+        const btnHeight = isLandscape ? '36px' : (isMobile ? '52px' : '60px');
+        const btnFontSize = isLandscape ? 14 : (isMobile ? 20 : 24);
+
+        const restartBtn = Button.CreateSimpleButton('svRestart', 'PLAY AGAIN');
+        restartBtn.width = btnWidth;
+        restartBtn.height = btnHeight;
+        restartBtn.color = '#FFFFFF';
+        restartBtn.background = '#4CAF50';
+        restartBtn.cornerRadius = 32;
+        restartBtn.thickness = 0;
+        restartBtn.fontFamily = 'Arial';
+        restartBtn.fontSize = btnFontSize;
+        restartBtn.fontWeight = 'bold';
+        restartBtn.top = isLandscape ? '80px' : (isMobile ? '120px' : '155px');
+        restartBtn.onPointerUpObservable.add(() => {
+            this.game.getStateManager().changeState('survivors');
+        });
+        this.ui.addControl(restartBtn);
+
+        const menuBtn = Button.CreateSimpleButton('svMenu', 'MAIN MENU');
+        menuBtn.width = btnWidth;
+        menuBtn.height = btnHeight;
+        menuBtn.color = '#FFFFFF';
+        menuBtn.background = '#2196F3';
+        menuBtn.cornerRadius = 32;
+        menuBtn.thickness = 0;
+        menuBtn.fontFamily = 'Arial';
+        menuBtn.fontSize = btnFontSize;
+        menuBtn.fontWeight = 'bold';
+        menuBtn.top = isLandscape ? '125px' : (isMobile ? '185px' : '230px');
+        menuBtn.onPointerUpObservable.add(() => {
+            this.game.getStateManager().changeState('menu');
+        });
+        this.ui.addControl(menuBtn);
     }
 }

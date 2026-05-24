@@ -2,8 +2,7 @@ import { Vector3, Color3, Color4, MeshBuilder, ParticleSystem, Animation, Scene,
 import { Game } from '../Game';
 import { EnemyManager } from './EnemyManager';
 import { PlayerStats } from './PlayerStats';
-import { TowerManager } from './TowerManager';
-import { StatusEffect } from './towers/Tower';
+import { StatusEffect } from './GameTypes';
 import { createEmissiveMaterial } from '../rendering/LowPolyMaterial';
 
 export interface Ability {
@@ -19,7 +18,6 @@ export class AbilityManager {
     private scene: Scene;
     private enemyManager: EnemyManager;
     private playerStats: PlayerStats | null = null;
-    private towerManager: TowerManager | null = null;
     private abilities: Map<string, Ability> = new Map();
 
     // Targeting state
@@ -75,10 +73,6 @@ export class AbilityManager {
 
     public setPlayerStats(stats: PlayerStats): void {
         this.playerStats = stats;
-    }
-
-    public setTowerManager(manager: TowerManager): void {
-        this.towerManager = manager;
     }
 
     /**
@@ -461,26 +455,20 @@ export class AbilityManager {
     }
 
     // ========================================================================
-    // Fortify — Heal 3 HP + all towers +50% fire rate for 8s
+    // Fortify — Heal 15 HP (tower-placement era: used to boost towers; now hero-only)
     // ========================================================================
     private activateFortify(): boolean {
-        if (!this.playerStats || !this.towerManager) return false;
+        if (!this.playerStats) return false;
 
         // Heal player
-        this.playerStats.heal(3);
-
-        // Boost all towers
-        const towers = this.towerManager.getTowers();
-        for (const tower of towers) {
-            tower.applyFireRateBoost(1.5, 8);
-        }
+        this.playerStats.heal(15);
 
         this.createFortifyVisual();
         return true;
     }
 
     private createFortifyVisual(): void {
-        const center = new Vector3(20, 0.1, 20);
+        const center = new Vector3(0, 0.1, 0);
 
         // Golden expanding ring
         const ring = MeshBuilder.CreateDisc('fortifyRing', {
@@ -509,32 +497,6 @@ export class AbilityManager {
         ]);
         ring.animations = [expandAnim, fadeAnim];
         this.scene.beginAnimation(ring, 0, 30, false, 1, () => ring.dispose());
-
-        // Golden sparkle particles on each tower
-        if (this.towerManager) {
-            for (const tower of this.towerManager.getTowers()) {
-                const tPos = tower.getPosition();
-                const ps = new ParticleSystem('fortifySparkle', 20, this.scene);
-                ps.emitter = new Vector3(tPos.x, tPos.y + 2, tPos.z);
-                ps.minEmitBox = new Vector3(-0.3, 0, -0.3);
-                ps.maxEmitBox = new Vector3(0.3, 0.5, 0.3);
-                ps.color1 = new Color4(1, 0.85, 0.2, 1);
-                ps.color2 = new Color4(1, 0.7, 0.1, 1);
-                ps.colorDead = new Color4(0.5, 0.4, 0, 0);
-                ps.minSize = 0.08;
-                ps.maxSize = 0.2;
-                ps.minLifeTime = 0.3;
-                ps.maxLifeTime = 0.8;
-                ps.emitRate = 40;
-                ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-                ps.direction1 = new Vector3(-0.3, 1, -0.3);
-                ps.direction2 = new Vector3(0.3, 2, 0.3);
-                ps.minEmitPower = 0.5;
-                ps.maxEmitPower = 1.5;
-                ps.start();
-                setTimeout(() => { ps.stop(); setTimeout(() => ps.dispose(), 800); }, 400);
-            }
-        }
     }
 
     // ========================================================================
@@ -613,6 +575,42 @@ export class AbilityManager {
             flash.animations = [fadeAnim, riseAnim];
             this.scene.beginAnimation(flash, 0, 30, false, 1, () => flash.dispose());
         }
+    }
+
+    /**
+     * Convenience trigger for Frost Nova (instant-cast, no targeting needed).
+     * Returns true if the ability was activated.
+     */
+    public triggerFrostNova(): boolean {
+        return this.activate('frostNova');
+    }
+
+    /**
+     * Convenience trigger for Meteor Strike at a specific world position.
+     * Returns true if the ability was activated.
+     */
+    public triggerMeteorAt(position: Vector3): boolean {
+        return this.activate('meteor', position);
+    }
+
+    /**
+     * Fire Meteor Strike at the nearest alive enemy (survivors mode helper).
+     * Falls back to the scene center if no enemies exist.
+     */
+    public triggerMeteorAtNearest(): boolean {
+        const enemies = this.enemyManager.getEnemies();
+        let target: Vector3 | null = null;
+        let bestDistSq = Infinity;
+        for (const e of enemies) {
+            if (!e.isAlive()) continue;
+            const p = e.getPosition();
+            const dSq = p.x * p.x + p.z * p.z;
+            if (dSq < bestDistSq) {
+                bestDistSq = dSq;
+                target = p.clone();
+            }
+        }
+        return this.activate('meteor', target ?? Vector3.Zero());
     }
 
     public dispose(): void {

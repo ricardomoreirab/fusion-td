@@ -19,6 +19,9 @@ import { ReplaceSlotOverlay } from '../ui/ReplaceSlotOverlay';
 import { BetweenWaveShopOverlay, ShopItem } from '../ui/BetweenWaveShopOverlay';
 import { HeroHud } from '../ui/HeroHud';
 import { EliteIndicators } from '../ui/EliteIndicators';
+import { ChampionSelectOverlay, ChampionOption } from '../ui/ChampionSelectOverlay';
+import { GameOverState, SurvivorsRunSummary } from './GameOverState';
+import { AbilityManager } from '../gameplay/AbilityManager';
 
 export class SurvivorsGameplayState implements GameState {
     private game: Game;
@@ -34,6 +37,7 @@ export class SurvivorsGameplayState implements GameState {
     private waveManager: WaveManager | null = null;
     private playerStats: PlayerStats | null = null;
     private powerSlots: PowerSlotManager | null = null;
+    private abilityManager: AbilityManager | null = null;
 
     // Power drops
     private powerDrops: PowerDrop[] = [];
@@ -51,12 +55,16 @@ export class SurvivorsGameplayState implements GameState {
         pickupRadiusMultiplier: 1.0,
     };
 
+    // Run tracking for game-over summary
+    private runStartTime: number = 0;
+
     // UI modules
     private hud: HeroHud | null = null;
     private powerChoice: PowerChoiceOverlay | null = null;
     private replaceSlotOverlay: ReplaceSlotOverlay | null = null;
     private shopOverlay: BetweenWaveShopOverlay | null = null;
     private eliteIndicators: EliteIndicators | null = null;
+    private championSelect: ChampionSelectOverlay | null = null;
     private shopItems: ShopItem[] = [];
 
     constructor(game: Game) {
@@ -70,8 +78,54 @@ export class SurvivorsGameplayState implements GameState {
 
         new HemisphericLight('survivorsLight', new Vector3(0, 1, 0), this.scene);
 
+        // Build base scene resources first
         this.map = new Map(this.game);
         this.map.buildSurvivorsArena(25);
+
+        // Create UI layer
+        this.ui = AdvancedDynamicTexture.CreateFullscreenUI('survivorsUI', true, this.scene);
+
+        // Show champion select; actual run starts when player picks
+        this.championSelect = new ChampionSelectOverlay(this.ui);
+        const championOptions: ChampionOption[] = [
+            {
+                type: 'knight',
+                name: 'Knight',
+                summary: 'HP: 120  Speed: 7  Attack: 40 dmg\nTough frontliner with high health.',
+                startingPower: 'Arcane Nova',
+                color: '#C0A060',
+            },
+            {
+                type: 'ranger',
+                name: 'Ranger',
+                summary: 'HP: 90  Speed: 9  Attack: 25 dmg\nFast and nimble, prefers distance.',
+                startingPower: 'Fireball',
+                color: '#60C080',
+            },
+            {
+                type: 'mage',
+                name: 'Mage',
+                summary: 'HP: 80  Speed: 7  Attack: 35 dmg\nFragile but powerful elemental caster.',
+                startingPower: 'Lightning Chain',
+                color: '#6080C0',
+            },
+        ];
+        this.championSelect.show(championOptions, (type) => this.startRun(type));
+    }
+
+    /** Initialize all gameplay systems and begin the run. Called once champion is chosen. */
+    private startRun(championType: string): void {
+        if (!this.scene || !this.ui || !this.map) return;
+
+        this.runStartTime = performance.now();
+
+        // Stat variants by champion type
+        const variants: Record<string, { hp: number; speed: number; startPower?: string }> = {
+            knight: { hp: 120, speed: 7,  startPower: 'arcaneNova' },
+            ranger: { hp: 90,  speed: 9,  startPower: 'fireball' },
+            mage:   { hp: 80,  speed: 7,  startPower: 'lightningChain' },
+        };
+        const variant = variants[championType] ?? variants['knight'];
 
         // Spawn hero — Champion in player-controlled mode
         this.hero = new Champion(this.game, [], null);
@@ -81,17 +135,17 @@ export class SurvivorsGameplayState implements GameState {
             this.scene,
             this.hero,
             this.map.getArenaRadius(),
-            7,
-            100,
+            variant.speed,
+            variant.hp,
         );
 
         this.heroController.setOnDeath(() => {
-            this.game.getStateManager().changeState('gameOver');
+            this.buildAndSendRunSummary();
         });
 
         // ---------- Gameplay systems ----------
 
-        this.playerStats = new PlayerStats(120, 100);
+        this.playerStats = new PlayerStats(variant.hp, 100);
 
         this.enemyManager = new EnemyManager(this.game, this.map);
         this.enemyManager.setPlayerStats(this.playerStats);
@@ -108,6 +162,11 @@ export class SurvivorsGameplayState implements GameState {
             () => (this.playerStats?.powerDamageMultiplier ?? 1.0) * this.runPerks.damageMultiplier,
             () => this.playerStats?.powerCooldownMultiplier ?? 1.0,
         );
+
+        // Grant starting power based on champion type
+        if (variant.startPower && POWER_DEFS[variant.startPower]) {
+            this.powerSlots.addPower(variant.startPower);
+        }
 
         // Elite death → spawn a PowerDrop
         this.enemyManager.setOnEliteDeath((pos, element) => {
@@ -143,9 +202,10 @@ export class SurvivorsGameplayState implements GameState {
         // Wire basic-attack target provider to nearest alive enemy
         this.heroController.setTargetProvider(() => this.getNearestEnemy());
 
-        // ---------- UI ----------
+        // Ability manager (Meteor Strike + Frost Nova ultimates)
+        this.abilityManager = new AbilityManager(this.game, this.enemyManager);
 
-        this.ui = AdvancedDynamicTexture.CreateFullscreenUI('survivorsUI', true, this.scene);
+        // ---------- UI ----------
 
         // Mobile virtual joystick
         this.joystick = new SurvivorsJoystick(this.ui);
@@ -153,8 +213,8 @@ export class SurvivorsGameplayState implements GameState {
             if (this.heroController) this.heroController.setExternalInput(dx, dz);
         });
 
-        // HUD (HP bar, gold, power slots)
-        this.hud = new HeroHud(this.ui);
+        // HUD (HP bar, gold, power slots, ultimate buttons)
+        this.hud = new HeroHud(this.ui, this.abilityManager);
 
         // Overlays
         this.powerChoice     = new PowerChoiceOverlay(this.ui);
@@ -173,15 +233,44 @@ export class SurvivorsGameplayState implements GameState {
         );
     }
 
+    /** Gather end-of-run stats and transition to game-over. */
+    private buildAndSendRunSummary(): void {
+        const timeSurvivedSec = (performance.now() - this.runStartTime) / 1000;
+        const waveReached = this.waveManager?.getCurrentWave() ?? 0;
+        const kills = this.playerStats?.getTotalKills() ?? 0;
+        const goldCollected = this.playerStats?.getTotalMoneyEarned() ?? 0;
+
+        const finalLoadout = (this.powerSlots?.getSlots() ?? [])
+            .filter((s): s is NonNullable<typeof s> => s !== null)
+            .map(s => ({ name: s.def.name, level: s.state.level, icon: s.def.icon }));
+
+        const summary: SurvivorsRunSummary = {
+            waveReached,
+            timeSurvivedSec,
+            kills,
+            goldCollected,
+            finalLoadout,
+        };
+
+        const gos = this.game.getStateManager().getState('gameOver') as GameOverState;
+        if (gos) gos.setSurvivorsSummary(summary);
+        this.game.getStateManager().changeState('gameOver');
+    }
+
     public exit(): void {
         for (const d of this.powerDrops) d.dispose();
         this.powerDrops = [];
+
+        this.championSelect?.close();
+        this.championSelect = null;
 
         this.eliteIndicators?.dispose();
         this.eliteIndicators = null;
 
         this.powerSlots?.dispose();
         this.powerSlots = null;
+
+        this.abilityManager = null;
 
         this.shopOverlay?.close();
         this.shopOverlay = null;
@@ -220,9 +309,13 @@ export class SurvivorsGameplayState implements GameState {
 
         this.scene = null;
         this.timeScale = 1.0;
+        this.runPerks = { damageMultiplier: 1.0, moveSpeedMultiplier: 1.0, pickupRadiusMultiplier: 1.0 };
     }
 
     public update(deltaTime: number): void {
+        // If game hasn't started yet (champion select showing), skip game updates
+        if (!this.heroController) return;
+
         // Apply time scale for slow-mo during power-choice overlay
         const dt = deltaTime * this.timeScale;
 
@@ -239,6 +332,9 @@ export class SurvivorsGameplayState implements GameState {
         if (!this.shopOverlay?.isOpen() && !this.replaceSlotOverlay?.isOpen()) {
             if (this.powerSlots) this.powerSlots.update(dt);
         }
+
+        // Manual ultimates (Meteor Strike + Frost Nova)
+        if (this.abilityManager) this.abilityManager.update(dt);
 
         // Power drops (magnet + pickup)
         for (const d of this.powerDrops) d.update(dt);

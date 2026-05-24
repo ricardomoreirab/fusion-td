@@ -65,10 +65,17 @@ export class StateManager {
     }
 
     /**
+     * Get a registered state by name.
+     */
+    public getState(name: string): GameState | undefined {
+        return this.states.get(name);
+    }
+
+    /**
      * Get the current state name
      * @returns The name of the current state
      */
     public getCurrentStateName(): string | null {
         return this.currentStateName;
     }
-} 
+}

@@ -1,5 +1,6 @@
-import { AdvancedDynamicTexture, Rectangle, TextBlock, Control } from '@babylonjs/gui';
+import { AdvancedDynamicTexture, Rectangle, TextBlock, Control, Button } from '@babylonjs/gui';
 import { PowerSlot } from '../gameplay/PowerSlotManager';
+import { AbilityManager } from '../gameplay/AbilityManager';
 
 export class HeroHud {
     private ui: AdvancedDynamicTexture;
@@ -12,9 +13,12 @@ export class HeroHud {
         level: TextBlock;
         cdMask: Rectangle;
     }[] = [];
+    private abilityManager: AbilityManager | null = null;
+    private ultimateContainers: { bg: Rectangle; label: TextBlock; cdMask: Rectangle }[] = [];
 
-    constructor(ui: AdvancedDynamicTexture) {
+    constructor(ui: AdvancedDynamicTexture, abilityManager?: AbilityManager) {
         this.ui = ui;
+        this.abilityManager = abilityManager ?? null;
         this.build();
     }
 
@@ -103,6 +107,58 @@ export class HeroHud {
 
             this.slotContainers.push({ bg, icon, level, cdMask });
         }
+
+        // Ultimate ability buttons — Meteor Strike and Frost Nova
+        // Placed to the right of the 4 power slots (offset = 20 + 4*60 + 10 = 270)
+        const ultimateDefs = [
+            { id: 'meteor',    label: '☄',  color: '#c04010', tooltip: 'Meteor Strike (45s)' },
+            { id: 'frostNova', label: '❄',  color: '#2080c0', tooltip: 'Frost Nova (30s)' },
+        ];
+
+        ultimateDefs.forEach((def, i) => {
+            const bg = new Rectangle(`ultBg_${i}`);
+            bg.width = '50px';
+            bg.height = '50px';
+            bg.thickness = 2;
+            bg.color = def.color;
+            bg.background = '#1a1a2a';
+            bg.cornerRadius = 8;
+            bg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            bg.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+            bg.left = `${270 + i * 56}px`;
+            bg.top = '-15px';
+            bg.isPointerBlocker = true;
+            this.ui.addControl(bg);
+
+            const label = new TextBlock(`ultLbl_${i}`, def.label);
+            label.color = '#fff';
+            label.fontSize = 22;
+            bg.addControl(label);
+
+            // Cooldown mask (covers top → bottom)
+            const cdMask = new Rectangle(`ultCd_${i}`);
+            cdMask.width = 1.0;
+            cdMask.height = 0;
+            cdMask.thickness = 0;
+            cdMask.background = 'rgba(0,0,0,0.65)';
+            cdMask.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            cdMask.cornerRadius = 8;
+            bg.addControl(cdMask);
+
+            // Click → fire ability
+            bg.onPointerClickObservable.add(() => {
+                if (!this.abilityManager) return;
+                if (def.id === 'frostNova') {
+                    this.abilityManager.triggerFrostNova();
+                } else if (def.id === 'meteor') {
+                    // Fire meteor at the nearest enemy (manager finds it internally)
+                    // Use a rough center position; AbilityManager will handle the visual
+                    this.abilityManager.triggerMeteorAtNearest();
+                }
+            });
+
+            this.ultimateContainers.push({ bg, label, cdMask });
+        });
     }
 
     public update(
@@ -139,6 +195,22 @@ export class HeroHud {
                 const remaining = Math.max(0, slot.state.cooldownRemaining);
                 const frac = Math.min(1, remaining / Math.max(0.001, total));
                 cdMask.height = frac;
+            }
+        }
+
+        // Update ultimate cooldown overlays
+        if (this.abilityManager) {
+            const ultimateIds = ['meteor', 'frostNova'];
+            const ultimateCooldowns = [45, 30];
+            for (let i = 0; i < this.ultimateContainers.length; i++) {
+                const { cdMask } = this.ultimateContainers[i];
+                const ability = this.abilityManager.getAbility(ultimateIds[i]);
+                if (ability) {
+                    const frac = ability.isReady
+                        ? 0
+                        : Math.min(1, ability.currentCooldown / Math.max(0.001, ultimateCooldowns[i]));
+                    cdMask.height = frac;
+                }
             }
         }
     }
