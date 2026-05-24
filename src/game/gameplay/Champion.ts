@@ -846,7 +846,8 @@ export class Champion extends Enemy {
         // Body: bob up/down + slight side-to-side weight shift (more pronounced for heavy knight)
         const bobAmount = Math.abs(Math.sin(this.walkTime)) * 0.09;
         this.mesh!.position.y = this.position.y + 2.0 + bobAmount;
-        this.mesh!.rotation.z = Math.sin(this.walkTime) * 0.08; // Torso lean side-to-side
+        const rollAmp = this.championType === 'barbarian' ? 0.12 : 0.08;
+        this.mesh!.rotation.z = Math.sin(this.walkTime) * rollAmp; // Torso lean side-to-side
 
         // Legs: alternating stride (bigger swing for confident knight gait)
         if (this.leftLeg && this.rightLeg) {
@@ -865,7 +866,8 @@ export class Champion extends Enemy {
                 this.swordArm.rotation.x = -Math.PI / 2.5;
                 this.swordArm.rotation.z = -Math.PI / 8;
             } else {
-                this.swordArm.rotation.x = Math.sin(this.walkTime) * 0.50;
+                const swingAmp = this.championType === 'barbarian' ? 0.65 : 0.50;
+                this.swordArm.rotation.x = Math.sin(this.walkTime) * swingAmp;
                 this.swordArm.rotation.z = -0.08;
             }
         }
