@@ -35,6 +35,7 @@ export class Champion extends Enemy {
 
     // Animation (walkTime approach like BasicEnemy)
     private walkTime: number = 0;
+    private lastDeltaTime: number = 0;
     // Spin-attack state (player-controlled knight): runs a 360° body spin on melee swing
     private spinAttackTimer: number = 0;
     private static readonly SPIN_ATTACK_DURATION = 0.4;
@@ -753,6 +754,7 @@ export class Champion extends Enemy {
      * Update the champion — attack, block, and move along reversed path
      */
     public update(deltaTime: number): boolean {
+        this.lastDeltaTime = deltaTime;
         if (!this.alive || !this.mesh) return false;
 
         // Player-controlled mode: bypass all AI, apply velocity directly
@@ -900,6 +902,11 @@ export class Champion extends Enemy {
         if (this.rangerQuiver) {
             this.rangerQuiver.rotation.z = 0.15 + Math.sin(this.walkTime * 0.8) * 0.03;
         }
+
+        // Barbarian-specific extras layered on top of the shared humanoid pose
+        if (this.championType === 'barbarian') {
+            this.animateBarbarianExtras(this.lastDeltaTime);
+        }
     }
 
     /** Mage-specific: bob the whole body, no visible legs, orb pulsing handled separately */
@@ -922,6 +929,51 @@ export class Champion extends Enemy {
         // Head turns slowly
         if (this.head) {
             this.head.rotation.y = Math.sin(this.walkTime * 0.4) * 0.15;
+        }
+    }
+
+    /** Barbarian-only: breath pulse, hunched stride, kilt sway, trophy wobble, snarl twitch. */
+    private animateBarbarianExtras(deltaTime: number): void {
+        const spinning = this.spinAttackTimer > 0;
+        const attacking = this.attackTimer > this.attackCooldown - 0.3;
+
+        // 1. Breath pulse — always on, even during spin/attack
+        if (this.barbChestPulseGroup) {
+            this.barbChestPulseGroup.scaling.y = 1 + Math.sin(this.walkTime * 0.4) * 0.04;
+        }
+
+        // 2. Hunched stride lean — don't fight existing pose during spin/attack
+        if (!spinning && !attacking && this.mesh) {
+            this.mesh.rotation.x = 0.05 + Math.sin(this.walkTime * 0.5) * 0.02;
+        } else if (this.mesh) {
+            this.mesh.rotation.x = 0;
+        }
+
+        // 3. Kilt flap sloshing — phase offset creates a wave around the waist
+        for (let i = 0; i < this.barbKiltFlaps.length; i++) {
+            this.barbKiltFlaps[i].rotation.x = Math.sin(this.walkTime + i * 0.3) * 0.15;
+        }
+
+        // 4. Belt trophy wobble — impacts with each step
+        if (this.barbBeltTrophy) {
+            this.barbBeltTrophy.rotation.x = Math.sin(this.walkTime * 2) * 0.20;
+            this.barbBeltTrophy.rotation.z = Math.sin(this.walkTime * 1.5) * 0.10;
+        }
+
+        // 5. Snarl twitch — random fast jaw flick every 2-5s
+        this.barbSnarlTimer -= deltaTime;
+        if (this.barbSnarlTimer <= 0) {
+            this.barbSnarlActive = 0.15;
+            this.barbSnarlTimer = 2 + Math.random() * 3;
+        }
+        if (this.barbSnarlJaw) {
+            if (this.barbSnarlActive > 0) {
+                this.barbSnarlActive -= deltaTime;
+                const t = Math.max(0, this.barbSnarlActive) / 0.15;
+                this.barbSnarlJaw.rotation.x = -0.3 * Math.sin(t * Math.PI);
+            } else {
+                this.barbSnarlJaw.rotation.x = 0;
+            }
         }
     }
 
