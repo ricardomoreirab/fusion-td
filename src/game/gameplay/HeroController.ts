@@ -39,6 +39,10 @@ export class HeroController {
     // Move speed multiplier (from Swiftness shop purchases)
     private moveSpeedMultiplier: number = 1.0;
 
+    // Scratch Vector3 fields — reused every frame to eliminate per-frame allocations
+    private _scratchVel: Vector3 = new Vector3();
+    private _scratchCamTarget: Vector3 = new Vector3();
+
     constructor(
         scene: Scene,
         hero: Champion,
@@ -192,12 +196,12 @@ export class HeroController {
         const len = Math.hypot(dx, dz);
         if (len > 1) { dx /= len; dz /= len; }
 
-        const velocity = new Vector3(
+        this._scratchVel.set(
             dx * this.moveSpeed * this.moveSpeedMultiplier,
             0,
             dz * this.moveSpeed * this.moveSpeedMultiplier,
         );
-        this.hero.setPlayerVelocity(velocity);
+        this.hero.setPlayerVelocity(this._scratchVel);
 
         // Clamp hero position inside arena after Champion.update applies velocity
         const pos = this.hero.getPosition();
@@ -215,11 +219,12 @@ export class HeroController {
         }
 
         // Camera follow — position only, rotation is locked at construction.
-        const targetCamPos = new Vector3(pos.x, this.cameraHeight, pos.z + this.cameraOffsetZ);
-        this.camera.position = Vector3.Lerp(
+        this._scratchCamTarget.set(pos.x, this.cameraHeight, pos.z + this.cameraOffsetZ);
+        Vector3.LerpToRef(
             this.camera.position,
-            targetCamPos,
+            this._scratchCamTarget,
             Math.min(1, deltaTime * 6),
+            this.camera.position,
         );
 
         // Basic auto-attack

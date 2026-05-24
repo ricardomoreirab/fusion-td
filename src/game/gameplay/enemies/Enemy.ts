@@ -65,6 +65,10 @@ export class Enemy {
     // Reused per-frame array to avoid allocating a new array every update
     private _expiredStatusEffects: StatusEffect[] = [];
 
+    // Scratch Vector3 fields — reused every frame to avoid per-frame allocations
+    private _scratchDir: Vector3 = new Vector3();
+    private _scratchMovement: Vector3 = new Vector3();
+
     constructor(game: Game, position: Vector3, path: Vector3[], speed: number, health: number, damage: number, reward: number) {
         this.game = game;
         this.scene = game.getScene();
@@ -253,20 +257,21 @@ export class Enemy {
             }
 
             const targetPos = this.seekTarget.getPosition();
-            const dir = targetPos.subtract(this.position);
-            dir.y = 0;
-            const dist = dir.length();
+            targetPos.subtractToRef(this.position, this._scratchDir);
+            this._scratchDir.y = 0;
+            const dist = this._scratchDir.length();
 
             if (dist > 0.001) {
-                dir.normalize();
+                this._scratchDir.normalize();
                 // Respect slow/freeze speed modifications already applied to this.speed
-                this.position.addInPlace(dir.scale(this.speed * deltaTime));
+                this._scratchDir.scaleToRef(this.speed * deltaTime, this._scratchMovement);
+                this.position.addInPlace(this._scratchMovement);
             }
 
             if (this.mesh && !this.mesh.isDisposed()) {
                 this.mesh.position.copyFrom(this.position);
                 if (dist > 0.01) {
-                    this.mesh.rotation.y = Math.atan2(-dir.x, -dir.z);
+                    this.mesh.rotation.y = Math.atan2(-this._scratchDir.x, -this._scratchDir.z);
                 }
             }
 
@@ -297,14 +302,14 @@ export class Enemy {
         const targetPoint = this.path[this.currentPathIndex];
         
         // Calculate direction to the target
-        let direction = targetPoint.subtract(this.position);
-        
+        targetPoint.subtractToRef(this.position, this._scratchDir);
+
         // Find the closest point on the path if we're too far from our target
-        const distanceToPath = direction.length();
+        const distanceToPath = this._scratchDir.length();
         if (distanceToPath > 2) { // If we're more than 2 units away from our target
             // Reset to the last known good position
             this.position = this.path[Math.max(0, this.currentPathIndex - 1)].clone();
-            direction = targetPoint.subtract(this.position);
+            targetPoint.subtractToRef(this.position, this._scratchDir);
         }
         
         // If confused, modify the direction but maintain general path following
@@ -312,68 +317,71 @@ export class Enemy {
             // Update confused direction more frequently for more erratic movement
             if (!this.confusedDirection || Math.random() < 0.1) {
                 // Create a random offset perpendicular to the path direction
-                const pathDirection = direction.normalize();
+                const pathDirection = this._scratchDir.normalizeToNew();
                 const perpX = pathDirection.z;
                 const perpZ = -pathDirection.x;
                 const perpLength = Math.sqrt(perpX * perpX + perpZ * perpZ);
-                
+
                 if (perpLength > 0.001) {
                     const normalizedPerpX = perpX / perpLength;
                     const normalizedPerpZ = perpZ / perpLength;
-                    
+
                     const randomOffset = new Vector3(
                         normalizedPerpX * (Math.random() - 0.5) * 0.3,
                         0,
                         normalizedPerpZ * (Math.random() - 0.5) * 0.3
                     );
-                    
+
                     // Mix the path direction with the random offset
                     this.confusedDirection = pathDirection.add(randomOffset).normalize();
                 }
             }
-            
+
             // Use a stronger mix of confused direction to make movement more erratic
             if (this.confusedDirection) {
-                direction = direction.scale(0.5).add(this.confusedDirection.scale(0.5));
+                this._scratchDir.scaleInPlace(0.5);
+                this.confusedDirection.scaleToRef(0.5, this._scratchMovement);
+                this._scratchDir.addInPlace(this._scratchMovement);
             }
         } else {
             // Reset confused direction when not confused
             this.confusedDirection = null;
         }
-        
+
         // Normalize the direction
-        const distance = direction.length();
-        
+        const distance = this._scratchDir.length();
+
         // If we're close enough to the target, move to the next point
         if (distance < 0.1) {
             this.currentPathIndex++;
-            
+
             // If we've reached the end of the path, return true
             if (this.currentPathIndex >= this.path.length) {
                 return true;
             }
-            
+
             // Ensure we're exactly on the path point when reaching it
-            this.position = targetPoint.clone();
+            this.position.copyFrom(targetPoint);
             return false;
         }
-        
-        direction.normalize();
-        
+
+        this._scratchDir.normalize();
+
         // Move towards the target with reduced speed when confused
         const currentSpeed = this.isConfused ? this.speed * 0.7 : this.speed;
-        const movement = direction.scale(currentSpeed * deltaTime);
-        this.position.addInPlace(movement);
-        
+        this._scratchDir.scaleToRef(currentSpeed * deltaTime, this._scratchMovement);
+        this.position.addInPlace(this._scratchMovement);
+
         // Ensure we don't overshoot the target
-        const newDistanceToTarget = this.position.subtract(targetPoint).length();
+        this.position.subtractToRef(targetPoint, this._scratchMovement);
+        const newDistanceToTarget = this._scratchMovement.length();
         if (newDistanceToTarget > distance) {
-            this.position = targetPoint.clone();
+            this.position.copyFrom(targetPoint);
         }
-        
+
         // Update mesh position if it still exists
         if (this.mesh && !this.mesh.isDisposed()) {
-            this.mesh.position = this.position.clone();
+            this.mesh.position.copyFrom(this.position);
         }
         
         // Update health bar position if it still exists

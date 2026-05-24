@@ -6,6 +6,10 @@ import { Enemy } from './enemies/Enemy';
 import { getCachedMaterial } from '../rendering/MaterialCache';
 import { acquireProjectile, releaseProjectile } from '../rendering/ProjectilePool';
 
+// Module-level scratch vectors — safe because update() is not reentrant (frames serialize)
+const _scratchA = new Vector3();
+const _scratchB = new Vector3();
+
 export interface BasicAttackTarget {
     position: Vector3;
     takeDamage: (amount: number) => void;
@@ -270,14 +274,14 @@ export class HeroBasicAttack {
                 this.scene.onBeforeRenderObservable.remove(observer);
                 return;
             }
-            const targetPos = target.position.clone();
-            targetPos.y = 1;
-            const dir = targetPos.subtract(proj.position);
-            const dist = dir.length();
+            _scratchA.copyFrom(target.position);
+            _scratchA.y = 1;
+            _scratchA.subtractToRef(proj.position, _scratchB);
+            const dist = _scratchB.length();
 
             // Orient arrow to face travel direction
             if (shape === 'arrow' && dist > 0.01) {
-                proj.rotation.y = Math.atan2(dir.x, dir.z);
+                proj.rotation.y = Math.atan2(_scratchB.x, _scratchB.z);
             }
 
             if (dist < 0.4) {
@@ -300,7 +304,9 @@ export class HeroBasicAttack {
             }
             const dt = this.scene.getEngine().getDeltaTime() / 1000;
             const step = Math.min(dist, speed * dt);
-            proj.position.addInPlace(dir.normalize().scale(step));
+            _scratchB.normalize();
+            _scratchB.scaleInPlace(step);
+            proj.position.addInPlace(_scratchB);
 
             // Safety: release after 3s of flight
             if (performance.now() / 1000 - startTime > 3) {
