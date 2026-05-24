@@ -1,0 +1,150 @@
+import { AdvancedDynamicTexture, Rectangle, TextBlock, Control } from '@babylonjs/gui';
+import { PowerSlot } from '../gameplay/PowerSlotManager';
+
+export class HeroHud {
+    private ui: AdvancedDynamicTexture;
+    private hpFill!: Rectangle;
+    private hpText!: TextBlock;
+    private goldText!: TextBlock;
+    private slotContainers: {
+        bg: Rectangle;
+        icon: TextBlock;
+        level: TextBlock;
+        cdMask: Rectangle;
+    }[] = [];
+
+    constructor(ui: AdvancedDynamicTexture) {
+        this.ui = ui;
+        this.build();
+    }
+
+    private build(): void {
+        // HP bar — bottom-left, above the joystick area
+        const hpBg = new Rectangle('hpBg');
+        hpBg.width = '240px';
+        hpBg.height = '22px';
+        hpBg.thickness = 2;
+        hpBg.color = '#333';
+        hpBg.background = '#111';
+        hpBg.cornerRadius = 4;
+        hpBg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        hpBg.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        hpBg.left = '20px';
+        hpBg.top = '-80px';
+        this.ui.addControl(hpBg);
+
+        this.hpFill = new Rectangle('hpFill');
+        this.hpFill.width = 1.0;
+        this.hpFill.height = 1.0;
+        this.hpFill.thickness = 0;
+        this.hpFill.background = '#c33';
+        this.hpFill.cornerRadius = 3;
+        this.hpFill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        hpBg.addControl(this.hpFill);
+
+        this.hpText = new TextBlock('hpText', '');
+        this.hpText.color = '#fff';
+        this.hpText.fontSize = 13;
+        hpBg.addControl(this.hpText);
+
+        // Gold text — right of HP bar
+        this.goldText = new TextBlock('goldText', '');
+        this.goldText.color = '#ffd700';
+        this.goldText.fontSize = 17;
+        this.goldText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.goldText.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        this.goldText.left = '270px';
+        this.goldText.top = '-80px';
+        this.goldText.width = '130px';
+        this.goldText.height = '22px';
+        this.goldText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.ui.addControl(this.goldText);
+
+        // 4 power-slot icons — bottom row
+        for (let i = 0; i < 4; i++) {
+            const bg = new Rectangle(`slotBg_${i}`);
+            bg.width = '54px';
+            bg.height = '54px';
+            bg.thickness = 2;
+            bg.color = '#555';
+            bg.background = '#1a1a2a';
+            bg.cornerRadius = 6;
+            bg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            bg.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+            bg.left = `${20 + i * 60}px`;
+            bg.top = '-15px';
+            this.ui.addControl(bg);
+
+            // Element icon (letter fallback for emoji safety)
+            const icon = new TextBlock(`slotIcon_${i}`, '?');
+            icon.color = '#888';
+            icon.fontSize = 26;
+            bg.addControl(icon);
+
+            // Level badge — bottom-right corner
+            const level = new TextBlock(`slotLvl_${i}`, '');
+            level.color = '#fff';
+            level.fontSize = 11;
+            level.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+            level.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+            level.paddingRight = '3px';
+            level.paddingBottom = '2px';
+            bg.addControl(level);
+
+            // Cooldown mask: covers from top downwards proportional to remaining/total
+            const cdMask = new Rectangle(`slotCd_${i}`);
+            cdMask.width = 1.0;
+            cdMask.height = 0;
+            cdMask.thickness = 0;
+            cdMask.background = 'rgba(0,0,0,0.6)';
+            cdMask.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            cdMask.cornerRadius = 6;
+            bg.addControl(cdMask);
+
+            this.slotContainers.push({ bg, icon, level, cdMask });
+        }
+    }
+
+    public update(
+        hp: { current: number; max: number },
+        gold: number,
+        slots: (PowerSlot | null)[],
+    ): void {
+        const ratio = Math.max(0, hp.current / hp.max);
+        this.hpFill.width = ratio;
+        // Colour shifts red→yellow as HP drops
+        if (ratio > 0.5) {
+            this.hpFill.background = '#c33';
+        } else if (ratio > 0.25) {
+            this.hpFill.background = '#c73';
+        } else {
+            this.hpFill.background = '#c33';
+        }
+        this.hpText.text = `${Math.ceil(hp.current)} / ${hp.max}`;
+        this.goldText.text = `G ${gold}`;
+
+        for (let i = 0; i < 4; i++) {
+            const slot = slots[i];
+            const { icon, level, cdMask } = this.slotContainers[i];
+            if (!slot) {
+                icon.text = '?';
+                icon.color = '#555';
+                level.text = '';
+                cdMask.height = 0;
+            } else {
+                icon.text = slot.def.icon;
+                icon.color = '#fff';
+                level.text = `L${slot.state.level}`;
+                const total = slot.def.cooldownFor(slot.state);
+                const remaining = Math.max(0, slot.state.cooldownRemaining);
+                const frac = Math.min(1, remaining / Math.max(0.001, total));
+                cdMask.height = frac;
+            }
+        }
+    }
+
+    public dispose(): void {
+        // Controls are owned by the AdvancedDynamicTexture; disposing the
+        // texture takes care of them. Nothing extra needed here.
+    }
+}
