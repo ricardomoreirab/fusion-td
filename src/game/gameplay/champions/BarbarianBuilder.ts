@@ -197,7 +197,6 @@ export function buildBarbarianMesh(scene: Scene, position: Vector3): BarbarianMe
         makeFlatShaded(pelt);
         pelt.parent = shoulder;
         pelt.position = new Vector3(side * 0.05, 0.15, 0);
-        pelt.scaling = new Vector3(1.0, 1.0, 1.0);
         pelt.material = createLowPolyMaterial(`barbShoulderPeltMat${side}`, fur, scene);
 
         // 2 notch boxes carved into the bottom edge of the pelt (visual tears)
@@ -230,8 +229,8 @@ export function buildBarbarianMesh(scene: Scene, position: Vector3): BarbarianMe
         }
     }
 
-    // Bone necklace — ring of 8 small bone polyhedra around the neck base.
-    // Parented to head so it follows head rotation slightly; positioned low on the head.
+    // Bone necklace — ring of 8 bone polyhedra at the neck base.
+    // Parented to rootMesh so it stays put when the head turns during look-around.
     const neckBoneCount = 8;
     for (let i = 0; i < neckBoneCount; i++) {
         const angle = (i / neckBoneCount) * Math.PI * 2;
