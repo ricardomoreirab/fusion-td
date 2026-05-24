@@ -203,6 +203,7 @@ export function buildBarbarianMesh(scene: Scene, position: Vector3): BarbarianMe
     }
 
     // Fur kilt — multiple trapezoid-ish flat boxes angled around the waist
+    const kiltFlaps: Mesh[] = [];
     const kiltAngles = [-0.28, -0.14, 0, 0.14, 0.28];
     for (let i = 0; i < kiltAngles.length; i++) {
         const kiltFlap = MeshBuilder.CreateBox(`barbKilt${i}`, {
@@ -216,6 +217,7 @@ export function buildBarbarianMesh(scene: Scene, position: Vector3): BarbarianMe
         kiltFlap.rotation.y = kiltAngles[i] * 0.6;
         kiltFlap.material = createLowPolyMaterial(`barbKiltMat${i}`,
             i % 2 === 0 ? fur : furLight, scene);
+        kiltFlaps.push(kiltFlap);
     }
     // Back fur flaps
     for (let i = 0; i < 3; i++) {
@@ -229,6 +231,39 @@ export function buildBarbarianMesh(scene: Scene, position: Vector3): BarbarianMe
         backFlap.position = new Vector3((i - 1) * 0.32, -0.92, -0.38);
         backFlap.rotation.y = (i - 1) * 0.15;
         backFlap.material = createLowPolyMaterial(`barbKiltBackMat${i}`, fur, scene);
+    }
+
+    // Bone bead chain — 5 beads strung in a low arc across the kilt front.
+    // Parented to belt so it's independent of flap sway.
+    const beadCount = 5;
+    for (let b = 0; b < beadCount; b++) {
+        const t = b / (beadCount - 1);
+        const xPos = (t - 0.5) * 0.85;
+        // Slight downward arc — middle beads hang lower than ends.
+        const arcSag = -Math.sin(t * Math.PI) * 0.08;
+        const bead = MeshBuilder.CreatePolyhedron(`barbKiltBead${b}`, {
+            type: 1,
+            size: 0.04,
+        }, scene);
+        makeFlatShaded(bead);
+        bead.parent = belt;
+        bead.position = new Vector3(xPos, -0.22 + arcSag, 0.48);
+        bead.scaling = new Vector3(1.0, 1.3, 1.0);
+        bead.material = createLowPolyMaterial(`barbKiltBeadMat${b}`, boneWhite, scene);
+    }
+
+    // Crossing leather strap bands on the kilt — an X across the front.
+    for (let s = 0; s < 2; s++) {
+        const strap = MeshBuilder.CreateBox(`barbKiltStrap${s}`, {
+            width: 1.10,
+            height: 0.05,
+            depth: 0.04,
+        }, scene);
+        makeFlatShaded(strap);
+        strap.parent = rootMesh;
+        strap.position = new Vector3(0, -1.00, 0.42);
+        strap.rotation.z = s === 0 ? 0.5 : -0.5;
+        strap.material = createLowPolyMaterial(`barbKiltStrapMat${s}`, darkLeather, scene);
     }
 
     // --- Broad shoulders: large shoulder cap bumps ---
@@ -708,6 +743,25 @@ export function buildBarbarianMesh(scene: Scene, position: Vector3): BarbarianMe
     rightLeg.position = new Vector3(0.30, -1.22, 0);
     rightLeg.material = createLowPolyMaterial('barbRightLegMat', skinTone, scene);
 
+    // Thigh war-paint stripes — visible on the outside face as the leg lifts.
+    for (const leg of [leftLeg, rightLeg]) {
+        const isLeft = leg === leftLeg;
+        for (let i = 0; i < 2; i++) {
+            const stripe = MeshBuilder.CreateBox(`barbThighStripe_${leg.name}_${i}`, {
+                width: 0.04,
+                height: 0.35,
+                depth: 0.10,
+            }, scene);
+            makeFlatShaded(stripe);
+            stripe.parent = leg;
+            // Place on outside face of each leg.
+            stripe.position = new Vector3((isLeft ? -1 : 1) * 0.22, 0.10 + i * 0.10, 0.05 - i * 0.08);
+            stripe.rotation.z = (isLeft ? -1 : 1) * 0.15;
+            stripe.material = createEmissiveMaterial(`barbThighStripeMat_${leg.name}_${i}`,
+                bloodRed, 0.5, scene);
+        }
+    }
+
     // Kneecap detail on each leg
     for (const leg of [leftLeg, rightLeg]) {
         const kneeCap = MeshBuilder.CreatePolyhedron(`barbKnee_${leg.name}`, {
@@ -743,6 +797,20 @@ export function buildBarbarianMesh(scene: Scene, position: Vector3): BarbarianMe
     rightBoot.position = new Vector3(0, -0.55, 0.06);
     rightBoot.material = createLowPolyMaterial('barbBootRMat', leather, scene);
 
+    // Calf bandage wraps — wide pale rings just above each boot.
+    for (const leg of [leftLeg, rightLeg]) {
+        const wrap = MeshBuilder.CreateCylinder(`barbCalfWrap_${leg.name}`, {
+            height: 0.16,
+            diameterTop: 0.46,
+            diameterBottom: 0.50,
+            tessellation: 6,
+        }, scene);
+        makeFlatShaded(wrap);
+        wrap.parent = leg;
+        wrap.position = new Vector3(0, -0.32, 0.04);
+        wrap.material = createLowPolyMaterial(`barbCalfWrapMat_${leg.name}`, boneWhite, scene);
+    }
+
     return {
         rootMesh,
         head,
@@ -751,7 +819,7 @@ export function buildBarbarianMesh(scene: Scene, position: Vector3): BarbarianMe
         leftLeg,
         rightLeg,
         axeHead,
-        kiltFlaps: [],
+        kiltFlaps,
         beltTrophy,
         snarlJaw,
         chestPulseGroup,
