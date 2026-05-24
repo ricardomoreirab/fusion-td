@@ -14,6 +14,10 @@ import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '.
 export class Champion extends Enemy {
     private enemyManager: EnemyManager;
 
+    // Player control
+    public controlMode: 'ai' | 'player' = 'ai';
+    private playerVelocity: Vector3 = new Vector3(0, 0, 0);
+
     // Combat
     private attackDamage: number = 40;
     private attackRange: number = 3.0;
@@ -39,6 +43,21 @@ export class Champion extends Enemy {
         const startPos = reversedPath.length > 0 ? reversedPath[0] : new Vector3(0, 0, 0);
         super(game, startPos, reversedPath, 1.5, 800, 0, 0);
         this.enemyManager = enemyManager;
+    }
+
+    /**
+     * Set movement velocity when in player-controlled mode.
+     * Call this from HeroController each frame.
+     */
+    public setPlayerVelocity(velocity: Vector3): void {
+        this.playerVelocity.copyFrom(velocity);
+    }
+
+    /**
+     * Get current world position of the champion.
+     */
+    public getPosition(): Vector3 {
+        return this.position.clone();
     }
 
     /**
@@ -554,8 +573,22 @@ export class Champion extends Enemy {
     public update(deltaTime: number): boolean {
         if (!this.alive || !this.mesh) return false;
 
+        // Player-controlled mode: bypass all AI, apply velocity directly
+        if (this.controlMode === 'player') {
+            this.position.addInPlace(this.playerVelocity.scale(deltaTime));
+            this.mesh.position.x = this.position.x;
+            this.mesh.position.z = this.position.z;
+            this.mesh.position.y = this.position.y + 2.0;
+            // Face movement direction
+            if (this.playerVelocity.lengthSquared() > 0.001) {
+                this.mesh.rotation.y = Math.atan2(this.playerVelocity.x, this.playerVelocity.z);
+            }
+            // Update health bar position
+            this.updateHealthBar();
+            return false; // never "reached end of path"
+        }
+
         // Attack nearby enemies
-        this.attackNearbyEnemies(deltaTime);
 
         // Block nearby enemies (throttled to avoid particle spam)
         this.blockTimer -= deltaTime;
