@@ -133,479 +133,385 @@ export class Champion extends Enemy {
     private createBarbarianMesh(): void {
         const scene = this.scene;
 
-        // --- Body: broad armored torso (scaled up ~1.5x from original) ---
-        this.mesh = MeshBuilder.CreateBox('championBody', {
-            width: 1.30,
-            height: 1.80,
-            depth: 0.85
+        // Barbarian palette
+        const skinTone    = new Color3(0.78, 0.55, 0.40); // warm tan skin
+        const skinDark    = new Color3(0.62, 0.42, 0.30); // shadow/muscle definition
+        const leather     = new Color3(0.30, 0.18, 0.08); // dark leather (bracers, belt, boots)
+        const fur         = new Color3(0.28, 0.22, 0.18); // dark brown/grey fur (kilt)
+        const furLight    = new Color3(0.42, 0.34, 0.26); // lighter fur highlight
+        const steelGrey   = new Color3(0.65, 0.65, 0.70); // axe head steel
+        const steelSharp  = new Color3(0.82, 0.82, 0.86); // leading edge (bright sheen)
+        const wood        = new Color3(0.30, 0.18, 0.08); // axe shaft dark wood
+        const warPaint    = new Color3(0.75, 0.12, 0.10); // war paint red (emissive accent)
+        const hornColor   = new Color3(0.50, 0.42, 0.28); // horn/helmet color
+
+        // --- Body: wide muscular bare-chested torso ---
+        this.mesh = MeshBuilder.CreateBox('barbBody', {
+            width: 1.45,
+            height: 1.70,
+            depth: 0.90
         }, scene);
         makeFlatShaded(this.mesh);
         this.mesh.position = this.position.clone();
         this.mesh.position.y += 2.0;
-        this.mesh.material = createLowPolyMaterial('championBodyMat', PALETTE.CHAMPION_BODY, scene);
+        this.mesh.material = createLowPolyMaterial('barbBodyMat', skinTone, scene);
 
-        // --- Chest plate: raised center plate with beveled look ---
-        const chestPlate = MeshBuilder.CreateBox('championChest', {
-            width: 0.70,
-            height: 0.55,
-            depth: 0.08
+        // Pec / chest muscle definition — slightly darker plane front center
+        const pecLeft = MeshBuilder.CreateBox('barbPecL', {
+            width: 0.52,
+            height: 0.45,
+            depth: 0.06
         }, scene);
-        makeFlatShaded(chestPlate);
-        chestPlate.parent = this.mesh;
-        chestPlate.position = new Vector3(0, 0.20, 0.46);
-        chestPlate.material = createEmissiveMaterial('championChestMat', PALETTE.CHAMPION_HELM, 0.3, scene);
+        makeFlatShaded(pecLeft);
+        pecLeft.parent = this.mesh;
+        pecLeft.position = new Vector3(-0.22, 0.28, 0.48);
+        pecLeft.material = createLowPolyMaterial('barbPecLMat', skinDark, scene);
 
-        // Chest emblem: heraldic diamond
-        const chestEmblem = MeshBuilder.CreatePolyhedron('championChestEmblem', {
-            type: 1, // Octahedron
-            size: 0.08
+        const pecRight = MeshBuilder.CreateBox('barbPecR', {
+            width: 0.52,
+            height: 0.45,
+            depth: 0.06
         }, scene);
-        makeFlatShaded(chestEmblem);
-        chestEmblem.parent = chestPlate;
-        chestEmblem.position = new Vector3(0, 0, 0.06);
-        chestEmblem.scaling = new Vector3(1, 1.4, 0.5);
-        chestEmblem.material = createEmissiveMaterial('championEmblemMat', PALETTE.CHAMPION_CAPE, 0.6, scene);
+        makeFlatShaded(pecRight);
+        pecRight.parent = this.mesh;
+        pecRight.position = new Vector3(0.22, 0.28, 0.48);
+        pecRight.material = createLowPolyMaterial('barbPecRMat', skinDark, scene);
 
-        // --- Belt / waist armor ---
-        const belt = MeshBuilder.CreateBox('championBelt', {
-            width: 1.10,
-            height: 0.15,
-            depth: 0.90
+        // War paint stripe across chest — red emissive diagonal stripe
+        const warpaint = MeshBuilder.CreateBox('barbWarpaint', {
+            width: 0.80,
+            height: 0.07,
+            depth: 0.05
+        }, scene);
+        makeFlatShaded(warpaint);
+        warpaint.parent = this.mesh;
+        warpaint.position = new Vector3(0, 0.05, 0.48);
+        warpaint.rotation.z = 0.35; // diagonal slash
+        warpaint.material = createEmissiveMaterial('barbWarpaintMat', warPaint, 0.7, scene);
+
+        // Leather belt across waist
+        const belt = MeshBuilder.CreateBox('barbBelt', {
+            width: 1.30,
+            height: 0.18,
+            depth: 0.95
         }, scene);
         makeFlatShaded(belt);
         belt.parent = this.mesh;
-        belt.position = new Vector3(0, -0.50, 0);
-        belt.material = createLowPolyMaterial('championBeltMat', new Color3(0.50, 0.38, 0.18), scene);
+        belt.position = new Vector3(0, -0.55, 0);
+        belt.material = createLowPolyMaterial('barbBeltMat', leather, scene);
 
-        // Belt buckle
-        const buckle = MeshBuilder.CreateBox('championBuckle', {
-            width: 0.18,
-            height: 0.12,
+        // Belt metal clasp (center front)
+        const clasp = MeshBuilder.CreateBox('barbClasp', {
+            width: 0.20,
+            height: 0.14,
             depth: 0.06
         }, scene);
-        makeFlatShaded(buckle);
-        buckle.parent = belt;
-        buckle.position = new Vector3(0, 0, 0.48);
-        buckle.material = createEmissiveMaterial('championBuckleMat', PALETTE.CHAMPION_HELM, 0.4, scene);
+        makeFlatShaded(clasp);
+        clasp.parent = belt;
+        clasp.position = new Vector3(0, 0, 0.50);
+        clasp.material = createEmissiveMaterial('barbClaspMat', steelGrey, 0.3, scene);
 
-        // --- Tassets (hip armor plates) ---
-        for (let side = -1; side <= 1; side += 2) {
-            const tasset = MeshBuilder.CreateBox(`championTasset${side}`, {
-                width: 0.40,
-                height: 0.35,
-                depth: 0.12
+        // Fur kilt — multiple trapezoid-ish flat boxes angled around the waist
+        const kiltAngles = [-0.28, -0.14, 0, 0.14, 0.28];
+        for (let i = 0; i < kiltAngles.length; i++) {
+            const kiltFlap = MeshBuilder.CreateBox(`barbKilt${i}`, {
+                width: 0.28,
+                height: 0.55,
+                depth: 0.08
             }, scene);
-            makeFlatShaded(tasset);
-            tasset.parent = this.mesh;
-            tasset.position = new Vector3(side * 0.32, -0.72, 0.15);
-            tasset.material = createLowPolyMaterial(`championTassetMat${side}`, PALETTE.CHAMPION_BODY, scene);
+            makeFlatShaded(kiltFlap);
+            kiltFlap.parent = this.mesh;
+            kiltFlap.position = new Vector3(kiltAngles[i] * 3.2, -0.95, 0.35 - Math.abs(kiltAngles[i]) * 0.5);
+            kiltFlap.rotation.y = kiltAngles[i] * 0.6;
+            kiltFlap.material = createLowPolyMaterial(`barbKiltMat${i}`,
+                i % 2 === 0 ? fur : furLight, scene);
+        }
+        // Back fur flaps
+        for (let i = 0; i < 3; i++) {
+            const backFlap = MeshBuilder.CreateBox(`barbKiltBack${i}`, {
+                width: 0.30,
+                height: 0.50,
+                depth: 0.07
+            }, scene);
+            makeFlatShaded(backFlap);
+            backFlap.parent = this.mesh;
+            backFlap.position = new Vector3((i - 1) * 0.32, -0.92, -0.38);
+            backFlap.rotation.y = (i - 1) * 0.15;
+            backFlap.material = createLowPolyMaterial(`barbKiltBackMat${i}`, fur, scene);
         }
 
-        // --- Shoulder pauldrons: large faceted armor pieces ---
+        // --- Broad shoulders: large shoulder cap bumps ---
         for (let side = -1; side <= 1; side += 2) {
-            const pauldron = MeshBuilder.CreatePolyhedron(`championPauldron${side}`, {
-                type: 2, // Icosahedron
-                size: 0.30
+            const shoulder = MeshBuilder.CreateSphere(`barbShoulder${side}`, {
+                diameter: 0.52,
+                segments: 4
             }, scene);
-            makeFlatShaded(pauldron);
-            pauldron.parent = this.mesh;
-            pauldron.position = new Vector3(side * 0.80, 0.70, 0);
-            pauldron.scaling = new Vector3(0.9, 0.6, 0.9);
-            pauldron.material = createLowPolyMaterial(`championPauldronMat${side}`, PALETTE.CHAMPION_BODY, scene);
+            makeFlatShaded(shoulder);
+            shoulder.parent = this.mesh;
+            shoulder.position = new Vector3(side * 0.86, 0.72, 0);
+            shoulder.scaling = new Vector3(0.85, 0.70, 0.85);
+            shoulder.material = createLowPolyMaterial(`barbShoulderMat${side}`, skinTone, scene);
 
-            // Pauldron edge trim
-            const trim = MeshBuilder.CreateTorus(`championPauldronTrim${side}`, {
-                diameter: 0.42,
-                thickness: 0.04,
-                tessellation: 8
+            // Shoulder scar / definition mark
+            const scarMark = MeshBuilder.CreateBox(`barbShoulderScar${side}`, {
+                width: 0.12,
+                height: 0.04,
+                depth: 0.04
             }, scene);
-            makeFlatShaded(trim);
-            trim.parent = pauldron;
-            trim.position = new Vector3(0, -0.08, 0);
-            trim.material = createEmissiveMaterial(`championPauldronTrimMat${side}`, PALETTE.CHAMPION_HELM, 0.3, scene);
-
-            // Spike on top of pauldron
-            const spike = MeshBuilder.CreateCylinder(`championPauldronSpike${side}`, {
-                height: 0.20,
-                diameterTop: 0.0,
-                diameterBottom: 0.08,
-                tessellation: 4
-            }, scene);
-            makeFlatShaded(spike);
-            spike.parent = pauldron;
-            spike.position = new Vector3(0, 0.18, 0);
-            spike.material = createLowPolyMaterial(`championSpikeMat${side}`, PALETTE.CHAMPION_WEAPON, scene);
+            makeFlatShaded(scarMark);
+            scarMark.parent = shoulder;
+            scarMark.position = new Vector3(0, -0.10, 0.20);
+            scarMark.rotation.z = 0.3;
+            scarMark.material = createEmissiveMaterial(`barbShoulderScarMat${side}`, warPaint, 0.25, scene);
         }
 
-        // --- Head with great helm ---
-        this.head = MeshBuilder.CreatePolyhedron('championHelm', {
-            type: 2, // Icosahedron
-            size: 0.38
+        // --- Head: horned fur-trimmed skull cap + face ---
+        // Skull cap base (flat-shaded sphere)
+        this.head = MeshBuilder.CreateSphere('barbHead', {
+            diameter: 0.58,
+            segments: 5
         }, scene);
         makeFlatShaded(this.head);
         this.head.parent = this.mesh;
-        this.head.position = new Vector3(0, 1.20, 0.05);
-        this.head.scaling = new Vector3(0.85, 0.80, 1.0);
-        this.head.material = createLowPolyMaterial('championHelmMat', PALETTE.CHAMPION_HELM, scene);
+        this.head.position = new Vector3(0, 1.15, 0.04);
+        this.head.material = createLowPolyMaterial('barbHeadMat', skinTone, scene);
 
-        // Visor: T-shaped slit (horizontal + vertical)
-        const visorH = MeshBuilder.CreateBox('championVisorH', {
-            width: 0.36,
-            height: 0.05,
-            depth: 0.06
+        // Fur-trim skull cap (sitting on top of head)
+        const helmCap = MeshBuilder.CreateCylinder('barbHelmCap', {
+            height: 0.30,
+            diameterTop: 0.45,
+            diameterBottom: 0.58,
+            tessellation: 6
         }, scene);
-        makeFlatShaded(visorH);
-        visorH.parent = this.head;
-        visorH.position = new Vector3(0, -0.02, 0.36);
-        visorH.material = createEmissiveMaterial('championVisorHMat', new Color3(0.3, 0.6, 1.0), 0.8, scene);
+        makeFlatShaded(helmCap);
+        helmCap.parent = this.head;
+        helmCap.position = new Vector3(0, 0.20, 0);
+        helmCap.material = createLowPolyMaterial('barbHelmCapMat', fur, scene);
 
-        const visorV = MeshBuilder.CreateBox('championVisorV', {
-            width: 0.04,
-            height: 0.14,
-            depth: 0.06
-        }, scene);
-        makeFlatShaded(visorV);
-        visorV.parent = this.head;
-        visorV.position = new Vector3(0, -0.04, 0.36);
-        visorV.material = createEmissiveMaterial('championVisorVMat', new Color3(0.3, 0.6, 1.0), 0.8, scene);
-
-        // Helm crest ridge: runs top to back
-        const crest = MeshBuilder.CreateBox('championCrest', {
-            width: 0.06,
-            height: 0.08,
-            depth: 0.50
-        }, scene);
-        makeFlatShaded(crest);
-        crest.parent = this.head;
-        crest.position = new Vector3(0, 0.25, -0.05);
-        crest.material = createLowPolyMaterial('championCrestMat', PALETTE.CHAMPION_BODY, scene);
-
-        // Plume: tall flowing feather crest
-        const plume = MeshBuilder.CreateCylinder('championPlume', {
-            height: 0.55,
-            diameterTop: 0.0,
-            diameterBottom: 0.14,
-            tessellation: 4
-        }, scene);
-        makeFlatShaded(plume);
-        plume.parent = this.head;
-        plume.position = new Vector3(0, 0.45, -0.12);
-        plume.material = createLowPolyMaterial('championPlumeMat', PALETTE.CHAMPION_CAPE, scene);
-
-        // Secondary plume feathers
-        for (let i = 0; i < 2; i++) {
-            const feather = MeshBuilder.CreateCylinder(`championFeather${i}`, {
-                height: 0.35,
-                diameterTop: 0.0,
-                diameterBottom: 0.08,
-                tessellation: 3
+        // Two curved horns out the sides (made from cones)
+        for (let side = -1; side <= 1; side += 2) {
+            const horn = MeshBuilder.CreateCylinder(`barbHorn${side}`, {
+                height: 0.45,
+                diameterTop: 0.02,
+                diameterBottom: 0.14,
+                tessellation: 5
             }, scene);
-            makeFlatShaded(feather);
-            feather.parent = this.head;
-            feather.position = new Vector3((i === 0 ? -1 : 1) * 0.06, 0.38, -0.14);
-            feather.rotation.z = (i === 0 ? -1 : 1) * 0.2;
-            feather.material = createLowPolyMaterial(`championFeatherMat${i}`, PALETTE.CHAMPION_CAPE, scene);
+            makeFlatShaded(horn);
+            horn.parent = this.head;
+            horn.position = new Vector3(side * 0.28, 0.26, 0);
+            horn.rotation.z = side * 0.75; // angle outward
+            horn.rotation.x = -0.15;       // slight forward tilt
+            horn.material = createLowPolyMaterial(`barbHornMat${side}`, hornColor, scene);
         }
 
-        // --- Cape: layered flowing fabric ---
-        this.cape = MeshBuilder.CreateBox('championCape', {
-            width: 1.0,
-            height: 1.60,
-            depth: 0.06
-        }, scene);
-        makeFlatShaded(this.cape);
-        this.cape.parent = this.mesh;
-        this.cape.position = new Vector3(0, -0.20, -0.46);
-        this.cape.material = createLowPolyMaterial('championCapeMat', PALETTE.CHAMPION_CAPE, scene);
+        // Eyes — glowing angry ember eyes
+        for (let side = -1; side <= 1; side += 2) {
+            const eye = MeshBuilder.CreateBox(`barbEye${side}`, {
+                width: 0.08,
+                height: 0.04,
+                depth: 0.04
+            }, scene);
+            makeFlatShaded(eye);
+            eye.parent = this.head;
+            eye.position = new Vector3(side * 0.10, -0.02, 0.29);
+            eye.material = createEmissiveMaterial(`barbEyeMat${side}`, new Color3(0.95, 0.40, 0.10), 0.9, scene);
+        }
 
-        // Cape hem detail (bottom trim)
-        const capeHem = MeshBuilder.CreateBox('championCapeHem', {
-            width: 1.0,
-            height: 0.06,
-            depth: 0.08
+        // Beard — small box below the face
+        const beard = MeshBuilder.CreateBox('barbBeard', {
+            width: 0.28,
+            height: 0.18,
+            depth: 0.16
         }, scene);
-        makeFlatShaded(capeHem);
-        capeHem.parent = this.cape;
-        capeHem.position = new Vector3(0, -0.80, 0.01);
-        capeHem.material = createEmissiveMaterial('championCapeHemMat', PALETTE.CHAMPION_HELM, 0.25, scene);
+        makeFlatShaded(beard);
+        beard.parent = this.head;
+        beard.position = new Vector3(0, -0.22, 0.20);
+        beard.material = createLowPolyMaterial('barbBeardMat', fur, scene);
 
-        // --- Right arm (Sword arm) with gauntlet ---
-        this.swordArm = MeshBuilder.CreateBox('championSwordArm', {
-            width: 0.32,
-            height: 1.30,
-            depth: 0.32
+        // No cape — barbarians don't wear capes
+        this.cape = null;
+
+        // --- Right arm (axe arm) — thick upper arm + bracer on forearm ---
+        this.swordArm = MeshBuilder.CreateBox('barbAxeArm', {
+            width: 0.38,
+            height: 1.25,
+            depth: 0.38
         }, scene);
         makeFlatShaded(this.swordArm);
         this.swordArm.parent = this.mesh;
-        this.swordArm.position = new Vector3(0.82, 0.0, 0.05);
-        this.swordArm.material = createLowPolyMaterial('championSwordArmMat', PALETTE.CHAMPION_BODY, scene);
+        this.swordArm.position = new Vector3(0.92, 0.02, 0.05);
+        this.swordArm.material = createLowPolyMaterial('barbAxeArmMat', skinTone, scene);
 
-        // Gauntlet cuff
-        const rightGauntlet = MeshBuilder.CreateBox('championRightGauntlet', {
-            width: 0.38,
-            height: 0.12,
-            depth: 0.38
+        // Bracer on axe-arm forearm (dark leather)
+        const axeBracer = MeshBuilder.CreateBox('barbAxeBracer', {
+            width: 0.42,
+            height: 0.26,
+            depth: 0.42
         }, scene);
-        makeFlatShaded(rightGauntlet);
-        rightGauntlet.parent = this.swordArm;
-        rightGauntlet.position = new Vector3(0, -0.40, 0);
-        rightGauntlet.material = createLowPolyMaterial('championRGauntletMat', PALETTE.CHAMPION_HELM, scene);
+        makeFlatShaded(axeBracer);
+        axeBracer.parent = this.swordArm;
+        axeBracer.position = new Vector3(0, -0.38, 0);
+        axeBracer.material = createLowPolyMaterial('barbAxeBracerMat', leather, scene);
 
-        // --- Sword: detailed broadsword ---
-        // Grip (wrapped handle)
-        const swordGrip = MeshBuilder.CreateCylinder('championSwordGrip', {
-            height: 0.30,
-            diameterTop: 0.06,
-            diameterBottom: 0.06,
+        // --- Battle axe held in the dominant hand ---
+        // Shaft: long dark wood cylinder
+        const axeShaft = MeshBuilder.CreateCylinder('barbAxeShaft', {
+            height: 1.40,
+            diameterTop: 0.10,
+            diameterBottom: 0.10,
             tessellation: 6
         }, scene);
-        makeFlatShaded(swordGrip);
-        swordGrip.parent = this.swordArm;
-        swordGrip.position = new Vector3(0, -0.58, 0.12);
-        swordGrip.material = createLowPolyMaterial('championGripMat', new Color3(0.40, 0.28, 0.14), scene);
+        makeFlatShaded(axeShaft);
+        axeShaft.parent = this.swordArm;
+        axeShaft.position = new Vector3(0.05, -0.85, 0.18);
+        axeShaft.rotation.z = 0.08;
+        axeShaft.material = createLowPolyMaterial('barbAxeShaftMat', wood, scene);
 
-        // Crossguard
-        const crossguard = MeshBuilder.CreateBox('championCrossguard', {
-            width: 0.35,
-            height: 0.06,
-            depth: 0.08
+        // Leather grip wrap (short dark ring at the grip point)
+        const gripWrap = MeshBuilder.CreateCylinder('barbAxeGrip', {
+            height: 0.22,
+            diameterTop: 0.14,
+            diameterBottom: 0.14,
+            tessellation: 6
         }, scene);
-        makeFlatShaded(crossguard);
-        crossguard.parent = this.swordArm;
-        crossguard.position = new Vector3(0, -0.45, 0.12);
-        crossguard.material = createEmissiveMaterial('championCrossguardMat', PALETTE.CHAMPION_HELM, 0.3, scene);
+        makeFlatShaded(gripWrap);
+        gripWrap.parent = axeShaft;
+        gripWrap.position = new Vector3(0, 0.15, 0);
+        gripWrap.material = createLowPolyMaterial('barbAxeGripMat', leather, scene);
 
-        // Crossguard curved tips
-        for (let side = -1; side <= 1; side += 2) {
-            const tip = MeshBuilder.CreateCylinder(`championGuardTip${side}`, {
-                height: 0.08,
-                diameterTop: 0.04,
-                diameterBottom: 0.02,
-                tessellation: 4
-            }, scene);
-            makeFlatShaded(tip);
-            tip.parent = crossguard;
-            tip.position = new Vector3(side * 0.18, 0, 0);
-            tip.rotation.z = side * 0.4;
-            tip.material = createEmissiveMaterial(`championGuardTipMat${side}`, PALETTE.CHAMPION_HELM, 0.3, scene);
-        }
-
-        // Blade: long tapered box
-        const blade = MeshBuilder.CreateBox('championBlade', {
-            width: 0.10,
-            height: 1.20,
-            depth: 0.04
+        // Axe head body (flattened steel box — the main blade mass)
+        const axeHead = MeshBuilder.CreateBox('barbAxeHead', {
+            width: 0.42,
+            height: 0.52,
+            depth: 0.12
         }, scene);
-        makeFlatShaded(blade);
-        blade.parent = this.swordArm;
-        blade.position = new Vector3(0, -1.10, 0.12);
-        blade.material = createLowPolyMaterial('championBladeMat', PALETTE.CHAMPION_WEAPON, scene);
+        makeFlatShaded(axeHead);
+        axeHead.parent = axeShaft;
+        axeHead.position = new Vector3(0.14, 0.64, 0);
+        axeHead.rotation.z = 0.15; // slight forward lean
+        axeHead.material = createLowPolyMaterial('barbAxeHeadMat', steelGrey, scene);
 
-        // Blade fuller (center groove detail)
-        const fuller = MeshBuilder.CreateBox('championFuller', {
-            width: 0.03,
-            height: 0.90,
-            depth: 0.06
+        // Leading edge of axe blade (bright thin strip — the sharpened edge)
+        const axeEdge = MeshBuilder.CreateBox('barbAxeEdge', {
+            width: 0.06,
+            height: 0.52,
+            depth: 0.14
         }, scene);
-        makeFlatShaded(fuller);
-        fuller.parent = blade;
-        fuller.position = new Vector3(0, 0.10, 0);
-        fuller.material = createLowPolyMaterial('championFullerMat', new Color3(0.60, 0.58, 0.55), scene);
+        makeFlatShaded(axeEdge);
+        axeEdge.parent = axeHead;
+        axeEdge.position = new Vector3(0.22, 0, 0);
+        axeEdge.material = createEmissiveMaterial('barbAxeEdgeMat', steelSharp, 0.35, scene);
 
-        // Blade tip (tapered point)
-        const bladeTip = MeshBuilder.CreateCylinder('championBladeTip', {
+        // Back spike of axe head (small spike on the non-blade side)
+        const axeBackSpike = MeshBuilder.CreateCylinder('barbAxeBackSpike', {
             height: 0.20,
-            diameterTop: 0.0,
-            diameterBottom: 0.10,
+            diameterTop: 0.02,
+            diameterBottom: 0.08,
             tessellation: 4
         }, scene);
-        makeFlatShaded(bladeTip);
-        bladeTip.parent = blade;
-        bladeTip.position = new Vector3(0, -0.70, 0);
-        bladeTip.material = createLowPolyMaterial('championBladeTipMat', PALETTE.CHAMPION_WEAPON, scene);
+        makeFlatShaded(axeBackSpike);
+        axeBackSpike.parent = axeHead;
+        axeBackSpike.position = new Vector3(-0.22, 0.10, 0);
+        axeBackSpike.rotation.z = Math.PI / 2;
+        axeBackSpike.material = createLowPolyMaterial('barbAxeBackSpikeMat', steelGrey, scene);
 
-        // Pommel
-        const pommel = MeshBuilder.CreatePolyhedron('championPommel', {
-            type: 1, // Octahedron
-            size: 0.04
+        // Pommel cap at bottom of shaft (small polyhedron)
+        const pommel = MeshBuilder.CreatePolyhedron('barbAxePommel', {
+            type: 1, // octahedron
+            size: 0.07
         }, scene);
         makeFlatShaded(pommel);
-        pommel.parent = this.swordArm;
-        pommel.position = new Vector3(0, -0.72, 0.12);
-        pommel.material = createEmissiveMaterial('championPommelMat', PALETTE.CHAMPION_HELM, 0.4, scene);
+        pommel.parent = axeShaft;
+        pommel.position = new Vector3(0, -0.72, 0);
+        pommel.material = createLowPolyMaterial('barbAxePommelMat', steelGrey, scene);
 
-        // --- Left arm (Shield arm) with gauntlet ---
-        this.shieldArm = MeshBuilder.CreateBox('championShieldArm', {
-            width: 0.32,
+        // --- Left arm (off-hand / clenched fist) ---
+        this.shieldArm = MeshBuilder.CreateBox('barbOffArm', {
+            width: 0.38,
             height: 1.20,
-            depth: 0.32
+            depth: 0.38
         }, scene);
         makeFlatShaded(this.shieldArm);
         this.shieldArm.parent = this.mesh;
-        this.shieldArm.position = new Vector3(-0.82, 0.0, 0.05);
-        this.shieldArm.material = createLowPolyMaterial('championShieldArmMat', PALETTE.CHAMPION_BODY, scene);
+        this.shieldArm.position = new Vector3(-0.92, 0.02, 0.05);
+        this.shieldArm.material = createLowPolyMaterial('barbOffArmMat', skinTone, scene);
 
-        // Gauntlet cuff
-        const leftGauntlet = MeshBuilder.CreateBox('championLeftGauntlet', {
-            width: 0.38,
-            height: 0.12,
-            depth: 0.38
+        // Bracer on off-arm
+        const offBracer = MeshBuilder.CreateBox('barbOffBracer', {
+            width: 0.42,
+            height: 0.26,
+            depth: 0.42
         }, scene);
-        makeFlatShaded(leftGauntlet);
-        leftGauntlet.parent = this.shieldArm;
-        leftGauntlet.position = new Vector3(0, -0.35, 0);
-        leftGauntlet.material = createLowPolyMaterial('championLGauntletMat', PALETTE.CHAMPION_HELM, scene);
+        makeFlatShaded(offBracer);
+        offBracer.parent = this.shieldArm;
+        offBracer.position = new Vector3(0, -0.38, 0);
+        offBracer.material = createLowPolyMaterial('barbOffBracerMat', leather, scene);
 
-        // --- Shield: large kite shield ---
-        // Main shield body (tall tapered shape via box)
-        const shield = MeshBuilder.CreateBox('championShield', {
-            width: 0.60,
-            height: 0.85,
-            depth: 0.10
+        // Clenched fist (small box at end of arm)
+        const fist = MeshBuilder.CreateBox('barbFist', {
+            width: 0.34,
+            height: 0.28,
+            depth: 0.34
         }, scene);
-        makeFlatShaded(shield);
-        shield.parent = this.shieldArm;
-        shield.position = new Vector3(-0.15, -0.15, 0.22);
-        shield.material = createLowPolyMaterial('championShieldMat', PALETTE.CHAMPION_CAPE, scene);
+        makeFlatShaded(fist);
+        fist.parent = this.shieldArm;
+        fist.position = new Vector3(0, -0.60, 0.04);
+        fist.material = createLowPolyMaterial('barbFistMat', skinDark, scene);
 
-        // Shield rim (border trim)
-        const shieldRim = MeshBuilder.CreateBox('championShieldRim', {
-            width: 0.66,
-            height: 0.91,
-            depth: 0.04
-        }, scene);
-        makeFlatShaded(shieldRim);
-        shieldRim.parent = shield;
-        shieldRim.position = new Vector3(0, 0, 0.04);
-        shieldRim.material = createEmissiveMaterial('championShieldRimMat', PALETTE.CHAMPION_HELM, 0.25, scene);
-
-        // Shield inner face (lighter center)
-        const shieldFace = MeshBuilder.CreateBox('championShieldFace', {
-            width: 0.46,
-            height: 0.70,
-            depth: 0.04
-        }, scene);
-        makeFlatShaded(shieldFace);
-        shieldFace.parent = shield;
-        shieldFace.position = new Vector3(0, 0, 0.06);
-        shieldFace.material = createLowPolyMaterial('championShieldFaceMat', new Color3(0.20, 0.38, 0.75), scene);
-
-        // Shield boss (central emblem — larger faceted gem)
-        const shieldBoss = MeshBuilder.CreatePolyhedron('championShieldBoss', {
-            type: 2, // Icosahedron
-            size: 0.10
-        }, scene);
-        makeFlatShaded(shieldBoss);
-        shieldBoss.parent = shield;
-        shieldBoss.position = new Vector3(0, 0.05, 0.10);
-        shieldBoss.scaling = new Vector3(1, 1, 0.5);
-        shieldBoss.material = createEmissiveMaterial('championShieldBossMat', PALETTE.CHAMPION_HELM, 0.6, scene);
-
-        // Shield cross (heraldic cross in gold)
-        const crossV = MeshBuilder.CreateBox('championShieldCrossV', {
-            width: 0.06,
-            height: 0.50,
-            depth: 0.04
-        }, scene);
-        makeFlatShaded(crossV);
-        crossV.parent = shield;
-        crossV.position = new Vector3(0, 0.0, 0.08);
-        crossV.material = createEmissiveMaterial('championCrossVMat', PALETTE.CHAMPION_HELM, 0.3, scene);
-
-        const crossH = MeshBuilder.CreateBox('championShieldCrossH', {
-            width: 0.32,
-            height: 0.06,
-            depth: 0.04
-        }, scene);
-        makeFlatShaded(crossH);
-        crossH.parent = shield;
-        crossH.position = new Vector3(0, 0.10, 0.08);
-        crossH.material = createEmissiveMaterial('championCrossHMat', PALETTE.CHAMPION_HELM, 0.3, scene);
-
-        // Shield rivets (4 corners)
-        const rivetPositions = [
-            new Vector3(-0.22, 0.32, 0.08),
-            new Vector3(0.22, 0.32, 0.08),
-            new Vector3(-0.22, -0.22, 0.08),
-            new Vector3(0.22, -0.22, 0.08),
-        ];
-        for (let i = 0; i < rivetPositions.length; i++) {
-            const rivet = MeshBuilder.CreatePolyhedron(`championRivet${i}`, {
-                type: 1,
-                size: 0.025
-            }, scene);
-            makeFlatShaded(rivet);
-            rivet.parent = shield;
-            rivet.position = rivetPositions[i];
-            rivet.material = createLowPolyMaterial(`championRivetMat${i}`, PALETTE.CHAMPION_WEAPON, scene);
-        }
-
-        // Shield bottom point (kite shape extension)
-        const shieldPoint = MeshBuilder.CreateCylinder('championShieldPoint', {
-            height: 0.25,
-            diameterTop: 0.30,
-            diameterBottom: 0.0,
-            tessellation: 4
-        }, scene);
-        makeFlatShaded(shieldPoint);
-        shieldPoint.parent = shield;
-        shieldPoint.position = new Vector3(0, -0.55, 0);
-        shieldPoint.material = createLowPolyMaterial('championShieldPointMat', PALETTE.CHAMPION_CAPE, scene);
-
-        // --- Legs with knee guards ---
-        this.leftLeg = MeshBuilder.CreateBox('championLeftLeg', {
-            width: 0.38,
-            height: 1.10,
-            depth: 0.38
+        // --- Bare legs (skin tone, knee cap detail) ---
+        this.leftLeg = MeshBuilder.CreateBox('barbLeftLeg', {
+            width: 0.40,
+            height: 1.05,
+            depth: 0.40
         }, scene);
         makeFlatShaded(this.leftLeg);
         this.leftLeg.parent = this.mesh;
-        this.leftLeg.position = new Vector3(-0.28, -1.20, 0);
-        this.leftLeg.material = createLowPolyMaterial('championLeftLegMat', PALETTE.CHAMPION_BODY, scene);
+        this.leftLeg.position = new Vector3(-0.30, -1.22, 0);
+        this.leftLeg.material = createLowPolyMaterial('barbLeftLegMat', skinTone, scene);
 
-        this.rightLeg = MeshBuilder.CreateBox('championRightLeg', {
-            width: 0.38,
-            height: 1.10,
-            depth: 0.38
+        this.rightLeg = MeshBuilder.CreateBox('barbRightLeg', {
+            width: 0.40,
+            height: 1.05,
+            depth: 0.40
         }, scene);
         makeFlatShaded(this.rightLeg);
         this.rightLeg.parent = this.mesh;
-        this.rightLeg.position = new Vector3(0.28, -1.20, 0);
-        this.rightLeg.material = createLowPolyMaterial('championRightLegMat', PALETTE.CHAMPION_BODY, scene);
+        this.rightLeg.position = new Vector3(0.30, -1.22, 0);
+        this.rightLeg.material = createLowPolyMaterial('barbRightLegMat', skinTone, scene);
 
-        // Knee guards
+        // Kneecap detail on each leg
         for (const leg of [this.leftLeg, this.rightLeg]) {
-            const knee = MeshBuilder.CreatePolyhedron(`championKnee_${leg.name}`, {
+            const kneeCap = MeshBuilder.CreatePolyhedron(`barbKnee_${leg.name}`, {
                 type: 1,
-                size: 0.08
+                size: 0.07
             }, scene);
-            makeFlatShaded(knee);
-            knee.parent = leg;
-            knee.position = new Vector3(0, 0.15, 0.22);
-            knee.scaling = new Vector3(1.2, 0.8, 0.6);
-            knee.material = createLowPolyMaterial(`championKneeMat_${leg.name}`, PALETTE.CHAMPION_HELM, scene);
+            makeFlatShaded(kneeCap);
+            kneeCap.parent = leg;
+            kneeCap.position = new Vector3(0, 0.12, 0.24);
+            kneeCap.scaling = new Vector3(1.3, 0.9, 0.5);
+            kneeCap.material = createLowPolyMaterial(`barbKneeMat_${leg.name}`, skinDark, scene);
         }
 
-        // --- Feet: armored sabatons ---
-        const leftFoot = MeshBuilder.CreateBox('championLeftFoot', {
-            width: 0.42,
-            height: 0.14,
-            depth: 0.55
+        // Rough leather boots (taller than standard, dark leather)
+        const leftBoot = MeshBuilder.CreateBox('barbBootL', {
+            width: 0.44,
+            height: 0.30,
+            depth: 0.52
         }, scene);
-        makeFlatShaded(leftFoot);
-        leftFoot.parent = this.leftLeg;
-        leftFoot.position = new Vector3(0, -0.56, 0.08);
-        leftFoot.material = createLowPolyMaterial('championLeftFootMat', PALETTE.CHAMPION_BODY, scene);
+        makeFlatShaded(leftBoot);
+        leftBoot.parent = this.leftLeg;
+        leftBoot.position = new Vector3(0, -0.55, 0.06);
+        leftBoot.material = createLowPolyMaterial('barbBootLMat', leather, scene);
 
-        const rightFoot = MeshBuilder.CreateBox('championRightFoot', {
-            width: 0.42,
-            height: 0.14,
-            depth: 0.55
+        const rightBoot = MeshBuilder.CreateBox('barbBootR', {
+            width: 0.44,
+            height: 0.30,
+            depth: 0.52
         }, scene);
-        makeFlatShaded(rightFoot);
-        rightFoot.parent = this.rightLeg;
-        rightFoot.position = new Vector3(0, -0.56, 0.08);
-        rightFoot.material = createLowPolyMaterial('championRightFootMat', PALETTE.CHAMPION_BODY, scene);
+        makeFlatShaded(rightBoot);
+        rightBoot.parent = this.rightLeg;
+        rightBoot.position = new Vector3(0, -0.55, 0.06);
+        rightBoot.material = createLowPolyMaterial('barbBootRMat', leather, scene);
 
         this.originalScale = 1.0;
     }
