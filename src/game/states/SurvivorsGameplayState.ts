@@ -5,6 +5,7 @@ import { GameState } from './GameState';
 import { Map } from '../gameplay/Map';
 import { Champion } from '../gameplay/Champion';
 import { HeroController } from '../gameplay/HeroController';
+import { SurvivorsJoystick } from '../ui/SurvivorsJoystick';
 
 export class SurvivorsGameplayState implements GameState {
     private game: Game;
@@ -13,6 +14,7 @@ export class SurvivorsGameplayState implements GameState {
     private map: Map | null = null;
     private hero: Champion | null = null;
     private heroController: HeroController | null = null;
+    private joystick: SurvivorsJoystick | null = null;
 
     constructor(game: Game) {
         this.game = game;
@@ -46,9 +48,19 @@ export class SurvivorsGameplayState implements GameState {
         });
 
         this.ui = AdvancedDynamicTexture.CreateFullscreenUI('survivorsUI', true, this.scene);
+
+        // Mobile virtual joystick — bottom-left corner
+        this.joystick = new SurvivorsJoystick(this.ui);
+        this.joystick.onDirection((dx, dz) => {
+            if (this.heroController) this.heroController.setExternalInput(dx, dz);
+        });
     }
 
     public exit(): void {
+        if (this.joystick) {
+            this.joystick.dispose();
+            this.joystick = null;
+        }
         if (this.heroController) {
             this.heroController.dispose();
             this.heroController = null;
