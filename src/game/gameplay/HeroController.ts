@@ -54,9 +54,10 @@ export class HeroController {
         this.maxHealth = maxHealth;
         this.currentHealth = maxHealth;
 
-        // Top-down follow camera
+        // Top-down follow camera — replace the old isometric camera from Game.setupScene
         this.camera = new FreeCamera('heroCam', new Vector3(0, this.cameraHeight, this.cameraOffsetZ), scene);
         this.camera.setTarget(Vector3.Zero());
+        scene.activeCamera = this.camera;
 
         // No user camera manipulation
         this.camera.inputs.clear();
