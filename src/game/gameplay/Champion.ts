@@ -58,6 +58,25 @@ export class Champion extends Enemy {
     // Barbarian axe head — weapon anchor for element decorations
     private barbAxeHead: Mesh | null = null;
 
+    // Barbarian berserker animated parts
+    private barbKiltFlaps: Mesh[] = [];
+    private barbBeltTrophy: Mesh | null = null;
+    private barbSnarlJaw: Mesh | null = null;
+    private barbChestPulseGroup: Mesh | null = null;
+
+    // Barbarian snarl-twitch timing
+    private barbSnarlTimer: number = 2;
+    private barbSnarlActive: number = 0;
+
+    // Footstep dust throttle — last sign of sin(walkTime) when dust was emitted
+    private barbLastStepSign: number = 0;
+
+    // Spin-attack arc ring (temporary mesh + lifetime)
+    private barbSpinArcMesh: Mesh | null = null;
+    private barbSpinArcTimer: number = 0;
+    // Spin-attack blood trail particles
+    private barbSpinBloodPs: ParticleSystem | null = null;
+
     // Per-element weapon decoration meshes, created lazily on first activation
     private elementDecorations: Map<string, Mesh[]> = new Map();
 
@@ -146,6 +165,10 @@ export class Champion extends Enemy {
         this.leftLeg = parts.leftLeg;
         this.rightLeg = parts.rightLeg;
         this.barbAxeHead = parts.axeHead;
+        this.barbKiltFlaps = parts.kiltFlaps;
+        this.barbBeltTrophy = parts.beltTrophy;
+        this.barbSnarlJaw = parts.snarlJaw;
+        this.barbChestPulseGroup = parts.chestPulseGroup;
         this.cape = null;
         this.originalScale = 1.0;
     }
