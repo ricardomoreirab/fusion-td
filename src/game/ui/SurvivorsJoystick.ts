@@ -1,8 +1,11 @@
 import { AdvancedDynamicTexture, Ellipse, Control } from '@babylonjs/gui';
+import { MOBILE_BREAKPOINT } from './responsive';
 
 /**
  * Minimal virtual joystick for mobile hero movement.
  * Renders in the bottom-left corner; dragging produces a [-1, 1] direction vector.
+ * On narrow viewports (<700px wide) the visual radius is shrunk to 45px to leave
+ * more room for the power slots to the right.
  */
 export class SurvivorsJoystick {
     private container: Ellipse;
@@ -12,12 +15,16 @@ export class SurvivorsJoystick {
     private dx: number = 0;
     private dz: number = 0;
     private active: boolean = false;
-    private baseRadius: number = 55; // px
+    private baseRadius: number; // px — set at construction based on viewport width
 
     private onDirectionCallback: ((dx: number, dz: number) => void) | null = null;
 
     constructor(ui: AdvancedDynamicTexture) {
         this.ui = ui;
+
+        // Choose radius based on viewport width
+        const vw = ui.getScene()?.getEngine().getRenderWidth() ?? 800;
+        this.baseRadius = vw < MOBILE_BREAKPOINT ? 45 : 55;
 
         // Outer ring
         this.container = new Ellipse('joystickBase');
@@ -28,8 +35,8 @@ export class SurvivorsJoystick {
         this.container.background = 'rgba(255,255,255,0.08)';
         this.container.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         this.container.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        this.container.left = '30px';
-        this.container.top = '-30px';
+        this.container.left = '20px';
+        this.container.top = '-20px';
         this.ui.addControl(this.container);
 
         // Inner thumb

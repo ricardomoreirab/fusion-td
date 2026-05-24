@@ -18,8 +18,8 @@ export class HeroController {
     private arenaRadius: number;
     private keys: { [k: string]: boolean } = {};
     private moveSpeed: number;
-    private cameraHeight: number = 30;
-    private cameraOffsetZ: number = -7; // slight tilt back for depth; ~13° off vertical
+    private cameraHeight: number;
+    private cameraOffsetZ: number;
 
     // External joystick input
     private externalDx: number = 0;
@@ -53,6 +53,18 @@ export class HeroController {
         this.moveSpeed = moveSpeed;
         this.maxHealth = maxHealth;
         this.currentHealth = maxHealth;
+
+        // Pick camera parameters based on viewport width at construction time.
+        // On narrow mobile screens (< 700px) pull the camera in closer so the hero
+        // appears larger and more close-range threats are visible.
+        const viewportWidth = scene.getEngine().getRenderWidth();
+        if (viewportWidth < 700) {
+            this.cameraHeight = 25;    // closer than desktop (30)
+            this.cameraOffsetZ = -5;   // less tilt back
+        } else {
+            this.cameraHeight = 30;
+            this.cameraOffsetZ = -7;   // slight tilt back for depth; ~13° off vertical
+        }
 
         // Top-down follow camera — replace the old isometric camera from Game.setupScene
         this.camera = new FreeCamera('heroCam', new Vector3(0, this.cameraHeight, this.cameraOffsetZ), scene);

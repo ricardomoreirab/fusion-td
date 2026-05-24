@@ -225,8 +225,8 @@ export class HeroHud {
         const hpBarW = Math.min(320, Math.round(vw * 0.80));
         const slotSize = 40;
         const slotSpacing = 46; // slotSize + 6px gap
-        // Joystick: left=30, width=110 → right edge = 140px. Start slots with 8px gap = 148px.
-        const slotStartLeft = 148;
+        // Joystick (mobile): left=20, radius=45, width=90 → right edge=110px. Slots start with 8px gap.
+        const slotStartLeft = 118;
 
         // ── HP bar — top-center ───────────────────────────────────────────────
         const hpBg = new Rectangle('hpBg');
@@ -393,9 +393,9 @@ export class HeroHud {
     }
 
     /**
-     * Mobile-specific ultimate buttons: RIGHT-aligned so they anchor to the right
-     * edge of the screen without conflicting with left-anchored power slots.
-     * Two 44×44 buttons, stacked with 8px gap, bottom-right corner.
+     * Mobile-specific ultimate buttons: RIGHT-aligned, stacked VERTICALLY so they
+     * occupy only 44px of horizontal space and never conflict with the power slots.
+     * btn0 (meteor) is at the bottom-right, btn1 (frostNova) is one row above it.
      */
     private _buildMobileUltimateButtons(): void {
         const ultimateDefs = [
@@ -405,7 +405,7 @@ export class HeroHud {
 
         const btnSize = 44;
         const gap = 8;
-        // Two buttons side-by-side, right-aligned, 10px from right edge
+        // Stack vertically from bottom: btn0 at -10px, btn1 at -(10+btnSize+gap)
         ultimateDefs.forEach((def, i) => {
             const bg = new Rectangle(`ultBg_${i}`);
             bg.width = `${btnSize}px`;
@@ -414,12 +414,10 @@ export class HeroHud {
             bg.color = def.color;
             bg.background = '#1a1a2a';
             bg.cornerRadius = 10;
-            // RIGHT alignment — measure from the right edge inward
             bg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
             bg.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-            // i=0: rightmost, i=1: one step further left
-            bg.paddingRight = `${10 + i * (btnSize + gap)}px`;
-            bg.top = '-10px';
+            bg.paddingRight = '10px';
+            bg.top = `-${10 + i * (btnSize + gap)}px`;
             bg.isPointerBlocker = true;
             this.ui.addControl(bg);
             this.builtControls.push(bg);
