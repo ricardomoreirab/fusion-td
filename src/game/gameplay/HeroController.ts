@@ -56,6 +56,10 @@ export class HeroController {
 
         // Top-down follow camera — replace the old isometric camera from Game.setupScene
         this.camera = new FreeCamera('heroCam', new Vector3(0, this.cameraHeight, this.cameraOffsetZ), scene);
+        // Lock world-Z as screen-up. Without this, looking straight down hits gimbal
+        // lock and setTarget recomputes upVector from floating-point noise, spinning
+        // the view as the hero moves.
+        this.camera.upVector = new Vector3(0, 0, 1);
         this.camera.setTarget(Vector3.Zero());
         scene.activeCamera = this.camera;
 
