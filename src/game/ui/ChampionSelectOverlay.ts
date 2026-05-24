@@ -237,9 +237,9 @@ export class ChampionSelectOverlay {
         title.height = '32px';
         this.panel!.addControl(title);
 
-        const cardW = Math.min(260, vw - 40);
-        const cardH = 110;
-        const gap = 10;
+        const cardW = Math.min(280, vw - 40);
+        const cardH = 170;
+        const gap = 14;
         const total = this._options.length;
         // Stack is centered vertically — compute total height
         const stackH = total * cardH + (total - 1) * gap;
@@ -298,28 +298,45 @@ export class ChampionSelectOverlay {
             nameLabel.height = '22px';
             inner.addControl(nameLabel);
 
-            // One-line summary (truncate naturally via textWrapping = false)
-            const summaryLabel = new TextBlock(`csSummary_${opt.type}`, opt.summary);
-            summaryLabel.color = '#aaa';
-            summaryLabel.fontSize = 12;
-            summaryLabel.fontFamily = 'Arial';
-            summaryLabel.textWrapping = true;
-            summaryLabel.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            summaryLabel.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-            summaryLabel.top = '36px';
-            summaryLabel.height = '40px';
-            summaryLabel.width = `${cardW - 80}px`;
-            inner.addControl(summaryLabel);
+            // Split summary into stats line (before \n) and description (after \n)
+            const summaryParts = opt.summary.split('\n');
+            const statsLine = summaryParts[0] ?? '';
+            const description = summaryParts.slice(1).join(' ');
+
+            const statsLabel = new TextBlock(`csStats_${opt.type}`, statsLine);
+            statsLabel.color = '#ddd';
+            statsLabel.fontSize = 12;
+            statsLabel.fontFamily = 'Arial';
+            statsLabel.textWrapping = true;
+            statsLabel.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            statsLabel.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            statsLabel.top = '36px';
+            statsLabel.height = '32px';
+            statsLabel.width = `${cardW - 80}px`;
+            inner.addControl(statsLabel);
+
+            const descLabel = new TextBlock(`csDesc_${opt.type}`, description);
+            descLabel.color = '#9a9a9a';
+            descLabel.fontSize = 11;
+            descLabel.fontFamily = 'Arial';
+            descLabel.textWrapping = true;
+            descLabel.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            descLabel.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            descLabel.top = '74px';
+            descLabel.height = '52px';
+            descLabel.width = `${cardW - 80}px`;
+            inner.addControl(descLabel);
 
             if (opt.startingPower) {
                 const powerLabel = new TextBlock(`csPower_${opt.type}`, `▶ ${opt.startingPower}`);
                 powerLabel.color = opt.color;
-                powerLabel.fontSize = 11;
+                powerLabel.fontSize = 12;
+                powerLabel.fontWeight = 'bold';
                 powerLabel.fontFamily = 'Arial';
                 powerLabel.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
                 powerLabel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-                powerLabel.top = '-8px';
-                powerLabel.height = '16px';
+                powerLabel.top = '-10px';
+                powerLabel.height = '18px';
                 inner.addControl(powerLabel);
             }
 
