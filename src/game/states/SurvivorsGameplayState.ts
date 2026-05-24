@@ -1,4 +1,4 @@
-import { Scene, Vector3, Color4, HemisphericLight } from '@babylonjs/core';
+import { Scene, Vector3, Color3, Color4, HemisphericLight, DirectionalLight } from '@babylonjs/core';
 import { AdvancedDynamicTexture } from '@babylonjs/gui';
 import { Game } from '../Game';
 import { GameState } from './GameState';
@@ -74,9 +74,18 @@ export class SurvivorsGameplayState implements GameState {
     public enter(): void {
         this.game.cleanupScene();
         this.scene = this.game.getScene();
-        this.scene.clearColor = new Color4(0.05, 0.05, 0.08, 1);
+        this.scene.clearColor = new Color4(0.03, 0.04, 0.07, 1);
 
-        new HemisphericLight('survivorsLight', new Vector3(0, 1, 0), this.scene);
+        // Ambient fill — keep low so the directional light gives form
+        const ambientLight = new HemisphericLight('survivorsAmbient', new Vector3(0, 1, 0), this.scene);
+        ambientLight.intensity = 0.3;
+        ambientLight.diffuse = new Color3(0.55, 0.65, 0.85);   // cool blue fill from above
+        ambientLight.groundColor = new Color3(0.15, 0.12, 0.10); // dim warm bounce from below
+
+        // Key light — warm directional from upper-left-front for form/shadow falloff
+        const keyLight = new DirectionalLight('survivorsKey', new Vector3(-0.4, -1, -0.6), this.scene);
+        keyLight.intensity = 0.7;
+        keyLight.diffuse = new Color3(1.0, 0.85, 0.7);
 
         // Build base scene resources first
         this.map = new Map(this.game);

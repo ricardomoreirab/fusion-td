@@ -63,6 +63,7 @@ export class Map {
     private farWallMeshes: Mesh[] = [];
     private nearWallMeshes: Mesh[] = [];
     private arenaRadius: number = 25;
+    private arenaDecorations: Mesh[] = [];
 
     constructor(game: Game, config?: LevelConfig, zOffset?: number, suppressStartPortal?: boolean, suppressEndPortal?: boolean) {
         this.game = game;
@@ -2042,24 +2043,144 @@ export class Map {
         const scene = this.scene;
         this.arenaRadius = radius;
 
-        // Circular ground
-        const ground = MeshBuilder.CreateDisc('survivorsGround', { radius, tessellation: 64 }, scene);
-        ground.rotation.x = Math.PI / 2;
-        const groundMat = new StandardMaterial('survivorsGroundMat', scene);
-        groundMat.diffuseColor = new Color3(0.18, 0.22, 0.16);
-        groundMat.specularColor = new Color3(0, 0, 0);
-        ground.material = groundMat;
-        ground.position.y = 0;
-        this.groundMeshes.push(ground);
+        // ── Ground: three concentric discs for a darker-edge, lighter-center effect ──
+
+        // Outer disc — darkest, slightly below
+        const outerGround = MeshBuilder.CreateDisc('arenaGroundOuter', { radius, tessellation: 48 }, scene);
+        outerGround.rotation.x = Math.PI / 2;
+        outerGround.position.y = -0.02;
+        outerGround.material = createLowPolyMaterial('arenaGroundOuterMat', new Color3(0.10, 0.13, 0.10), scene);
+        this.groundMeshes.push(outerGround);
+
+        // Mid disc — medium brightness
+        const midGround = MeshBuilder.CreateDisc('arenaGroundMid', { radius: radius * 0.72, tessellation: 40 }, scene);
+        midGround.rotation.x = Math.PI / 2;
+        midGround.position.y = -0.01;
+        midGround.material = createLowPolyMaterial('arenaGroundMidMat', new Color3(0.14, 0.18, 0.13), scene);
+        this.groundMeshes.push(midGround);
+
+        // Inner disc — brightest center
+        const innerGround = MeshBuilder.CreateDisc('arenaGroundInner', { radius: radius * 0.42, tessellation: 32 }, scene);
+        innerGround.rotation.x = Math.PI / 2;
+        innerGround.position.y = 0;
+        innerGround.material = createLowPolyMaterial('arenaGroundInnerMat', new Color3(0.19, 0.24, 0.17), scene);
+        this.groundMeshes.push(innerGround);
 
         // Boundary ring (decorative): thin torus
-        const ring = MeshBuilder.CreateTorus('arenaRing', { diameter: radius * 2, thickness: 0.4, tessellation: 64 }, scene);
-        const ringMat = new StandardMaterial('arenaRingMat', scene);
-        ringMat.diffuseColor = new Color3(0.45, 0.4, 0.2);
-        ringMat.emissiveColor = new Color3(0.25, 0.2, 0.1);
+        const ring = MeshBuilder.CreateTorus('arenaRing', { diameter: radius * 2, thickness: 0.5, tessellation: 48 }, scene);
+        const ringMat = createLowPolyMaterial('arenaRingMat', new Color3(0.38, 0.32, 0.22), scene);
+        ringMat.emissiveColor = new Color3(0.12, 0.10, 0.05);
         ring.material = ringMat;
         ring.position.y = 0.05;
         this.groundMeshes.push(ring);
+
+        // ── Radial sigil: 8 thin line segments as flat box "spokes" from center ──
+        const spokeCount = 8;
+        const spokeLength = radius * 0.38;
+        const spokeWidth = 0.18;
+        const spokeHeight = 0.005;
+        const sigilMat = createEmissiveMaterial('sigilMat', new Color3(0.40, 0.65, 0.42), 0.18, scene);
+        for (let i = 0; i < spokeCount; i++) {
+            const angle = (i / spokeCount) * Math.PI * 2;
+            const spoke = MeshBuilder.CreateBox(`sigilSpoke${i}`, {
+                width: spokeWidth,
+                height: spokeHeight,
+                depth: spokeLength,
+            }, scene);
+            spoke.position.set(
+                Math.sin(angle) * spokeLength * 0.5,
+                0.01,
+                Math.cos(angle) * spokeLength * 0.5,
+            );
+            spoke.rotation.y = angle;
+            spoke.material = sigilMat;
+            this.arenaDecorations.push(spoke);
+        }
+
+        // Small inner circle of the sigil
+        const sigilRing = MeshBuilder.CreateTorus('sigilRing', {
+            diameter: radius * 0.14,
+            thickness: 0.12,
+            tessellation: 16,
+        }, scene);
+        sigilRing.position.y = 0.01;
+        sigilRing.material = sigilMat;
+        this.arenaDecorations.push(sigilRing);
+
+        // ── Perimeter rocks: 10 stone-like polyhedra around the boundary ring ──
+        const rockMat = createLowPolyMaterial('arenaRockMat', new Color3(0.38, 0.35, 0.30), scene);
+        const rockMat2 = createLowPolyMaterial('arenaRockMat2', new Color3(0.28, 0.25, 0.22), scene);
+        const rockCount = 10;
+        for (let i = 0; i < rockCount; i++) {
+            const angle = (i / rockCount) * Math.PI * 2 + 0.18; // slight offset so rocks aren't on axes
+            const dist = radius + 1.0 + Math.random() * 1.4;
+            const polyType = i % 4; // types 0-3
+            const scale = 0.5 + Math.random() * 0.55;
+
+            const rock = MeshBuilder.CreatePolyhedron(`arenaRock${i}`, {
+                type: polyType,
+                size: scale,
+            }, scene);
+            rock.position.set(
+                Math.sin(angle) * dist,
+                scale * 0.35,
+                Math.cos(angle) * dist,
+            );
+            rock.rotation.set(
+                Math.random() * Math.PI,
+                Math.random() * Math.PI,
+                Math.random() * Math.PI * 0.4,
+            );
+            rock.material = i % 3 === 0 ? rockMat2 : rockMat;
+            makeFlatShaded(rock);
+            this.arenaDecorations.push(rock);
+        }
+
+        // ── Torches at cardinal directions: cylinder base + emissive flame orb ──
+        const cardinals = [0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2]; // N, E, S, W
+        const torchDist = radius + 1.6;
+        const baseMat = createLowPolyMaterial('torchBaseMat', new Color3(0.30, 0.22, 0.14), scene);
+        const flameMat = createEmissiveMaterial('torchFlameMat', new Color3(1.0, 0.45, 0.05), 0.85, scene);
+
+        for (let i = 0; i < cardinals.length; i++) {
+            const angle = cardinals[i];
+            const tx = Math.sin(angle) * torchDist;
+            const tz = Math.cos(angle) * torchDist;
+
+            // Cylinder base (brazier post)
+            const base = MeshBuilder.CreateCylinder(`torchBase${i}`, {
+                height: 1.4,
+                diameterTop: 0.28,
+                diameterBottom: 0.22,
+                tessellation: 6,
+            }, scene);
+            base.position.set(tx, 0.7, tz);
+            base.material = baseMat;
+            makeFlatShaded(base);
+            this.arenaDecorations.push(base);
+
+            // Bowl on top of post
+            const bowl = MeshBuilder.CreateCylinder(`torchBowl${i}`, {
+                height: 0.22,
+                diameterTop: 0.50,
+                diameterBottom: 0.28,
+                tessellation: 6,
+            }, scene);
+            bowl.position.set(tx, 1.52, tz);
+            bowl.material = baseMat;
+            makeFlatShaded(bowl);
+            this.arenaDecorations.push(bowl);
+
+            // Emissive flame sphere (low-subdivision for low-poly look)
+            const flame = MeshBuilder.CreateSphere(`torchFlame${i}`, {
+                diameter: 0.38,
+                segments: 3,
+            }, scene);
+            flame.position.set(tx, 1.82, tz);
+            flame.material = flameMat;
+            makeFlatShaded(flame);
+            this.arenaDecorations.push(flame);
+        }
     }
 
     public getArenaRadius(): number {
@@ -2073,11 +2194,15 @@ export class Map {
         for (const mesh of this.decorationMeshes) {
             mesh.dispose();
         }
+        for (const mesh of this.arenaDecorations) {
+            mesh.dispose();
+        }
         for (const particles of this.pathParticles) {
             particles.dispose();
         }
         this.groundMeshes = [];
         this.decorationMeshes = [];
+        this.arenaDecorations = [];
         this.pathParticles = [];
     }
 }
