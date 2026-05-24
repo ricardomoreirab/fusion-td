@@ -2,6 +2,20 @@ import { Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, Color4, Scene, Pa
 import { Game } from '../../Game';
 import { EnemyType, StatusEffect } from '../GameTypes';
 
+// Cached health-bar colors — shared across all enemy instances to avoid per-frame allocations
+const HEALTH_COLOR_GREEN  = new Color3(0.2, 0.8, 0.2);
+const HEALTH_COLOR_YELLOW = new Color3(0.8, 0.8, 0.2);
+const HEALTH_COLOR_RED    = new Color3(0.8, 0.2, 0.2);
+
+// Lazy-loaded shared texture for status-effect particle systems
+let _statusEffectTexture: Texture | null = null;
+export function getStatusEffectTexture(scene: Scene): Texture {
+    if (!_statusEffectTexture) {
+        _statusEffectTexture = new Texture('assets/textures/particle.png', scene);
+    }
+    return _statusEffectTexture;
+}
+
 export class Enemy {
     protected game: Game;
     protected scene: Scene;
@@ -182,14 +196,14 @@ export class Enemy {
         const offset = (1 - healthPercent) * 0.5;
         this.healthBarMesh.position.x = this.position.x - offset;
 
-        // Update health bar color based on health percentage
+        // Update health bar color based on health percentage (use cached Color3 to avoid per-frame allocs)
         const material = this.healthBarMesh.material as StandardMaterial;
         if (healthPercent > 0.6) {
-            material.diffuseColor = new Color3(0.2, 0.8, 0.2); // Green
+            material.diffuseColor = HEALTH_COLOR_GREEN;
         } else if (healthPercent > 0.3) {
-            material.diffuseColor = new Color3(0.8, 0.8, 0.2); // Yellow
+            material.diffuseColor = HEALTH_COLOR_YELLOW;
         } else {
-            material.diffuseColor = new Color3(0.8, 0.2, 0.2); // Red
+            material.diffuseColor = HEALTH_COLOR_RED;
         }
 
         // Position outline behind everything
@@ -529,8 +543,8 @@ export class Enemy {
         // Create a new particle system
         const particleSystem = new ParticleSystem(`${effect}Particles`, 20, this.scene);
         
-        // Set particle texture
-        particleSystem.particleTexture = new Texture('assets/textures/particle.png', this.scene);
+        // Set particle texture (shared singleton — avoids N parallel texture loads on AoE bursts)
+        particleSystem.particleTexture = getStatusEffectTexture(this.scene);
         
         // Set emission properties
         particleSystem.emitter = this.mesh;

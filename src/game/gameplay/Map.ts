@@ -1,4 +1,4 @@
-import { Vector3, MeshBuilder, Mesh, Scene, Color3, Color4, ParticleSystem, ShadowGenerator, DirectionalLight, StandardMaterial } from '@babylonjs/core';
+import { Vector3, MeshBuilder, Mesh, Scene, Color3, Color4, ParticleSystem, DirectionalLight, StandardMaterial } from '@babylonjs/core';
 import { Game } from '../Game';
 import { PALETTE, MapThemePalette, MAP_THEMES } from '../rendering/StyleConstants';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../rendering/LowPolyMaterial';
@@ -50,7 +50,7 @@ export class Map {
     private endPosition: { x: number, y: number } = { x: 19, y: 10 };
     private groundMeshes: Mesh[] = [];
     private decorationMeshes: Mesh[] = [];
-    private shadowGenerator: ShadowGenerator | null = null;
+    // shadowGenerator removed — top-down view gets no visual payoff from a depth pass
     private pathParticles: ParticleSystem[] = [];
     private terrainZones: TerrainZone[][] = [];
     private heightMap: number[][] = [];
@@ -123,18 +123,13 @@ export class Map {
         // Reuse existing directional light if one already exists (prevents brightness stacking)
         const existing = this.scene.getLightByName("mapLight") as DirectionalLight;
         if (existing) {
-            // Reuse the existing shadow generator
-            this.shadowGenerator = existing.getShadowGenerator() as ShadowGenerator;
             return;
         }
 
         const light = new DirectionalLight("mapLight", new Vector3(-0.4, -1, -0.6), this.scene);
         light.intensity = 0.75;
         light.position = new Vector3(20, 40, 20 + this.zOffset);
-
-        this.shadowGenerator = new ShadowGenerator(1024, light);
-        this.shadowGenerator.useBlurExponentialShadowMap = true;
-        this.shadowGenerator.blurKernel = 10;
+        // Shadow generator intentionally omitted — top-down camera makes shadow depth passes wasteful
     }
 
     /**
@@ -270,7 +265,6 @@ export class Map {
         makeFlatShaded(ground);
         const groundMat = createLowPolyMaterial('groundMat', this.themePalette.ground, this.scene);
         ground.material = groundMat;
-        ground.receiveShadows = true;
         this.groundMeshes.push(ground);
 
         // Terrain zone overlays for visual variety
@@ -438,7 +432,6 @@ export class Map {
                     pathTile.position = position;
                     // Alternate materials for a cobblestone pattern
                     pathTile.material = (x + y) % 3 === 0 ? pathDarkMat : pathMat;
-                    pathTile.receiveShadows = true;
                     makeFlatShaded(pathTile);
 
                     this.groundMeshes.push(pathTile);
@@ -563,7 +556,6 @@ export class Map {
                         rock.material = createLowPolyMaterial(`rrMat_${cell.x}_${cell.y}_${dx}_${dy}`,
                             Math.random() > 0.5 ? this.themePalette.rock : this.themePalette.rockDark, this.scene);
                         makeFlatShaded(rock);
-                        if (this.shadowGenerator) this.shadowGenerator.addShadowCaster(rock);
                         this.decorationMeshes.push(rock);
                     }
                 }
@@ -642,7 +634,6 @@ export class Map {
                             );
                             post.material = railMat;
                             makeFlatShaded(post);
-                            if (this.shadowGenerator) this.shadowGenerator.addShadowCaster(post);
                             this.groundMeshes.push(post);
                         }
                     }
@@ -708,7 +699,6 @@ export class Map {
         ring1Mat.alpha = 0.85;
         ring1.material = ring1Mat;
         makeFlatShaded(ring1);
-        if (this.shadowGenerator) this.shadowGenerator.addShadowCaster(ring1);
         this.groundMeshes.push(ring1);
 
         // Secondary rotating torus - smaller, tilted
@@ -752,7 +742,6 @@ export class Map {
             pillarMat.alpha = 0.75;
             pillar.material = pillarMat;
             makeFlatShaded(pillar);
-            if (this.shadowGenerator) this.shadowGenerator.addShadowCaster(pillar);
             this.groundMeshes.push(pillar);
 
             // Crystal cap on each pillar
@@ -828,7 +817,6 @@ export class Map {
         vortexMat.alpha = 0.9;
         vortex.material = vortexMat;
         makeFlatShaded(vortex);
-        if (this.shadowGenerator) this.shadowGenerator.addShadowCaster(vortex);
         this.groundMeshes.push(vortex);
         this.endPortalMeshes.push(vortex);
 
@@ -874,7 +862,6 @@ export class Map {
             spireMat.alpha = 0.8;
             spire.material = spireMat;
             makeFlatShaded(spire);
-            if (this.shadowGenerator) this.shadowGenerator.addShadowCaster(spire);
             this.groundMeshes.push(spire);
             this.endPortalMeshes.push(spire);
         }
@@ -1160,9 +1147,6 @@ export class Map {
             meshes.push(cone);
         }
 
-        if (this.shadowGenerator) {
-            for (const m of meshes) this.shadowGenerator.addShadowCaster(m);
-        }
         this.decorationMeshes.push(...meshes);
     }
 
@@ -1225,7 +1209,6 @@ export class Map {
         log.rotation.y = Math.random() * Math.PI;
         log.material = createLowPolyMaterial('logMat', this.themePalette.treeTrunk.scale(0.85), this.scene);
         makeFlatShaded(log);
-        if (this.shadowGenerator) this.shadowGenerator.addShadowCaster(log);
         this.decorationMeshes.push(log);
 
         // Moss patch on the log
@@ -1253,7 +1236,6 @@ export class Map {
         bush.position = new Vector3(position.x, position.y + 0.22, position.z);
         bush.material = createLowPolyMaterial('bushMat', color, this.scene);
         makeFlatShaded(bush);
-        if (this.shadowGenerator) this.shadowGenerator.addShadowCaster(bush);
         this.decorationMeshes.push(bush);
     }
 
@@ -1272,7 +1254,6 @@ export class Map {
         rock.material = createLowPolyMaterial('rockMat',
             Math.random() > 0.5 ? this.themePalette.rock : this.themePalette.rockDark, this.scene);
         makeFlatShaded(rock);
-        if (this.shadowGenerator) this.shadowGenerator.addShadowCaster(rock);
         this.decorationMeshes.push(rock);
     }
 
@@ -1290,7 +1271,6 @@ export class Map {
         boulder.rotation.y = Math.random() * Math.PI * 2;
         boulder.material = createLowPolyMaterial('boulderMat', this.themePalette.rockDark, this.scene);
         makeFlatShaded(boulder);
-        if (this.shadowGenerator) this.shadowGenerator.addShadowCaster(boulder);
         this.decorationMeshes.push(boulder);
 
         // Smaller rocks at the base
@@ -1334,7 +1314,6 @@ export class Map {
             rock.material = createLowPolyMaterial(`clusterRockMat_${i}`,
                 Math.random() > 0.3 ? this.themePalette.rockDark : this.themePalette.rock, this.scene);
             makeFlatShaded(rock);
-            if (this.shadowGenerator) this.shadowGenerator.addShadowCaster(rock);
             this.decorationMeshes.push(rock);
         }
     }
@@ -1398,7 +1377,6 @@ export class Map {
             const color = crystalColors[Math.floor(Math.random() * crystalColors.length)];
             crystal.material = createEmissiveMaterial(`crystalMat_${i}`, color, 0.4, this.scene);
             makeFlatShaded(crystal);
-            if (this.shadowGenerator) this.shadowGenerator.addShadowCaster(crystal);
             this.decorationMeshes.push(crystal);
         }
     }
@@ -1857,7 +1835,6 @@ export class Map {
                     }, this.scene);
                     cell.position = new Vector3(position.x, 0.01 + Math.max(this.heightMap[x][y], 0), position.z);
                     cell.material = cellMat;
-                    cell.receiveShadows = true;
                     this.groundMeshes.push(cell);
                 }
             }
@@ -1905,7 +1882,6 @@ export class Map {
                                 position.z + dy * offset
                             );
                             border.material = borderMat;
-                            border.receiveShadows = true;
                             this.groundMeshes.push(border);
                         }
                     }
@@ -1946,7 +1922,6 @@ export class Map {
             }, this.scene);
             wall.position = new Vector3(walls[i].x, borderHeight / 2, walls[i].z);
             wall.material = borderMat;
-            wall.receiveShadows = true;
             makeFlatShaded(wall);
             this.groundMeshes.push(wall);
 
@@ -1988,7 +1963,6 @@ export class Map {
             base.position = new Vector3(corners[i].x, borderHeight * 1.1, corners[i].z);
             base.material = createLowPolyMaterial(`cornerBaseMat_${i}`, PALETTE.ROCK, this.scene);
             makeFlatShaded(base);
-            if (this.shadowGenerator) this.shadowGenerator.addShadowCaster(base);
             this.groundMeshes.push(base);
 
             // Tower roof - cone
@@ -2001,7 +1975,6 @@ export class Map {
             roof.position = new Vector3(corners[i].x, borderHeight * 2.5, corners[i].z);
             roof.material = createLowPolyMaterial(`cornerRoofMat_${i}`, new Color3(0.55, 0.30, 0.15), this.scene);
             makeFlatShaded(roof);
-            if (this.shadowGenerator) this.shadowGenerator.addShadowCaster(roof);
             this.groundMeshes.push(roof);
 
             // Track far-side corner meshes for removal

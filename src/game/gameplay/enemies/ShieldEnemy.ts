@@ -1,6 +1,6 @@
-import { Vector3, MeshBuilder, StandardMaterial, Color3, Color4, ParticleSystem, Texture, Mesh } from '@babylonjs/core';
+import { Vector3, MeshBuilder, StandardMaterial, Color3, Color4, ParticleSystem, Mesh } from '@babylonjs/core';
 import { Game } from '../../Game';
-import { Enemy } from './Enemy';
+import { Enemy, getStatusEffectTexture } from './Enemy';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../rendering/LowPolyMaterial';
 import { PALETTE } from '../../rendering/StyleConstants';
 
@@ -621,7 +621,7 @@ export class ShieldEnemy extends Enemy {
         const particleSystem = new ParticleSystem('deathParticles', 50, this.scene);
 
         // Set particle texture
-        particleSystem.particleTexture = new Texture('assets/textures/particle.png', this.scene);
+        particleSystem.particleTexture = getStatusEffectTexture(this.scene);
 
         // Set emission properties
         particleSystem.emitter = this.position.clone();
