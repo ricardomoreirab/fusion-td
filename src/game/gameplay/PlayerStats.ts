@@ -54,8 +54,8 @@ export class PlayerStats {
     public bonusMaxHealth: number = 0;
     /** Cumulative move-speed multiplier (1.0 = base) */
     public moveSpeedMultiplier: number = 1.0;
-    /** Cumulative pickup-radius multiplier */
-    public pickupRadiusMultiplier: number = 1.0;
+    /** Cumulative basic-attack range multiplier (Reach shop item + run perks) */
+    public attackRangeMultiplier: number = 1.0;
     /** Multiplier applied to all power damage (Power shop item) */
     public powerDamageMultiplier: number = 1.0;
     /** Multiplier applied to all power cooldowns (Haste shop item; lower = faster) */

@@ -20,6 +20,7 @@ export class HeroBasicAttack {
     private cooldown: number = 0;
     private baseFireInterval: number;
     private attackSpeedMultiplier: number = 1.0;
+    private rangeMultiplier: number = 1.0;
     private damage: number;
     private baseRange: number;
     private mode: BasicAttackMode;
@@ -61,15 +62,20 @@ export class HeroBasicAttack {
         this.attackSpeedMultiplier = multiplier;
     }
 
+    /** Update the effective attack range. multiplier > 1 = farther reach. */
+    public updateRange(multiplier: number): void {
+        this.rangeMultiplier = multiplier;
+    }
+
     private get effectiveInterval(): number {
         return this.baseFireInterval / this.attackSpeedMultiplier;
     }
 
     private get effectiveRange(): number {
-        const bonus = this.mode === 'melee' && this.powerSlots
+        const enchantBonus = this.mode === 'melee' && this.powerSlots
             ? this.powerSlots.getMeleeRangeBonus()
             : 0;
-        return this.baseRange + bonus;
+        return (this.baseRange + enchantBonus) * this.rangeMultiplier;
     }
 
     public update(deltaTime: number): void {

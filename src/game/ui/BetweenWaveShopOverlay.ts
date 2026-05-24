@@ -14,7 +14,7 @@ export interface ShopItem {
 const ITEM_CONFIG: Record<string, { glyph: string; accentColor: string }> = {
     vitality:  { glyph: '♥',  accentColor: '#e03030' },
     swiftness: { glyph: '➤',  accentColor: '#30cfff' },
-    magnetism: { glyph: '◯',  accentColor: '#b050ff' },
+    reach:     { glyph: '⤢',  accentColor: '#b050ff' },
     power:     { glyph: '✦',  accentColor: '#ff9030' },
     haste:     { glyph: '⚡', accentColor: '#ffe040' },
     bulwark:   { glyph: '▲',  accentColor: '#60a060' },

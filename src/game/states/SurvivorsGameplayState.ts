@@ -52,7 +52,7 @@ export class SurvivorsGameplayState implements GameState {
     private runPerks = {
         damageMultiplier: 1.0,
         moveSpeedMultiplier: 1.0,
-        pickupRadiusMultiplier: 1.0,
+        attackRangeMultiplier: 1.0,
     };
 
     // Run tracking for game-over summary
@@ -186,7 +186,7 @@ export class SurvivorsGameplayState implements GameState {
         // Elite death → spawn a PowerDrop
         this.enemyManager.setOnEliteDeath((pos, element) => {
             const baseRadius = 4;
-            const magnetRadius = baseRadius * this.runPerks.pickupRadiusMultiplier;
+            const magnetRadius = baseRadius;
             const drop = new PowerDrop(
                 this.scene!,
                 pos,
@@ -324,7 +324,7 @@ export class SurvivorsGameplayState implements GameState {
 
         this.scene = null;
         this.timeScale = 1.0;
-        this.runPerks = { damageMultiplier: 1.0, moveSpeedMultiplier: 1.0, pickupRadiusMultiplier: 1.0 };
+        this.runPerks = { damageMultiplier: 1.0, moveSpeedMultiplier: 1.0, attackRangeMultiplier: 1.0 };
     }
 
     public update(deltaTime: number): void {
@@ -461,8 +461,15 @@ export class SurvivorsGameplayState implements GameState {
                 },
             },
             {
-                title: '+10% Pickup Radius',
-                apply: () => { this.runPerks.pickupRadiusMultiplier *= 1.1; },
+                title: '+10% Attack Range',
+                apply: () => {
+                    this.runPerks.attackRangeMultiplier *= 1.1;
+                    if (this.heroController && this.playerStats) {
+                        this.heroController.updateBasicAttackRange(
+                            this.playerStats.attackRangeMultiplier * this.runPerks.attackRangeMultiplier,
+                        );
+                    }
+                },
             },
         ];
         const perk = perks[Math.floor(Math.random() * perks.length)];
@@ -543,15 +550,18 @@ export class SurvivorsGameplayState implements GameState {
                 },
             },
             {
-                id:          'magnetism',
-                name:        'Magnetism',
-                description: '+25% pickup radius',
-                baseCost:    25,
-                costGrowth:  1.5,
+                id:          'reach',
+                name:        'Reach',
+                description: '+10% basic attack range',
+                baseCost:    35,
+                costGrowth:  1.55,
                 isCapped:    () => false,
                 apply: () => {
-                    this.playerStats!.incrementPurchase('magnetism');
-                    this.playerStats!.pickupRadiusMultiplier *= 1.25;
+                    this.playerStats!.incrementPurchase('reach');
+                    this.playerStats!.attackRangeMultiplier *= 1.10;
+                    this.heroController!.updateBasicAttackRange(
+                        this.playerStats!.attackRangeMultiplier * this.runPerks.attackRangeMultiplier,
+                    );
                 },
             },
             {

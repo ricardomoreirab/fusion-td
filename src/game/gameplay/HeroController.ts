@@ -153,6 +153,14 @@ export class HeroController {
         this.basicAttack?.updateAttackSpeed(multiplier);
     }
 
+    /**
+     * Update the basic attack range multiplier.
+     * @param multiplier — absolute multiplier (e.g. 1.1 after one Reach purchase)
+     */
+    public updateBasicAttackRange(multiplier: number): void {
+        this.basicAttack?.updateRange(multiplier);
+    }
+
     public update(deltaTime: number): void {
         // Compute movement input from keyboard + external joystick
         let dx = this.externalDx;
