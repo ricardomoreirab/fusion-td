@@ -346,6 +346,7 @@ export class SurvivorsGameplayState implements GameState {
                 this.heroController.getHealth(),
                 this.playerStats.getGold(),
                 this.powerSlots.getSlots(),
+                dt,
             );
         }
 

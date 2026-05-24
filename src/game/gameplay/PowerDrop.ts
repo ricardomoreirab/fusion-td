@@ -64,6 +64,8 @@ export class PowerDrop {
         const dist = Math.hypot(dx, dz);
 
         if (dist <= this.opts.pickupRadius) {
+            // Brief burst effect before disposal
+            this.playPickupFlash();
             this.opts.onPickup(this.element);
             this.dispose();
             return;
@@ -77,6 +79,20 @@ export class PowerDrop {
 
         // Idle bob
         this.mesh.position.y = 0.6 + Math.sin(performance.now() / 200) * 0.1;
+    }
+
+    /**
+     * Scale the orb up and boost emissive for ~200 ms before it disappears.
+     * The mesh will already be disposed by then; the short animation fires and forgets.
+     */
+    private playPickupFlash(): void {
+        const col = ELEMENT_COLORS[this.element] ?? new Color3(1, 1, 1);
+        const flashMat = new StandardMaterial('orbFlash_' + Math.random(), this.scene);
+        flashMat.emissiveColor = col.scale(2);  // bright burst
+        // Temporarily replace material for the flash
+        this.mesh.material = flashMat;
+        this.mesh.scaling.setAll(2.2);          // pop-out scale
+        // No setTimeout needed — we dispose right after, the flash is just the last frame render
     }
 
     public dispose(): void {

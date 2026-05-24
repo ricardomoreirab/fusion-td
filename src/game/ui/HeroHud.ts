@@ -15,6 +15,8 @@ export class HeroHud {
     }[] = [];
     private abilityManager: AbilityManager | null = null;
     private ultimateContainers: { bg: Rectangle; label: TextBlock; cdMask: Rectangle }[] = [];
+    private lowHpVignette!: Rectangle;
+    private lowHpPulseTime: number = 0;
 
     constructor(ui: AdvancedDynamicTexture, abilityManager?: AbilityManager) {
         this.ui = ui;
@@ -23,7 +25,17 @@ export class HeroHud {
     }
 
     private build(): void {
-        // HP bar — bottom-left, above the joystick area
+        // Low-HP danger pulse vignette — full screen red overlay, hidden by default
+        this.lowHpVignette = new Rectangle('lowHpVignette');
+        this.lowHpVignette.width = '100%';
+        this.lowHpVignette.height = '100%';
+        this.lowHpVignette.thickness = 0;
+        this.lowHpVignette.background = '#ff0000';
+        this.lowHpVignette.alpha = 0;
+        this.lowHpVignette.isPointerBlocker = false;
+        this.ui.addControl(this.lowHpVignette);
+
+        // HP bar — above the slot row, shifted right to clear joystick
         const hpBg = new Rectangle('hpBg');
         hpBg.width = '240px';
         hpBg.height = '22px';
@@ -33,7 +45,7 @@ export class HeroHud {
         hpBg.cornerRadius = 4;
         hpBg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         hpBg.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        hpBg.left = '20px';
+        hpBg.left = '150px';
         hpBg.top = '-80px';
         this.ui.addControl(hpBg);
 
@@ -57,14 +69,15 @@ export class HeroHud {
         this.goldText.fontSize = 17;
         this.goldText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         this.goldText.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        this.goldText.left = '270px';
+        this.goldText.left = '400px';
         this.goldText.top = '-80px';
         this.goldText.width = '130px';
         this.goldText.height = '22px';
         this.goldText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         this.ui.addControl(this.goldText);
 
-        // 4 power-slot icons — bottom row
+        // 4 power-slot icons — bottom row (offset right to avoid joystick overlap on mobile)
+        // Joystick base is ~140px wide at left:30px → slots start at 150px
         for (let i = 0; i < 4; i++) {
             const bg = new Rectangle(`slotBg_${i}`);
             bg.width = '54px';
@@ -75,7 +88,7 @@ export class HeroHud {
             bg.cornerRadius = 6;
             bg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
             bg.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-            bg.left = `${20 + i * 60}px`;
+            bg.left = `${150 + i * 60}px`;
             bg.top = '-15px';
             this.ui.addControl(bg);
 
@@ -109,7 +122,7 @@ export class HeroHud {
         }
 
         // Ultimate ability buttons — Meteor Strike and Frost Nova
-        // Placed to the right of the 4 power slots (offset = 20 + 4*60 + 10 = 270)
+        // Placed to the right of the 4 power slots (150 + 4*60 + 10 = 400)
         const ultimateDefs = [
             { id: 'meteor',    label: '☄',  color: '#c04010', tooltip: 'Meteor Strike (45s)' },
             { id: 'frostNova', label: '❄',  color: '#2080c0', tooltip: 'Frost Nova (30s)' },
@@ -125,7 +138,7 @@ export class HeroHud {
             bg.cornerRadius = 8;
             bg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
             bg.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-            bg.left = `${270 + i * 56}px`;
+            bg.left = `${400 + i * 56}px`;
             bg.top = '-15px';
             bg.isPointerBlocker = true;
             this.ui.addControl(bg);
@@ -165,8 +178,21 @@ export class HeroHud {
         hp: { current: number; max: number },
         gold: number,
         slots: (PowerSlot | null)[],
+        deltaTime: number = 0,
     ): void {
         const ratio = Math.max(0, hp.current / hp.max);
+
+        // Low-HP danger pulse
+        if (ratio < 0.25) {
+            this.lowHpPulseTime += deltaTime;
+            // Heartbeat: two quick pulses (~70bpm), sine wave riding on a base alpha
+            const baseAlpha = 0.08;
+            const pulseAlpha = 0.10 * Math.max(0, Math.sin(this.lowHpPulseTime * Math.PI * 1.8));
+            this.lowHpVignette.alpha = baseAlpha + pulseAlpha;
+        } else {
+            this.lowHpVignette.alpha = 0;
+            this.lowHpPulseTime = 0;
+        }
         this.hpFill.width = ratio;
         // Colour shifts red→yellow as HP drops
         if (ratio > 0.5) {
