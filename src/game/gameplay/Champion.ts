@@ -54,6 +54,12 @@ export class Champion extends Enemy {
     private mageStaffOrb: Mesh | null = null;
     private mageOrbMat: StandardMaterial | null = null;
 
+    // Barbarian axe head — weapon anchor for element decorations
+    private barbAxeHead: Mesh | null = null;
+
+    // Per-element weapon decoration meshes, created lazily on first activation
+    private elementDecorations: Map<string, Mesh[]> = new Map();
+
     constructor(
         game: Game,
         reversedPath: Vector3[],
@@ -390,6 +396,7 @@ export class Champion extends Enemy {
         axeHead.position = new Vector3(0.14, 0.64, 0);
         axeHead.rotation.z = 0.15; // slight forward lean
         axeHead.material = createLowPolyMaterial('barbAxeHeadMat', steelGrey, scene);
+        this.barbAxeHead = axeHead; // expose for element decoration anchor
 
         // Leading edge of axe blade (bright thin strip — the sharpened edge)
         const axeEdge = MeshBuilder.CreateBox('barbAxeEdge', {
@@ -1399,5 +1406,124 @@ export class Champion extends Enemy {
         ps.gravity = new Vector3(0, -5, 0);
         ps.start();
         setTimeout(() => { ps.stop(); setTimeout(() => ps.dispose(), 800); }, 200);
+    }
+
+    // =========================================================================
+    // ELEMENT VISUAL DECORATIONS
+    // =========================================================================
+
+    /**
+     * Show/hide per-element decoration meshes on the weapon anchor.
+     * Call once per frame with the set of active power elements.
+     */
+    public updateElementVisuals(activeElements: Set<string>): void {
+        if (!this.mesh) return;
+        const anchor = this.getWeaponAnchor();
+        if (!anchor) return;
+
+        const allElements = ['fire', 'ice', 'arcane', 'physical', 'storm'];
+        for (const element of allElements) {
+            const shouldShow = activeElements.has(element);
+            let meshes = this.elementDecorations.get(element);
+            if (shouldShow && !meshes) {
+                meshes = this.createElementDecoration(element, anchor);
+                this.elementDecorations.set(element, meshes);
+            }
+            if (meshes) {
+                for (const m of meshes) m.setEnabled(shouldShow);
+            }
+        }
+    }
+
+    private getWeaponAnchor(): Mesh | null {
+        switch (this.championType) {
+            case 'barbarian': return this.barbAxeHead ?? this.swordArm;
+            case 'ranger':    return this.rangerBow ?? this.swordArm;
+            case 'mage':      return this.mageStaffOrb ?? this.swordArm;
+        }
+        return null;
+    }
+
+    private createElementDecoration(element: string, anchor: Mesh): Mesh[] {
+        const meshes: Mesh[] = [];
+        const scene = this.scene;
+        switch (element) {
+            case 'fire': {
+                // 3 small flame cones arranged around the weapon
+                for (let i = 0; i < 3; i++) {
+                    const flame = MeshBuilder.CreateCylinder(`heroFire_${i}_${this.championType}`, {
+                        height: 0.35, diameterTop: 0, diameterBottom: 0.18, tessellation: 6,
+                    }, scene);
+                    flame.material = createEmissiveMaterial(`heroFireMat_${i}_${this.championType}`,
+                        new Color3(1.0, 0.45, 0.05), 0.9, scene);
+                    flame.parent = anchor;
+                    const angle = (i / 3) * Math.PI * 2;
+                    flame.position = new Vector3(Math.cos(angle) * 0.25, 0.3, Math.sin(angle) * 0.25);
+                    makeFlatShaded(flame);
+                    meshes.push(flame);
+                }
+                break;
+            }
+            case 'ice': {
+                // 3 cyan crystal shards
+                for (let i = 0; i < 3; i++) {
+                    const crystal = MeshBuilder.CreatePolyhedron(`heroIce_${i}_${this.championType}`,
+                        { type: 1, size: 0.10 }, scene);
+                    crystal.material = createEmissiveMaterial(`heroIceMat_${i}_${this.championType}`,
+                        new Color3(0.4, 0.85, 1.0), 0.6, scene);
+                    crystal.parent = anchor;
+                    const angle = (i / 3) * Math.PI * 2 + 0.5;
+                    crystal.position = new Vector3(Math.cos(angle) * 0.30, 0.1, Math.sin(angle) * 0.30);
+                    crystal.scaling.y = 1.5;
+                    makeFlatShaded(crystal);
+                    meshes.push(crystal);
+                }
+                break;
+            }
+            case 'arcane': {
+                // 2 purple orbs hovering near the weapon
+                for (let i = 0; i < 2; i++) {
+                    const orb = MeshBuilder.CreateSphere(`heroArcane_${i}_${this.championType}`,
+                        { diameter: 0.14, segments: 4 }, scene);
+                    orb.material = createEmissiveMaterial(`heroArcaneMat_${i}_${this.championType}`,
+                        new Color3(0.7, 0.3, 1.0), 0.8, scene);
+                    orb.parent = anchor;
+                    orb.position = new Vector3(i === 0 ? 0.35 : -0.35, 0.45, 0);
+                    meshes.push(orb);
+                }
+                break;
+            }
+            case 'physical': {
+                // 4 small white sparkle polyhedra
+                for (let i = 0; i < 4; i++) {
+                    const sparkle = MeshBuilder.CreatePolyhedron(`heroPhys_${i}_${this.championType}`,
+                        { type: 0, size: 0.06 }, scene);
+                    sparkle.material = createEmissiveMaterial(`heroPhysMat_${i}_${this.championType}`,
+                        new Color3(0.95, 0.95, 1.0), 0.7, scene);
+                    sparkle.parent = anchor;
+                    const angle = (i / 4) * Math.PI * 2;
+                    sparkle.position = new Vector3(Math.cos(angle) * 0.40, 0.25, Math.sin(angle) * 0.40);
+                    makeFlatShaded(sparkle);
+                    meshes.push(sparkle);
+                }
+                break;
+            }
+            case 'storm': {
+                // 3 yellow zigzag bolt boxes
+                for (let i = 0; i < 3; i++) {
+                    const bolt = MeshBuilder.CreateBox(`heroStorm_${i}_${this.championType}`,
+                        { width: 0.03, height: 0.4, depth: 0.03 }, scene);
+                    bolt.material = createEmissiveMaterial(`heroStormMat_${i}_${this.championType}`,
+                        new Color3(1.0, 0.95, 0.4), 0.9, scene);
+                    bolt.parent = anchor;
+                    const angle = (i / 3) * Math.PI * 2;
+                    bolt.position = new Vector3(Math.cos(angle) * 0.30, 0.35, Math.sin(angle) * 0.30);
+                    bolt.rotation.z = 0.4;
+                    meshes.push(bolt);
+                }
+                break;
+            }
+        }
+        return meshes;
     }
 }

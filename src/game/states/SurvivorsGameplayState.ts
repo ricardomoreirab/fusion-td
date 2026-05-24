@@ -356,6 +356,11 @@ export class SurvivorsGameplayState implements GameState {
         // Power auto-fire
         if (this.powerSlots) this.powerSlots.update(dt);
 
+        // Element visual decorations on the hero's weapon
+        if (this.hero && this.powerSlots) {
+            this.hero.updateElementVisuals(this.powerSlots.getActiveElements());
+        }
+
         // Manual ultimates (Meteor Strike + Frost Nova)
         if (this.abilityManager) this.abilityManager.update(dt);
 

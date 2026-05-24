@@ -1,5 +1,5 @@
 import { Scene, Vector3 } from '@babylonjs/core';
-import { PowerDefinition, PowerRuntimeState, PowerContext, POWER_DEFS } from './powers/PowerDefinitions';
+import { PowerDefinition, PowerRuntimeState, PowerContext, PowerElement, POWER_DEFS } from './powers/PowerDefinitions';
 import { Enemy } from './enemies/Enemy';
 
 export interface PowerSlot {
@@ -102,6 +102,18 @@ export class PowerSlotManager {
                 slot.state.cooldownRemaining = slot.def.cooldownFor(slot.state) * cooldownMult;
             }
         }
+    }
+
+    /**
+     * Returns the set of unique elements from all currently equipped power slots.
+     * Used to drive per-element weapon visual decorations on the Champion.
+     */
+    public getActiveElements(): Set<PowerElement> {
+        const set = new Set<PowerElement>();
+        for (const slot of this.slots) {
+            if (slot) set.add(slot.def.element);
+        }
+        return set;
     }
 
     /**
