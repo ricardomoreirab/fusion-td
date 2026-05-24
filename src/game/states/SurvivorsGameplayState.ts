@@ -316,10 +316,12 @@ export class SurvivorsGameplayState implements GameState {
         // If game hasn't started yet (champion select showing), skip game updates
         if (!this.heroController) return;
 
-        // Apply time scale for slow-mo during power-choice overlay
+        // True pause while any blocking overlay is open (power choice, replace-slot, shop)
+        if (this.isPausedForOverlay()) return;
+
         const dt = deltaTime * this.timeScale;
 
-        if (this.heroController) this.heroController.update(dt);
+        this.heroController.update(dt);
         if (this.hero) this.hero.update(dt);
 
         if (this.waveManager) this.waveManager.update(dt);
@@ -328,10 +330,8 @@ export class SurvivorsGameplayState implements GameState {
         // Contact damage
         this.applyContactDamage(dt);
 
-        // Power auto-fire (only when game is not paused in shop)
-        if (!this.shopOverlay?.isOpen() && !this.replaceSlotOverlay?.isOpen()) {
-            if (this.powerSlots) this.powerSlots.update(dt);
-        }
+        // Power auto-fire
+        if (this.powerSlots) this.powerSlots.update(dt);
 
         // Manual ultimates (Meteor Strike + Frost Nova)
         if (this.abilityManager) this.abilityManager.update(dt);
@@ -341,7 +341,7 @@ export class SurvivorsGameplayState implements GameState {
         this.powerDrops = this.powerDrops.filter(d => d.isAlive());
 
         // HUD update
-        if (this.hud && this.heroController && this.powerSlots && this.playerStats) {
+        if (this.hud && this.powerSlots && this.playerStats) {
             this.hud.update(
                 this.heroController.getHealth(),
                 this.playerStats.getGold(),
@@ -352,6 +352,14 @@ export class SurvivorsGameplayState implements GameState {
 
         // Off-screen elite indicators
         if (this.eliteIndicators) this.eliteIndicators.update();
+    }
+
+    private isPausedForOverlay(): boolean {
+        return !!(
+            this.powerChoice?.isOpen() ||
+            this.replaceSlotOverlay?.isOpen() ||
+            this.shopOverlay?.isOpen()
+        );
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -445,12 +453,11 @@ export class SurvivorsGameplayState implements GameState {
             onPick:   perk.apply,
         });
 
-        // Slow time, open overlay
-        this.timeScale = 0.2;
+        // Pause game while overlay is open (handled by isPausedForOverlay in update)
         this.powerChoice.show(
             cards,
             () => this.playerStats!.addGold(25), // cancel → +25 gold
-            () => { this.timeScale = 1.0; },      // onClosed → restore speed
+            () => {},                            // onClosed → nothing (pause auto-lifts)
         );
     }
 
@@ -605,6 +612,9 @@ export class SurvivorsGameplayState implements GameState {
         const heroPos = this.hero.getPosition();
         const reductionMult = this.playerStats?.damageReductionMultiplier ?? 1.0;
         for (const e of this.enemyManager.getEnemies()) {
+            // Hero death inside takeDamage triggers state.exit() synchronously,
+            // which nulls heroController. Re-check each iteration.
+            if (!this.heroController) return;
             if (!e.isAlive()) continue;
             const ePos = e.getPosition();
             const dx = ePos.x - heroPos.x;
