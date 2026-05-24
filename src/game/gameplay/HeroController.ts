@@ -1,6 +1,15 @@
 import { Scene, Vector3, FreeCamera, KeyboardEventTypes } from '@babylonjs/core';
 import { Champion } from './Champion';
-import { HeroBasicAttack, BasicAttackTarget } from './HeroBasicAttack';
+import { HeroBasicAttack, BasicAttackTarget, BasicAttackMode } from './HeroBasicAttack';
+import { PowerSlotManager } from './PowerSlotManager';
+import { Enemy } from './enemies/Enemy';
+
+/** Per-class basic-attack configuration */
+const CLASS_ATTACK_CONFIG: Record<string, { mode: BasicAttackMode; fireRate: number; damage: number; range: number }> = {
+    knight: { mode: 'melee',      fireRate: 1.0, damage: 18, range: 3.5 },
+    ranger: { mode: 'projectile', fireRate: 1.8, damage: 8,  range: 9   },
+    mage:   { mode: 'projectile', fireRate: 1.0, damage: 10, range: 8   },
+};
 
 export class HeroController {
     private scene: Scene;
@@ -19,6 +28,7 @@ export class HeroController {
     // Basic attack
     private basicAttack: HeroBasicAttack | null = null;
     private targetProvider: () => BasicAttackTarget | null = () => null;
+    private enemyProvider: (() => Enemy[]) | null = null;
 
     // Hero HP
     private maxHealth: number;
@@ -35,6 +45,7 @@ export class HeroController {
         arenaRadius: number,
         moveSpeed: number = 7,
         maxHealth: number = 100,
+        championType: string = 'knight',
     ) {
         this.scene = scene;
         this.hero = hero;
@@ -46,7 +57,6 @@ export class HeroController {
         // Top-down follow camera
         this.camera = new FreeCamera('heroCam', new Vector3(0, this.cameraHeight, this.cameraOffsetZ), scene);
         this.camera.setTarget(Vector3.Zero());
-        scene.activeCamera = this.camera;
 
         // No user camera manipulation
         this.camera.inputs.clear();
@@ -62,12 +72,15 @@ export class HeroController {
             }
         });
 
-        // Basic attack module
+        // Build basic attack based on champion class
+        const cfg = CLASS_ATTACK_CONFIG[championType] ?? CLASS_ATTACK_CONFIG['knight'];
         this.basicAttack = new HeroBasicAttack(scene, hero, {
-            fireRate: 1.5,
-            damage: 8,
-            range: 8,
+            mode:           cfg.mode,
+            fireRate:       cfg.fireRate,
+            damage:         cfg.damage,
+            range:          cfg.range,
             targetProvider: () => this.targetProvider(),
+            enemyProvider:  () => this.enemyProvider?.() ?? [],
         });
     }
 
@@ -78,6 +91,18 @@ export class HeroController {
 
     public setTargetProvider(fn: () => BasicAttackTarget | null): void {
         this.targetProvider = fn;
+    }
+
+    /** Supply the full enemy list (required for melee AOE and projectile enchantments). */
+    public setEnemyProvider(fn: () => Enemy[]): void {
+        this.enemyProvider = fn;
+        // Rebuild basic attack with enemy provider wired in
+        // (It's already passed as a closure, so no rebuild needed.)
+    }
+
+    /** Wire the power slot manager into the basic attack for enchantments. */
+    public setPowerSlots(slots: PowerSlotManager): void {
+        this.basicAttack?.setPowerSlots(slots);
     }
 
     public setOnDeath(fn: () => void): void {
@@ -117,6 +142,14 @@ export class HeroController {
      */
     public updateMoveSpeed(multiplier: number): void {
         this.moveSpeedMultiplier = multiplier;
+    }
+
+    /**
+     * Update the basic attack speed multiplier.
+     * @param multiplier — absolute multiplier (e.g. 1.1 after one Quickness purchase)
+     */
+    public updateBasicAttackSpeed(multiplier: number): void {
+        this.basicAttack?.updateAttackSpeed(multiplier);
     }
 
     public update(deltaTime: number): void {
