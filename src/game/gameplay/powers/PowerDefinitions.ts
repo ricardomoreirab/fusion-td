@@ -1,6 +1,8 @@
-import { Scene, Vector3, MeshBuilder, StandardMaterial, Color3 } from '@babylonjs/core';
+import { Scene, Vector3, MeshBuilder, Color3 } from '@babylonjs/core';
 import { Enemy } from '../enemies/Enemy';
 import { StatusEffect } from '../GameTypes';
+import { getCachedMaterial } from '../../rendering/MaterialCache';
+import { acquireProjectile, releaseProjectile } from '../../rendering/ProjectilePool';
 
 export type PowerElement = 'fire' | 'ice' | 'arcane' | 'physical' | 'storm';
 export type ChampionType = 'knight' | 'ranger' | 'mage';
@@ -87,19 +89,20 @@ const mageFireDef: PowerDefinition = {
         }
         if (!best) return;
 
-        const proj = MeshBuilder.CreateSphere('fireballProj', { diameter: 0.5 }, ctx.scene);
+        const proj = acquireProjectile(ctx.scene, 'fireball_proj', () =>
+            MeshBuilder.CreateSphere('fireballProj', { diameter: 0.5 }, ctx.scene));
         proj.position.copyFrom(ctx.heroPosition);
         proj.position.y = 1;
-        const mat = new StandardMaterial('fireballMat', ctx.scene);
-        mat.emissiveColor = new Color3(1, 0.3, 0);
-        proj.material = mat;
+        proj.material = getCachedMaterial(ctx.scene, 'fireball_proj_mat', m => {
+            m.emissiveColor = new Color3(1, 0.3, 0);
+        });
 
         const target = best;
         const damage = mageFireDef.damageFor(state) * ctx.damageMultiplier;
         const speed = 18;
         const observer = ctx.scene.onBeforeRenderObservable.add(() => {
             if (!target.isAlive()) {
-                proj.dispose();
+                releaseProjectile('fireball_proj', proj);
                 ctx.scene.onBeforeRenderObservable.remove(observer);
                 return;
             }
@@ -109,7 +112,7 @@ const mageFireDef: PowerDefinition = {
             if (dist < 0.5) {
                 target.takeDamage(damage);
                 target.applyStatusEffect(StatusEffect.BURNING, 3, 3.0);
-                proj.dispose();
+                releaseProjectile('fireball_proj', proj);
                 ctx.scene.onBeforeRenderObservable.remove(observer);
                 return;
             }
@@ -117,7 +120,7 @@ const mageFireDef: PowerDefinition = {
             proj.position.addInPlace(dir.normalize().scale(Math.min(dist, speed * dt)));
         });
         setTimeout(() => {
-            if (!proj.isDisposed()) proj.dispose();
+            releaseProjectile('fireball_proj', proj);
             ctx.scene.onBeforeRenderObservable.remove(observer);
         }, 4000);
     },
@@ -150,19 +153,20 @@ const mageIceDef: PowerDefinition = {
         }
         if (!best) return;
 
-        const proj = MeshBuilder.CreateSphere('frostProj', { diameter: 0.4 }, ctx.scene);
+        const proj = acquireProjectile(ctx.scene, 'frost_proj', () =>
+            MeshBuilder.CreateSphere('frostProj', { diameter: 0.4 }, ctx.scene));
         proj.position.copyFrom(ctx.heroPosition);
         proj.position.y = 1;
-        const mat = new StandardMaterial('frostMat', ctx.scene);
-        mat.emissiveColor = new Color3(0.3, 0.7, 1.0);
-        proj.material = mat;
+        proj.material = getCachedMaterial(ctx.scene, 'frost_proj_mat', m => {
+            m.emissiveColor = new Color3(0.3, 0.7, 1.0);
+        });
 
         const target = best;
         const damage = mageIceDef.damageFor(state) * ctx.damageMultiplier;
         const speed = 20;
         const observer = ctx.scene.onBeforeRenderObservable.add(() => {
             if (!target.isAlive()) {
-                proj.dispose();
+                releaseProjectile('frost_proj', proj);
                 ctx.scene.onBeforeRenderObservable.remove(observer);
                 return;
             }
@@ -172,7 +176,7 @@ const mageIceDef: PowerDefinition = {
             if (dist < 0.4) {
                 target.takeDamage(damage);
                 target.applyStatusEffect(StatusEffect.SLOWED, 2, 0.5);
-                proj.dispose();
+                releaseProjectile('frost_proj', proj);
                 ctx.scene.onBeforeRenderObservable.remove(observer);
                 return;
             }
@@ -180,7 +184,7 @@ const mageIceDef: PowerDefinition = {
             proj.position.addInPlace(dir.normalize().scale(Math.min(dist, speed * dt)));
         });
         setTimeout(() => {
-            if (!proj.isDisposed()) proj.dispose();
+            releaseProjectile('frost_proj', proj);
             ctx.scene.onBeforeRenderObservable.remove(observer);
         }, 4000);
     },
@@ -223,10 +227,10 @@ const mageArcaneDef: PowerDefinition = {
         }, ctx.scene);
         ring.position.copyFrom(ctx.heroPosition);
         ring.position.y = 0.3;
-        const mat = new StandardMaterial('novaMat', ctx.scene);
-        mat.emissiveColor = new Color3(0.8, 0.3, 1.0);
-        mat.alpha = 0.7;
-        ring.material = mat;
+        ring.material = getCachedMaterial(ctx.scene, 'nova_ring_mat', m => {
+            m.emissiveColor = new Color3(0.8, 0.3, 1.0);
+            m.alpha = 0.7;
+        });
         setTimeout(() => { if (!ring.isDisposed()) ring.dispose(); }, 350);
     },
 };
@@ -249,11 +253,12 @@ const magePhysicalDef: PowerDefinition = {
     init: (state, ctx) => {
         const bladeCount = state.level >= 3 ? 3 : 2;
         const blades: { mesh: ReturnType<typeof MeshBuilder.CreateBox>; angle: number }[] = [];
+        const bladeMat = getCachedMaterial(ctx.scene, 'whirling_blade_mat', m => {
+            m.emissiveColor = new Color3(0.7, 0.7, 0.9);
+        });
         for (let i = 0; i < bladeCount; i++) {
             const blade = MeshBuilder.CreateBox(`wbBlade_${i}`, { width: 0.2, height: 0.1, depth: 0.6 }, ctx.scene);
-            const mat = new StandardMaterial(`wbBladeMat_${i}`, ctx.scene);
-            mat.emissiveColor = new Color3(0.7, 0.7, 0.9);
-            blade.material = mat;
+            blade.material = bladeMat;
             blades.push({ mesh: blade, angle: (i / bladeCount) * Math.PI * 2 });
         }
         if (!state.data) state.data = {};
@@ -360,9 +365,9 @@ const mageStormDef: PowerDefinition = {
             line.position.y = 1;
             const dir = seg.to.subtract(seg.from).normalize();
             line.rotation.y = Math.atan2(dir.x, dir.z);
-            const mat = new StandardMaterial('lightningMat', ctx.scene);
-            mat.emissiveColor = new Color3(0.7, 0.7, 1.0);
-            line.material = mat;
+            line.material = getCachedMaterial(ctx.scene, 'lightning_mat', m => {
+                m.emissiveColor = new Color3(0.7, 0.7, 1.0);
+            });
             setTimeout(() => { if (!line.isDisposed()) line.dispose(); }, 200);
         }
     },
@@ -399,12 +404,13 @@ const rangerFireDef: PowerDefinition = {
         }
         if (!best) return;
 
-        const proj = MeshBuilder.CreateSphere('fireArrowProj', { diameter: 0.3 }, ctx.scene);
+        const proj = acquireProjectile(ctx.scene, 'fire_arrow_proj', () =>
+            MeshBuilder.CreateSphere('fireArrowProj', { diameter: 0.3 }, ctx.scene));
         proj.position.copyFrom(ctx.heroPosition);
         proj.position.y = 1;
-        const mat = new StandardMaterial('fireArrowMat', ctx.scene);
-        mat.emissiveColor = new Color3(1, 0.5, 0.1);
-        proj.material = mat;
+        proj.material = getCachedMaterial(ctx.scene, 'fire_arrow_proj_mat', m => {
+            m.emissiveColor = new Color3(1, 0.5, 0.1);
+        });
 
         const target = best;
         const damage = rangerFireDef.damageFor(state) * ctx.damageMultiplier;
@@ -416,7 +422,7 @@ const rangerFireDef: PowerDefinition = {
             if (!target.isAlive()) {
                 // Explode at last position
                 explodeFireArrow(proj.position.clone(), damage, aoeRadius, enemies, ctx.scene);
-                proj.dispose();
+                releaseProjectile('fire_arrow_proj', proj);
                 ctx.scene.onBeforeRenderObservable.remove(observer);
                 return;
             }
@@ -425,7 +431,7 @@ const rangerFireDef: PowerDefinition = {
             const dist = dir.length();
             if (dist < 0.5) {
                 explodeFireArrow(proj.position.clone(), damage, aoeRadius, enemies, ctx.scene);
-                proj.dispose();
+                releaseProjectile('fire_arrow_proj', proj);
                 ctx.scene.onBeforeRenderObservable.remove(observer);
                 return;
             }
@@ -433,10 +439,8 @@ const rangerFireDef: PowerDefinition = {
             proj.position.addInPlace(dir.normalize().scale(Math.min(dist, speed * dt)));
         });
         setTimeout(() => {
-            if (!proj.isDisposed()) {
-                explodeFireArrow(proj.position.clone(), damage, aoeRadius, enemies, ctx.scene);
-                proj.dispose();
-            }
+            explodeFireArrow(proj.position.clone(), damage, aoeRadius, enemies, ctx.scene);
+            releaseProjectile('fire_arrow_proj', proj);
             ctx.scene.onBeforeRenderObservable.remove(observer);
         }, 4000);
     },
@@ -456,10 +460,10 @@ function explodeFireArrow(pos: Vector3, damage: number, radius: number, enemies:
     const ring = MeshBuilder.CreateTorus('fireExplosion', { diameter: radius * 2, thickness: 0.3, tessellation: 16 }, scene);
     ring.position.copyFrom(pos);
     ring.position.y = 0.3;
-    const mat = new StandardMaterial('fireExplosionMat', scene);
-    mat.emissiveColor = new Color3(1, 0.4, 0);
-    mat.alpha = 0.8;
-    ring.material = mat;
+    ring.material = getCachedMaterial(scene, 'fire_explosion_mat', m => {
+        m.emissiveColor = new Color3(1, 0.4, 0);
+        m.alpha = 0.8;
+    });
     setTimeout(() => { if (!ring.isDisposed()) ring.dispose(); }, 250);
 }
 
@@ -494,12 +498,13 @@ const rangerIceDef: PowerDefinition = {
         direction.y = 0;
         direction.normalize();
 
-        const proj = MeshBuilder.CreateSphere('frostArrowProj', { diameter: 0.3 }, ctx.scene);
+        const proj = acquireProjectile(ctx.scene, 'frost_arrow_proj', () =>
+            MeshBuilder.CreateSphere('frostArrowProj', { diameter: 0.3 }, ctx.scene));
         proj.position.copyFrom(ctx.heroPosition);
         proj.position.y = 1;
-        const mat = new StandardMaterial('frostArrowMat', ctx.scene);
-        mat.emissiveColor = new Color3(0.3, 0.8, 1.0);
-        proj.material = mat;
+        proj.material = getCachedMaterial(ctx.scene, 'frost_arrow_proj_mat', m => {
+            m.emissiveColor = new Color3(0.3, 0.8, 1.0);
+        });
 
         const damage = rangerIceDef.damageFor(state) * ctx.damageMultiplier;
         const speed = 26;
@@ -527,12 +532,12 @@ const rangerIceDef: PowerDefinition = {
             }
 
             if (traveledDist >= rangerIceDef.baseRange || pierceCount >= maxPierces) {
-                proj.dispose();
+                releaseProjectile('frost_arrow_proj', proj);
                 ctx.scene.onBeforeRenderObservable.remove(observer);
             }
         });
         setTimeout(() => {
-            if (!proj.isDisposed()) proj.dispose();
+            releaseProjectile('frost_arrow_proj', proj);
             ctx.scene.onBeforeRenderObservable.remove(observer);
         }, 3500);
     },
@@ -565,12 +570,13 @@ const rangerArcaneDef: PowerDefinition = {
         }
         if (!best) return;
 
-        const proj = MeshBuilder.CreateSphere('seekArrowProj', { diameter: 0.3 }, ctx.scene);
+        const proj = acquireProjectile(ctx.scene, 'seek_arrow_proj', () =>
+            MeshBuilder.CreateSphere('seekArrowProj', { diameter: 0.3 }, ctx.scene));
         proj.position.copyFrom(ctx.heroPosition);
         proj.position.y = 1;
-        const mat = new StandardMaterial('seekArrowMat', ctx.scene);
-        mat.emissiveColor = new Color3(0.7, 0.3, 1.0);
-        proj.material = mat;
+        proj.material = getCachedMaterial(ctx.scene, 'seek_arrow_proj_mat', m => {
+            m.emissiveColor = new Color3(0.7, 0.3, 1.0);
+        });
 
         const target = best;
         const damage = rangerArcaneDef.damageFor(state) * ctx.damageMultiplier;
@@ -582,7 +588,7 @@ const rangerArcaneDef: PowerDefinition = {
 
         const observer = ctx.scene.onBeforeRenderObservable.add(() => {
             if (!target.isAlive()) {
-                proj.dispose();
+                releaseProjectile('seek_arrow_proj', proj);
                 ctx.scene.onBeforeRenderObservable.remove(observer);
                 return;
             }
@@ -591,7 +597,7 @@ const rangerArcaneDef: PowerDefinition = {
             const dist = toTarget.length();
             if (dist < 0.5) {
                 target.takeDamage(damage);
-                proj.dispose();
+                releaseProjectile('seek_arrow_proj', proj);
                 ctx.scene.onBeforeRenderObservable.remove(observer);
                 return;
             }
@@ -604,7 +610,7 @@ const rangerArcaneDef: PowerDefinition = {
             proj.position.addInPlace(velDir.scale(speed * dt));
         });
         setTimeout(() => {
-            if (!proj.isDisposed()) proj.dispose();
+            releaseProjectile('seek_arrow_proj', proj);
             ctx.scene.onBeforeRenderObservable.remove(observer);
         }, 4000);
     },
@@ -641,12 +647,13 @@ const rangerPhysicalDef: PowerDefinition = {
         direction.y = 0;
         direction.normalize();
 
-        const proj = MeshBuilder.CreateSphere('pierceProj', { diameter: 0.3 }, ctx.scene);
+        const proj = acquireProjectile(ctx.scene, 'pierce_proj', () =>
+            MeshBuilder.CreateSphere('pierceProj', { diameter: 0.3 }, ctx.scene));
         proj.position.copyFrom(ctx.heroPosition);
         proj.position.y = 1;
-        const mat = new StandardMaterial('pierceMat', ctx.scene);
-        mat.emissiveColor = new Color3(0.9, 0.9, 0.9);
-        proj.material = mat;
+        proj.material = getCachedMaterial(ctx.scene, 'pierce_proj_mat', m => {
+            m.emissiveColor = new Color3(0.9, 0.9, 0.9);
+        });
 
         const damage = rangerPhysicalDef.damageFor(state) * ctx.damageMultiplier;
         const speed = 28;
@@ -670,12 +677,12 @@ const rangerPhysicalDef: PowerDefinition = {
             }
 
             if (traveledDist >= rangerPhysicalDef.baseRange) {
-                proj.dispose();
+                releaseProjectile('pierce_proj', proj);
                 ctx.scene.onBeforeRenderObservable.remove(observer);
             }
         });
         setTimeout(() => {
-            if (!proj.isDisposed()) proj.dispose();
+            releaseProjectile('pierce_proj', proj);
             ctx.scene.onBeforeRenderObservable.remove(observer);
         }, 3000);
     },
@@ -708,12 +715,13 @@ const rangerStormDef: PowerDefinition = {
         }
         if (!best) return;
 
-        const proj = MeshBuilder.CreateSphere('lightningArrowProj', { diameter: 0.3 }, ctx.scene);
+        const proj = acquireProjectile(ctx.scene, 'lightning_arrow_proj', () =>
+            MeshBuilder.CreateSphere('lightningArrowProj', { diameter: 0.3 }, ctx.scene));
         proj.position.copyFrom(ctx.heroPosition);
         proj.position.y = 1;
-        const mat = new StandardMaterial('lightningArrowMat', ctx.scene);
-        mat.emissiveColor = new Color3(0.7, 0.7, 1.0);
-        proj.material = mat;
+        proj.material = getCachedMaterial(ctx.scene, 'lightning_arrow_proj_mat', m => {
+            m.emissiveColor = new Color3(0.7, 0.7, 1.0);
+        });
 
         const target = best;
         const damage = rangerStormDef.damageFor(state) * ctx.damageMultiplier;
@@ -723,7 +731,7 @@ const rangerStormDef: PowerDefinition = {
         const observer = ctx.scene.onBeforeRenderObservable.add(() => {
             if (!target.isAlive()) {
                 chainLightning(target.getPosition(), damage, allEnemies, target, ctx.scene);
-                proj.dispose();
+                releaseProjectile('lightning_arrow_proj', proj);
                 ctx.scene.onBeforeRenderObservable.remove(observer);
                 return;
             }
@@ -733,7 +741,7 @@ const rangerStormDef: PowerDefinition = {
             if (dist < 0.5) {
                 target.takeDamage(damage);
                 chainLightning(target.getPosition(), damage, allEnemies, target, ctx.scene);
-                proj.dispose();
+                releaseProjectile('lightning_arrow_proj', proj);
                 ctx.scene.onBeforeRenderObservable.remove(observer);
                 return;
             }
@@ -741,7 +749,7 @@ const rangerStormDef: PowerDefinition = {
             proj.position.addInPlace(dir.normalize().scale(Math.min(dist, speed * dt)));
         });
         setTimeout(() => {
-            if (!proj.isDisposed()) proj.dispose();
+            releaseProjectile('lightning_arrow_proj', proj);
             ctx.scene.onBeforeRenderObservable.remove(observer);
         }, 4000);
     },
@@ -774,9 +782,9 @@ function chainLightning(fromPos: Vector3, damage: number, enemies: Enemy[], excl
             const arc = MeshBuilder.CreateBox(`lArrow_chain_${Math.random()}`, { width: 0.06, height: 0.06, depth: len }, scene);
             arc.position.copyFrom(mid);
             arc.rotation.y = Math.atan2(to.x - from.x, to.z - from.z);
-            const mat = new StandardMaterial('lArrowArcMat', scene);
-            mat.emissiveColor = new Color3(0.6, 0.6, 1.0);
-            arc.material = mat;
+            arc.material = getCachedMaterial(scene, 'lightning_arc_mat', m => {
+                m.emissiveColor = new Color3(0.6, 0.6, 1.0);
+            });
             setTimeout(() => { if (!arc.isDisposed()) arc.dispose(); }, 180);
         }
         origin = nearest.getPosition();
@@ -915,9 +923,9 @@ const knightStormDef: PowerDefinition = {
                 const arc = MeshBuilder.CreateBox(`shockChain_${Math.random()}`, { width: 0.06, height: 0.06, depth: len }, ctx.scene);
                 arc.position.copyFrom(mid);
                 arc.rotation.y = Math.atan2(to.x - from.x, to.z - from.z);
-                const mat = new StandardMaterial('shockChainMat', ctx.scene);
-                mat.emissiveColor = new Color3(0.9, 0.9, 0.3);
-                arc.material = mat;
+                arc.material = getCachedMaterial(ctx.scene, 'shock_chain_mat', m => {
+                    m.emissiveColor = new Color3(0.9, 0.9, 0.3);
+                });
                 setTimeout(() => { if (!arc.isDisposed()) arc.dispose(); }, 150);
             }
             origin = nearest.getPosition();

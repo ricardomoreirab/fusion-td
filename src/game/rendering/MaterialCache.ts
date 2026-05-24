@@ -33,7 +33,7 @@ export function getCachedMaterial(
     setup: (mat: StandardMaterial) => void,
 ): StandardMaterial {
     let mat = cache.get(key);
-    if (!mat || mat.isDisposed()) {
+    if (!mat || mat.isReady() === false) {
         mat = new StandardMaterial(key, scene);
         setup(mat);
         cache.set(key, mat);

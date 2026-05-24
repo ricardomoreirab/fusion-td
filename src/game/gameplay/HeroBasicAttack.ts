@@ -1,8 +1,10 @@
-import { Scene, Vector3, MeshBuilder, StandardMaterial, Color3 } from '@babylonjs/core';
+import { Scene, Vector3, MeshBuilder, Color3 } from '@babylonjs/core';
 import { Champion } from './Champion';
 import { PowerSlotManager } from './PowerSlotManager';
 import { EnchantmentHitContext } from './powers/PowerDefinitions';
 import { Enemy } from './enemies/Enemy';
+import { getCachedMaterial } from '../rendering/MaterialCache';
+import { acquireProjectile, releaseProjectile } from '../rendering/ProjectilePool';
 
 export interface BasicAttackTarget {
     position: Vector3;
@@ -130,9 +132,10 @@ export class HeroBasicAttack {
         ring.position.copyFrom(center);
         ring.position.y = 0.3;
         ring.rotation.x = Math.PI / 2;
-        const mat = new StandardMaterial('swingRingMat', this.scene);
-        mat.emissiveColor = new Color3(1, 1, 1);
-        mat.alpha = 0.6;
+        const mat = getCachedMaterial(this.scene, 'swingRingMat', m => {
+            m.emissiveColor = new Color3(1, 1, 1);
+            m.alpha = 0.6;
+        });
         ring.material = mat;
 
         const duration = 0.15; // seconds
@@ -158,12 +161,14 @@ export class HeroBasicAttack {
     // Projectile
     // ─────────────────────────────────────────────────────────────────────────
     private spawnProjectile(from: Vector3, target: BasicAttackTarget): void {
-        const proj = MeshBuilder.CreateSphere('basicProj', { diameter: 0.3 }, this.scene);
+        const scene = this.scene;
+        const proj = acquireProjectile(scene, 'basic_attack_proj', () =>
+            MeshBuilder.CreateSphere('basicProj', { diameter: 0.3 }, scene));
         proj.position.copyFrom(from);
         proj.position.y = 1;
-        const mat = new StandardMaterial('basicProjMat', this.scene);
-        mat.emissiveColor = new Color3(1, 0.9, 0.4);
-        proj.material = mat;
+        proj.material = getCachedMaterial(scene, 'basic_attack_proj_mat', m => {
+            m.emissiveColor = new Color3(1, 0.9, 0.4);
+        });
 
         const speed = 22;
         const startTime = performance.now() / 1000;
@@ -174,7 +179,7 @@ export class HeroBasicAttack {
         const observer = this.scene.onBeforeRenderObservable.add(() => {
             if (!observer) return;
             if (!target.isAlive()) {
-                proj.dispose();
+                releaseProjectile('basic_attack_proj', proj);
                 this.scene.onBeforeRenderObservable.remove(observer);
                 return;
             }
@@ -197,7 +202,7 @@ export class HeroBasicAttack {
                         this.applyEnchantments(enemyHit, heroPos, allEnemies);
                     }
                 }
-                proj.dispose();
+                releaseProjectile('basic_attack_proj', proj);
                 this.scene.onBeforeRenderObservable.remove(observer);
                 return;
             }
@@ -205,9 +210,9 @@ export class HeroBasicAttack {
             const step = Math.min(dist, speed * dt);
             proj.position.addInPlace(dir.normalize().scale(step));
 
-            // Safety: dispose after 3s of flight
+            // Safety: release after 3s of flight
             if (performance.now() / 1000 - startTime > 3) {
-                proj.dispose();
+                releaseProjectile('basic_attack_proj', proj);
                 this.scene.onBeforeRenderObservable.remove(observer);
             }
         });

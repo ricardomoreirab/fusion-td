@@ -1,5 +1,6 @@
-import { Color3, MeshBuilder, StandardMaterial, Scene, Observer } from '@babylonjs/core';
+import { Color3, MeshBuilder, Scene, Observer } from '@babylonjs/core';
 import { Enemy } from './enemies/Enemy';
+import { getCachedMaterial } from '../rendering/MaterialCache';
 
 const ELEMENT_COLORS: Record<string, Color3> = {
     fire:     new Color3(1.0, 0.4, 0.0),
@@ -44,38 +45,48 @@ export function makeElite(enemy: Enemy, element: string, scene: Scene): void {
 
     // ── Pulsing aura sphere ──────────────────────────────────────────────────
     const aura = MeshBuilder.CreateSphere('eliteAura_' + element, { diameter: 2.6 }, scene);
-    const auraMat = new StandardMaterial('eliteAuraMat_' + element + '_' + Math.random(), scene);
-    auraMat.emissiveColor = color;
-    auraMat.alpha = 0.18;
+    // Shared material per element — all elites of the same element pulse in sync (intentional).
+    const auraMat = getCachedMaterial(scene, `elite_aura_${element}`, m => {
+        m.emissiveColor = color;
+        m.alpha = 0.18;
+    });
     aura.material = auraMat;
     aura.parent = mesh;
     aura.position.y = 0.8;
 
-    // Pulse the aura between alpha 0.10 and 0.30 over ~1.5 s
+    // Pulse the aura — throttled to every 3 frames to reduce per-frame JS cost.
+    let _auraFrameCounter = 0;
     const auraObserver: Observer<Scene> = scene.onBeforeRenderObservable.add(() => {
         if (aura.isDisposed()) return;
+        _auraFrameCounter++;
+        if (_auraFrameCounter < 3) return;
+        _auraFrameCounter = 0;
         const t = performance.now() / 1000;
         auraMat.alpha = 0.10 + 0.10 * (1 + Math.sin((t / 0.75) * Math.PI));
     })!;
 
     // ── Ground glow disc at enemy feet ───────────────────────────────────────
     const disc = MeshBuilder.CreateDisc('eliteGlow_' + element, { radius: 0.9, tessellation: 16 }, scene);
-    const discMat = new StandardMaterial('eliteGlowMat_' + element + '_' + Math.random(), scene);
-    discMat.emissiveColor = color;
-    discMat.alpha = 0.40;
-    disc.material = discMat;
+    disc.material = getCachedMaterial(scene, `elite_glow_${element}`, m => {
+        m.emissiveColor = color;
+        m.alpha = 0.40;
+    });
     disc.parent = mesh;
     disc.rotation.x = Math.PI / 2; // lie flat
     disc.position.y = -0.55; // at feet level relative to mesh centre
 
     // ── Spikes / horns ───────────────────────────────────────────────────────
-    // 4 small icosahedra arranged around the top of the enemy, slightly pointing outward
+    // 2 small icosahedra (reduced from 4) — minimal visual impact, halves spike draw calls.
     const spikeConfigs = [
         { x:  0.18, z:  0.18 },
-        { x: -0.18, z:  0.18 },
-        { x:  0.18, z: -0.18 },
         { x: -0.18, z: -0.18 },
     ];
+
+    const spikeMat = getCachedMaterial(scene, `elite_spike_${element}`, m => {
+        m.emissiveColor = color;
+        m.diffuseColor = color;
+        m.specularColor = Color3.Black();
+    });
 
     for (let i = 0; i < spikeConfigs.length; i++) {
         const cfg = spikeConfigs[i];
@@ -83,10 +94,6 @@ export function makeElite(enemy: Enemy, element: string, scene: Scene): void {
             type: 2, // icosahedron
             size: 0.09
         }, scene);
-        const spikeMat = new StandardMaterial(`eliteSpikeMat_${element}_${i}_` + Math.random(), scene);
-        spikeMat.emissiveColor = color;
-        spikeMat.diffuseColor = color;
-        spikeMat.specularColor = Color3.Black();
         spike.material = spikeMat;
         spike.parent = mesh;
         spike.position.set(cfg.x, 0.55, cfg.z);
