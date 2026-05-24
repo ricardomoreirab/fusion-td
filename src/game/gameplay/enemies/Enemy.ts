@@ -62,6 +62,9 @@ export class Enemy {
     protected freezeImmunityUntil: number = 0; // timestamp when freeze immunity expires
     protected stunImmunityUntil: number = 0;   // timestamp when stun immunity expires
 
+    // Reused per-frame array to avoid allocating a new array every update
+    private _expiredStatusEffects: StatusEffect[] = [];
+
     constructor(game: Game, position: Vector3, path: Vector3[], speed: number, health: number, damage: number, reward: number) {
         this.game = game;
         this.scene = game.getScene();
@@ -388,13 +391,13 @@ export class Enemy {
      */
     protected updateStatusEffects(deltaTime: number): void {
         const currentTime = performance.now();
-        const expiredEffects: StatusEffect[] = [];
-        
+        this._expiredStatusEffects.length = 0;
+
         // Check for expired effects
         this.activeStatusEffects.forEach((effectData, effect) => {
             if (currentTime > effectData.endTime) {
                 // Effect has expired
-                expiredEffects.push(effect);
+                this._expiredStatusEffects.push(effect);
             } else {
                 // Process active effects
                 switch (effect) {
@@ -405,9 +408,9 @@ export class Enemy {
                 }
             }
         });
-        
+
         // Remove expired effects
-        for (const effect of expiredEffects) {
+        for (const effect of this._expiredStatusEffects) {
             this.removeStatusEffect(effect);
         }
     }

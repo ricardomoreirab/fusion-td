@@ -78,6 +78,13 @@ export class Champion extends Enemy {
     // Spin-attack blood trail particles
     private barbSpinBloodPs: ParticleSystem | null = null;
 
+    // Cached Color3 instances — reused every frame to avoid per-frame allocation
+    private mageOrbColor: Color3 = new Color3(0, 0, 0);
+    private barbSpinArcColor: Color3 = new Color3(0, 0, 0);
+
+    // Pooled footstep dust particle system (barbarian only)
+    private barbFootDustPs: ParticleSystem | null = null;
+
     // Per-element weapon decoration meshes, created lazily on first activation
     private elementDecorations: Map<string, Mesh[]> = new Map();
 
@@ -219,6 +226,9 @@ export class Champion extends Enemy {
         this.barbChestPulseGroup = parts.chestPulseGroup;
         this.cape = null;
         this.originalScale = 1.0;
+
+        // Allocate the pooled footstep dust PS once; reused every stride
+        this.barbFootDustPs = this.createPooledFootstepDust();
     }
 
     // =========================================================================
@@ -1050,10 +1060,9 @@ export class Champion extends Enemy {
         }
     }
 
-    /** Barbarian-only: small brown dust burst at a foot's world position. */
-    private spawnFootstepDust(worldPos: Vector3): void {
+    /** Barbarian-only: allocate the single pooled footstep dust ParticleSystem. */
+    private createPooledFootstepDust(): ParticleSystem {
         const ps = new ParticleSystem('barbFootDust', 8, this.scene);
-        ps.emitter = worldPos;
         ps.minEmitBox = new Vector3(-0.10, 0, -0.10);
         ps.maxEmitBox = new Vector3(0.10, 0, 0.10);
         ps.color1 = new Color4(0.50, 0.35, 0.20, 1);
@@ -1064,15 +1073,28 @@ export class Champion extends Enemy {
         ps.minLifeTime = 0.2;
         ps.maxLifeTime = 0.4;
         ps.emitRate = 80;
-        ps.manualEmitCount = 8; // one-shot
+        ps.manualEmitCount = 8;
         ps.blendMode = ParticleSystem.BLENDMODE_STANDARD;
         ps.direction1 = new Vector3(-0.5, 0.4, -0.5);
         ps.direction2 = new Vector3(0.5, 0.8, 0.5);
         ps.minEmitPower = 0.4;
         ps.maxEmitPower = 1.2;
         ps.gravity = new Vector3(0, -0.5, 0);
+        // emitter will be repositioned per-footstep
+        return ps;
+    }
+
+    /** Barbarian-only: reposition the pooled PS to worldPos and fire a one-shot burst. */
+    private spawnFootstepDust(worldPos: Vector3): void {
+        if (!this.barbFootDustPs) return;
+        const ps = this.barbFootDustPs;
+        ps.emitter = worldPos;
+        ps.stop();
+        ps.reset();
+        ps.manualEmitCount = 8;
         ps.start();
-        setTimeout(() => { ps.stop(); setTimeout(() => ps.dispose(), 500); }, 100);
+        // Auto-stop after the burst so the next footstep can restart cleanly
+        setTimeout(() => { ps.stop(); }, 100);
     }
 
     /** Barbarian-only: small red splatter at a target position on basic-attack hit. */
@@ -1118,7 +1140,12 @@ export class Champion extends Enemy {
             const mat = this.barbSpinArcMesh.material as StandardMaterial | null;
             if (mat) {
                 const intensity = 0.9 * (1 - t);
-                mat.emissiveColor = new Color3(0.8 * (1 - t * 0.5), 0.10, 0.05).scale(intensity);
+                this.barbSpinArcColor.set(
+                    0.8 * (1 - t * 0.5) * intensity,
+                    0.10 * intensity,
+                    0.05 * intensity,
+                );
+                mat.emissiveColor = this.barbSpinArcColor;
                 mat.alpha = 1 - t;
             }
             if (this.barbSpinArcTimer <= 0) {
@@ -1140,11 +1167,8 @@ export class Champion extends Enemy {
     private pulseMageOrb(_deltaTime: number): void {
         if (!this.mageOrbMat) return;
         const pulse = 0.7 + Math.sin(this.walkTime * 2.5) * 0.3;
-        this.mageOrbMat.emissiveColor = new Color3(
-            0.35 * pulse,
-            0.80 * pulse,
-            1.0  * pulse,
-        );
+        this.mageOrbColor.set(0.35 * pulse, 0.80 * pulse, 1.0 * pulse);
+        this.mageOrbMat.emissiveColor = this.mageOrbColor;
     }
 
     /**
@@ -1253,6 +1277,11 @@ export class Champion extends Enemy {
         if (this.barbSpinArcMesh) {
             this.barbSpinArcMesh.dispose();
             this.barbSpinArcMesh = null;
+        }
+        if (this.barbFootDustPs) {
+            this.barbFootDustPs.stop();
+            this.barbFootDustPs.dispose();
+            this.barbFootDustPs = null;
         }
     }
 
