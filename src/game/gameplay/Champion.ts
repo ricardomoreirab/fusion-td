@@ -136,6 +136,53 @@ export class Champion extends Enemy {
     /** Triggered by HeroBasicAttack when the melee swing fires. */
     public triggerSpinAttack(): void {
         this.spinAttackTimer = Champion.SPIN_ATTACK_DURATION;
+        if (this.championType === 'barbarian') {
+            this.startBarbSpinFx();
+        }
+    }
+
+    /** Barbarian-only: create the red blood trail PS + arc-ring mesh for the spin attack. */
+    private startBarbSpinFx(): void {
+        // ===== Red blood-trail particle system attached to the axe head =====
+        if (this.barbAxeHead && !this.barbSpinBloodPs) {
+            const ps = new ParticleSystem('barbSpinBlood', 60, this.scene);
+            ps.emitter = this.barbAxeHead;
+            ps.minEmitBox = new Vector3(-0.2, -0.2, -0.2);
+            ps.maxEmitBox = new Vector3(0.2, 0.2, 0.2);
+            ps.color1 = new Color4(0.7, 0.10, 0.05, 1);
+            ps.color2 = new Color4(0.45, 0.05, 0.02, 1);
+            ps.colorDead = new Color4(0.10, 0.0, 0.0, 0);
+            ps.minSize = 0.10;
+            ps.maxSize = 0.30;
+            ps.minLifeTime = 0.1;
+            ps.maxLifeTime = 0.2;
+            ps.emitRate = 240;
+            ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
+            ps.direction1 = new Vector3(-1, 0.2, -1);
+            ps.direction2 = new Vector3(1, 1.2, 1);
+            ps.minEmitPower = 1;
+            ps.maxEmitPower = 3;
+            ps.gravity = new Vector3(0, -3, 0);
+            ps.start();
+            this.barbSpinBloodPs = ps;
+        }
+
+        // ===== Red arc ring at hero feet =====
+        if (!this.barbSpinArcMesh && this.mesh) {
+            const ring = MeshBuilder.CreateTorus('barbSpinArcRing', {
+                diameter: 2.5,
+                thickness: 0.15,
+                tessellation: 12,
+            }, this.scene);
+            makeFlatShaded(ring);
+            ring.material = createEmissiveMaterial('barbSpinArcRingMat',
+                new Color3(0.8, 0.10, 0.05), 0.9, this.scene);
+            ring.position = this.position.clone();
+            ring.position.y = 0.1;
+            ring.scaling = new Vector3(0.3, 1.0, 0.3);
+            this.barbSpinArcMesh = ring;
+            this.barbSpinArcTimer = Champion.SPIN_ATTACK_DURATION;
+        }
     }
 
     public isSpinning(): boolean {
@@ -794,6 +841,11 @@ export class Champion extends Enemy {
                 this.pulseMageOrb(deltaTime);
             }
 
+            // Tick + cleanup barbarian spin FX
+            if (this.championType === 'barbarian') {
+                this.tickBarbSpinFx(deltaTime);
+            }
+
             this.updateHealthBar();
             return false; // never "reached end of path"
         }
@@ -834,6 +886,11 @@ export class Champion extends Enemy {
         // Mage orb pulse regardless of movement state
         if (this.championType === 'mage') {
             this.pulseMageOrb(deltaTime);
+        }
+
+        // Tick + cleanup barbarian spin FX
+        if (this.championType === 'barbarian') {
+            this.tickBarbSpinFx(deltaTime);
         }
 
         return reachedEnd;
@@ -979,6 +1036,40 @@ export class Champion extends Enemy {
         }
     }
 
+    /** Barbarian-only: animate the spin arc ring (scale out + fade) and tear down FX when done. */
+    private tickBarbSpinFx(deltaTime: number): void {
+        // Ring scale-out + fade
+        if (this.barbSpinArcMesh) {
+            this.barbSpinArcTimer -= deltaTime;
+            const t = 1 - Math.max(0, this.barbSpinArcTimer) / Champion.SPIN_ATTACK_DURATION;
+            const scaleXZ = 0.3 + t * 1.2; // 0.3 -> 1.5
+            this.barbSpinArcMesh.scaling.x = scaleXZ;
+            this.barbSpinArcMesh.scaling.z = scaleXZ;
+            // Keep the ring under the hero's current world position
+            this.barbSpinArcMesh.position.x = this.position.x;
+            this.barbSpinArcMesh.position.z = this.position.z;
+            // Fade by lowering emissive intensity over time
+            const mat = this.barbSpinArcMesh.material as StandardMaterial | null;
+            if (mat) {
+                const intensity = 0.9 * (1 - t);
+                mat.emissiveColor = new Color3(0.8 * (1 - t * 0.5), 0.10, 0.05).scale(intensity);
+                mat.alpha = 1 - t;
+            }
+            if (this.barbSpinArcTimer <= 0) {
+                this.barbSpinArcMesh.dispose();
+                this.barbSpinArcMesh = null;
+            }
+        }
+
+        // Stop the blood trail when the spin ends
+        if (this.barbSpinBloodPs && this.spinAttackTimer <= 0) {
+            this.barbSpinBloodPs.stop();
+            const ps = this.barbSpinBloodPs;
+            this.barbSpinBloodPs = null;
+            setTimeout(() => ps.dispose(), 400);
+        }
+    }
+
     /** Pulse the mage staff orb emissive intensity over time */
     private pulseMageOrb(_deltaTime: number): void {
         if (!this.mageOrbMat) return;
@@ -1081,6 +1172,17 @@ export class Champion extends Enemy {
             ps.dispose();
         });
         this.statusEffectParticles.clear();
+
+        // Barbarian spin FX cleanup
+        if (this.barbSpinBloodPs) {
+            this.barbSpinBloodPs.stop();
+            this.barbSpinBloodPs.dispose();
+            this.barbSpinBloodPs = null;
+        }
+        if (this.barbSpinArcMesh) {
+            this.barbSpinArcMesh.dispose();
+            this.barbSpinArcMesh = null;
+        }
     }
 
     /**
