@@ -1,4 +1,5 @@
 import { AdvancedDynamicTexture, Rectangle, TextBlock, Button, Control } from '@babylonjs/gui';
+import { getLayoutMode, getRenderWidth, isNarrowHeight } from './responsive';
 
 export interface ShopItem {
     id: string;
@@ -26,6 +27,14 @@ const DEFAULT_CONFIG = { glyph: '◈', accentColor: '#888888' };
 export class BetweenWaveShopOverlay {
     private ui: AdvancedDynamicTexture;
     private panel: Rectangle | null = null;
+    private resizeObserver: (() => void) | null = null;
+
+    // Saved args for rebuild on resize / repurchase
+    private _items: ShopItem[] = [];
+    private _currentGold: (() => number) | null = null;
+    private _purchaseCount: ((id: string) => number) | null = null;
+    private _spendGold: ((amount: number) => boolean) | null = null;
+    private _onStartNextWave: (() => void) | null = null;
 
     constructor(ui: AdvancedDynamicTexture) {
         this.ui = ui;
@@ -38,7 +47,37 @@ export class BetweenWaveShopOverlay {
         spendGold: (amount: number) => boolean,
         onStartNextWave: () => void,
     ): void {
-        this.close();
+        this._items = items;
+        this._currentGold = currentGold;
+        this._purchaseCount = purchaseCount;
+        this._spendGold = spendGold;
+        this._onStartNextWave = onStartNextWave;
+        this._build();
+
+        // Rebuild on resize (only register once per show())
+        this._removeResizeListener();
+        const engine = this.ui.getScene()?.getEngine();
+        if (engine) {
+            const handler = () => {
+                if (this.panel) {
+                    this._build();
+                }
+            };
+            engine.onResizeObservable.add(handler);
+            this.resizeObserver = () => engine.onResizeObservable.removeCallback(handler);
+        }
+    }
+
+    private _build(): void {
+        if (this.panel) {
+            this.panel.dispose();
+            this.panel = null;
+        }
+        if (!this._currentGold || !this._purchaseCount || !this._spendGold || !this._onStartNextWave) return;
+
+        const isMobile = getLayoutMode(this.ui) === 'mobile';
+        const narrow = isNarrowHeight(this.ui);
+        const vw = getRenderWidth(this.ui);
 
         this.panel = new Rectangle('shopBg');
         this.panel.width = '100%';
@@ -47,6 +86,21 @@ export class BetweenWaveShopOverlay {
         this.panel.thickness = 0;
         this.ui.addControl(this.panel);
 
+        if (isMobile) {
+            this._buildMobileLayout(vw, narrow);
+        } else {
+            this._buildDesktopLayout();
+        }
+    }
+
+    /** Desktop: 2×3 grid (original layout) */
+    private _buildDesktopLayout(): void {
+        const currentGold = this._currentGold!;
+        const purchaseCount = this._purchaseCount!;
+        const spendGold = this._spendGold!;
+        const onStartNextWave = this._onStartNextWave!;
+        const items = this._items;
+
         // ── Title ─────────────────────────────────────────────────────────────
         const title = new TextBlock('shopTitle', 'Wave Complete — Upgrade Shop');
         title.color = '#fff';
@@ -54,7 +108,7 @@ export class BetweenWaveShopOverlay {
         title.fontWeight = 'bold';
         title.top = '-280px';
         title.height = '36px';
-        this.panel.addControl(title);
+        this.panel!.addControl(title);
 
         // ── Gold display ─────────────────────────────────────────────────────
         const goldLabel = new TextBlock('shopGold', `◯ ${currentGold()} gold`);
@@ -62,11 +116,11 @@ export class BetweenWaveShopOverlay {
         goldLabel.fontSize = 20;
         goldLabel.top = '-238px';
         goldLabel.height = '28px';
-        this.panel.addControl(goldLabel);
+        this.panel!.addControl(goldLabel);
 
         // ── Item cards ────────────────────────────────────────────────────────
         items.forEach((item, i) => {
-            this.buildCard(item, i, currentGold, purchaseCount, spendGold, items, onStartNextWave);
+            this._buildDesktopCard(item, i, currentGold, purchaseCount, spendGold, items, onStartNextWave);
         });
 
         // ── Start next wave button ────────────────────────────────────────────
@@ -85,10 +139,10 @@ export class BetweenWaveShopOverlay {
             this.close();
             onStartNextWave();
         });
-        this.panel.addControl(startBtn);
+        this.panel!.addControl(startBtn);
     }
 
-    private buildCard(
+    private _buildDesktopCard(
         item: ShopItem,
         i: number,
         currentGold: () => number,
@@ -105,7 +159,7 @@ export class BetweenWaveShopOverlay {
         const cfg = ITEM_CONFIG[item.id] ?? DEFAULT_CONFIG;
         const accentColor = capped ? '#555' : cfg.accentColor;
 
-        // 2-column grid layout (same as before)
+        // 2-column grid layout
         const col = i % 2;
         const row = Math.floor(i / 2);
         const offsetX = (col - 0.5) * 340;
@@ -206,13 +260,193 @@ export class BetweenWaveShopOverlay {
                 if (capped) return;
                 if (!spendGold(cost)) return;
                 item.apply();
-                // Re-open with updated values
-                this.show(items, currentGold, purchaseCount, spendGold, onStartNextWave);
+                // Re-build with updated values
+                this._build();
             });
         }
     }
 
+    /**
+     * Mobile: single-column stack of 6 cards.
+     * Card width clamps to min(320, viewportWidth - 40).
+     * On very short viewports (NARROW_HEIGHT < 500) card height shrinks to 80px.
+     */
+    private _buildMobileLayout(vw: number, narrow: boolean): void {
+        const currentGold = this._currentGold!;
+        const purchaseCount = this._purchaseCount!;
+        const spendGold = this._spendGold!;
+        const onStartNextWave = this._onStartNextWave!;
+        const items = this._items;
+
+        const cardW = Math.min(320, vw - 40);
+        const cardH = narrow ? 80 : 90;
+        const gap = 8;
+
+        // Title — top-anchored
+        const title = new TextBlock('shopTitle', 'Wave Complete — Shop');
+        title.color = '#fff';
+        title.fontSize = 20;
+        title.fontWeight = 'bold';
+        title.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        title.top = '14px';
+        title.height = '28px';
+        this.panel!.addControl(title);
+
+        // Gold display — below title
+        const goldLabel = new TextBlock('shopGold', `◯ ${currentGold()} gold`);
+        goldLabel.color = '#ffd700';
+        goldLabel.fontSize = 16;
+        goldLabel.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        goldLabel.top = '46px';
+        goldLabel.height = '22px';
+        this.panel!.addControl(goldLabel);
+
+        // Stack cards centered (with top offset accounting for title area ~80px)
+        const total = items.length;
+        const stackH = total * cardH + (total - 1) * gap;
+        // Shift down from center to leave room at top for title (approx)
+        const stackCenter = 30; // slight downward offset
+        const stackTop = stackCenter - stackH / 2;
+
+        items.forEach((item, i) => {
+            const count = purchaseCount(item.id);
+            const capped = item.isCapped(count);
+            const cost = capped ? 0 : Math.ceil(item.baseCost * Math.pow(item.costGrowth, count));
+            const canAfford = capped || currentGold() >= cost;
+            const cfg = ITEM_CONFIG[item.id] ?? DEFAULT_CONFIG;
+            const accentColor = capped ? '#555' : cfg.accentColor;
+
+            const topY = stackTop + i * (cardH + gap);
+
+            // ── Outer card ─────────────────────────────────────────────────
+            const outer = new Rectangle(`shopOuter_${item.id}`);
+            outer.width = `${cardW}px`;
+            outer.height = `${cardH}px`;
+            outer.cornerRadius = 8;
+            outer.thickness = 2;
+            outer.color = capped ? '#444' : accentColor;
+            outer.background = capped ? '#111' : '#0d1020';
+            outer.top = `${topY}px`;
+            outer.isPointerBlocker = true;
+            this.panel!.addControl(outer);
+
+            // ── Left accent strip + glyph ──────────────────────────────────
+            const headerBar = new Rectangle(`shopHeader_${item.id}`);
+            headerBar.width = `${cardH}px`; // square strip on left
+            headerBar.height = `${cardH}px`;
+            headerBar.thickness = 0;
+            headerBar.background = capped ? '#222' : accentColor + '44';
+            headerBar.cornerRadius = 6;
+            headerBar.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            outer.addControl(headerBar);
+
+            const glyphTxt = new TextBlock(`shopGlyph_${item.id}`, cfg.glyph);
+            glyphTxt.color = capped ? '#555' : accentColor;
+            glyphTxt.fontSize = 20;
+            headerBar.addControl(glyphTxt);
+
+            // ── Inner content ──────────────────────────────────────────────
+            const inner = new Rectangle(`shopInner_${item.id}`);
+            inner.width = `${cardW - cardH - 4}px`;
+            inner.height = `${cardH - 8}px`;
+            inner.thickness = 0;
+            inner.background = 'transparent';
+            inner.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+            inner.paddingRight = '8px';
+            outer.addControl(inner);
+
+            // Item name + level
+            const nameLabel = new TextBlock(`shopName_${item.id}`, '');
+            if (capped) {
+                nameLabel.text = `${item.name}  (MAX)`;
+            } else {
+                nameLabel.text = `${item.name}  Lv ${count}→${count + 1}`;
+            }
+            nameLabel.color = capped ? '#555' : '#ffffff';
+            nameLabel.fontSize = narrow ? 12 : 13;
+            nameLabel.fontWeight = 'bold';
+            nameLabel.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            nameLabel.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            nameLabel.top = '8px';
+            nameLabel.height = '18px';
+            inner.addControl(nameLabel);
+
+            // Description — show only if not narrow
+            if (!narrow) {
+                const descLabel = new TextBlock(`shopDesc_${item.id}`, item.description);
+                descLabel.color = '#999';
+                descLabel.fontSize = 11;
+                descLabel.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+                descLabel.textWrapping = true;
+                descLabel.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+                descLabel.top = '28px';
+                descLabel.height = '26px';
+                descLabel.width = `${cardW - cardH - 12}px`;
+                inner.addControl(descLabel);
+            }
+
+            // Cost
+            if (!capped) {
+                const costLabel = new TextBlock(`shopCost_${item.id}`, `◯ ${cost}`);
+                costLabel.color = canAfford ? '#ffd700' : '#e04040';
+                costLabel.fontSize = 13;
+                costLabel.fontWeight = 'bold';
+                costLabel.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+                costLabel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+                costLabel.paddingBottom = '6px';
+                costLabel.height = '18px';
+                inner.addControl(costLabel);
+            }
+
+            // ── Hover / click ──────────────────────────────────────────────
+            if (!capped) {
+                outer.onPointerEnterObservable.add(() => {
+                    outer.scaleX = 1.02;
+                    outer.scaleY = 1.02;
+                    outer.color = canAfford ? '#ffffff' : '#e04040';
+                });
+                outer.onPointerOutObservable.add(() => {
+                    outer.scaleX = 1.0;
+                    outer.scaleY = 1.0;
+                    outer.color = accentColor;
+                });
+                outer.onPointerClickObservable.add(() => {
+                    if (capped) return;
+                    if (!spendGold(cost)) return;
+                    item.apply();
+                    this._build();
+                });
+            }
+        });
+
+        // Start next wave button — pinned to bottom
+        const startBtn = Button.CreateSimpleButton('shopStart', 'Start Next Wave  →');
+        startBtn.width = `${Math.min(260, cardW)}px`;
+        startBtn.height = '48px';
+        startBtn.background = '#3a7a3a';
+        startBtn.color = '#fff';
+        startBtn.cornerRadius = 10;
+        startBtn.thickness = 2;
+        startBtn.fontWeight = 'bold';
+        startBtn.fontSize = 15;
+        startBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        startBtn.top = '-16px';
+        startBtn.onPointerClickObservable.add(() => {
+            this.close();
+            onStartNextWave();
+        });
+        this.panel!.addControl(startBtn);
+    }
+
+    private _removeResizeListener(): void {
+        if (this.resizeObserver) {
+            this.resizeObserver();
+            this.resizeObserver = null;
+        }
+    }
+
     public close(): void {
+        this._removeResizeListener();
         if (this.panel) {
             this.panel.dispose();
             this.panel = null;
