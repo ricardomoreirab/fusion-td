@@ -41,8 +41,6 @@ export class SurvivorsGameplayState implements GameState {
     // Gold HUD
     private goldText: TextBlock | null = null;
 
-    // Reward listener for enemyReward custom events
-    private rewardHandler: ((e: Event) => void) | null = null;
 
     constructor(game: Game) {
         this.game = game;
@@ -116,14 +114,9 @@ export class SurvivorsGameplayState implements GameState {
         // Wire basic-attack target provider to nearest alive enemy
         this.heroController.setTargetProvider(() => this.getNearestEnemy());
 
-        // Listen for gold reward events dispatched by enemies on death
-        this.rewardHandler = (e: Event) => {
-            const detail = (e as CustomEvent).detail;
-            if (detail && typeof detail.reward === 'number') {
-                this.playerStats!.addMoney(detail.reward);
-            }
-        };
-        document.addEventListener('enemyReward', this.rewardHandler);
+        // Gold is credited by EnemyManager.update() via setPlayerStats above.
+        // The enemyReward DOM event is used by the old TD state for float-text; we do NOT
+        // re-listen here to avoid double-counting gold.
 
         // ---------- UI ----------
 
@@ -176,10 +169,6 @@ export class SurvivorsGameplayState implements GameState {
     }
 
     public exit(): void {
-        if (this.rewardHandler) {
-            document.removeEventListener('enemyReward', this.rewardHandler);
-            this.rewardHandler = null;
-        }
         for (const d of this.powerDrops) d.dispose();
         this.powerDrops = [];
 
