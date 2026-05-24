@@ -54,6 +54,10 @@ export class HeroHud {
     private slotPulseActive: boolean[] = [false, false, false, false];
     private prevCooldownRemaining: number[] = [-1, -1, -1, -1];
 
+    // Cached danger-HP rgb components to skip redundant GUI prop-sets
+    private _lastDangerHpR: number = -1;
+    private _lastDangerHpG: number = -1;
+
     // Controls that need to be rebuilt on resize (includes TextBlock etc via Control base)
     private builtControls: Control[] = [];
     private resizeObserver: (() => void) | null = null;
@@ -532,11 +536,19 @@ export class HeroHud {
             const pulse = 0.5 + 0.5 * Math.abs(Math.sin(this.lowHpPulseTime * Math.PI * 2.5));
             const r = Math.round(180 + 75 * pulse);
             const g = Math.round(30 * (1 - pulse));
-            this.hpFill.background = `rgb(${r},${g},30)`;
+            if (r !== this._lastDangerHpR || g !== this._lastDangerHpG) {
+                this.hpFill.background = `rgb(${r},${g},30)`;
+                this._lastDangerHpR = r;
+                this._lastDangerHpG = g;
+            }
         } else if (ratio > 0.5) {
             this.hpFill.background = '#c33';
+            this._lastDangerHpR = -1;
+            this._lastDangerHpG = -1;
         } else {
             this.hpFill.background = '#c73';
+            this._lastDangerHpR = -1;
+            this._lastDangerHpG = -1;
         }
 
         this.hpText.text = `${Math.ceil(hp.current)} / ${hp.max}`;

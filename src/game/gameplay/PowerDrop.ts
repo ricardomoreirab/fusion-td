@@ -1,4 +1,5 @@
 import { Scene, Vector3, Mesh, MeshBuilder, StandardMaterial, Color3 } from '@babylonjs/core';
+import { getCachedMaterial } from '../rendering/MaterialCache';
 
 const ELEMENT_COLORS: Record<string, Color3> = {
     fire:     new Color3(1, 0.4, 0),
@@ -46,9 +47,9 @@ export class PowerDrop {
         this.mesh = MeshBuilder.CreateSphere('powerOrb_' + element + '_' + Math.random(), { diameter: 0.6 }, scene);
         this.mesh.position.copyFrom(position);
         this.mesh.position.y = 0.6;
-        const mat = new StandardMaterial('powerOrbMat_' + element, scene);
-        mat.emissiveColor = ELEMENT_COLORS[element] ?? new Color3(1, 1, 1);
-        this.mesh.material = mat;
+        this.mesh.material = getCachedMaterial(scene, 'powerOrbMat_' + element, m => {
+            m.emissiveColor = ELEMENT_COLORS[element] ?? new Color3(1, 1, 1);
+        });
     }
 
     public isAlive(): boolean {

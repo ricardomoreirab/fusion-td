@@ -17,6 +17,8 @@ export class EliteIndicators {
     private getEnemies: () => Enemy[];
     /** Map from enemy → its screen-edge indicator dot */
     private active: Map<Enemy, Rectangle> = new Map();
+    /** Reused per-frame set to avoid allocating a new Set every update */
+    private _seen: Set<Enemy> = new Set<Enemy>();
 
     constructor(
         ui: AdvancedDynamicTexture,
@@ -35,7 +37,8 @@ export class EliteIndicators {
         const engine  = this.scene.getEngine();
         const sw      = engine.getRenderWidth();
         const sh      = engine.getRenderHeight();
-        const seen    = new Set<Enemy>();
+        this._seen.clear();
+        const seen    = this._seen;
 
         const identityMat  = Matrix.Identity();
         const transformMat = this.scene.getTransformMatrix();

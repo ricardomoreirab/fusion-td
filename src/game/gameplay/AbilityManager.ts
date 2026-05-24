@@ -339,7 +339,12 @@ export class AbilityManager {
             ps.maxEmitPower = 5;
             ps.gravity = new Vector3(0, -8, 0);
             ps.start();
-            setTimeout(() => { ps.stop(); setTimeout(() => ps.dispose(), 800); }, 200);
+            setTimeout(() => {
+                try { ps.stop(); } catch { /* already disposed */ }
+                setTimeout(() => {
+                    try { ps.dispose(); } catch { /* already disposed */ }
+                }, 800);
+            }, 200);
         });
     }
 
@@ -409,7 +414,12 @@ export class AbilityManager {
         ps.minEmitPower = 0.5;
         ps.maxEmitPower = 1.5;
         ps.start();
-        setTimeout(() => { ps.stop(); setTimeout(() => ps.dispose(), 1500); }, 300);
+        setTimeout(() => {
+            try { ps.stop(); } catch { /* already disposed */ }
+            setTimeout(() => {
+                try { ps.dispose(); } catch { /* already disposed */ }
+            }, 1500);
+        }, 300);
     }
 
     // ========================================================================
@@ -752,7 +762,12 @@ export class AbilityManager {
         ps.maxEmitPower = 5;
         ps.gravity = new Vector3(0, -6, 0);
         ps.start();
-        setTimeout(() => { ps.stop(); setTimeout(() => ps.dispose(), 600); }, 150);
+        setTimeout(() => {
+            try { ps.stop(); } catch { /* already disposed */ }
+            setTimeout(() => {
+                try { ps.dispose(); } catch { /* already disposed */ }
+            }, 600);
+        }, 150);
     }
 
     // ========================================================================
@@ -862,7 +877,12 @@ export class AbilityManager {
             ps.minEmitPower = 1;
             ps.maxEmitPower = 3;
             ps.start();
-            setTimeout(() => { ps.stop(); setTimeout(() => ps.dispose(), 500); }, 150);
+            setTimeout(() => {
+                try { ps.stop(); } catch { /* already disposed */ }
+                setTimeout(() => {
+                    try { ps.dispose(); } catch { /* already disposed */ }
+                }, 500);
+            }, 150);
         }
     }
 
@@ -944,7 +964,12 @@ export class AbilityManager {
                 ps.maxEmitPower = 2;
                 ps.gravity = new Vector3(0, -5, 0);
                 ps.start();
-                setTimeout(() => { ps.stop(); setTimeout(() => ps.dispose(), 1000); }, 300);
+                setTimeout(() => {
+                    try { ps.stop(); } catch { /* already disposed */ }
+                    setTimeout(() => {
+                        try { ps.dispose(); } catch { /* already disposed */ }
+                    }, 1000);
+                }, 300);
             }
         }
 
