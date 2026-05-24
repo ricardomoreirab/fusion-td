@@ -60,6 +60,7 @@ export class GameOverState implements GameState {
 
     private createUI(): void {
         const isMobile = this.isMobileDevice();
+        const isLandscape = isMobile && window.innerWidth > window.innerHeight;
 
         this.ui = AdvancedDynamicTexture.CreateFullscreenUI('gameOverUI', true, this.game.getScene());
 
@@ -82,8 +83,8 @@ export class GameOverState implements GameState {
         const titleText = new TextBlock('titleText');
         titleText.text = this.playerWon ? 'VICTORY' : 'DEFEAT';
         titleText.color = this.playerWon ? '#4CAF50' : '#E53935';
-        titleText.fontSize = isMobile ? 48 : 72;
-        titleText.top = isMobile ? '-160px' : '-220px';
+        titleText.fontSize = isLandscape ? 32 : (isMobile ? 48 : 72);
+        titleText.top = isLandscape ? '-100px' : (isMobile ? '-160px' : '-220px');
         titleText.fontFamily = 'Arial';
         titleText.fontWeight = 'bold';
         titleText.shadowColor = 'rgba(0,0,0,0.8)';
@@ -100,31 +101,31 @@ export class GameOverState implements GameState {
             ? 'Congratulations! You defended your base!'
             : 'Your base has been overrun!';
         messageText.color = '#B0B8C8';
-        messageText.fontSize = isMobile ? 16 : 22;
-        messageText.top = isMobile ? '-110px' : '-155px';
+        messageText.fontSize = isLandscape ? 12 : (isMobile ? 18 : 22);
+        messageText.top = isLandscape ? '-72px' : (isMobile ? '-110px' : '-155px');
         messageText.fontFamily = 'Arial';
         this.ui.addControl(messageText);
 
         // Stats panel - responsive
         if (this.playerStats) {
             const statsPanel = new Rectangle('statsPanel');
-            statsPanel.width = isMobile ? '280px' : '380px';
-            statsPanel.height = isMobile ? '180px' : '240px';
+            statsPanel.width = isLandscape ? '240px' : (isMobile ? '280px' : '380px');
+            statsPanel.height = isLandscape ? '130px' : (isMobile ? '200px' : '240px');
             statsPanel.background = 'rgba(28, 32, 40, 0.95)';
             statsPanel.cornerRadius = 12;
             statsPanel.thickness = 1;
             statsPanel.color = '#3A3F4B';
             statsPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
             statsPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-            statsPanel.top = isMobile ? '-10px' : '-10px';
+            statsPanel.top = isLandscape ? '-5px' : (isMobile ? '-10px' : '-10px');
             this.ui.addControl(statsPanel);
 
             // Stats header
             const statsHeader = new TextBlock('statsHeader', 'BATTLE STATS');
             statsHeader.color = '#F5A623';
-            statsHeader.fontSize = isMobile ? 18 : 22;
+            statsHeader.fontSize = isLandscape ? 13 : (isMobile ? 18 : 22);
             statsHeader.fontWeight = 'bold';
-            statsHeader.top = isMobile ? '-65px' : '-90px';
+            statsHeader.top = isLandscape ? '-46px' : (isMobile ? '-65px' : '-90px');
             statsHeader.fontFamily = 'Arial';
             statsPanel.addControl(statsHeader);
 
@@ -146,19 +147,19 @@ export class GameOverState implements GameState {
             const statsText = new TextBlock('statsText');
             statsText.text = statsLines.join('\n');
             statsText.color = '#FFFFFF';
-            statsText.fontSize = isMobile ? 14 : 18;
+            statsText.fontSize = isLandscape ? 10 : (isMobile ? 14 : 18);
             statsText.fontFamily = 'Arial';
-            statsText.lineSpacing = isMobile ? '4px' : '8px';
-            statsText.top = isMobile ? '10px' : '15px';
+            statsText.lineSpacing = isLandscape ? '2px' : (isMobile ? '6px' : '8px');
+            statsText.top = isLandscape ? '6px' : (isMobile ? '10px' : '15px');
             statsText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            statsText.paddingLeft = isMobile ? '24px' : '40px';
+            statsText.paddingLeft = isLandscape ? '20px' : (isMobile ? '24px' : '40px');
             statsPanel.addControl(statsText);
         }
 
         // Responsive button sizes
-        const btnWidth = isMobile ? '240px' : '280px';
-        const btnHeight = isMobile ? '52px' : '60px';
-        const btnFontSize = isMobile ? 20 : 24;
+        const btnWidth = isLandscape ? '180px' : (isMobile ? '240px' : '280px');
+        const btnHeight = isLandscape ? '36px' : (isMobile ? '52px' : '60px');
+        const btnFontSize = isLandscape ? 14 : (isMobile ? 20 : 24);
 
         // PLAY AGAIN button
         const restartButton = Button.CreateSimpleButton('restartButton', 'PLAY AGAIN');
@@ -171,7 +172,7 @@ export class GameOverState implements GameState {
         restartButton.fontFamily = 'Arial';
         restartButton.fontSize = btnFontSize;
         restartButton.fontWeight = 'bold';
-        restartButton.top = isMobile ? '105px' : '140px';
+        restartButton.top = isLandscape ? '72px' : (isMobile ? '105px' : '140px');
         restartButton.shadowColor = 'rgba(0, 0, 0, 0.4)';
         restartButton.shadowBlur = 5;
         restartButton.shadowOffsetY = 2;
@@ -203,7 +204,7 @@ export class GameOverState implements GameState {
         menuButton.fontFamily = 'Arial';
         menuButton.fontSize = btnFontSize;
         menuButton.fontWeight = 'bold';
-        menuButton.top = isMobile ? '170px' : '215px';
+        menuButton.top = isLandscape ? '115px' : (isMobile ? '170px' : '215px');
         menuButton.shadowColor = 'rgba(0, 0, 0, 0.4)';
         menuButton.shadowBlur = 5;
         menuButton.shadowOffsetY = 2;

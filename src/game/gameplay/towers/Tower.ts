@@ -2,6 +2,10 @@ import { Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, Color4, Scene, Pa
 import { Game } from '../../Game';
 import { Enemy } from '../enemies/Enemy';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../rendering/LowPolyMaterial';
+import { TowerDefinition, getTowerDefinition, getUpgradeOptions } from './TowerDefinitions';
+import { TowerVisualBuilder } from './TowerVisualBuilder';
+import { TowerAbilitySystem, AbilityState } from './abilities/TowerAbilitySystem';
+import { getAncestryChain, getSellValue as calcSellValue, isValidUpgrade } from './UpgradeTree';
 
 // Define element types
 export enum ElementType {
@@ -45,27 +49,22 @@ export enum StatusEffect {
     CONFUSED = 'confused'
 }
 
-// Define tower combination data
-export interface TowerCombination {
-    elements: ElementType[];
-    resultType: string;
-    name: string;
-    description: string;
-}
-
-export abstract class Tower {
+/**
+ * Data-driven tower class. Instead of subclassing, towers are configured
+ * via TowerDefinition data and can evolve in-place to new definitions.
+ */
+export class Tower {
     protected game: Game;
     protected scene: Scene;
     protected position: Vector3;
     protected mesh: Mesh | null = null;
-    protected range: number;
-    protected damage: number;
-    protected fireRate: number; // Shots per second
+    protected range: number = 0;
+    protected damage: number = 0;
+    protected fireRate: number = 0;
+    protected cost: number = 0;
     protected level: number = 1;
-    protected cost: number;
-    protected upgradeMultiplier: number = 3.0; // High cost multiplier for capped upgrade system
-    protected upgradeCost: number;
-    protected sellValue: number;
+    protected maxLevel: number = 1;
+    protected sellValue: number = 0;
     protected lastFireTime: number = 0;
     protected targetEnemy: Enemy | null = null;
     protected rangeIndicator: Mesh | null = null;
@@ -73,42 +72,60 @@ export abstract class Tower {
     protected isInitialized: boolean = false;
     protected isSelected: boolean = false;
     protected selectionIndicator: Mesh | null = null;
-    protected maxLevel: number = 3;
     protected towerId: string;
     protected targetingMode: TargetingMode = TargetingMode.CLOSEST;
 
-    // Fusion tier: 0=base, 1=hybrid, 2=ultimate
-    protected fusionTier: number = 0;
+    // Data-driven properties
+    protected definitionId: string;
+    protected tier: number = 1;
+    protected treeType: 'medieval' | 'elemental' = 'medieval';
 
     // Elemental properties
     protected elementType: ElementType = ElementType.NONE;
-    protected secondaryEffectChance: number = 0; // Percentage chance (0-1)
-    protected targetPriorities: EnemyType[] = []; // Enemy types this tower prioritizes
-    protected weakAgainst: EnemyType[] = []; // Enemy types this tower is weak against
-    protected statusEffectDuration: number = 0; // Duration of status effects in seconds
-    protected statusEffectStrength: number = 0; // Strength of status effects (e.g., slow percentage)
-    protected canTargetFlying: boolean = true; // Whether this tower can target flying enemies
-    
+    protected projectileColor: Color3 = new Color3(0.8, 0.8, 0.8);
+
+    // Status effect from definition
+    protected statusEffectConfig: { effect: StatusEffect; duration: number; strength: number; chance: number } | null = null;
+
     // Status effect tracking
     protected appliedStatusEffects: Map<Enemy, { effect: StatusEffect, endTime: number, strength: number }> = new Map();
 
-    constructor(game: Game, position: Vector3, range: number, damage: number, fireRate: number, cost: number, skipMeshCreation: boolean = false) {
+    // Ability system
+    protected abilityState: AbilityState | null = null;
+    protected static abilitySystem: TowerAbilitySystem | null = null;
+    protected static visualBuilder: TowerVisualBuilder | null = null;
+
+    // Aura buff cache (from nearby commander towers)
+    protected auraDamageBonus: number = 0;
+    protected auraFireRateBonus: number = 0;
+    protected auraRangeBonus: number = 0;
+
+    constructor(game: Game, position: Vector3, definitionId: string) {
         this.game = game;
         this.scene = game.getScene();
         this.position = position;
-        this.range = range;
-        this.damage = damage;
-        this.fireRate = fireRate;
-        this.cost = cost;
-        this.upgradeCost = Math.floor(cost * 1.0);
-        this.sellValue = Math.floor(cost * 0.6);
         this.towerId = `tower_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+        this.definitionId = definitionId;
 
-        // Create the tower mesh (skip if subclass needs field init first)
-        if (!skipMeshCreation) {
-            this.createMesh();
+        // Initialize static systems if needed
+        if (!Tower.abilitySystem) {
+            Tower.abilitySystem = new TowerAbilitySystem(game);
         }
-        
+        if (!Tower.visualBuilder) {
+            Tower.visualBuilder = new TowerVisualBuilder(this.scene);
+        }
+
+        const def = getTowerDefinition(definitionId);
+        if (!def) {
+            throw new Error(`Unknown tower definition: ${definitionId}`);
+        }
+
+        // Apply definition stats
+        this.applyDefinition(def);
+
+        // Build visual mesh
+        this.mesh = Tower.visualBuilder.build(def.visual, position, this.towerId);
+
         // Add a small delay before the tower can target and fire
         setTimeout(() => {
             this.isInitialized = true;
@@ -116,99 +133,195 @@ export abstract class Tower {
     }
 
     /**
-     * Create the tower mesh
+     * Apply a tower definition's stats and properties to this tower.
      */
-    protected abstract createMesh(): void;
+    protected applyDefinition(def: TowerDefinition): void {
+        this.definitionId = def.id;
+        this.range = def.stats.range;
+        this.damage = def.stats.damage;
+        this.fireRate = def.stats.fireRate;
+        this.cost = def.stats.cost;
+        this.tier = def.tier;
+        this.treeType = def.tree;
+        this.level = def.tier; // tier acts as level
+        this.projectileColor = new Color3(def.projectileColor[0], def.projectileColor[1], def.projectileColor[2]);
+
+        // Map tree type to element type for projectile colors
+        if (def.tree === 'elemental') {
+            if (def.category.includes('fire') || def.category.includes('inferno') || def.category.includes('ember')) {
+                this.elementType = ElementType.FIRE;
+            } else if (def.category.includes('ice') || def.category.includes('frost') || def.category.includes('glacier') || def.category.includes('tidal')) {
+                this.elementType = ElementType.WATER;
+            } else if (def.category.includes('storm') || def.category.includes('lightning') || def.category.includes('plasma')) {
+                this.elementType = ElementType.FIRE; // lightning uses fire-orange visuals
+            } else if (def.category.includes('nature') || def.category.includes('thorn') || def.category.includes('shadow')) {
+                this.elementType = ElementType.EARTH;
+            } else {
+                this.elementType = ElementType.NONE;
+            }
+        } else {
+            this.elementType = ElementType.NONE;
+        }
+
+        // Status effect config
+        if (def.statusEffect) {
+            this.statusEffectConfig = { ...def.statusEffect };
+        } else {
+            this.statusEffectConfig = null;
+        }
+
+        // Sell value = 60% of total investment across all tiers
+        this.updateSellValue();
+
+        // Initialize ability
+        if (def.ability && Tower.abilitySystem) {
+            this.abilityState = Tower.abilitySystem.createState(def.ability);
+        }
+    }
 
     /**
-     * Update the tower
-     * @param deltaTime Time elapsed since last update in seconds
+     * Evolve this tower to a new definition (upgrade path).
+     * Validates the upgrade is legal, rebuilds mesh, updates stats.
+     */
+    public evolve(targetId: string): boolean {
+        if (!isValidUpgrade(this.definitionId, targetId)) {
+            console.error(`Invalid upgrade: ${this.definitionId} -> ${targetId}`);
+            return false;
+        }
+
+        const targetDef = getTowerDefinition(targetId);
+        if (!targetDef) {
+            console.error(`Unknown target definition: ${targetId}`);
+            return false;
+        }
+
+        // Dispose current mesh
+        if (this.mesh) {
+            this.mesh.dispose();
+            this.mesh = null;
+        }
+
+        // Hide range/selection during rebuild
+        this.hideRangeIndicator();
+        this.removeSelectionIndicator();
+
+        // Apply new definition
+        this.applyDefinition(targetDef);
+
+        // Build new mesh
+        if (Tower.visualBuilder) {
+            this.mesh = Tower.visualBuilder.build(targetDef.visual, this.position, this.towerId);
+        }
+
+        // Re-show selection if was selected
+        if (this.isSelected) {
+            this.showRangeIndicator();
+            this.createSelectionIndicator();
+        }
+
+        return true;
+    }
+
+    /**
+     * Get the tower definition ID.
+     */
+    public getDefinitionId(): string {
+        return this.definitionId;
+    }
+
+    /**
+     * Get the tower's tier (1-8).
+     */
+    public getTier(): number {
+        return this.tier;
+    }
+
+    /**
+     * Get available upgrade paths for this tower.
+     */
+    public getUpgradeOptions(): TowerDefinition[] {
+        return getUpgradeOptions(this.definitionId);
+    }
+
+    /**
+     * Update the tower each frame.
      */
     public update(deltaTime: number): void {
         // Update status effects
         this.updateStatusEffects();
-        
+
         // Find a target if we don't have one or if current target is dead
         if (!this.targetEnemy || !this.targetEnemy.isAlive()) {
-            this.targetEnemy = null; // Clear the target if it's dead
-            // Don't try to find a new target here - TowerManager will set it if available
+            this.targetEnemy = null;
         }
-        
+
         // If we have a target, check if it's still in range
         if (this.targetEnemy) {
+            const effectiveRange = this.range + this.auraRangeBonus;
             const distance = Vector3.Distance(this.position, this.targetEnemy.getPosition());
-            if (distance > this.range) {
-                // Target out of range, clear it
+            if (distance > effectiveRange) {
                 this.targetEnemy = null;
             }
         }
-        
+
         // If we have a target, try to fire
         if (this.targetEnemy && this.targetEnemy.isAlive()) {
             const currentTime = performance.now();
-            const timeSinceLastFire = (currentTime - this.lastFireTime) / 1000; // Convert to seconds
-            
-            if (timeSinceLastFire >= 1 / this.fireRate) {
+            const effectiveFireRate = this.fireRate + this.auraFireRateBonus;
+            const timeSinceLastFire = (currentTime - this.lastFireTime) / 1000;
+
+            if (timeSinceLastFire >= 1 / effectiveFireRate) {
                 this.fire();
                 this.lastFireTime = currentTime;
             }
-            
-            // Rotate tower to face target
+
             this.rotateTowerToTarget();
         }
-    }
 
-    /**
-     * Update status effects on enemies
-     */
-    protected updateStatusEffects(): void {
-        const currentTime = performance.now();
-        const expiredEffects: Enemy[] = [];
-        
-        // Check for expired effects
-        this.appliedStatusEffects.forEach((effectData, enemy) => {
-            if (currentTime > effectData.endTime || !enemy.isAlive()) {
-                // Effect has expired or enemy is dead
-                expiredEffects.push(enemy);
-            }
-        });
-        
-        // Remove expired effects
-        for (const enemy of expiredEffects) {
-            this.appliedStatusEffects.delete(enemy);
+        // Process auto abilities
+        if (this.abilityState && Tower.abilitySystem && this.abilityState.definition.type === 'active_auto') {
+            // We need access to enemies for auto abilities - this will be called from TowerManager
         }
     }
 
     /**
-     * Set the target enemy
-     * @param enemy The enemy to target
+     * Process auto abilities with enemy list (called from TowerManager).
      */
-    public setTarget(enemy: Enemy | null): void {
-        // Only set target if tower is initialized
-        if (this.isInitialized) {
-            this.targetEnemy = enemy;
+    public processAutoAbilities(allEnemies: Enemy[]): void {
+        if (this.abilityState && Tower.abilitySystem) {
+            Tower.abilitySystem.processAutoAbility(
+                this.abilityState,
+                this.position,
+                this.range + this.auraRangeBonus,
+                allEnemies
+            );
         }
     }
 
     /**
-     * Find a target enemy
-     */
-    protected findTarget(): void {
-        // This is now handled by the TowerManager
-        // The TowerManager will call setTarget with enemies from the EnemyManager
-    }
-
-    /**
-     * Fire at the current target
+     * Fire at the current target.
      */
     protected fire(): void {
         if (!this.targetEnemy || !this.isInitialized) return;
 
-        // Calculate damage based on elemental strengths/weaknesses
-        let finalDamage = this.calculateDamage(this.targetEnemy);
-
-        // Store target position before dealing damage (enemy might die)
+        let finalDamage = this.damage + this.auraDamageBonus;
         const targetPosition = this.targetEnemy.getPosition().clone();
+
+        // Process ability on fire
+        let extraTargets: Enemy[] | undefined;
+        if (this.abilityState && Tower.abilitySystem) {
+            // We pass an empty array for allEnemies here; TowerManager fills it via processAutoAbilities
+            const result = Tower.abilitySystem.onFire(
+                this.abilityState,
+                finalDamage,
+                this.targetEnemy,
+                this.position,
+                [], // allEnemies filled by TowerManager for AoE
+                0
+            );
+            finalDamage = result.damage;
+            extraTargets = result.extraTargets;
+        }
 
         // Deal damage to the target
         this.targetEnemy.takeDamage(finalDamage);
@@ -223,12 +336,32 @@ export abstract class Tower {
         });
         document.dispatchEvent(damageEvent);
 
-        // Apply primary effect based on element type
-        this.applyPrimaryEffect(this.targetEnemy);
+        // Apply status effect if configured
+        if (this.statusEffectConfig && Math.random() < this.statusEffectConfig.chance) {
+            this.applyStatusEffect(
+                this.targetEnemy,
+                this.statusEffectConfig.effect,
+                this.statusEffectConfig.duration,
+                this.statusEffectConfig.strength
+            );
+        }
 
-        // Check for secondary effect
-        if (Math.random() < this.secondaryEffectChance) {
-            this.applySecondaryEffect(this.targetEnemy);
+        // Damage extra targets from abilities
+        if (extraTargets) {
+            for (const extra of extraTargets) {
+                if (extra.isAlive()) {
+                    const extraDmg = finalDamage * 0.7; // Extra targets take 70%
+                    extra.takeDamage(extraDmg);
+                    const extraEvent = new CustomEvent('towerDamage', {
+                        detail: {
+                            position: extra.getPosition().clone(),
+                            damage: extraDmg,
+                            elementType: this.elementType
+                        }
+                    });
+                    document.dispatchEvent(extraEvent);
+                }
+            }
         }
 
         // Create projectile effect
@@ -237,63 +370,90 @@ export abstract class Tower {
         // Play sound
         this.game.getAssetManager().playSound('towerShoot');
     }
-    
+
     /**
-     * Calculate damage based on elemental strengths/weaknesses
-     * @param enemy The target enemy
-     * @returns The calculated damage
+     * Fire with access to all enemies (for ability targeting).
      */
-    protected calculateDamage(enemy: Enemy): number {
-        let damageMultiplier = 1.0;
-        
-        // Check if enemy type is in weaknesses
-        if (this.weakAgainst.includes(enemy.getEnemyType())) {
-            damageMultiplier *= 0.5; // 50% damage against enemies we're weak against
+    public fireWithEnemies(allEnemies: Enemy[]): void {
+        if (!this.targetEnemy || !this.isInitialized) return;
+
+        let finalDamage = this.damage + this.auraDamageBonus;
+        const targetPosition = this.targetEnemy.getPosition().clone();
+
+        let extraTargets: Enemy[] | undefined;
+        if (this.abilityState && Tower.abilitySystem) {
+            const result = Tower.abilitySystem.onFire(
+                this.abilityState,
+                finalDamage,
+                this.targetEnemy,
+                this.position,
+                allEnemies,
+                0
+            );
+            finalDamage = result.damage;
+            extraTargets = result.extraTargets;
         }
-        
-        // Check if enemy type is in priorities (strengths)
-        if (this.targetPriorities.includes(enemy.getEnemyType())) {
-            damageMultiplier *= 1.5; // 150% damage against enemies we're strong against
+
+        this.targetEnemy.takeDamage(finalDamage);
+
+        const damageEvent = new CustomEvent('towerDamage', {
+            detail: { position: targetPosition, damage: finalDamage, elementType: this.elementType }
+        });
+        document.dispatchEvent(damageEvent);
+
+        if (this.statusEffectConfig && Math.random() < this.statusEffectConfig.chance) {
+            this.applyStatusEffect(
+                this.targetEnemy,
+                this.statusEffectConfig.effect,
+                this.statusEffectConfig.duration,
+                this.statusEffectConfig.strength
+            );
         }
-        
-        return this.damage * damageMultiplier;
+
+        if (extraTargets) {
+            for (const extra of extraTargets) {
+                if (extra.isAlive()) {
+                    const extraDmg = finalDamage * 0.7;
+                    extra.takeDamage(extraDmg);
+                    const extraEvent = new CustomEvent('towerDamage', {
+                        detail: { position: extra.getPosition().clone(), damage: extraDmg, elementType: this.elementType }
+                    });
+                    document.dispatchEvent(extraEvent);
+                }
+            }
+        }
+
+        this.createProjectileEffect(targetPosition);
+        this.game.getAssetManager().playSound('towerShoot');
     }
-    
-    /**
-     * Apply the primary elemental effect to the target
-     * @param enemy The target enemy
-     */
-    protected applyPrimaryEffect(enemy: Enemy): void {
-        // Override in elemental tower subclasses
+
+    protected updateStatusEffects(): void {
+        const currentTime = performance.now();
+        const expiredEffects: Enemy[] = [];
+
+        this.appliedStatusEffects.forEach((effectData, enemy) => {
+            if (currentTime > effectData.endTime || !enemy.isAlive()) {
+                expiredEffects.push(enemy);
+            }
+        });
+
+        for (const enemy of expiredEffects) {
+            this.appliedStatusEffects.delete(enemy);
+        }
     }
-    
-    /**
-     * Apply the secondary elemental effect to the target
-     * @param enemy The target enemy
-     */
-    protected applySecondaryEffect(enemy: Enemy): void {
-        // Override in elemental tower subclasses
+
+    public setTarget(enemy: Enemy | null): void {
+        if (this.isInitialized) {
+            this.targetEnemy = enemy;
+        }
     }
-    
-    /**
-     * Apply a status effect to an enemy
-     * @param enemy The target enemy
-     * @param effect The status effect to apply
-     * @param duration Duration of the effect in seconds
-     * @param strength Strength of the effect (e.g., slow percentage)
-     */
+
     protected applyStatusEffect(enemy: Enemy, effect: StatusEffect, duration: number, strength: number): void {
         const endTime = performance.now() + (duration * 1000);
         this.appliedStatusEffects.set(enemy, { effect, endTime, strength });
-        
-        // Apply the effect to the enemy
         enemy.applyStatusEffect(effect, duration, strength);
     }
 
-    /**
-     * Create a projectile effect from the tower to the target
-     * @param targetPosition The position of the target
-     */
     protected createProjectileEffect(targetPosition: Vector3): void {
         if (!this.mesh) return;
 
@@ -301,7 +461,6 @@ export abstract class Tower {
         const distance = direction.length();
         direction.normalize();
 
-        // Faceted icosphere projectile (diamond/low-poly look)
         const projectileMesh = MeshBuilder.CreateIcoSphere('projectile', {
             radius: 0.15,
             subdivisions: 0
@@ -315,19 +474,8 @@ export abstract class Tower {
         );
         projectileMesh.position = startPosition;
 
-        // Element-colored emissive material
-        let color: Color3;
-        switch (this.elementType) {
-            case ElementType.FIRE: color = new Color3(1, 0.3, 0); break;
-            case ElementType.WATER: color = new Color3(0, 0.5, 1); break;
-            case ElementType.WIND: color = new Color3(0.7, 1, 0.7); break;
-            case ElementType.EARTH: color = new Color3(0.6, 0.3, 0); break;
-            default: color = new Color3(0.8, 0.8, 0.8); break;
-        }
-        const projectileMaterial = createEmissiveMaterial('projectileMat', color, 0.6, this.scene);
+        const projectileMaterial = createEmissiveMaterial('projectileMat', this.projectileColor, 0.6, this.scene);
         projectileMesh.material = projectileMaterial;
-
-        // No particle trail - clean low-poly look
 
         const animationSpeed = 15;
         const travelTime = distance / animationSpeed;
@@ -349,45 +497,19 @@ export abstract class Tower {
             projectileMaterial.dispose();
         });
     }
-    
-    /**
-     * Create an impact effect at the target position
-     * @param position The position to create the impact effect
-     */
+
     protected createImpactEffect(position: Vector3): void {
-        // Reduced impact burst: 15 larger particles
         const impactSystem = new ParticleSystem('impactParticles', 15, this.scene);
         impactSystem.emitter = position;
         impactSystem.minEmitBox = new Vector3(-0.1, 0, -0.1);
         impactSystem.maxEmitBox = new Vector3(0.1, 0, 0.1);
 
-        switch (this.elementType) {
-            case ElementType.FIRE:
-                impactSystem.color1 = new Color4(1, 0.5, 0, 1.0);
-                impactSystem.color2 = new Color4(1, 0, 0, 1.0);
-                impactSystem.colorDead = new Color4(0.3, 0, 0, 0.0);
-                break;
-            case ElementType.WATER:
-                impactSystem.color1 = new Color4(0, 0.5, 1, 1.0);
-                impactSystem.color2 = new Color4(0, 0, 1, 1.0);
-                impactSystem.colorDead = new Color4(0, 0, 0.3, 0.0);
-                break;
-            case ElementType.WIND:
-                impactSystem.color1 = new Color4(0.7, 1, 0.7, 1.0);
-                impactSystem.color2 = new Color4(0.5, 0.8, 0.5, 1.0);
-                impactSystem.colorDead = new Color4(0.2, 0.3, 0.2, 0.0);
-                break;
-            case ElementType.EARTH:
-                impactSystem.color1 = new Color4(0.6, 0.3, 0, 1.0);
-                impactSystem.color2 = new Color4(0.4, 0.2, 0, 1.0);
-                impactSystem.colorDead = new Color4(0.2, 0.1, 0, 0.0);
-                break;
-            default:
-                impactSystem.color1 = new Color4(1, 1, 1, 1.0);
-                impactSystem.color2 = new Color4(0.5, 0.5, 0.5, 1.0);
-                impactSystem.colorDead = new Color4(0, 0, 0, 0.0);
-                break;
-        }
+        const r = this.projectileColor.r;
+        const g = this.projectileColor.g;
+        const b = this.projectileColor.b;
+        impactSystem.color1 = new Color4(r, g, b, 1.0);
+        impactSystem.color2 = new Color4(r * 0.7, g * 0.7, b * 0.7, 1.0);
+        impactSystem.colorDead = new Color4(r * 0.3, g * 0.3, b * 0.3, 0.0);
 
         impactSystem.minSize = 0.2;
         impactSystem.maxSize = 0.5;
@@ -407,84 +529,44 @@ export abstract class Tower {
             setTimeout(() => impactSystem.dispose(), 400);
         }, 150);
     }
-    
-    /**
-     * Set projectile colors based on element type
-     * @param particleSystem The particle system to set colors for
-     */
-    protected setProjectileColors(particleSystem: ParticleSystem): void {
-        switch (this.elementType) {
-            case ElementType.FIRE:
-                particleSystem.color1 = new Color4(1, 0.5, 0, 1.0); // Orange
-                particleSystem.color2 = new Color4(1, 0, 0, 1.0); // Red
-                particleSystem.colorDead = new Color4(0.3, 0, 0, 0.0); // Dark red
-                break;
-            case ElementType.WATER:
-                particleSystem.color1 = new Color4(0, 0.5, 1, 1.0); // Light blue
-                particleSystem.color2 = new Color4(0, 0, 1, 1.0); // Blue
-                particleSystem.colorDead = new Color4(0, 0, 0.3, 0.0); // Dark blue
-                break;
-            case ElementType.WIND:
-                particleSystem.color1 = new Color4(0.7, 1, 1, 1.0); // Light cyan
-                particleSystem.color2 = new Color4(0.5, 0.8, 0.5, 1.0); // Light green
-                particleSystem.colorDead = new Color4(0.2, 0.3, 0.2, 0.0); // Dark green
-                break;
-            case ElementType.EARTH:
-                particleSystem.color1 = new Color4(0.6, 0.3, 0, 1.0); // Brown
-                particleSystem.color2 = new Color4(0.4, 0.2, 0, 1.0); // Dark brown
-                particleSystem.colorDead = new Color4(0.2, 0.1, 0, 0.0); // Very dark brown
-                break;
-            default:
-                particleSystem.color1 = new Color4(1, 1, 1, 1.0); // White
-                particleSystem.color2 = new Color4(0.5, 0.5, 0.5, 1.0); // Gray
-                particleSystem.colorDead = new Color4(0, 0, 0, 0.0); // Black
-                break;
-        }
-    }
 
-    /**
-     * Rotate the tower to face the target
-     */
     protected rotateTowerToTarget(): void {
         if (!this.mesh || !this.targetEnemy) return;
-        
         const targetPosition = this.targetEnemy.getPosition();
-        
-        // Calculate direction to target
         const direction = targetPosition.subtract(this.position);
-        
-        // Calculate rotation angle (around Y axis)
         const angle = Math.atan2(direction.x, direction.z);
-        
-        // Set rotation
         this.mesh.rotation.y = angle;
     }
 
-    /**
-     * Get the tower's max level
-     * @returns The tower's max level
-     */
-    public getMaxLevel(): number {
-        return this.maxLevel;
+    // Aura buff setters (called by TowerManager when processing aura towers)
+    public setAuraBuffs(damage: number, fireRate: number, range: number): void {
+        this.auraDamageBonus = damage;
+        this.auraFireRateBonus = fireRate;
+        this.auraRangeBonus = range;
     }
 
-    /**
-     * Get the current targeting mode
-     */
+    public getAbilityState(): AbilityState | null {
+        return this.abilityState;
+    }
+
+    public static getAbilitySystem(): TowerAbilitySystem | null {
+        return Tower.abilitySystem;
+    }
+
+    // ===== Getters =====
+
+    public getMaxLevel(): number {
+        return 8; // max tier
+    }
+
     public getTargetingMode(): TargetingMode {
         return this.targetingMode;
     }
 
-    /**
-     * Set the targeting mode
-     */
     public setTargetingMode(mode: TargetingMode): void {
         this.targetingMode = mode;
     }
 
-    /**
-     * Cycle to the next targeting mode
-     */
     public cycleTargetingMode(): TargetingMode {
         const modes = [TargetingMode.CLOSEST, TargetingMode.FIRST, TargetingMode.STRONGEST];
         const currentIndex = modes.indexOf(this.targetingMode);
@@ -493,50 +575,19 @@ export abstract class Tower {
     }
 
     /**
-     * Upgrade the tower
-     * @returns True if upgrade was successful
+     * Legacy upgrade method — in the new system, use evolve() instead.
+     * This now returns false; the upgrade flow should use evolve().
      */
     public upgrade(): boolean {
-        // Can't upgrade beyond max level
-        if (this.level >= this.maxLevel) return false;
-
-        // Increase level
-        this.level++;
-
-        // Diminishing returns on upgrades so "upgrade vs. new tower" is a real decision
-        this.range *= 1.25;
-        this.damage *= 1.5;
-        this.fireRate *= 1.15;
-        
-        // Update costs
-        this.upgradeCost = Math.floor(this.upgradeCost * this.upgradeMultiplier);
-        
-        // Update sell value to 60% of total cost
-        this.updateSellValue();
-        
-        // Update visuals
-        this.updateVisuals();
-        
-        // Update range indicator if it's showing
-        if (this.showingRange && this.rangeIndicator) {
-            this.hideRangeIndicator();
-            this.showRangeIndicator();
-        }
-        
-        return true;
+        return false;
     }
 
-    /**
-     * Update tower visuals after upgrade
-     */
-    protected updateVisuals(): void {
-        // This would be implemented by each tower type
-        // For example, changing color, size, or adding effects
+    public getUpgradeCost(): number {
+        const options = this.getUpgradeOptions();
+        if (options.length === 0) return 0;
+        return options[0].stats.cost;
     }
 
-    /**
-     * Toggle showing the range indicator
-     */
     public toggleRangeIndicator(): void {
         if (this.showingRange) {
             this.hideRangeIndicator();
@@ -545,16 +596,13 @@ export abstract class Tower {
         }
     }
 
-    /**
-     * Show the tower's range indicator
-     */
     protected showRangeIndicator(): void {
         if (this.rangeIndicator) return;
 
-        // Simple flat disc with solid color at alpha 0.2
+        const effectiveRange = this.range + this.auraRangeBonus;
         this.rangeIndicator = MeshBuilder.CreateDisc(
-            'rangeIndicator' + this.mesh!.id,
-            { radius: this.range, tessellation: 32, sideOrientation: Mesh.DOUBLESIDE },
+            'rangeIndicator' + this.towerId,
+            { radius: effectiveRange, tessellation: 32, sideOrientation: Mesh.DOUBLESIDE },
             this.scene
         );
         this.rangeIndicator.position = new Vector3(this.position.x, 0.02, this.position.z);
@@ -569,7 +617,7 @@ export abstract class Tower {
             case ElementType.EARTH: rangeColor = new Color3(0.7, 0.5, 0.1); break;
         }
 
-        const rangeMaterial = new StandardMaterial('rangeMaterial_' + this.mesh!.id, this.scene);
+        const rangeMaterial = new StandardMaterial('rangeMaterial_' + this.towerId, this.scene);
         rangeMaterial.diffuseColor = rangeColor;
         rangeMaterial.specularColor = Color3.Black();
         rangeMaterial.emissiveColor = rangeColor.scale(0.3);
@@ -577,16 +625,15 @@ export abstract class Tower {
         rangeMaterial.disableLighting = true;
         this.rangeIndicator.material = rangeMaterial;
 
-        // Thin torus ring at perimeter
         const outerRing = MeshBuilder.CreateTorus(
-            'rangeRing' + this.mesh!.id,
-            { diameter: this.range * 2, thickness: 0.08, tessellation: 32 },
+            'rangeRing' + this.towerId,
+            { diameter: effectiveRange * 2, thickness: 0.08, tessellation: 32 },
             this.scene
         );
         outerRing.position = new Vector3(this.position.x, 0.03, this.position.z);
         outerRing.parent = this.rangeIndicator;
 
-        const ringMaterial = new StandardMaterial('ringMaterial_' + this.mesh!.id, this.scene);
+        const ringMaterial = new StandardMaterial('ringMaterial_' + this.towerId, this.scene);
         ringMaterial.diffuseColor = rangeColor;
         ringMaterial.emissiveColor = rangeColor.scale(0.5);
         ringMaterial.specularColor = Color3.Black();
@@ -598,9 +645,6 @@ export abstract class Tower {
         this.showingRange = true;
     }
 
-    /**
-     * Hide the tower's range indicator
-     */
     protected hideRangeIndicator(): void {
         if (this.rangeIndicator) {
             this.rangeIndicator.dispose();
@@ -609,102 +653,47 @@ export abstract class Tower {
         }
     }
 
-    /**
-     * Get the tower's position
-     * @returns The tower's position
-     */
     public getPosition(): Vector3 {
         return this.position;
     }
 
-    /**
-     * Get the tower's range
-     * @returns The tower's range
-     */
     public getRange(): number {
-        return this.range;
+        return this.range + this.auraRangeBonus;
     }
 
-    /**
-     * Get the tower's damage
-     * @returns The tower's damage
-     */
     public getDamage(): number {
-        return this.damage;
+        return this.damage + this.auraDamageBonus;
     }
 
-    /**
-     * Get the tower's fire rate
-     * @returns The tower's fire rate
-     */
     public getFireRate(): number {
-        return this.fireRate;
+        return this.fireRate + this.auraFireRateBonus;
     }
 
-    /**
-     * Get the tower's level
-     * @returns The tower's level
-     */
     public getLevel(): number {
-        return this.level;
+        return this.tier;
     }
 
-    /**
-     * Get the tower's upgrade cost
-     * @returns The tower's upgrade cost
-     */
-    public getUpgradeCost(): number {
-        return this.upgradeCost;
-    }
-
-    /**
-     * Get the tower's sell value
-     * @returns The tower's sell value
-     */
     public getSellValue(): number {
         return this.sellValue;
     }
 
-    /**
-     * Clean up resources
-     */
     public dispose(): void {
         if (this.mesh) {
             this.mesh.dispose();
             this.mesh = null;
         }
-        
         this.hideRangeIndicator();
-        
-        // Remove selection indicator if it exists
         this.removeSelectionIndicator();
     }
 
-    /**
-     * Get the element type of this tower
-     * @returns The element type
-     */
     public getElementType(): ElementType {
         return this.elementType;
     }
 
-    /**
-     * Get the fusion tier of this tower (0=base, 1=hybrid, 2=ultimate)
-     */
-    public getFusionTier(): number {
-        return this.fusionTier;
-    }
-
-    /**
-     * Get the type name of this tower (class name)
-     */
     public getType(): string {
-        return this.constructor.name;
+        return this.definitionId;
     }
 
-    /**
-     * Temporarily boost fire rate
-     */
     public applyFireRateBoost(multiplier: number, duration: number): void {
         const originalRate = this.fireRate;
         this.fireRate *= multiplier;
@@ -712,124 +701,60 @@ export abstract class Tower {
             this.fireRate = originalRate;
         }, duration * 1000);
     }
-    
-    /**
-     * Get the grid position of this tower
-     * @returns The grid position {x, y}
-     */
+
     public getGridPosition(): { x: number, y: number } {
-        // This requires access to the Map class, so we'll implement it in TowerManager
-        return { x: 0, y: 0 }; // Placeholder
-    }
-    
-    /**
-     * Check if this tower can be combined with another tower
-     * @param other The other tower to check
-     * @returns True if the towers can be combined
-     */
-    public canCombineWith(other: Tower): boolean {
-        // Different element types can be combined
-        return this.elementType !== ElementType.NONE && 
-               other.getElementType() !== ElementType.NONE && 
-               this.elementType !== other.getElementType();
+        return { x: 0, y: 0 };
     }
 
-    /**
-     * Select this tower
-     */
     public select(): void {
         if (this.isSelected) return;
-        
         this.isSelected = true;
         this.showRangeIndicator();
         this.createSelectionIndicator();
     }
-    
-    /**
-     * Deselect this tower
-     */
+
     public deselect(): void {
         if (!this.isSelected) return;
-        
         this.isSelected = false;
         this.hideRangeIndicator();
         this.removeSelectionIndicator();
     }
-    
-    /**
-     * Check if this tower is selected
-     */
+
     public getIsSelected(): boolean {
         return this.isSelected;
     }
-    
-    /**
-     * Create a visual indicator that this tower is selected
-     */
+
     protected createSelectionIndicator(): void {
         if (this.selectionIndicator) return;
-
-        // Simple pulsing torus ring
         this.selectionIndicator = MeshBuilder.CreateTorus('selectionIndicator', {
             diameter: 2.2,
             thickness: 0.12,
             tessellation: 16
         }, this.scene);
         this.selectionIndicator.position = new Vector3(this.position.x, 0.1, this.position.z);
-
         const selectionColor = new Color3(0.3, 0.8, 1.0);
         const material = createEmissiveMaterial('selectionMat', selectionColor, 0.8, this.scene);
         material.alpha = 0.7;
         this.selectionIndicator.material = material;
     }
-    
-    /**
-     * Remove the selection indicator
-     */
+
     protected removeSelectionIndicator(): void {
         if (this.selectionIndicator) {
             this.selectionIndicator.dispose();
             this.selectionIndicator = null;
         }
     }
-    
-    /**
-     * Update the sell value to be 50% of the total cost spent on the tower
-     */
+
     public updateSellValue(): void {
-        // Calculate total spent (base cost + upgrades)
-        const baseCost = this.cost;
-        let upgradeCost = 0;
-        
-        // Calculate cost of all upgrades
-        for (let i = 1; i < this.level; i++) {
-            upgradeCost += Math.floor(this.cost * Math.pow(this.upgradeMultiplier, i - 1));
-        }
-        
-        // Set sell value to 60% of total cost (Kingdom Rush sweet spot)
-        const totalCost = baseCost + upgradeCost;
-        this.sellValue = Math.floor(totalCost * 0.6);
+        this.sellValue = calcSellValue(this.definitionId);
     }
 
-    /**
-     * Get the tower's mesh
-     * @returns The tower's mesh
-     */
     public getMesh(): Mesh | null {
         return this.mesh;
     }
 
-    /**
-     * Helper method to safely create a Color4 from Color3
-     * @param color3 The Color3 to convert
-     * @param alpha The alpha value (default: 1.0)
-     * @returns A properly initialized Color4
-     */
     protected safeColor4(color3: Color3, alpha: number = 1.0): Color4 {
-        if (!color3) {
-            return new Color4(1, 1, 1, alpha); // Default white if color3 is null
-        }
-        
+        if (!color3) return new Color4(1, 1, 1, alpha);
         try {
             return new Color4(
                 color3.r !== undefined ? color3.r : 1.0,
@@ -837,17 +762,30 @@ export abstract class Tower {
                 color3.b !== undefined ? color3.b : 1.0,
                 alpha
             );
-        } catch (error) {
-            console.error("Error creating Color4:", error);
+        } catch {
             return new Color4(1, 1, 1, alpha);
         }
     }
 
-    /**
-     * Get the unique ID of this tower
-     * @returns The tower's unique ID
-     */
     public getId(): string {
         return this.towerId;
     }
-} 
+
+    public getCost(): number {
+        return this.cost;
+    }
+
+    public getTreeType(): 'medieval' | 'elemental' {
+        return this.treeType;
+    }
+
+    public getAbilityDescription(): string {
+        if (!this.abilityState) return '';
+        return `${this.abilityState.definition.name}: ${this.abilityState.definition.description}`;
+    }
+
+    public getAbilityName(): string {
+        if (!this.abilityState) return '';
+        return this.abilityState.definition.name;
+    }
+}

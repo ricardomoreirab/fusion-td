@@ -1,5 +1,5 @@
-import { Engine, Scene, Vector3, Color3, Color4, ArcRotateCamera, HemisphericLight, DirectionalLight, PointLight, ShadowGenerator, MeshBuilder, StandardMaterial, Texture, KeyboardEventTypes, Mesh, LinesMesh, Matrix, PointerEventTypes, PointerInfo, AbstractMesh, ParticleSystem } from '@babylonjs/core';
-import { AdvancedDynamicTexture, Button, Control, Rectangle, TextBlock, Image, Grid, StackPanel } from '@babylonjs/gui';
+import { Engine, Scene, Vector3, Color3, Color4, ArcRotateCamera, HemisphericLight, DirectionalLight, PointLight, ShadowGenerator, MeshBuilder, StandardMaterial, Texture, KeyboardEventTypes, Mesh, LinesMesh, Matrix, PointerEventTypes, PointerInfo, AbstractMesh, ParticleSystem, TransformNode } from '@babylonjs/core';
+import { AdvancedDynamicTexture, Button, Control, Rectangle, TextBlock, Image, Grid } from '@babylonjs/gui';
 import { Game } from '../Game';
 import { GameState } from './GameState';
 import { Map } from '../gameplay/Map';
@@ -15,8 +15,10 @@ import { AbilityManager } from '../gameplay/AbilityManager';
 import { ChampionManager } from '../gameplay/ChampionManager';
 import { TowerPreviewRenderer } from '../ui/TowerPreviewRenderer';
 import { PALETTE } from '../rendering/StyleConstants';
+import { TowerDefinition, getTowerDefinition, getBaseTowers, getUpgradeOptions } from '../gameplay/towers/TowerDefinitions';
+import { getUpgradeCost } from '../gameplay/towers/UpgradeTree';
 
-// ==================== TOWER DATA ====================
+// ==================== TOWER DATA (derived from definitions) ====================
 
 interface TowerData {
     id: string;
@@ -31,20 +33,32 @@ interface TowerData {
     description: string;
 }
 
+// Two base towers only
 const TOWER_DATA: TowerData[] = [
-    { id: 'basicTower',  name: 'Watchtower',  cost: 50,  color: '#4CAF50', element: 'none',  category: 'medieval',  damage: 10, range: 5,  fireRate: 1,   description: 'Balanced tower with steady damage' },
-    { id: 'fastTower',   name: 'Ballista',    cost: 100, color: '#2196F3', element: 'none',  category: 'medieval',  damage: 5,  range: 4,  fireRate: 3,   description: 'Rapid fire, low damage per hit' },
-    { id: 'heavyTower',  name: 'Trebuchet',   cost: 150, color: '#FF9800', element: 'none',  category: 'medieval',  damage: 30, range: 4,  fireRate: 0.5, description: 'Devastating blows, very slow' },
-    { id: 'sniperTower', name: 'Spire',       cost: 200, color: '#9C27B0', element: 'none',  category: 'medieval',  damage: 50, range: 10, fireRate: 0.3, description: 'Extreme range, picks off targets' },
-    { id: 'aoeTower',    name: 'Mage Tower',  cost: 150, color: '#7E57C2', element: 'none',  category: 'medieval',  damage: 15, range: 5,  fireRate: 2,   description: 'Arcane blasts hit multiple foes' },
-    { id: 'fireTower',   name: 'Fire',        cost: 125, color: '#FF5722', element: 'fire',  category: 'elemental', damage: 12, range: 5,  fireRate: 1,   description: 'Burns enemies over time' },
-    { id: 'waterTower',  name: 'Water',       cost: 125, color: '#03A9F4', element: 'water', category: 'elemental', damage: 8,  range: 5,  fireRate: 1.2, description: 'Slows enemies on hit' },
-    { id: 'windTower',   name: 'Wind',        cost: 125, color: '#8BC34A', element: 'wind',  category: 'elemental', damage: 6,  range: 6,  fireRate: 1.5, description: 'Pushes enemies backwards' },
-    { id: 'earthTower',  name: 'Earth',       cost: 125, color: '#795548', element: 'earth', category: 'elemental', damage: 15, range: 4,  fireRate: 0.8, description: 'Stuns enemies briefly' }
+    { id: 'medievalTower',    name: 'Medieval Tower',    cost: 50, color: '#8B7355', element: 'none',    category: 'medieval',  damage: 8,  range: 5, fireRate: 1.0, description: 'Physical tower. Branches into Archer or Garrison paths.' },
+    { id: 'elementalObelisk', name: 'Elemental Obelisk', cost: 50, color: '#9B59B6', element: 'arcane',  category: 'elemental', damage: 6,  range: 5, fireRate: 1.2, description: 'Magical tower. Branches into Fire or Ice paths.' },
 ];
 
 function getTowerDataById(id: string): TowerData | undefined {
-    return TOWER_DATA.find(t => t.id === id);
+    // First check base tower data
+    const base = TOWER_DATA.find(t => t.id === id);
+    if (base) return base;
+    // Fall back to definition system
+    const def = getTowerDefinition(id);
+    if (!def) return undefined;
+    const treeColor = def.tree === 'medieval' ? '#8B7355' : '#9B59B6';
+    return {
+        id: def.id,
+        name: def.name,
+        cost: def.stats.cost,
+        color: treeColor,
+        element: def.category,
+        category: def.tree,
+        damage: def.stats.damage,
+        range: def.stats.range,
+        fireRate: def.stats.fireRate,
+        description: def.description,
+    };
 }
 
 export class GameplayState implements GameState {
@@ -72,6 +86,8 @@ export class GameplayState implements GameState {
     private retryDelay: number = 500; // milliseconds
     private selectedPosition: Vector3 | null = null;
     private towerSelectorPanel: Rectangle | null = null;
+    private selectorAnchor: TransformNode | null = null;
+    private selectorCards: Rectangle[] = [];
     private placementOutline: Mesh | null = null;
     private placementPlane: Mesh | null = null;
     private towerTypeText: TextBlock | null = null;
@@ -102,9 +118,12 @@ export class GameplayState implements GameState {
     private bossWarningText: TextBlock | null = null;
     private lastWaveInProgress: boolean = false;
     private lastSegmentWave: number = 0;
-    private fusionGuidePanel: Rectangle | null = null;
+    private upgradeGuidePanel: Rectangle | null = null;
+    private upgradeGuideToggle: Button | null = null;
     private championManager: ChampionManager | null = null;
     private championButton: Rectangle | null = null;
+    private bottomToolbar: Rectangle | null = null;
+    private _selectorPositionObs: any = null;
 
     constructor(game: Game) {
         this.game = game;
@@ -149,6 +168,9 @@ export class GameplayState implements GameState {
         this.towerInfoPanel = null;
         this.selectedPosition = null;
         this.towerSelectorPanel = null;
+        this.selectorAnchor = null;
+        this.selectorCards = [];
+        this._selectorPositionObs = null;
         this.placementOutline = null;
         this.placementPlane = null;
         this.towerTypeText = null;
@@ -156,6 +178,7 @@ export class GameplayState implements GameState {
         this.towerDamageText = null;
         this.towerRangeText = null;
         this.towerRateText = null;
+        this.bottomToolbar = null;
 
         // Create level manager
         this.levelManager = new LevelManager(this.game);
@@ -445,6 +468,19 @@ export class GameplayState implements GameState {
     private createUI(): void {
         // Create the UI
         this.ui = AdvancedDynamicTexture.CreateFullscreenUI("gameplayUI", true, this.scene!);
+
+        // Mobile: completely separate UI path
+        const isMobileCheck = this.isMobileDevice();
+        console.log(`[createUI] isMobile=${isMobileCheck}, innerWidth=${window.innerWidth}, touch=${'ontouchstart' in window}, maxTouch=${navigator.maxTouchPoints}`);
+        if (isMobileCheck) {
+            this.ui.idealWidth = 600;
+            this.ui.useSmallestIdeal = true;
+            this.createMobileHUD();
+            this.createMobileAbilityButtons();
+            this.createMobileUpgradeGuideButton();
+            console.log('[createUI] Mobile UI path taken');
+            return;
+        }
 
         // Detect if we're on a mobile device
         const isMobile = this.isMobileDevice();
@@ -774,8 +810,8 @@ export class GameplayState implements GameState {
         // ====== ABILITY BUTTONS (bottom-left) ======
         this.createAbilityButtons(isMobile);
 
-        // ====== FUSION GUIDE BUTTON (right side) ======
-        this.createFusionGuideButton(isMobile);
+        // ====== UPGRADE GUIDE BUTTON (right side) ======
+        this.createUpgradeGuideButton(isMobile);
     }
 
     private createAbilityButtons(isMobile: boolean): void {
@@ -926,10 +962,16 @@ export class GameplayState implements GameState {
                 } else {
                     cfg.btn.background = cfg.bg;
                 }
+                // Ready-state glow
+                cfg.btn.shadowColor = cfg.btn.color;
+                cfg.btn.shadowBlur = 8;
+                cfg.btn.shadowOffsetY = 0;
             } else {
                 cfg.btn.alpha = 0.5;
                 if (cooldownText) cooldownText.text = `${Math.ceil(ability.currentCooldown)}s`;
                 cfg.btn.background = '#3A3F4B';
+                cfg.btn.shadowColor = 'transparent';
+                cfg.btn.shadowBlur = 0;
             }
         }
 
@@ -957,11 +999,11 @@ export class GameplayState implements GameState {
         }
     }
 
-    private createFusionGuideButton(isMobile: boolean): void {
+    private createUpgradeGuideButton(isMobile: boolean): void {
         if (!this.ui) return;
 
         // Toggle button on the right edge
-        const toggleBtn = Button.CreateSimpleButton('fusionGuideToggle', '\uD83D\uDCD6');
+        const toggleBtn = Button.CreateSimpleButton('upgradeGuideToggle', '\uD83D\uDCD6');
         toggleBtn.width = isMobile ? '40px' : '44px';
         toggleBtn.height = isMobile ? '40px' : '44px';
         toggleBtn.fontSize = isMobile ? 18 : 20;
@@ -980,14 +1022,14 @@ export class GameplayState implements GameState {
         toggleBtn.onPointerEnterObservable.add(() => { toggleBtn.background = '#3A3060'; });
         toggleBtn.onPointerOutObservable.add(() => { toggleBtn.background = '#2A2040'; });
         toggleBtn.onPointerClickObservable.add(() => {
-            if (this.fusionGuidePanel) {
-                this.fusionGuidePanel.isVisible = !this.fusionGuidePanel.isVisible;
+            if (this.upgradeGuidePanel) {
+                this.upgradeGuidePanel.isVisible = !this.upgradeGuidePanel.isVisible;
             }
         });
         this.ui.addControl(toggleBtn);
 
         // Guide panel — anchored right, vertically centered
-        const panel = new Rectangle('fusionGuidePanel');
+        const panel = new Rectangle('upgradeGuidePanel');
         const panelW = isMobile ? 260 : 300;
         panel.width = `${panelW}px`;
         panel.height = isMobile ? '420px' : '500px';
@@ -1006,10 +1048,10 @@ export class GameplayState implements GameState {
         panel.isVisible = false;
         panel.isPointerBlocker = true;
         this.ui.addControl(panel);
-        this.fusionGuidePanel = panel;
+        this.upgradeGuidePanel = panel;
 
         // Panel title
-        const title = new TextBlock('guideTitle', 'FUSION GUIDE');
+        const title = new TextBlock('guideTitle', 'UPGRADE PATHS');
         title.color = '#FFD54F';
         title.fontSize = 16;
         title.fontWeight = 'bold';
@@ -1029,196 +1071,59 @@ export class GameplayState implements GameState {
         divider.top = '38px';
         panel.addControl(divider);
 
-        // Section: Tier 1 Hybrids
-        const tier1Title = new TextBlock('tier1Title', 'HYBRID TOWERS');
-        tier1Title.color = '#8890A0';
-        tier1Title.fontSize = 11;
-        tier1Title.fontWeight = 'bold';
-        tier1Title.fontFamily = 'Arial';
-        tier1Title.height = '16px';
-        tier1Title.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        tier1Title.top = '50px';
-        panel.addControl(tier1Title);
+        // Upgrade tree guide content
+        const fs = isMobile ? 11 : 12;
+        const rowH = 22;
+        let y = 50;
 
-        const hybrids: { e1: string; c1: string; e2: string; c2: string; result: string; cr: string }[] = [
-            { e1: 'Fire',  c1: '#FF5722', e2: 'Water', c2: '#03A9F4', result: 'Steam',     cr: '#D4845A' },
-            { e1: 'Fire',  c1: '#FF5722', e2: 'Earth', c2: '#795548', result: 'Lava',      cr: '#FF6600' },
-            { e1: 'Water', c1: '#03A9F4', e2: 'Wind',  c2: '#8BC34A', result: 'Ice',       cr: '#66BBEE' },
-            { e1: 'Wind',  c1: '#8BC34A', e2: 'Fire',  c2: '#FF5722', result: 'Storm',     cr: '#9999FF' },
-            { e1: 'Earth', c1: '#795548', e2: 'Water', c2: '#03A9F4', result: 'Mud',       cr: '#8B7355' },
-            { e1: 'Earth', c1: '#795548', e2: 'Wind',  c2: '#8BC34A', result: 'Dust',      cr: '#C4A870' },
+        const treeLines = [
+            { text: 'MEDIEVAL TREE', color: '#8B7355', bold: true },
+            { text: '  Archer \u2192 Longbow \u2192 Marksman', color: '#A0A8B8', bold: false },
+            { text: '    Hawkeye \u2192 Zenith Spire', color: '#FFD54F', bold: false },
+            { text: '    Volley \u2192 Arrow Maelstrom', color: '#C0A878', bold: false },
+            { text: '  Archer \u2192 Repeater \u2192 Scorpion', color: '#A0A8B8', bold: false },
+            { text: '    Gatling \u2192 Perpetual Engine', color: '#808890', bold: false },
+            { text: '    Ballista \u2192 Kingdom Breaker', color: '#808890', bold: false },
+            { text: '  Garrison \u2192 Barracks \u2192 War Hall', color: '#A0A8B8', bold: false },
+            { text: '    Commander \u2192 Grand Marshal', color: '#FFD54F', bold: false },
+            { text: '    Warden \u2192 Black Tower', color: '#9966CC', bold: false },
+            { text: '  Garrison \u2192 Bulwark \u2192 Rampart', color: '#A0A8B8', bold: false },
+            { text: '    Catapult \u2192 Doom Trebuchet', color: '#FF6633', bold: false },
+            { text: '    Saboteur \u2192 Grand Architect', color: '#FFD54F', bold: false },
+            { text: '', color: '', bold: false },
+            { text: 'ELEMENTAL TREE', color: '#9B59B6', bold: true },
+            { text: '  Pyroclast \u2192 Inferno Pyre', color: '#FF5722', bold: false },
+            { text: '    Hellfire \u2192 Infernal Bastion', color: '#FF4400', bold: false },
+            { text: '    Ember \u2192 Dwarven Hellforge', color: '#FF8844', bold: false },
+            { text: '  Pyroclast \u2192 Storm Needle', color: '#7777FF', bold: false },
+            { text: '    Tempest \u2192 Stormcaller Apex', color: '#9999FF', bold: false },
+            { text: '    Plasma \u2192 Annihilation Lens', color: '#CC77FF', bold: false },
+            { text: '  Cryomancer \u2192 Glacier Monolith', color: '#55AAFF', bold: false },
+            { text: '    Permafrost \u2192 Absolute Zero', color: '#66CCFF', bold: false },
+            { text: '    Tidal \u2192 Leviathan\'s Maw', color: '#3388CC', bold: false },
+            { text: '  Cryomancer \u2192 Verdant Totem', color: '#55AA55', bold: false },
+            { text: '    Thornweald \u2192 World Tree', color: '#66BB44', bold: false },
+            { text: '    Shadowgrove \u2192 Void Sentinel', color: '#8844AA', bold: false },
         ];
 
-        const rowH = 30;
-        const fs = isMobile ? 12 : 13;
-        let y = 70;
-
-        for (const h of hybrids) {
-            // Element 1
-            const e1 = new TextBlock();
-            e1.text = h.e1;
-            e1.color = h.c1;
-            e1.fontSize = fs;
-            e1.fontWeight = 'bold';
-            e1.fontFamily = 'Arial';
-            e1.width = '50px';
-            e1.height = `${rowH}px`;
-            e1.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-            e1.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            e1.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-            e1.left = `${panelW / 2 - 110}px`;
-            e1.top = `${y}px`;
-            panel.addControl(e1);
-
-            // +
-            const plus = new TextBlock();
-            plus.text = '+';
-            plus.color = '#606878';
-            plus.fontSize = fs;
-            plus.fontFamily = 'Arial';
-            plus.width = '16px';
-            plus.height = `${rowH}px`;
-            plus.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            plus.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-            plus.left = `${panelW / 2 - 56}px`;
-            plus.top = `${y}px`;
-            panel.addControl(plus);
-
-            // Element 2
-            const e2 = new TextBlock();
-            e2.text = h.e2;
-            e2.color = h.c2;
-            e2.fontSize = fs;
-            e2.fontWeight = 'bold';
-            e2.fontFamily = 'Arial';
-            e2.width = '50px';
-            e2.height = `${rowH}px`;
-            e2.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            e2.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            e2.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-            e2.left = `${panelW / 2 - 36}px`;
-            e2.top = `${y}px`;
-            panel.addControl(e2);
-
-            // Arrow
-            const arrow = new TextBlock();
-            arrow.text = '\u2192';
-            arrow.color = '#606878';
-            arrow.fontSize = fs;
-            arrow.fontFamily = 'Arial';
-            arrow.width = '20px';
-            arrow.height = `${rowH}px`;
-            arrow.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            arrow.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-            arrow.left = `${panelW / 2 + 20}px`;
-            arrow.top = `${y}px`;
-            panel.addControl(arrow);
-
-            // Result
-            const res = new TextBlock();
-            res.text = h.result;
-            res.color = h.cr;
-            res.fontSize = fs;
-            res.fontWeight = 'bold';
-            res.fontFamily = 'Arial';
-            res.width = '60px';
-            res.height = `${rowH}px`;
-            res.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            res.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            res.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-            res.left = `${panelW / 2 + 44}px`;
-            res.top = `${y}px`;
-            panel.addControl(res);
-
+        for (const line of treeLines) {
+            if (line.text === '') { y += 8; continue; }
+            const t = new TextBlock();
+            t.text = line.text;
+            t.color = line.color;
+            t.fontSize = fs;
+            t.fontWeight = line.bold ? 'bold' : 'normal';
+            t.fontFamily = 'monospace';
+            t.height = `${rowH}px`;
+            t.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            t.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            t.left = '12px';
+            t.top = `${y}px`;
+            panel.addControl(t);
             y += rowH;
         }
 
-        // Section: Tier 2 Ultimates
-        y += 10;
-        const tier2Title = new TextBlock('tier2Title', 'ULTIMATE TOWERS');
-        tier2Title.color = '#8890A0';
-        tier2Title.fontSize = 11;
-        tier2Title.fontWeight = 'bold';
-        tier2Title.fontFamily = 'Arial';
-        tier2Title.height = '16px';
-        tier2Title.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        tier2Title.top = `${y}px`;
-        panel.addControl(tier2Title);
-
-        y += 20;
-
-        const tier2Hint = new TextBlock('tier2Hint', 'Two max-level hybrids of the same type');
-        tier2Hint.color = '#606878';
-        tier2Hint.fontSize = 10;
-        tier2Hint.fontFamily = 'Arial';
-        tier2Hint.height = '14px';
-        tier2Hint.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        tier2Hint.top = `${y}px`;
-        panel.addControl(tier2Hint);
-
-        y += 18;
-
-        const ultimates: { source: string; sc: string; result: string; rc: string }[] = [
-            { source: 'Steam',  sc: '#D4845A', result: 'Geyser',   rc: '#DDAA55' },
-            { source: 'Lava',   sc: '#FF6600', result: 'Inferno',  rc: '#FF4400' },
-            { source: 'Ice',    sc: '#66BBEE', result: 'Glacier',  rc: '#55AAFF' },
-            { source: 'Storm',  sc: '#9999FF', result: 'Tempest',  rc: '#BBBBFF' },
-            { source: 'Mud',    sc: '#8B7355', result: 'Quagmire', rc: '#6B8B3A' },
-            { source: 'Dust',   sc: '#C4A870', result: 'Cyclone',  rc: '#DDCC88' },
-        ];
-
-        for (const u of ultimates) {
-            // Source x2
-            const src = new TextBlock();
-            src.text = `${u.source} x2`;
-            src.color = u.sc;
-            src.fontSize = fs;
-            src.fontWeight = 'bold';
-            src.fontFamily = 'Arial';
-            src.width = '100px';
-            src.height = `${rowH}px`;
-            src.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-            src.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            src.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-            src.left = `${panelW / 2 - 70}px`;
-            src.top = `${y}px`;
-            panel.addControl(src);
-
-            // Arrow
-            const arrow = new TextBlock();
-            arrow.text = '\u2192';
-            arrow.color = '#606878';
-            arrow.fontSize = fs;
-            arrow.fontFamily = 'Arial';
-            arrow.width = '20px';
-            arrow.height = `${rowH}px`;
-            arrow.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            arrow.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-            arrow.left = `${panelW / 2 + 20}px`;
-            arrow.top = `${y}px`;
-            panel.addControl(arrow);
-
-            // Result
-            const res = new TextBlock();
-            res.text = u.result;
-            res.color = u.rc;
-            res.fontSize = fs;
-            res.fontWeight = 'bold';
-            res.fontFamily = 'Arial';
-            res.width = '70px';
-            res.height = `${rowH}px`;
-            res.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            res.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            res.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-            res.left = `${panelW / 2 + 44}px`;
-            res.top = `${y}px`;
-            panel.addControl(res);
-
-            y += rowH;
-        }
-
-        // Close hint at bottom
-        const closeHint = new TextBlock('guideCloseHint', 'tap book to close');
+        const closeHint = new TextBlock('guideCloseHint', 'tap to close');
         closeHint.color = '#4A5060';
         closeHint.fontSize = 10;
         closeHint.fontFamily = 'Arial';
@@ -1558,7 +1463,7 @@ export class GameplayState implements GameState {
             }
 
             // Close tower selector if open
-            if (this.towerSelectorPanel) {
+            if (this.selectorAnchor) {
                 this.hideTowerSelector();
                 this.hidePlacementOutline();
                 return;
@@ -2022,7 +1927,7 @@ export class GameplayState implements GameState {
             const placed = this.towerManager.createTower(this.selectedTowerType, new Vector3(worldPosition.x, position.y, worldPosition.z));
             this.playerStats.spendMoney(towerCost);
 
-            // Only mark grid cell if the tower wasn't consumed by fusion
+            // Mark grid cell as occupied
             if (placed) {
                 placeMap.setTowerPlaced(gridPosition.x, gridPosition.y, true);
             }
@@ -2067,7 +1972,9 @@ export class GameplayState implements GameState {
 
     private getTowerCost(type: string): number {
         const data = getTowerDataById(type);
-        return data ? data.cost : 0;
+        if (data) return data.cost;
+        const def = getTowerDefinition(type);
+        return def ? def.stats.cost : 0;
     }
 
     private togglePause(): void {
@@ -2270,18 +2177,11 @@ export class GameplayState implements GameState {
         const isMobile = this.isMobileDevice();
 
         if (!this.towerInfoPanel) {
-            this.towerInfoPanel = new Rectangle('towerInfoPanel');
-
             if (isMobile) {
-                // Mobile: full-width bottom bar, horizontal layout
-                this.towerInfoPanel.width = "100%";
-                this.towerInfoPanel.height = "140px";
-                this.towerInfoPanel.cornerRadius = 0;
-                this.towerInfoPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-                this.towerInfoPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-                this.towerInfoPanel.top = "0px";
-                this.towerInfoPanel.left = "0px";
+                this.createMobileTowerInfoPanel();
             } else {
+                this.towerInfoPanel = new Rectangle('towerInfoPanel');
+
                 // Desktop: right-side panel
                 this.towerInfoPanel.width = "280px";
                 this.towerInfoPanel.height = "310px";
@@ -2290,28 +2190,14 @@ export class GameplayState implements GameState {
                 this.towerInfoPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
                 this.towerInfoPanel.top = "-100px";
                 this.towerInfoPanel.left = "-10px";
-            }
-            this.towerInfoPanel.color = PALETTE.UI_BORDER;
-            this.towerInfoPanel.thickness = 1;
-            this.towerInfoPanel.background = PALETTE.UI_PANEL_SOLID;
-            this.towerInfoPanel.shadowColor = "rgba(0, 0, 0, 0.5)";
-            this.towerInfoPanel.shadowBlur = 12;
-            this.towerInfoPanel.shadowOffsetY = 4;
-            this.ui.addControl(this.towerInfoPanel);
+                this.towerInfoPanel.color = PALETTE.UI_BORDER;
+                this.towerInfoPanel.thickness = 1;
+                this.towerInfoPanel.background = PALETTE.UI_PANEL_SOLID;
+                this.towerInfoPanel.shadowColor = "rgba(0, 0, 0, 0.5)";
+                this.towerInfoPanel.shadowBlur = 12;
+                this.towerInfoPanel.shadowOffsetY = 4;
+                this.ui.addControl(this.towerInfoPanel);
 
-            if (isMobile) {
-                // Slide-in from bottom
-                let slideY = 140;
-                this.towerInfoPanel.top = slideY + 'px';
-                const slideObs = this.scene!.onBeforeRenderObservable.add(() => {
-                    slideY *= 0.78;
-                    if (slideY < 1) {
-                        slideY = 0;
-                        this.scene?.onBeforeRenderObservable.remove(slideObs);
-                    }
-                    if (this.towerInfoPanel) this.towerInfoPanel.top = slideY + 'px';
-                });
-            } else {
                 // Slide-in from right (desktop)
                 let slideX = 290;
                 this.towerInfoPanel.left = (slideX - 10) + 'px';
@@ -2323,261 +2209,7 @@ export class GameplayState implements GameState {
                     }
                     if (this.towerInfoPanel) this.towerInfoPanel.left = (-10 + slideX) + 'px';
                 });
-            }
 
-            if (isMobile) {
-                // ---- MOBILE LAYOUT: Compact horizontal arrangement ----
-                // Left section: Preview + Name + Level dots
-                const leftSection = new Rectangle('mobileLeftSection');
-                leftSection.width = '50%';
-                leftSection.height = '100%';
-                leftSection.thickness = 0;
-                leftSection.background = 'transparent';
-                leftSection.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-                this.towerInfoPanel.addControl(leftSection);
-
-                // Tower preview image (44x44)
-                const previewContainer = new Rectangle('towerInfoPreview');
-                previewContainer.width = '44px';
-                previewContainer.height = '44px';
-                previewContainer.cornerRadius = 8;
-                previewContainer.background = 'rgba(40, 44, 52, 0.8)';
-                previewContainer.thickness = 1;
-                previewContainer.color = 'rgba(80, 90, 110, 0.3)';
-                previewContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-                previewContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-                previewContainer.top = '8px';
-                previewContainer.left = '8px';
-                leftSection.addControl(previewContainer);
-
-                // Tower name
-                this.towerTypeText = new TextBlock('typeValue', '-');
-                this.towerTypeText.color = '#FFFFFF';
-                this.towerTypeText.fontSize = 13;
-                this.towerTypeText.fontFamily = 'Arial';
-                this.towerTypeText.fontWeight = 'bold';
-                this.towerTypeText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-                this.towerTypeText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-                this.towerTypeText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-                this.towerTypeText.top = '10px';
-                this.towerTypeText.left = '58px';
-                this.towerTypeText.width = '100px';
-                this.towerTypeText.resizeToFit = true;
-                leftSection.addControl(this.towerTypeText);
-
-                // Level text (hidden data)
-                this.towerLevelText = new TextBlock('levelValue', '1');
-                this.towerLevelText.color = 'transparent';
-                this.towerLevelText.fontSize = 1;
-                this.towerLevelText.width = '0px';
-                this.towerLevelText.height = '0px';
-                leftSection.addControl(this.towerLevelText);
-
-                // Level dots
-                const levelDotsContainer = new Rectangle('levelDots');
-                levelDotsContainer.width = '70px';
-                levelDotsContainer.height = '12px';
-                levelDotsContainer.thickness = 0;
-                levelDotsContainer.background = 'transparent';
-                levelDotsContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-                levelDotsContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-                levelDotsContainer.top = '27px';
-                levelDotsContainer.left = '58px';
-                leftSection.addControl(levelDotsContainer);
-
-                for (let i = 0; i < 3; i++) {
-                    const dot = new Rectangle(`levelDot_${i}`);
-                    dot.width = '8px';
-                    dot.height = '8px';
-                    dot.cornerRadius = 4;
-                    dot.background = 'rgba(80, 90, 110, 0.4)';
-                    dot.thickness = 0;
-                    dot.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-                    dot.left = (i * 12) + 'px';
-                    levelDotsContainer.addControl(dot);
-                }
-
-                const levelLabel = new TextBlock('levelLabel', 'LVL');
-                levelLabel.color = '#B0B8C8';
-                levelLabel.fontSize = 7;
-                levelLabel.fontFamily = 'Arial';
-                levelLabel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-                levelLabel.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-                levelLabel.left = '40px';
-                levelDotsContainer.addControl(levelLabel);
-
-                // Stats in single row below
-                const statsGrid = new Grid('statsGrid');
-                statsGrid.addColumnDefinition(0.25);
-                statsGrid.addColumnDefinition(0.25);
-                statsGrid.addColumnDefinition(0.25);
-                statsGrid.addColumnDefinition(0.25);
-                statsGrid.addRowDefinition(1.0);
-                statsGrid.width = '95%';
-                statsGrid.height = '44px';
-                statsGrid.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-                statsGrid.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-                statsGrid.top = '-6px';
-                statsGrid.left = '4px';
-                leftSection.addControl(statsGrid);
-
-                const createStatCell = (label: string, valueId: string, row: number, col: number): TextBlock => {
-                    const container = new Rectangle(`stat_${valueId}`);
-                    container.thickness = 0;
-                    container.background = 'transparent';
-                    statsGrid.addControl(container, row, col);
-
-                    const lbl = new TextBlock(`${valueId}_lbl`, label);
-                    lbl.color = '#B0B8C8';
-                    lbl.fontSize = 7;
-                    lbl.fontFamily = 'Arial';
-                    lbl.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-                    lbl.top = '2px';
-                    container.addControl(lbl);
-
-                    const val = new TextBlock(valueId, '-');
-                    val.color = '#FFFFFF';
-                    val.fontSize = 11;
-                    val.fontFamily = 'Arial';
-                    val.fontWeight = 'bold';
-                    val.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-                    val.top = '-2px';
-                    container.addControl(val);
-
-                    return val;
-                };
-
-                this.towerDamageText = createStatCell('DMG', 'damageValue', 0, 0);
-                this.towerRangeText = createStatCell('RNG', 'rangeValue', 0, 1);
-                this.towerRateText = createStatCell('RATE', 'rateValue', 0, 2);
-                createStatCell('SELL', 'sellDisplayValue', 0, 3);
-
-                // Right section: Buttons side by side + close
-                const rightSection = new Rectangle('mobileRightSection');
-                rightSection.width = '50%';
-                rightSection.height = '100%';
-                rightSection.thickness = 0;
-                rightSection.background = 'transparent';
-                rightSection.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-                this.towerInfoPanel.addControl(rightSection);
-
-                // Upgrade button — large touch target
-                this.upgradeButton = new Rectangle('upgradeButton');
-                this.upgradeButton.width = "92%";
-                this.upgradeButton.height = "44px";
-                this.upgradeButton.cornerRadius = 12;
-                this.upgradeButton.color = 'transparent';
-                this.upgradeButton.thickness = 0;
-                this.upgradeButton.background = '#4CAF50';
-                this.upgradeButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-                this.upgradeButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-                this.upgradeButton.top = "8px";
-                this.upgradeButton.isPointerBlocker = true;
-                this.upgradeButton.shadowColor = "rgba(0, 0, 0, 0.4)";
-                this.upgradeButton.shadowBlur = 5;
-                this.upgradeButton.shadowOffsetY = 2;
-
-                const upgradeText = new TextBlock('upgradeText', 'UPGRADE');
-                upgradeText.color = '#FFFFFF';
-                upgradeText.fontSize = 11;
-                upgradeText.fontFamily = 'Arial';
-                upgradeText.fontWeight = 'bold';
-                upgradeText.top = "-6px";
-                this.upgradeButton.addControl(upgradeText);
-
-                const upgradeCostText = new TextBlock('upgradeCostText', '');
-                upgradeCostText.color = '#B0B8C8';
-                upgradeCostText.fontSize = 9;
-                upgradeCostText.fontFamily = 'Arial';
-                upgradeCostText.top = "8px";
-                this.upgradeButton.addControl(upgradeCostText);
-
-                this.upgradeButton.onPointerDownObservable.add(() => {
-                    if (this.upgradeButton && this.playerStats && this.selectedTower &&
-                        this.playerStats.getMoney() >= this.selectedTower.getUpgradeCost()) {
-                        this.upgradeButton.alpha = 0.8;
-                    }
-                });
-                this.upgradeButton.onPointerClickObservable.add(() => {
-                    this.upgradeSelectedTower();
-                });
-                this.upgradeButton.onPointerUpObservable.add(() => {
-                    if (this.upgradeButton && this.playerStats && this.selectedTower) {
-                        if (this.playerStats.getMoney() >= this.selectedTower.getUpgradeCost()) {
-                            this.upgradeButton.alpha = 1.0;
-                        }
-                    }
-                    this.upgradeSelectedTower();
-                });
-                rightSection.addControl(this.upgradeButton);
-
-                // Sell button
-                this.sellButton = new Rectangle('sellButton');
-                this.sellButton.width = "92%";
-                this.sellButton.height = "44px";
-                this.sellButton.cornerRadius = 12;
-                this.sellButton.color = 'transparent';
-                this.sellButton.thickness = 0;
-                this.sellButton.background = '#E53935';
-                this.sellButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-                this.sellButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-                this.sellButton.top = "56px";
-                this.sellButton.isPointerBlocker = true;
-                this.sellButton.shadowColor = "rgba(0, 0, 0, 0.4)";
-                this.sellButton.shadowBlur = 5;
-                this.sellButton.shadowOffsetY = 2;
-
-                const sellText = new TextBlock('sellText', 'SELL');
-                sellText.color = '#FFFFFF';
-                sellText.fontSize = 11;
-                sellText.fontFamily = 'Arial';
-                sellText.fontWeight = 'bold';
-                sellText.top = "-6px";
-                this.sellButton.addControl(sellText);
-
-                const sellValueText = new TextBlock('sellValueText', '');
-                sellValueText.color = '#B0B8C8';
-                sellValueText.fontSize = 9;
-                sellValueText.fontFamily = 'Arial';
-                sellValueText.top = "8px";
-                this.sellButton.addControl(sellValueText);
-
-                this.sellButton.onPointerDownObservable.add(() => {
-                    if (this.sellButton) this.sellButton.alpha = 0.8;
-                });
-                this.sellButton.onPointerClickObservable.add(() => {
-                    this.sellSelectedTower();
-                });
-                this.sellButton.onPointerUpObservable.add(() => {
-                    if (this.sellButton) this.sellButton.alpha = 1.0;
-                    this.sellSelectedTower();
-                });
-                rightSection.addControl(this.sellButton);
-
-                // Close button at bottom-right
-                const closeBtn = new Rectangle('towerInfoClose');
-                closeBtn.width = '24px';
-                closeBtn.height = '24px';
-                closeBtn.cornerRadius = 12;
-                closeBtn.background = 'rgba(60, 65, 75, 0.8)';
-                closeBtn.thickness = 0;
-                closeBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-                closeBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-                closeBtn.top = '-6px';
-                closeBtn.left = '-6px';
-                closeBtn.isPointerBlocker = true;
-                rightSection.addControl(closeBtn);
-
-                const closeTxt = new TextBlock('towerInfoCloseTxt', 'x');
-                closeTxt.color = '#B0B8C8';
-                closeTxt.fontSize = 11;
-                closeTxt.fontFamily = 'Arial';
-                closeBtn.addControl(closeTxt);
-
-                closeBtn.onPointerClickObservable.add(() => {
-                    this.deselectTower();
-                });
-            } else {
                 // ---- DESKTOP LAYOUT (original) ----
                 // Tower preview image (72x72)
                 const previewContainer = new Rectangle('towerInfoPreview');
@@ -2827,7 +2459,6 @@ export class GameplayState implements GameState {
                             this.upgradeButton.alpha = 1.0;
                         }
                     }
-                    this.upgradeSelectedTower();
                 });
                 this.towerInfoPanel.addControl(this.upgradeButton);
 
@@ -2875,19 +2506,7 @@ export class GameplayState implements GameState {
      * Map tower class name to tower ID for preview lookup
      */
     private getTowerIdFromInstance(tower: Tower): string | undefined {
-        const className = tower.constructor.name;
-        const map: Record<string, string> = {
-            'BasicTower': 'basicTower',
-            'FastTower': 'fastTower',
-            'HeavyTower': 'heavyTower',
-            'SniperTower': 'sniperTower',
-            'AOETower': 'aoeTower',
-            'FireTower': 'fireTower',
-            'WaterTower': 'waterTower',
-            'WindTower': 'windTower',
-            'EarthTower': 'earthTower',
-        };
-        return map[className];
+        return tower.getDefinitionId();
     }
 
     /**
@@ -2899,16 +2518,13 @@ export class GameplayState implements GameState {
             return;
         }
 
-        // Get tower class name (e.g., "BasicTower" -> "Basic")
-        let towerType = this.selectedTower.constructor.name;
-        towerType = towerType.replace("Tower", "");
-
-        // Look up friendly name from TOWER_DATA
+        // Look up tower data from definition system
         const towerId = this.getTowerIdFromInstance(this.selectedTower);
         const towerData = towerId ? getTowerDataById(towerId) : undefined;
+        const towerType = towerData ? towerData.name : towerId || 'Unknown';
 
         this.towerTypeText.text = towerData ? towerData.name : towerType;
-        this.towerLevelText.text = `${this.selectedTower.getLevel()}`;
+        this.towerLevelText.text = `T${this.selectedTower.getLevel()}`;
         this.towerDamageText.text = `${this.selectedTower.getDamage().toFixed(1)}`;
         this.towerRangeText.text = `${this.selectedTower.getRange().toFixed(1)}`;
         this.towerRateText.text = `${this.selectedTower.getFireRate().toFixed(1)}/s`;
@@ -2931,16 +2547,16 @@ export class GameplayState implements GameState {
             }
         }
 
-        // Update level dots
+        // Update level/tier dots (show tier progress 1-8)
         if (this.towerInfoPanel) {
-            const level = this.selectedTower.getLevel();
-            const maxLevel = this.selectedTower.getMaxLevel();
-            // Get tower color
+            const tier = this.selectedTower.getLevel(); // tier is stored as level
             const tColor = towerData ? towerData.color : '#4CAF50';
             for (let i = 0; i < 3; i++) {
                 const dot = this.towerInfoPanel.getChildByName(`levelDot_${i}`) as Rectangle;
                 if (dot) {
-                    dot.background = i < level ? tColor : 'rgba(80, 90, 110, 0.4)';
+                    // Map tier 1-8 to 3 dots: tier 1-2=1dot, 3-5=2dots, 6-8=3dots
+                    const filled = tier >= (i === 0 ? 1 : i === 1 ? 3 : 6);
+                    dot.background = filled ? tColor : 'rgba(80, 90, 110, 0.4)';
                 }
             }
         }
@@ -2959,25 +2575,43 @@ export class GameplayState implements GameState {
             sellValueEl.text = `$${this.selectedTower.getSellValue()}`;
         }
 
-        // Update upgrade button state based on level and affordability
+        // Update upgrade/evolve button state
         if (this.upgradeButton) {
             const upgradeTextEl = this.upgradeButton.getChildByName('upgradeText') as TextBlock;
             const upgradeCostEl = this.upgradeButton.getChildByName('upgradeCostText') as TextBlock;
 
-            if (this.selectedTower.getLevel() >= this.selectedTower.getMaxLevel()) {
+            const upgradeOptions = this.selectedTower.getUpgradeOptions();
+            if (upgradeOptions.length === 0) {
+                // Max tier — no more upgrades
                 this.upgradeButton.background = '#888888';
                 this.upgradeButton.alpha = 0.8;
                 this.upgradeButton.isEnabled = false;
-                if (upgradeTextEl) upgradeTextEl.text = 'MAX LEVEL';
+                if (upgradeTextEl) upgradeTextEl.text = 'MAX TIER';
                 if (upgradeCostEl) upgradeCostEl.text = '';
-            } else {
+            } else if (upgradeOptions.length === 1) {
+                // Linear upgrade — single path
+                const cost = upgradeOptions[0].stats.cost;
                 this.upgradeButton.isEnabled = true;
-                if (upgradeTextEl) upgradeTextEl.text = 'UPGRADE';
-                if (upgradeCostEl) upgradeCostEl.text = `$${this.selectedTower.getUpgradeCost()}`;
-
+                if (upgradeTextEl) upgradeTextEl.text = `EVOLVE: ${upgradeOptions[0].name}`;
+                if (upgradeCostEl) upgradeCostEl.text = `$${cost}`;
                 if (this.playerStats) {
-                    if (this.playerStats.getMoney() >= this.selectedTower.getUpgradeCost()) {
+                    if (this.playerStats.getMoney() >= cost) {
                         this.upgradeButton.background = '#4CAF50';
+                        this.upgradeButton.alpha = 1.0;
+                    } else {
+                        this.upgradeButton.background = '#3A3F4B';
+                        this.upgradeButton.alpha = 0.6;
+                    }
+                }
+            } else {
+                // Branching — show "CHOOSE PATH" to prompt the upgrade panel
+                const minCost = Math.min(...upgradeOptions.map(o => o.stats.cost));
+                this.upgradeButton.isEnabled = true;
+                if (upgradeTextEl) upgradeTextEl.text = 'CHOOSE PATH';
+                if (upgradeCostEl) upgradeCostEl.text = `from $${minCost}`;
+                if (this.playerStats) {
+                    if (this.playerStats.getMoney() >= minCost) {
+                        this.upgradeButton.background = '#2196F3';
                         this.upgradeButton.alpha = 1.0;
                     } else {
                         this.upgradeButton.background = '#3A3F4B';
@@ -3153,6 +2787,10 @@ export class GameplayState implements GameState {
         if (this.towerInfoPanel) {
             this.towerInfoPanel.isVisible = false;
         }
+        if (this.isMobileDevice()) {
+            if (this.bottomToolbar) this.bottomToolbar.isVisible = true;
+            if (this.upgradeGuideToggle) this.upgradeGuideToggle.isVisible = true;
+        }
     }
 
     // ========================================================================
@@ -3249,51 +2887,166 @@ export class GameplayState implements GameState {
             return;
         }
 
-        const upgradeCost = this.selectedTower.getUpgradeCost();
-        if (this.playerStats.getMoney() < upgradeCost) {
-            console.log(`Not enough money to upgrade tower. Need $${upgradeCost}, have $${this.playerStats.getMoney()}`);
-
-            this.game.getAssetManager().playSound('error');
-
-            this.shakeButton(this.upgradeButton);
-
+        const upgradeOptions = this.selectedTower.getUpgradeOptions();
+        if (upgradeOptions.length === 0) {
+            console.log("Tower is at max tier");
             return;
         }
 
-        console.log(`Upgrading tower for $${upgradeCost}...`);
+        // If branching, pick the first option (UI should show choice panel for 2 options)
+        // For now, if there are multiple options, show a simple choice — pick first by default
+        let targetDef = upgradeOptions[0];
+        if (upgradeOptions.length > 1) {
+            // Multiple paths — try to show the upgrade choice panel
+            this.showUpgradeChoicePanel(upgradeOptions);
+            return;
+        }
+
+        this.performEvolution(targetDef.id);
+    }
+
+    /**
+     * Show a panel letting the player choose between upgrade paths.
+     */
+    private showUpgradeChoicePanel(options: TowerDefinition[]): void {
+        if (!this.ui || !this.selectedTower) return;
+
+        // Create a choice overlay
+        const overlay = new Rectangle('upgradeChoiceOverlay');
+        overlay.width = '340px';
+        overlay.height = `${80 + options.length * 90}px`;
+        overlay.background = PALETTE.UI_PANEL;
+        overlay.cornerRadius = 12;
+        overlay.thickness = 1;
+        overlay.color = PALETTE.UI_PANEL_BORDER;
+        overlay.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        overlay.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        overlay.isPointerBlocker = true;
+        overlay.zIndex = 200;
+        this.ui.addControl(overlay);
+
+        const title = new TextBlock('choiceTitle', 'Choose Upgrade Path');
+        title.color = PALETTE.UI_TEXT_PRIMARY;
+        title.fontSize = 16;
+        title.fontFamily = 'monospace';
+        title.fontWeight = 'bold';
+        title.height = '35px';
+        title.top = '10px';
+        title.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        overlay.addControl(title);
+
+        options.forEach((opt, idx) => {
+            const btn = new Rectangle(`choice_${idx}`);
+            btn.width = '300px';
+            btn.height = '70px';
+            btn.top = `${50 + idx * 80}px`;
+            btn.background = PALETTE.UI_CARD_BG;
+            btn.cornerRadius = 8;
+            btn.thickness = 1;
+            btn.color = PALETTE.UI_PANEL_BORDER;
+            btn.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            btn.isPointerBlocker = true;
+            overlay.addControl(btn);
+
+            const nameText = new TextBlock(`choiceName_${idx}`, opt.name);
+            nameText.color = PALETTE.UI_TEXT_PRIMARY;
+            nameText.fontSize = 14;
+            nameText.fontFamily = 'monospace';
+            nameText.fontWeight = 'bold';
+            nameText.top = '-12px';
+            nameText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            nameText.left = '10px';
+            btn.addControl(nameText);
+
+            const descText = new TextBlock(`choiceDesc_${idx}`, opt.ability.description);
+            descText.color = PALETTE.UI_TEXT_SECONDARY;
+            descText.fontSize = 11;
+            descText.fontFamily = 'monospace';
+            descText.top = '5px';
+            descText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            descText.left = '10px';
+            btn.addControl(descText);
+
+            const costText = new TextBlock(`choiceCost_${idx}`, `$${opt.stats.cost}`);
+            costText.color = PALETTE.UI_ACCENT_GOLD;
+            costText.fontSize = 13;
+            costText.fontFamily = 'monospace';
+            costText.fontWeight = 'bold';
+            costText.top = '20px';
+            costText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+            costText.left = '-10px';
+            btn.addControl(costText);
+
+            // Hover effect
+            btn.onPointerEnterObservable.add(() => { btn.background = PALETTE.UI_CARD_HOVER; });
+            btn.onPointerOutObservable.add(() => { btn.background = PALETTE.UI_CARD_BG; });
+
+            btn.onPointerClickObservable.add(() => {
+                if (this.ui) this.ui.removeControl(overlay);
+                this.performEvolution(opt.id);
+            });
+        });
+
+        // Cancel button
+        const cancelBtn = new Rectangle('choiceCancel');
+        cancelBtn.width = '300px';
+        cancelBtn.height = '30px';
+        cancelBtn.top = `${50 + options.length * 80}px`;
+        cancelBtn.background = 'transparent';
+        cancelBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        cancelBtn.isPointerBlocker = true;
+        overlay.addControl(cancelBtn);
+        const cancelText = new TextBlock('cancelText', 'Cancel');
+        cancelText.color = PALETTE.UI_TEXT_SECONDARY;
+        cancelText.fontSize = 12;
+        cancelText.fontFamily = 'monospace';
+        cancelBtn.addControl(cancelText);
+        cancelBtn.onPointerClickObservable.add(() => { if (this.ui) this.ui.removeControl(overlay); });
+    }
+
+    /**
+     * Perform the actual evolution to a target tower definition.
+     */
+    private performEvolution(targetId: string): void {
+        if (!this.selectedTower || !this.towerManager || !this.playerStats) return;
+
+        const targetDef = getTowerDefinition(targetId);
+        if (!targetDef) return;
+
+        const cost = targetDef.stats.cost;
+        if (this.playerStats.getMoney() < cost) {
+            console.log(`Not enough money. Need $${cost}, have $${this.playerStats.getMoney()}`);
+            this.game.getAssetManager().playSound('error');
+            this.shakeButton(this.upgradeButton);
+            return;
+        }
+
+        console.log(`Evolving tower to ${targetDef.name} for $${cost}...`);
 
         try {
             const towerPosition = this.selectedTower.getPosition();
-            const selectedTowerId = this.selectedTower.getId(); // Ensure we have the specific tower ID
+            const selectedTowerId = this.selectedTower.getId();
 
-            if (this.towerManager.upgradeTower(this.selectedTower)) {
-                this.playerStats.spendMoney(upgradeCost);
-                console.log(`Spent $${upgradeCost}. New balance: $${this.playerStats.getMoney()}`);
+            if (this.towerManager.evolveTower(this.selectedTower, targetId)) {
+                this.playerStats.spendMoney(cost);
+                console.log(`Spent $${cost}. New balance: $${this.playerStats.getMoney()}`);
 
                 this.createUpgradeEffect(towerPosition);
-
                 this.game.getAssetManager().playSound('towerUpgrade');
 
-                // Check if tower was consumed by tier 2 fusion
-                if (!this.towerManager.hasTower(this.selectedTower)) {
-                    this.deselectTower();
-                    return;
-                }
-
-                // Make sure we update the UI with the same tower
+                // Re-select to refresh UI
                 const upgradedTower = this.towerManager.getTowerById(selectedTowerId);
                 if (upgradedTower) {
                     this.selectedTower = upgradedTower;
                 }
 
                 this.showTowerActions();
-
-                console.log(`Tower upgraded to level ${this.selectedTower.getLevel()}`);
+                console.log(`Tower evolved to ${targetDef.name} (Tier ${targetDef.tier})`);
             } else {
-                console.log("Tower upgrade failed");
+                console.log("Tower evolution failed");
             }
         } catch (error) {
-            console.error("Error upgrading tower:", error);
+            console.error("Error evolving tower:", error);
         }
     }
 
@@ -3405,7 +3158,7 @@ export class GameplayState implements GameState {
             this.playerStats.spendMoney(towerCost);
             this.playerStats.addTowerBuilt();
 
-            // Only mark grid cell if the tower wasn't consumed by fusion
+            // Mark grid cell as occupied
             if (placed) {
                 this.map.setTowerPlaced(gridPosition.x, gridPosition.y, true);
             }
@@ -3666,171 +3419,122 @@ export class GameplayState implements GameState {
     }
 
     // ========================================================================
-    // TOWER SELECTOR (card-based bottom panel)
+    // TOWER SELECTOR (floating cards linked to clicked tile)
     // ========================================================================
 
-    private activeTowerCategory: 'medieval' | 'elemental' = 'medieval';
-
     private showTowerSelector(): void {
-        if (!this.ui || !this.selectedPosition) return;
+        if (!this.ui || !this.selectedPosition || !this.scene) return;
 
         const position = this.selectedPosition.clone();
         const isMobile = this.isMobileDevice();
-        const isMobilePortrait = isMobile && window.innerWidth < 480;
 
-        // Calculate panel height based on layout
-        const panelHeight = isMobilePortrait ? '220px' : (isMobile ? '170px' : '240px');
-        const panelHeightNum = isMobilePortrait ? 220 : (isMobile ? 170 : 240);
+        // Card dimensions (in GUI pixels)
+        const cardW = isMobile ? 110 : 130;
+        const cardH = isMobile ? 170 : 200;
+        const gap = isMobile ? 14 : 20;
+        const previewSize = isMobile ? 48 : 68;
 
-        // Create bottom-anchored panel container
-        this.towerSelectorPanel = new Rectangle('towerPanelContainer');
-        this.towerSelectorPanel.width = '100%';
-        this.towerSelectorPanel.height = panelHeight;
-        this.towerSelectorPanel.background = PALETTE.UI_PANEL_SOLID;
-        this.towerSelectorPanel.thickness = 1;
-        this.towerSelectorPanel.color = PALETTE.UI_BORDER;
-        this.towerSelectorPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        this.towerSelectorPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        this.towerSelectorPanel.zIndex = 10;
-        this.ui.addControl(this.towerSelectorPanel);
-
-        // Slide-in animation
-        let slideOffset = panelHeightNum;
-        this.towerSelectorPanel.top = slideOffset + 'px';
-        const slideObs = this.scene!.onBeforeRenderObservable.add(() => {
-            slideOffset *= 0.82;
-            if (slideOffset < 1) {
-                slideOffset = 0;
-                this.scene?.onBeforeRenderObservable.remove(slideObs);
-            }
-            if (this.towerSelectorPanel) this.towerSelectorPanel.top = slideOffset + 'px';
-        });
-
-        // ---- Category tabs at top ----
-        const tabHeight = isMobile ? 26 : 32;
-        const tabRow = new Rectangle('tabRow');
-        tabRow.width = '100%';
-        tabRow.height = tabHeight + 'px';
-        tabRow.background = 'rgba(20, 24, 30, 0.6)';
-        tabRow.thickness = 0;
-        tabRow.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        this.towerSelectorPanel.addControl(tabRow);
-
-        const createTab = (name: string, cat: 'medieval' | 'elemental', leftPos: string) => {
-            const tab = Button.CreateSimpleButton(`tab_${cat}`, name);
-            tab.width = isMobile ? '80px' : '100px';
-            tab.height = isMobile ? '22px' : '28px';
-            tab.color = '#FFFFFF';
-            tab.fontSize = isMobile ? 10 : 12;
-            tab.fontFamily = 'Arial';
-            tab.fontWeight = this.activeTowerCategory === cat ? 'bold' : 'normal';
-            tab.background = this.activeTowerCategory === cat ? '#4CAF50' : 'rgba(60, 65, 75, 0.8)';
-            tab.cornerRadius = 6;
-            tab.thickness = 0;
-            tab.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-            tab.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-            tab.left = leftPos;
-            tab.onPointerClickObservable.add(() => {
-                this.activeTowerCategory = cat;
-                this.hideTowerSelector();
-                this.hideDetailPopup();
-                this.showTowerSelector();
-            });
-            tabRow.addControl(tab);
-        };
-
-        createTab('Medieval', 'medieval', isMobile ? '-46px' : '-58px');
-        createTab('Elemental', 'elemental', isMobile ? '46px' : '58px');
-
-        // Close button
-        const closeBtnSize = isMobile ? 22 : 26;
-        const closeBtn = Button.CreateSimpleButton('closeBtn', 'x');
-        closeBtn.width = closeBtnSize + 'px';
-        closeBtn.height = closeBtnSize + 'px';
-        closeBtn.color = '#FFFFFF';
-        closeBtn.background = '#E53935';
-        closeBtn.cornerRadius = closeBtnSize / 2;
-        closeBtn.thickness = 0;
-        closeBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        closeBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        closeBtn.top = '2px';
-        closeBtn.left = '-6px';
-        closeBtn.fontSize = isMobile ? 10 : 13;
-        closeBtn.onPointerClickObservable.add(() => {
+        // Fullscreen transparent backdrop — catches outside clicks and blocks scene handler
+        const backdrop = new Rectangle('selectorBackdrop');
+        backdrop.width = '100%';
+        backdrop.height = '100%';
+        backdrop.background = 'transparent';
+        backdrop.thickness = 0;
+        backdrop.isPointerBlocker = true;
+        backdrop.zIndex = 19;
+        backdrop.onPointerClickObservable.add(() => {
             this.hideTowerSelector();
-            this.hideDetailPopup();
             this.hidePlacementOutline();
         });
-        this.towerSelectorPanel.addControl(closeBtn);
+        this.ui.addControl(backdrop);
+        this.selectorCards.push(backdrop);
 
-        // ---- Tower cards ----
-        const filteredTowers = TOWER_DATA.filter(t => t.category === this.activeTowerCategory);
+        // Create anchor TransformNode for position tracking
+        this.selectorAnchor = new TransformNode('selectorAnchor', this.scene);
+        this.selectorAnchor.position = position.clone();
+
         const playerMoney = this.playerStats ? this.playerStats.getMoney() : 0;
-
-        // Stat max values for proportional bars
         const maxDmg = Math.max(...TOWER_DATA.map(t => t.damage));
         const maxRng = Math.max(...TOWER_DATA.map(t => t.range));
         const maxSpd = Math.max(...TOWER_DATA.map(t => t.fireRate));
 
-        const cardWidth = isMobilePortrait ? 70 : (isMobile ? 80 : 120);
-        const cardHeight = isMobilePortrait ? 85 : (isMobile ? 125 : 175);
-        const previewSize = isMobilePortrait ? 32 : (isMobile ? 44 : 68);
+        // Card offsets from anchor (in GUI pixels): left card negative, right card positive
+        const offsets = TOWER_DATA.map((_, idx) => ({
+            x: idx === 0 ? -(cardW / 2 + gap) : (cardW / 2 + gap),
+            y: -(cardH / 2 + 30)
+        }));
 
-        if (isMobilePortrait) {
-            // 2-column grid for portrait phones — fills width
-            const gridContainer = new Grid('cardGrid');
-            const cols = 2;
-            const rows = Math.ceil(filteredTowers.length / cols);
-            for (let c = 0; c < cols; c++) gridContainer.addColumnDefinition(1 / cols);
-            for (let r = 0; r < rows; r++) gridContainer.addRowDefinition(1 / rows);
-            gridContainer.width = '160px';
-            gridContainer.height = (panelHeightNum - tabHeight - 6) + 'px';
-            gridContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-            gridContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-            gridContainer.paddingBottom = '4px';
-            this.towerSelectorPanel.addControl(gridContainer);
+        // Create two floating cards — manually positioned (no linkWithMesh)
+        const cards: Rectangle[] = [];
+        TOWER_DATA.forEach((tower, idx) => {
+            const card = this.createFloatingCard(tower, cardW, cardH, previewSize, isMobile, playerMoney, maxDmg, maxRng, maxSpd, position);
+            card.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            card.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            this.ui!.addControl(card);
+            cards.push(card);
+            this.selectorCards.push(card);
+        });
 
-            filteredTowers.forEach((tower, idx) => {
-                const row = Math.floor(idx / cols);
-                const col = idx % cols;
-                const card = this.createTowerCard(tower, cardWidth, cardHeight, previewSize, isMobile, isMobilePortrait, playerMoney, maxDmg, maxRng, maxSpd, position);
-                gridContainer.addControl(card, row, col);
-            });
-        } else {
-            // Horizontal row (desktop and landscape mobile)
-            const cardRow = new StackPanel('cardRow');
-            cardRow.isVertical = false;
-            cardRow.height = isMobile ? '135px' : '200px';
-            cardRow.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-            cardRow.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-            cardRow.paddingBottom = '4px';
-            this.towerSelectorPanel.addControl(cardRow);
+        // Helper: compute GUI scale factor
+        const getGuiScale = (): number => {
+            if (!this.ui || !this.scene) return 1;
+            const engine = this.scene.getEngine();
+            const cw = engine.getRenderWidth();
+            const ch = engine.getRenderHeight();
+            if (this.ui.idealWidth) {
+                const minDim = this.ui.useSmallestIdeal ? Math.min(cw, ch) : cw;
+                return this.ui.idealWidth / minDim;
+            }
+            return 1;
+        };
 
-            filteredTowers.forEach((tower) => {
-                const card = this.createTowerCard(tower, cardWidth, cardHeight, previewSize, isMobile, false, playerMoney, maxDmg, maxRng, maxSpd, position);
-                cardRow.addControl(card);
-            });
-        }
+        // Helper: project anchor to GUI coords and position cards
+        const positionCards = () => {
+            if (!this.selectorAnchor || !this.scene) return;
+            const engine = this.scene.getEngine();
+            const camera = this.scene.activeCamera;
+            if (!camera) return;
+
+            const screenPos = Vector3.Project(
+                this.selectorAnchor.position,
+                Matrix.Identity(),
+                this.scene.getTransformMatrix(),
+                camera.viewport.toGlobal(engine.getRenderWidth(), engine.getRenderHeight())
+            );
+
+            const scale = getGuiScale();
+            for (let i = 0; i < cards.length; i++) {
+                const guiX = screenPos.x * scale + offsets[i].x - cardW / 2;
+                const guiY = screenPos.y * scale + offsets[i].y - cardH / 2;
+                cards[i].left = guiX + 'px';
+                cards[i].top = guiY + 'px';
+            }
+        };
+
+        // Position immediately + every frame for camera tracking
+        positionCards();
+        this._selectorPositionObs = this.scene.onBeforeRenderObservable.add(() => positionCards());
     }
 
-    private createTowerCard(
-        tower: TowerData, cardWidth: number, cardHeight: number, previewSize: number,
-        isMobile: boolean, isMobilePortrait: boolean, playerMoney: number,
+    private createFloatingCard(
+        tower: TowerData, cardW: number, cardH: number, previewSize: number,
+        isMobile: boolean, playerMoney: number,
         maxDmg: number, maxRng: number, maxSpd: number, position: Vector3
     ): Rectangle {
         const canAfford = playerMoney >= tower.cost;
 
-        const card = new Rectangle(`card_${tower.id}`);
-        card.width = cardWidth + 'px';
-        card.height = cardHeight + 'px';
+        const card = new Rectangle(`floatCard_${tower.id}`);
+        card.width = cardW + 'px';
+        card.height = cardH + 'px';
         card.background = PALETTE.UI_CARD_BG;
-        card.cornerRadius = 8;
-        card.thickness = 1;
-        card.color = PALETTE.UI_BORDER;
-        card.paddingLeft = '4px';
-        card.paddingRight = '4px';
-        card.alpha = canAfford ? 1.0 : 0.4;
+        card.cornerRadius = 10;
+        card.thickness = 1.5;
+        card.color = canAfford ? tower.color : PALETTE.UI_BORDER;
+        card.alpha = canAfford ? 1.0 : 0.45;
         card.isPointerBlocker = true;
+        card.zIndex = 20;
+        card.shadowBlur = 12;
+        card.shadowColor = 'rgba(0,0,0,0.5)';
 
         // Color accent bar at top
         const accent = new Rectangle(`accent_${tower.id}`);
@@ -3866,7 +3570,7 @@ export class GameplayState implements GameState {
         const nameTop = 8 + previewSize + 4;
         const nameText = new TextBlock(`name_${tower.id}`, tower.name);
         nameText.color = '#FFFFFF';
-        nameText.fontSize = isMobilePortrait ? 9 : (isMobile ? 10 : 12);
+        nameText.fontSize = isMobile ? 11 : 12;
         nameText.fontFamily = 'Arial';
         nameText.fontWeight = 'bold';
         nameText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
@@ -3878,115 +3582,87 @@ export class GameplayState implements GameState {
         // Cost
         const costText = new TextBlock(`cost_${tower.id}`, `$${tower.cost}`);
         costText.color = '#F5A623';
-        costText.fontSize = isMobilePortrait ? 9 : (isMobile ? 10 : 12);
+        costText.fontSize = isMobile ? 11 : 12;
         costText.fontFamily = 'Arial';
         costText.fontWeight = 'bold';
         costText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        costText.top = (nameTop + (isMobilePortrait ? 12 : 14)) + 'px';
+        costText.top = (nameTop + 16) + 'px';
         costText.resizeToFit = true;
         card.addControl(costText);
 
-        if (!isMobilePortrait) {
-            // Stat bars (skip on portrait to save space)
-            const statsTop = nameTop + 28;
-            const barHeight = isMobile ? 6 : 7;
-            const barGap = isMobile ? 11 : 12;
-            const barMaxWidth = cardWidth - 24;
+        // Stat bars
+        const statsTop = nameTop + 32;
+        const barHeight = isMobile ? 5 : 6;
+        const barGap = isMobile ? 10 : 11;
+        const barMaxWidth = cardW - 24;
 
-            const createStatBar = (label: string, value: number, maxValue: number, barColor: string, yOffset: number) => {
-                const lbl = new TextBlock(`${tower.id}_${label}_lbl`, label);
-                lbl.color = '#888';
-                lbl.fontSize = isMobile ? 7 : 8;
-                lbl.fontFamily = 'Arial';
-                lbl.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-                lbl.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-                lbl.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-                lbl.top = yOffset + 'px';
-                lbl.left = '8px';
-                lbl.resizeToFit = true;
-                card.addControl(lbl);
+        const createStatBar = (label: string, value: number, maxValue: number, barColor: string, yOffset: number) => {
+            const lbl = new TextBlock(`${tower.id}_${label}_lbl`, label);
+            lbl.color = '#888';
+            lbl.fontSize = isMobile ? 7 : 8;
+            lbl.fontFamily = 'Arial';
+            lbl.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            lbl.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            lbl.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            lbl.top = yOffset + 'px';
+            lbl.left = '8px';
+            lbl.resizeToFit = true;
+            card.addControl(lbl);
 
-                const barBg = new Rectangle(`${tower.id}_${label}_bg`);
-                barBg.width = barMaxWidth + 'px';
-                barBg.height = barHeight + 'px';
-                barBg.background = 'rgba(255,255,255,0.08)';
-                barBg.cornerRadius = 3;
-                barBg.thickness = 0;
-                barBg.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-                barBg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-                barBg.top = (yOffset + 9) + 'px';
-                card.addControl(barBg);
+            const barBg = new Rectangle(`${tower.id}_${label}_bg`);
+            barBg.width = barMaxWidth + 'px';
+            barBg.height = barHeight + 'px';
+            barBg.background = 'rgba(255,255,255,0.08)';
+            barBg.cornerRadius = 3;
+            barBg.thickness = 0;
+            barBg.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            barBg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            barBg.top = (yOffset + 9) + 'px';
+            card.addControl(barBg);
 
-                const fillPct = Math.min(1, value / maxValue);
-                const fillWidth = Math.max(4, Math.floor(barMaxWidth * fillPct));
-                const bar = new Rectangle(`${tower.id}_${label}_fill`);
-                bar.width = fillWidth + 'px';
-                bar.height = barHeight + 'px';
-                bar.background = barColor;
-                bar.cornerRadius = 3;
-                bar.thickness = 0;
-                bar.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-                bar.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-                bar.top = (yOffset + 9) + 'px';
-                bar.left = ((cardWidth - barMaxWidth) / 2) + 'px';
-                card.addControl(bar);
-            };
+            const fillPct = Math.min(1, value / maxValue);
+            const fillWidth = Math.max(4, Math.floor(barMaxWidth * fillPct));
+            const bar = new Rectangle(`${tower.id}_${label}_fill`);
+            bar.width = fillWidth + 'px';
+            bar.height = barHeight + 'px';
+            bar.background = barColor;
+            bar.cornerRadius = 3;
+            bar.thickness = 0;
+            bar.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            bar.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            bar.top = (yOffset + 9) + 'px';
+            bar.left = ((cardW - barMaxWidth) / 2) + 'px';
+            card.addControl(bar);
+        };
 
-            createStatBar('DMG', tower.damage, maxDmg, '#E53935', statsTop);
-            createStatBar('RNG', tower.range, maxRng, '#2196F3', statsTop + barGap);
-            createStatBar('SPD', tower.fireRate, maxSpd, '#4CAF50', statsTop + barGap * 2);
-        }
+        createStatBar('DMG', tower.damage, maxDmg, '#E53935', statsTop);
+        createStatBar('RNG', tower.range, maxRng, '#2196F3', statsTop + barGap);
+        createStatBar('SPD', tower.fireRate, maxSpd, '#4CAF50', statsTop + barGap * 2);
 
-        // On mobile, show inline description text instead of hover popup
-        if (isMobile && !isMobilePortrait) {
-            const descText = new TextBlock(`desc_${tower.id}`, tower.description);
-            descText.color = '#888';
-            descText.fontSize = 7;
-            descText.fontFamily = 'Arial';
-            descText.textWrapping = true;
-            descText.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-            descText.top = '-3px';
-            descText.height = '18px';
-            descText.paddingLeft = '4px';
-            descText.paddingRight = '4px';
-            card.addControl(descText);
-        }
+        // Description text
+        const descText = new TextBlock(`desc_${tower.id}`, tower.description);
+        descText.color = '#888';
+        descText.fontSize = isMobile ? 7 : 8;
+        descText.fontFamily = 'Arial';
+        descText.textWrapping = true;
+        descText.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        descText.top = '-4px';
+        descText.height = isMobile ? '22px' : '26px';
+        descText.paddingLeft = '6px';
+        descText.paddingRight = '6px';
+        card.addControl(descText);
 
-        // Element badge for elemental towers
-        if (tower.category === 'elemental') {
-            const badge = new Rectangle(`badge_${tower.id}`);
-            badge.width = isMobilePortrait ? '34px' : '40px';
-            badge.height = isMobilePortrait ? '12px' : '14px';
-            badge.background = tower.color;
-            badge.cornerRadius = 7;
-            badge.thickness = 0;
-            badge.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-            badge.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-            badge.top = isMobile ? '-2px' : '-4px';
-            card.addControl(badge);
-
-            const badgeText = new TextBlock(`badgeTxt_${tower.id}`, tower.element.toUpperCase());
-            badgeText.color = '#FFFFFF';
-            badgeText.fontSize = isMobilePortrait ? 7 : 8;
-            badgeText.fontFamily = 'Arial';
-            badgeText.fontWeight = 'bold';
-            badge.addControl(badgeText);
-        }
-
-        // Desktop only: hover popup
+        // Desktop hover effects
         if (!isMobile) {
             card.onPointerEnterObservable.add(() => {
-                card.color = tower.color;
                 card.thickness = 2;
+                card.color = tower.color;
                 card.background = PALETTE.UI_CARD_HOVER;
-                this.showDetailPopup(tower, false);
             });
-
             card.onPointerOutObservable.add(() => {
-                card.color = PALETTE.UI_BORDER;
-                card.thickness = 1;
+                card.thickness = 1.5;
+                card.color = canAfford ? tower.color : PALETTE.UI_BORDER;
                 card.background = PALETTE.UI_CARD_BG;
-                this.hideDetailPopup();
             });
         }
 
@@ -4082,11 +3758,904 @@ export class GameplayState implements GameState {
      */
     private hideTowerSelector(): void {
         this.hideDetailPopup();
+        // Remove position-update observer
+        if (this._selectorPositionObs && this.scene) {
+            this.scene.onBeforeRenderObservable.remove(this._selectorPositionObs);
+            this._selectorPositionObs = null;
+        }
+        // Remove floating cards and backdrop
+        for (const card of this.selectorCards) {
+            if (this.ui) this.ui.removeControl(card);
+        }
+        this.selectorCards = [];
+        // Dispose anchor TransformNode
+        if (this.selectorAnchor) {
+            this.selectorAnchor.dispose();
+            this.selectorAnchor = null;
+        }
+        // Legacy panel cleanup
         if (this.towerSelectorPanel && this.ui) {
             this.ui.removeControl(this.towerSelectorPanel);
             this.towerSelectorPanel = null;
         }
     }
+
+    // ========================================================================
+    // MOBILE UI — Completely separate creation methods
+    // ========================================================================
+
+    private createMobileHUD(): void {
+        if (!this.ui) return;
+
+        const isLandscape = window.innerWidth > window.innerHeight;
+
+        // ====== STATS BAR (full-width, top) ======
+        const statsBarHeight = isLandscape ? 24 : 30;
+        const statsBar = new Rectangle('statsContainer');
+        statsBar.width = '100%';
+        statsBar.height = statsBarHeight + 'px';
+        statsBar.background = 'rgba(16,20,28,0.72)';
+        statsBar.cornerRadius = 0;
+        statsBar.thickness = 0;
+        statsBar.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        statsBar.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        statsBar.top = '0px';
+        this.ui.addControl(statsBar);
+
+        // Helper: compact stat group with small circle + label + value
+        const circleSize = isLandscape ? 14 : 18;
+        const labelFs = isLandscape ? 6 : 7;
+        const valueFs = isLandscape ? 9 : 11;
+        const createStatGroup = (
+            circleColor: string, label: string, valueName: string,
+            defaultValue: string, leftPos: number, groupWidth: number
+        ) => {
+            const group = new Rectangle(`${valueName}Group`);
+            group.width = groupWidth + 'px';
+            group.height = (statsBarHeight - 4) + 'px';
+            group.thickness = 0;
+            group.background = 'transparent';
+            group.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            group.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+            group.left = leftPos + 'px';
+            statsBar.addControl(group);
+
+            const circle = new Rectangle(`${valueName}Dot`);
+            circle.width = circleSize + 'px';
+            circle.height = circleSize + 'px';
+            circle.cornerRadius = circleSize / 2;
+            circle.background = circleColor;
+            circle.thickness = 0;
+            circle.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            circle.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+            circle.left = '0px';
+            group.addControl(circle);
+
+            const circleLabel = new TextBlock(`${valueName}Label`, label);
+            circleLabel.color = '#FFFFFF';
+            circleLabel.fontSize = labelFs;
+            circleLabel.fontFamily = 'Arial';
+            circleLabel.fontWeight = 'bold';
+            circle.addControl(circleLabel);
+
+            const valueText = new TextBlock(valueName);
+            valueText.text = defaultValue;
+            valueText.color = '#FFFFFF';
+            valueText.fontSize = valueFs;
+            valueText.fontFamily = 'Arial';
+            valueText.fontWeight = 'bold';
+            valueText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            valueText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            valueText.left = (circleSize + 3) + 'px';
+            valueText.width = (groupWidth - circleSize - 4) + 'px';
+            valueText.resizeToFit = true;
+            group.addControl(valueText);
+        };
+
+        if (isLandscape) {
+            createStatGroup('#E53935', 'HP', 'healthText', '100', 6, 50);
+            createStatGroup('#F5A623', '$', 'moneyText', '200', 58, 56);
+            createStatGroup('#42A5F5', 'W', 'waveText', 'S1-1/10', 116, 90);
+        } else {
+            createStatGroup('#E53935', 'HP', 'healthText', '100', 6, 62);
+            createStatGroup('#F5A623', '$', 'moneyText', '200', 70, 68);
+            createStatGroup('#42A5F5', 'W', 'waveText', 'S1-1/10', 140, 110);
+        }
+
+        // Rename health dot for updateUI compat
+        const hGroup = statsBar.getChildByName('healthTextGroup') as Rectangle;
+        if (hGroup) {
+            const hDot = hGroup.getChildByName('healthTextDot');
+            if (hDot) hDot.name = 'healthDot';
+        }
+
+        // Money text gold color
+        const moneyCtrl = this.ui.getControlByName('moneyText') as TextBlock;
+        if (moneyCtrl) moneyCtrl.color = '#F5A623';
+        // Wave text blue color
+        const waveCtrl = this.ui.getControlByName('waveText') as TextBlock;
+        if (waveCtrl) waveCtrl.color = '#42A5F5';
+
+        // Kill text (right-aligned in stats bar)
+        const killText = new TextBlock('killText');
+        killText.text = '0';
+        killText.color = '#B0B8C8';
+        killText.fontSize = isLandscape ? 8 : 9;
+        killText.fontFamily = 'Arial';
+        killText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        killText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        killText.left = '-6px';
+        killText.width = '30px';
+        statsBar.addControl(killText);
+
+        // Fade-in
+        statsBar.alpha = 0;
+        let fadeIn = 0;
+        const fadeObs = this.scene!.onBeforeRenderObservable.add(() => {
+            fadeIn += 0.05;
+            statsBar.alpha = Math.min(1, fadeIn);
+            if (fadeIn >= 1) this.scene?.onBeforeRenderObservable.remove(fadeObs);
+        });
+
+        // ====== WAVE INFO BAR (full-width, below stats) ======
+        const waveInfoHeight = isLandscape ? 18 : 22;
+        const waveInfoBar = new Rectangle('waveInfoContainer');
+        waveInfoBar.width = '100%';
+        waveInfoBar.height = waveInfoHeight + 'px';
+        waveInfoBar.background = 'rgba(16,20,28,0.72)';
+        waveInfoBar.cornerRadius = 0;
+        waveInfoBar.thickness = 0;
+        waveInfoBar.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        waveInfoBar.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        waveInfoBar.top = statsBarHeight + 'px';
+        this.ui.addControl(waveInfoBar);
+
+        const waveInfoFs = isLandscape ? 8 : 10;
+        const countdownText = new TextBlock('countdownText');
+        countdownText.text = '';
+        countdownText.color = '#F5A623';
+        countdownText.fontSize = waveInfoFs;
+        countdownText.fontFamily = 'Arial';
+        countdownText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        countdownText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        countdownText.left = '8px';
+        waveInfoBar.addControl(countdownText);
+
+        const enemiesText = new TextBlock('enemiesText');
+        enemiesText.text = '';
+        enemiesText.color = '#B0B8C8';
+        enemiesText.fontSize = waveInfoFs;
+        enemiesText.fontFamily = 'Arial';
+        enemiesText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        enemiesText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        enemiesText.left = '-8px';
+        waveInfoBar.addControl(enemiesText);
+
+        // ====== BOTTOM TOOLBAR ======
+        // Landscape: single 48px row | Portrait: two-row 132px
+        const toolbarHeight = isLandscape ? 48 : 132;
+        this.bottomToolbar = new Rectangle('bottomToolbar');
+        this.bottomToolbar.width = '100%';
+        this.bottomToolbar.height = toolbarHeight + 'px';
+        this.bottomToolbar.background = 'rgba(16,20,28,0.92)';
+        this.bottomToolbar.cornerRadius = 0;
+        this.bottomToolbar.thickness = 0;
+        this.bottomToolbar.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.bottomToolbar.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        this.bottomToolbar.zIndex = 50;
+        this.bottomToolbar.shadowColor = 'rgba(0,0,0,0.5)';
+        this.bottomToolbar.shadowBlur = 12;
+        this.bottomToolbar.shadowOffsetY = -4;
+        this.ui.addControl(this.bottomToolbar);
+
+        // 1px divider at top of toolbar
+        const divider = new Rectangle('toolbarDivider');
+        divider.width = '100%';
+        divider.height = '1px';
+        divider.background = 'rgba(80,90,110,0.4)';
+        divider.thickness = 0;
+        divider.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.bottomToolbar.addControl(divider);
+
+        // ---- ACTION ROW ----
+        const actionBtnSize = isLandscape ? 36 : 44;
+        const actionTop = isLandscape ? 6 : 4;
+
+        // Pause button
+        const pauseButton = Button.CreateSimpleButton('pauseButton', 'II');
+        pauseButton.width = actionBtnSize + 'px';
+        pauseButton.height = actionBtnSize + 'px';
+        pauseButton.color = '#FFFFFF';
+        pauseButton.background = '#2196F3';
+        pauseButton.cornerRadius = isLandscape ? 8 : 10;
+        pauseButton.thickness = 0;
+        pauseButton.fontFamily = 'Arial';
+        pauseButton.fontSize = isLandscape ? 10 : 12;
+        pauseButton.fontWeight = 'bold';
+        pauseButton.zIndex = 100;
+        pauseButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        pauseButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        pauseButton.left = '6px';
+        pauseButton.top = actionTop + 'px';
+        pauseButton.onPointerClickObservable.add(() => { this.game.togglePause(); });
+        this.bottomToolbar.addControl(pauseButton);
+        this.registerPauseButtonUpdate(pauseButton);
+
+        // Wave button
+        const waveButton = Button.CreateSimpleButton('waveButton', '>');
+        waveButton.width = actionBtnSize + 'px';
+        waveButton.height = actionBtnSize + 'px';
+        waveButton.color = '#FFFFFF';
+        waveButton.background = '#E53935';
+        waveButton.cornerRadius = isLandscape ? 8 : 10;
+        waveButton.thickness = 0;
+        waveButton.fontFamily = 'Arial';
+        waveButton.fontSize = isLandscape ? 12 : 14;
+        waveButton.fontWeight = 'bold';
+        waveButton.zIndex = 100;
+        waveButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        waveButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        waveButton.left = (6 + actionBtnSize + 4) + 'px';
+        waveButton.top = actionTop + 'px';
+
+        waveButton.onPointerUpObservable.add(() => {
+            if (this.waveManager) {
+                if (this.waveManager.isWaveInProgress()) {
+                    const currentWave = this.waveManager.getCurrentWave();
+                    const enemies = [];
+                    enemies.push({ type: 'basic', count: 5 + Math.floor(currentWave / 2), delay: 1.0 });
+                    if (currentWave > 2) {
+                        enemies.push({ type: 'fast', count: 3 + Math.floor((currentWave - 2) / 2), delay: 0.8 });
+                    }
+                    if (currentWave > 4) {
+                        enemies.push({ type: 'tank', count: 1 + Math.floor((currentWave - 4) / 3), delay: 2.0 });
+                    }
+                    if (currentWave % 10 === 0 && currentWave > 0) {
+                        enemies.push({ type: 'boss', count: 1, delay: 0 });
+                    }
+                    const reward = 25 + currentWave * 10;
+                    this.waveManager.incrementWaveCounter();
+                    this.waveManager.createParallelWave(enemies, reward);
+                } else {
+                    this.waveManager.startNextWave();
+                }
+            }
+        });
+        this.bottomToolbar.addControl(waveButton);
+        this.registerWaveButtonUpdate(waveButton);
+
+        // 1px separator
+        const sepLeft = 6 + actionBtnSize * 2 + 8 + 2;
+        const separator = new Rectangle('actionSeparator');
+        separator.width = '1px';
+        separator.height = (actionBtnSize - 8) + 'px';
+        separator.background = 'rgba(80,90,110,0.4)';
+        separator.thickness = 0;
+        separator.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        separator.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        separator.left = sepLeft + 'px';
+        separator.top = (actionTop + 4) + 'px';
+        this.bottomToolbar.addControl(separator);
+
+        // Speed buttons
+        const speedBtnSize = isLandscape ? 30 : 38;
+        const speedGap = isLandscape ? 34 : 42;
+        const speedStartLeft = sepLeft + 6;
+        const speeds = [1, 2, 3];
+        speeds.forEach((speed, index) => {
+            const speedBtn = Button.CreateSimpleButton(`speed${speed}Btn`, `${speed}x`);
+            speedBtn.width = speedBtnSize + 'px';
+            speedBtn.height = speedBtnSize + 'px';
+            speedBtn.color = '#FFFFFF';
+            speedBtn.background = speed === 1 ? '#4CAF50' : '#3A3F4B';
+            speedBtn.cornerRadius = isLandscape ? 6 : 8;
+            speedBtn.thickness = 0;
+            speedBtn.fontSize = isLandscape ? 10 : 12;
+            speedBtn.fontFamily = 'Arial';
+            speedBtn.fontWeight = 'bold';
+            speedBtn.zIndex = 100;
+            speedBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            speedBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            speedBtn.left = (speedStartLeft + index * speedGap) + 'px';
+            speedBtn.top = (actionTop + (actionBtnSize - speedBtnSize) / 2) + 'px';
+
+            speedBtn.onPointerUpObservable.add(() => {
+                this.game.setTimeScale(speed);
+                speeds.forEach(s => {
+                    const btn = this.ui?.getControlByName(`speed${s}Btn`) as Button;
+                    if (btn) btn.background = s === speed ? '#4CAF50' : '#3A3F4B';
+                });
+            });
+
+            this.bottomToolbar!.addControl(speedBtn);
+        });
+
+        // Champion button anchored RIGHT in action row
+        const champWidth = isLandscape ? 110 : 150;
+        const champHeight = isLandscape ? 36 : 44;
+        const champBtn = new Rectangle('championButton');
+        champBtn.width = champWidth + 'px';
+        champBtn.height = champHeight + 'px';
+        champBtn.cornerRadius = isLandscape ? 8 : 10;
+        champBtn.background = '#1A3A2A';
+        champBtn.color = '#FFD700';
+        champBtn.thickness = 2;
+        champBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        champBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        champBtn.left = '-6px';
+        champBtn.top = actionTop + 'px';
+        champBtn.zIndex = 100;
+        champBtn.isPointerBlocker = true;
+
+        const champIcon = new TextBlock('championIcon', '\u2694');
+        champIcon.fontSize = isLandscape ? 12 : 14;
+        champIcon.color = '#FFD700';
+        champIcon.left = isLandscape ? '-34px' : '-50px';
+        champBtn.addControl(champIcon);
+
+        const champLabel = new TextBlock('championLabel', 'CHAMPION');
+        champLabel.fontSize = isLandscape ? 9 : 11;
+        champLabel.color = '#FFD700';
+        champLabel.fontFamily = 'Arial';
+        champLabel.fontWeight = 'bold';
+        champLabel.top = isLandscape ? '-6px' : '-8px';
+        champLabel.left = isLandscape ? '6px' : '10px';
+        champBtn.addControl(champLabel);
+
+        const champStatus = new TextBlock('championStatus', 'READY!');
+        champStatus.fontSize = isLandscape ? 8 : 10;
+        champStatus.color = '#66FF66';
+        champStatus.fontFamily = 'Arial';
+        champStatus.top = isLandscape ? '6px' : '8px';
+        champStatus.left = isLandscape ? '6px' : '10px';
+        champBtn.addControl(champStatus);
+
+        champBtn.onPointerClickObservable.add(() => {
+            if (this.championManager && this.championManager.canSummon() && this.levelManager) {
+                const path = this.levelManager.getCompositePath();
+                this.championManager.summon(path);
+            }
+        });
+
+        this.bottomToolbar.addControl(champBtn);
+        this.championButton = champBtn;
+    }
+
+    private createMobileAbilityButtons(): void {
+        if (!this.ui || !this.bottomToolbar) return;
+
+        const isLandscape = window.innerWidth > window.innerHeight;
+        // Landscape: small 38×38 buttons in the single row, positioned after speed buttons
+        // Portrait: 64×64 buttons in the bottom row of the toolbar
+        const btnSize = isLandscape ? 38 : 64;
+        const btnGap = isLandscape ? 42 : 70;
+        // In landscape, place after speed buttons (~sepLeft + 6 + 3*34 = ~96 + 108 = ~310px from left)
+        // Calculate: pause(36+4) + wave(36+4) + sep(8) + speeds(3*34) = 190
+        const baseLeft = isLandscape ? 196 : 8;
+
+        const abilityConfigs = [
+            { id: 'meteor', icon: '\u2604', label: 'METEOR', iconColor: '#FF6600', labelColor: '#FFB380', bg: '#B34000', border: '#FF6600', needsTargeting: true },
+            { id: 'frostNova', icon: '\u2744', label: 'FROST', iconColor: '#66BBEE', labelColor: '#88CCEE', bg: '#1A4D7A', border: '#4499DD', needsTargeting: false },
+            { id: 'chainLightning', icon: '\u26A1', label: 'CHAIN', iconColor: '#AAAAFF', labelColor: '#BBBBFF', bg: '#2A2A5A', border: '#7777CC', needsTargeting: true },
+            { id: 'fortify', icon: '\uD83D\uDEE1', label: 'FORT', iconColor: '#FFD700', labelColor: '#FFE066', bg: '#5A4A10', border: '#CCAA00', needsTargeting: false },
+            { id: 'goldRush', icon: '\uD83D\uDCB0', label: 'GOLD', iconColor: '#FFD700', labelColor: '#FFE066', bg: '#4A3A00', border: '#BB9900', needsTargeting: false },
+        ];
+
+        const buttonRefs = ['meteorButton', 'frostNovaButton', 'chainLightningButton', 'fortifyButton', 'goldRushButton'] as const;
+
+        for (let i = 0; i < abilityConfigs.length; i++) {
+            const cfg = abilityConfigs[i];
+            const btn = new Rectangle(`${cfg.id}Button`);
+            btn.width = btnSize + 'px';
+            btn.height = btnSize + 'px';
+            btn.cornerRadius = isLandscape ? 8 : 12;
+            btn.background = cfg.bg;
+            btn.color = cfg.border;
+            btn.thickness = 2;
+            btn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            btn.verticalAlignment = isLandscape ? Control.VERTICAL_ALIGNMENT_CENTER : Control.VERTICAL_ALIGNMENT_BOTTOM;
+            btn.left = `${baseLeft + i * btnGap}px`;
+            btn.top = isLandscape ? '0px' : '-6px';
+            btn.zIndex = 100;
+            btn.isPointerBlocker = true;
+
+            const icon = new TextBlock(`${cfg.id}Icon`, cfg.icon);
+            icon.fontSize = isLandscape ? 16 : 22;
+            icon.color = cfg.iconColor;
+            icon.top = isLandscape ? '-4px' : '-10px';
+            btn.addControl(icon);
+
+            const label = new TextBlock(`${cfg.id}Label`, cfg.label);
+            label.fontSize = isLandscape ? 6 : 8;
+            label.color = cfg.labelColor;
+            label.fontFamily = 'Arial';
+            label.fontWeight = 'bold';
+            label.top = isLandscape ? '10px' : '12px';
+            btn.addControl(label);
+
+            const cooldown = new TextBlock(`${cfg.id}Cooldown`, '');
+            cooldown.fontSize = isLandscape ? 6 : 8;
+            cooldown.color = '#FFFFFF';
+            cooldown.fontFamily = 'Arial';
+            cooldown.top = isLandscape ? '16px' : '22px';
+            btn.addControl(cooldown);
+
+            btn.onPointerClickObservable.add(() => {
+                if (this.abilityManager) {
+                    const ability = this.abilityManager.getAbility(cfg.id);
+                    if (ability && ability.isReady) {
+                        if (cfg.needsTargeting) {
+                            this.abilityManager.startTargeting(cfg.id);
+                        } else {
+                            this.abilityManager.activate(cfg.id);
+                        }
+                    }
+                }
+            });
+
+            this.bottomToolbar.addControl(btn);
+            (this as any)[buttonRefs[i]] = btn;
+        }
+    }
+
+    private createMobileUpgradeGuideButton(): void {
+        if (!this.ui) return;
+
+        // Toggle button: 44×44
+        const toggleBtn = Button.CreateSimpleButton('upgradeGuideToggle', '\uD83D\uDCD6');
+        toggleBtn.width = '44px';
+        toggleBtn.height = '44px';
+        toggleBtn.fontSize = 20;
+        toggleBtn.cornerRadius = 12;
+        toggleBtn.background = '#2A2040';
+        toggleBtn.color = '#C8A0FF';
+        toggleBtn.thickness = 0;
+        toggleBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        toggleBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        toggleBtn.left = '-8px';
+        const isLandscapeFG = window.innerWidth > window.innerHeight;
+        toggleBtn.top = isLandscapeFG ? '-56px' : '-140px';
+        toggleBtn.shadowColor = '#000000';
+        toggleBtn.shadowBlur = 6;
+        toggleBtn.shadowOffsetY = 2;
+        toggleBtn.zIndex = 100;
+        toggleBtn.onPointerEnterObservable.add(() => { toggleBtn.background = '#3A3060'; });
+        toggleBtn.onPointerOutObservable.add(() => { toggleBtn.background = '#2A2040'; });
+        toggleBtn.onPointerClickObservable.add(() => {
+            if (this.upgradeGuidePanel) {
+                this.upgradeGuidePanel.isVisible = !this.upgradeGuidePanel.isVisible;
+            }
+        });
+        this.ui.addControl(toggleBtn);
+        this.upgradeGuideToggle = toggleBtn;
+
+        // Guide panel: 260px wide, 420px tall
+        const panel = new Rectangle('upgradeGuidePanel');
+        panel.width = '260px';
+        panel.height = '420px';
+        panel.cornerRadius = 14;
+        panel.background = '#141820';
+        panel.color = '#2A2E38';
+        panel.thickness = 1;
+        panel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        panel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        panel.left = '-8px';
+        panel.top = isLandscapeFG ? '-100px' : '-184px';
+        panel.shadowColor = '#000000';
+        panel.shadowBlur = 14;
+        panel.shadowOffsetY = 3;
+        panel.zIndex = 200;
+        panel.isVisible = false;
+        panel.isPointerBlocker = true;
+        this.ui.addControl(panel);
+        this.upgradeGuidePanel = panel;
+
+        // Panel content — upgrade tree paths, sized for 260px panel
+        const title = new TextBlock('guideTitle', 'UPGRADE PATHS');
+        title.color = '#FFD54F';
+        title.fontSize = 16;
+        title.fontWeight = 'bold';
+        title.fontFamily = 'Arial';
+        title.height = '28px';
+        title.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        title.top = '12px';
+        panel.addControl(title);
+
+        const divider = new Rectangle('guideDivider');
+        divider.width = '50px';
+        divider.height = '2px';
+        divider.background = '#FFD54F';
+        divider.thickness = 0;
+        divider.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        divider.top = '38px';
+        panel.addControl(divider);
+
+        const fs = 11;
+        const rowH = 20;
+        let y = 50;
+
+        const treeLines = [
+            { text: 'MEDIEVAL TREE', color: '#8B7355', bold: true },
+            { text: '  Archer \u2192 Longbow \u2192 Marksman', color: '#A0A8B8', bold: false },
+            { text: '    Hawkeye \u2192 Zenith Spire', color: '#FFD54F', bold: false },
+            { text: '    Volley \u2192 Arrow Maelstrom', color: '#C0A878', bold: false },
+            { text: '  Archer \u2192 Repeater \u2192 Scorpion', color: '#A0A8B8', bold: false },
+            { text: '    Gatling \u2192 Perpetual Engine', color: '#808890', bold: false },
+            { text: '    Ballista \u2192 Kingdom Breaker', color: '#808890', bold: false },
+            { text: '  Garrison \u2192 Barracks \u2192 War Hall', color: '#A0A8B8', bold: false },
+            { text: '    Commander \u2192 Grand Marshal', color: '#FFD54F', bold: false },
+            { text: '    Warden \u2192 Black Tower', color: '#9966CC', bold: false },
+            { text: '  Garrison \u2192 Bulwark \u2192 Rampart', color: '#A0A8B8', bold: false },
+            { text: '    Catapult \u2192 Doom Trebuchet', color: '#FF6633', bold: false },
+            { text: '    Saboteur \u2192 Grand Architect', color: '#FFD54F', bold: false },
+            { text: '', color: '', bold: false },
+            { text: 'ELEMENTAL TREE', color: '#9B59B6', bold: true },
+            { text: '  Pyroclast \u2192 Inferno Pyre', color: '#FF5722', bold: false },
+            { text: '    Hellfire \u2192 Infernal Bastion', color: '#FF4400', bold: false },
+            { text: '    Ember \u2192 Dwarven Hellforge', color: '#FF8844', bold: false },
+            { text: '  Pyroclast \u2192 Storm Needle', color: '#7777FF', bold: false },
+            { text: '    Tempest \u2192 Stormcaller Apex', color: '#9999FF', bold: false },
+            { text: '    Plasma \u2192 Annihilation Lens', color: '#CC77FF', bold: false },
+            { text: '  Cryomancer \u2192 Glacier Monolith', color: '#55AAFF', bold: false },
+            { text: '    Permafrost \u2192 Absolute Zero', color: '#66CCFF', bold: false },
+            { text: '    Tidal \u2192 Leviathan\'s Maw', color: '#3388CC', bold: false },
+            { text: '  Cryomancer \u2192 Verdant Totem', color: '#55AA55', bold: false },
+            { text: '    Thornweald \u2192 World Tree', color: '#66BB44', bold: false },
+            { text: '    Shadowgrove \u2192 Void Sentinel', color: '#8844AA', bold: false },
+        ];
+
+        for (const line of treeLines) {
+            if (line.text === '') { y += 6; continue; }
+            const t = new TextBlock();
+            t.text = line.text;
+            t.color = line.color;
+            t.fontSize = fs;
+            t.fontWeight = line.bold ? 'bold' : 'normal';
+            t.fontFamily = 'monospace';
+            t.height = `${rowH}px`;
+            t.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            t.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            t.left = '10px';
+            t.top = `${y}px`;
+            panel.addControl(t);
+            y += rowH;
+        }
+
+        const closeHint = new TextBlock('guideCloseHint', 'tap book to close');
+        closeHint.color = '#4A5060';
+        closeHint.fontSize = 10;
+        closeHint.fontFamily = 'Arial';
+        closeHint.height = '16px';
+        closeHint.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        closeHint.top = '-8px';
+        panel.addControl(closeHint);
+    }
+
+    private createMobileTowerInfoPanel(): void {
+        if (!this.ui) return;
+
+        // Hide bottom toolbar and upgrade guide when tower info is shown
+        if (this.bottomToolbar) this.bottomToolbar.isVisible = false;
+        if (this.upgradeGuideToggle) this.upgradeGuideToggle.isVisible = false;
+        if (this.upgradeGuidePanel) this.upgradeGuidePanel.isVisible = false;
+
+        // Panel: 100% width, bottom-anchored
+        const isLandscapeTI = window.innerWidth > window.innerHeight;
+        const towerInfoHeight = isLandscapeTI ? 85 : 165;
+        this.towerInfoPanel = new Rectangle('towerInfoPanel');
+        this.towerInfoPanel.width = '100%';
+        this.towerInfoPanel.height = towerInfoHeight + 'px';
+        this.towerInfoPanel.cornerRadius = 0;
+        this.towerInfoPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.towerInfoPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        this.towerInfoPanel.top = '0px';
+        this.towerInfoPanel.left = '0px';
+        this.towerInfoPanel.color = PALETTE.UI_BORDER;
+        this.towerInfoPanel.thickness = 1;
+        this.towerInfoPanel.background = PALETTE.UI_PANEL_SOLID;
+        this.towerInfoPanel.shadowColor = 'rgba(0, 0, 0, 0.5)';
+        this.towerInfoPanel.shadowBlur = 12;
+        this.towerInfoPanel.shadowOffsetY = 4;
+        this.ui.addControl(this.towerInfoPanel);
+
+        // Slide-in from bottom
+        let slideY = towerInfoHeight;
+        this.towerInfoPanel.top = slideY + 'px';
+        const slideObs = this.scene!.onBeforeRenderObservable.add(() => {
+            slideY *= 0.78;
+            if (slideY < 1) {
+                slideY = 0;
+                this.scene?.onBeforeRenderObservable.remove(slideObs);
+            }
+            if (this.towerInfoPanel) this.towerInfoPanel.top = slideY + 'px';
+        });
+
+        // Left section: Preview + Name + Level dots + Stats
+        const leftSection = new Rectangle('mobileLeftSection');
+        leftSection.width = '50%';
+        leftSection.height = '100%';
+        leftSection.thickness = 0;
+        leftSection.background = 'transparent';
+        leftSection.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.towerInfoPanel.addControl(leftSection);
+
+        // Tower preview
+        const prevSz = isLandscapeTI ? 28 : 52;
+        const previewContainer = new Rectangle('towerInfoPreview');
+        previewContainer.width = prevSz + 'px';
+        previewContainer.height = prevSz + 'px';
+        previewContainer.cornerRadius = 8;
+        previewContainer.background = 'rgba(40, 44, 52, 0.8)';
+        previewContainer.thickness = 1;
+        previewContainer.color = 'rgba(80, 90, 110, 0.3)';
+        previewContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        previewContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        previewContainer.top = '6px';
+        previewContainer.left = '8px';
+        leftSection.addControl(previewContainer);
+
+        // Tower name
+        const nameLeft = (prevSz + 14) + 'px';
+        this.towerTypeText = new TextBlock('typeValue', '-');
+        this.towerTypeText.color = '#FFFFFF';
+        this.towerTypeText.fontSize = isLandscapeTI ? 12 : 14;
+        this.towerTypeText.fontFamily = 'Arial';
+        this.towerTypeText.fontWeight = 'bold';
+        this.towerTypeText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.towerTypeText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.towerTypeText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.towerTypeText.top = '8px';
+        this.towerTypeText.left = nameLeft;
+        this.towerTypeText.width = '100px';
+        this.towerTypeText.resizeToFit = true;
+        leftSection.addControl(this.towerTypeText);
+
+        // Level text (hidden data)
+        this.towerLevelText = new TextBlock('levelValue', '1');
+        this.towerLevelText.color = 'transparent';
+        this.towerLevelText.fontSize = 1;
+        this.towerLevelText.width = '0px';
+        this.towerLevelText.height = '0px';
+        leftSection.addControl(this.towerLevelText);
+
+        // Level dots
+        const levelDotsContainer = new Rectangle('levelDots');
+        levelDotsContainer.width = '70px';
+        levelDotsContainer.height = '12px';
+        levelDotsContainer.thickness = 0;
+        levelDotsContainer.background = 'transparent';
+        levelDotsContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        levelDotsContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        levelDotsContainer.top = isLandscapeTI ? '24px' : '30px';
+        levelDotsContainer.left = nameLeft;
+        leftSection.addControl(levelDotsContainer);
+
+        for (let i = 0; i < 3; i++) {
+            const dot = new Rectangle(`levelDot_${i}`);
+            dot.width = '8px';
+            dot.height = '8px';
+            dot.cornerRadius = 4;
+            dot.background = 'rgba(80, 90, 110, 0.4)';
+            dot.thickness = 0;
+            dot.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            dot.left = (i * 12) + 'px';
+            levelDotsContainer.addControl(dot);
+        }
+
+        const levelLabel = new TextBlock('levelLabel', 'LVL');
+        levelLabel.color = '#B0B8C8';
+        levelLabel.fontSize = 7;
+        levelLabel.fontFamily = 'Arial';
+        levelLabel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        levelLabel.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        levelLabel.left = '40px';
+        levelDotsContainer.addControl(levelLabel);
+
+        // Stats row: DMG, RNG, RATE, SELL
+        const statsGrid = new Grid('statsGrid');
+        statsGrid.addColumnDefinition(0.25);
+        statsGrid.addColumnDefinition(0.25);
+        statsGrid.addColumnDefinition(0.25);
+        statsGrid.addColumnDefinition(0.25);
+        statsGrid.addRowDefinition(1.0);
+        statsGrid.width = '95%';
+        statsGrid.height = isLandscapeTI ? '26px' : '50px';
+        statsGrid.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        statsGrid.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        statsGrid.top = '-4px';
+        statsGrid.left = '4px';
+        leftSection.addControl(statsGrid);
+
+        const statLabelFs = isLandscapeTI ? 7 : 9;
+        const statValFs = isLandscapeTI ? 11 : 13;
+        const createStatCell = (label: string, valueId: string, row: number, col: number): TextBlock => {
+            const container = new Rectangle(`stat_${valueId}`);
+            container.thickness = 0;
+            container.background = 'transparent';
+            statsGrid.addControl(container, row, col);
+
+            const lbl = new TextBlock(`${valueId}_lbl`, label);
+            lbl.color = '#B0B8C8';
+            lbl.fontSize = statLabelFs;
+            lbl.fontFamily = 'Arial';
+            lbl.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            lbl.top = '2px';
+            container.addControl(lbl);
+
+            const val = new TextBlock(valueId, '-');
+            val.color = '#FFFFFF';
+            val.fontSize = statValFs;
+            val.fontFamily = 'Arial';
+            val.fontWeight = 'bold';
+            val.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+            val.top = '-2px';
+            container.addControl(val);
+
+            return val;
+        };
+
+        this.towerDamageText = createStatCell('DMG', 'damageValue', 0, 0);
+        this.towerRangeText = createStatCell('RNG', 'rangeValue', 0, 1);
+        this.towerRateText = createStatCell('RATE', 'rateValue', 0, 2);
+        createStatCell('SELL', 'sellDisplayValue', 0, 3);
+
+        // Right section: Buttons + Close
+        const rightSection = new Rectangle('mobileRightSection');
+        rightSection.width = '50%';
+        rightSection.height = '100%';
+        rightSection.thickness = 0;
+        rightSection.background = 'transparent';
+        rightSection.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        this.towerInfoPanel.addControl(rightSection);
+
+        // Upgrade button
+        const actionBtnH = isLandscapeTI ? 26 : 44;
+        this.upgradeButton = new Rectangle('upgradeButton');
+        this.upgradeButton.width = '92%';
+        this.upgradeButton.height = actionBtnH + 'px';
+        this.upgradeButton.cornerRadius = isLandscapeTI ? 8 : 12;
+        this.upgradeButton.color = 'transparent';
+        this.upgradeButton.thickness = 0;
+        this.upgradeButton.background = '#4CAF50';
+        this.upgradeButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.upgradeButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.upgradeButton.top = '6px';
+        this.upgradeButton.isPointerBlocker = true;
+        this.upgradeButton.shadowColor = 'rgba(0, 0, 0, 0.4)';
+        this.upgradeButton.shadowBlur = 5;
+        this.upgradeButton.shadowOffsetY = 2;
+
+        const upgradeText = new TextBlock('upgradeText', 'UPGRADE');
+        upgradeText.color = '#FFFFFF';
+        upgradeText.fontSize = isLandscapeTI ? 11 : 13;
+        upgradeText.fontFamily = 'Arial';
+        upgradeText.fontWeight = 'bold';
+        upgradeText.top = isLandscapeTI ? '-4px' : '-6px';
+        this.upgradeButton.addControl(upgradeText);
+
+        const upgradeCostText = new TextBlock('upgradeCostText', '');
+        upgradeCostText.color = '#B0B8C8';
+        upgradeCostText.fontSize = isLandscapeTI ? 9 : 11;
+        upgradeCostText.fontFamily = 'Arial';
+        upgradeCostText.top = isLandscapeTI ? '6px' : '8px';
+        this.upgradeButton.addControl(upgradeCostText);
+
+        this.upgradeButton.onPointerDownObservable.add(() => {
+            if (this.upgradeButton && this.playerStats && this.selectedTower &&
+                this.playerStats.getMoney() >= this.selectedTower.getUpgradeCost()) {
+                this.upgradeButton.alpha = 0.8;
+            }
+        });
+        this.upgradeButton.onPointerClickObservable.add(() => {
+            this.upgradeSelectedTower();
+        });
+        this.upgradeButton.onPointerUpObservable.add(() => {
+            if (this.upgradeButton && this.playerStats && this.selectedTower) {
+                if (this.playerStats.getMoney() >= this.selectedTower.getUpgradeCost()) {
+                    this.upgradeButton.alpha = 1.0;
+                }
+            }
+        });
+        rightSection.addControl(this.upgradeButton);
+
+        // Sell button
+        this.sellButton = new Rectangle('sellButton');
+        this.sellButton.width = '92%';
+        this.sellButton.height = actionBtnH + 'px';
+        this.sellButton.cornerRadius = isLandscapeTI ? 8 : 12;
+        this.sellButton.color = 'transparent';
+        this.sellButton.thickness = 0;
+        this.sellButton.background = '#E53935';
+        this.sellButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.sellButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.sellButton.top = (6 + actionBtnH + 4) + 'px';
+        this.sellButton.isPointerBlocker = true;
+        this.sellButton.shadowColor = 'rgba(0, 0, 0, 0.4)';
+        this.sellButton.shadowBlur = 5;
+        this.sellButton.shadowOffsetY = 2;
+
+        const sellText = new TextBlock('sellText', 'SELL');
+        sellText.color = '#FFFFFF';
+        sellText.fontSize = isLandscapeTI ? 11 : 13;
+        sellText.fontFamily = 'Arial';
+        sellText.fontWeight = 'bold';
+        sellText.top = isLandscapeTI ? '-4px' : '-6px';
+        this.sellButton.addControl(sellText);
+
+        const sellValueText = new TextBlock('sellValueText', '');
+        sellValueText.color = '#B0B8C8';
+        sellValueText.fontSize = isLandscapeTI ? 9 : 11;
+        sellValueText.fontFamily = 'Arial';
+        sellValueText.top = isLandscapeTI ? '6px' : '8px';
+        this.sellButton.addControl(sellValueText);
+
+        this.sellButton.onPointerDownObservable.add(() => {
+            if (this.sellButton) this.sellButton.alpha = 0.8;
+        });
+        this.sellButton.onPointerClickObservable.add(() => {
+            this.sellSelectedTower();
+        });
+        this.sellButton.onPointerUpObservable.add(() => {
+            if (this.sellButton) this.sellButton.alpha = 1.0;
+            this.sellSelectedTower();
+        });
+        rightSection.addControl(this.sellButton);
+
+        // Close button
+        const infCloseSz = isLandscapeTI ? 24 : 44;
+        const closeBtn = new Rectangle('towerInfoClose');
+        closeBtn.width = infCloseSz + 'px';
+        closeBtn.height = infCloseSz + 'px';
+        closeBtn.cornerRadius = infCloseSz / 2;
+        closeBtn.background = 'rgba(60, 65, 75, 0.8)';
+        closeBtn.thickness = 0;
+        closeBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        closeBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        closeBtn.top = '-4px';
+        closeBtn.left = '-6px';
+        closeBtn.isPointerBlocker = true;
+        rightSection.addControl(closeBtn);
+
+        const closeTxt = new TextBlock('towerInfoCloseTxt', '\u2715');
+        closeTxt.color = '#B0B8C8';
+        closeTxt.fontSize = isLandscapeTI ? 13 : 16;
+        closeTxt.fontFamily = 'Arial';
+        closeBtn.addControl(closeTxt);
+
+        closeBtn.onPointerClickObservable.add(() => {
+            this.deselectTower();
+        });
+
+        // Targeting mode button
+        const targetH = isLandscapeTI ? 20 : 36;
+        this.targetingButton = new Rectangle('targetingButton');
+        this.targetingButton.width = isLandscapeTI ? '80px' : '100px';
+        this.targetingButton.height = targetH + 'px';
+        this.targetingButton.cornerRadius = 6;
+        this.targetingButton.background = '#3A3F4B';
+        this.targetingButton.color = '#555';
+        this.targetingButton.thickness = 1;
+        this.targetingButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.targetingButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        this.targetingButton.top = '-4px';
+
+        const targetText = new TextBlock('targetingText', 'CLOSEST');
+        targetText.color = '#B0B8C8';
+        targetText.fontSize = isLandscapeTI ? 8 : 10;
+        targetText.fontFamily = 'Arial';
+        targetText.fontWeight = 'bold';
+        this.targetingButton.addControl(targetText);
+
+        this.targetingButton.onPointerClickObservable.add(() => {
+            if (this.selectedTower) {
+                this.selectedTower.cycleTargetingMode();
+                this.updateTargetingButtonText();
+            }
+        });
+        this.towerInfoPanel.addControl(this.targetingButton);
+    }
+
+
 
     /**
      * Detect if the current device is a mobile device

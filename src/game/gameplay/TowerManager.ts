@@ -2,32 +2,12 @@ import { Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, Color4, ParticleS
 import { Game } from '../Game';
 import { Map } from './Map';
 import { Tower, TargetingMode } from './towers/Tower';
-import { BasicTower } from './towers/BasicTower';
-import { FastTower } from './towers/FastTower';
-import { HeavyTower } from './towers/HeavyTower';
-import { SniperTower } from './towers/SniperTower';
-import { AOETower } from './towers/AOETower';
-import { FireTower } from './towers/FireTower';
-import { WaterTower } from './towers/WaterTower';
-import { WindTower } from './towers/WindTower';
-import { EarthTower } from './towers/EarthTower';
-import { TowerCombiner } from './towers/TowerCombiner';
 import { EnemyManager } from './EnemyManager';
 import { LevelManager } from './LevelManager';
-// Import hybrid towers
-import { SteamTower } from './towers/hybrid/SteamTower';
-import { LavaTower } from './towers/hybrid/LavaTower';
-import { IceTower } from './towers/hybrid/IceTower';
-import { StormTower } from './towers/hybrid/StormTower';
-import { MudTower } from './towers/hybrid/MudTower';
-import { DustTower } from './towers/hybrid/DustTower';
-// Import ultimate towers
-import { GeyserTower } from './towers/ultimate/GeyserTower';
-import { InfernoTower } from './towers/ultimate/InfernoTower';
-import { GlacierTower } from './towers/ultimate/GlacierTower';
-import { TempestTower } from './towers/ultimate/TempestTower';
-import { QuagmireTower } from './towers/ultimate/QuagmireTower';
-import { CycloneTower } from './towers/ultimate/CycloneTower';
+import { TowerDefinition, getTowerDefinition, registerTowerDefinitions, getUpgradeOptions } from './towers/TowerDefinitions';
+import { TowerAbilitySystem } from './towers/abilities/TowerAbilitySystem';
+import { MEDIEVAL_TOWER_DEFS } from './towers/MedievalTowerDefs';
+import { ELEMENTAL_TOWER_DEFS } from './towers/ElementalTowerDefs';
 
 export class TowerManager {
     private game: Game;
@@ -35,46 +15,45 @@ export class TowerManager {
     private map: Map;
     private towers: Tower[] = [];
     private enemyManager: EnemyManager | null = null;
-    private towerCombiner: TowerCombiner;
     private levelManager: LevelManager | null = null;
+    private definitionsRegistered: boolean = false;
 
     constructor(game: Game, map: Map) {
         this.game = game;
         this.scene = game.getScene();
         this.map = map;
-        this.towerCombiner = new TowerCombiner(game, this, map);
+
+        // Register all tower definitions once
+        if (!this.definitionsRegistered) {
+            registerTowerDefinitions(MEDIEVAL_TOWER_DEFS);
+            registerTowerDefinitions(ELEMENTAL_TOWER_DEFS);
+            this.definitionsRegistered = true;
+        }
     }
 
-    /**
-     * Set the level manager for multi-map grid resolution when selling towers.
-     */
     public setLevelManager(levelManager: LevelManager): void {
         this.levelManager = levelManager;
     }
 
-    /**
-     * Set the enemy manager reference for targeting
-     * @param enemyManager The enemy manager instance
-     */
     public setEnemyManager(enemyManager: EnemyManager): void {
         this.enemyManager = enemyManager;
     }
 
     /**
-     * Update all towers
-     * @param deltaTime Time elapsed since last update in seconds
+     * Update all towers — targeting, firing, aura buffs, auto abilities.
      */
     public update(deltaTime: number): void {
-        // Check if we have enemies to target
         const hasEnemies = this.enemyManager && this.enemyManager.getEnemyCount() > 0;
-        
+
+        // First pass: compute aura buffs from support towers
+        this.computeAuraBuffs();
+
+        // Second pass: target + update each tower
         for (const tower of this.towers) {
-            // If we have an enemy manager with enemies, find targets for the tower
             if (hasEnemies) {
                 const position = tower.getPosition();
                 const range = tower.getRange();
 
-                // Use targeting mode to select the right enemy
                 let target = null;
                 switch (tower.getTargetingMode()) {
                     case TargetingMode.FIRST:
@@ -88,202 +67,142 @@ export class TowerManager {
                         target = this.enemyManager!.getClosestEnemy(position, range);
                         break;
                 }
-
-                // Set the target (or null if no enemy in range)
                 tower.setTarget(target);
             } else {
-                // No enemies available, clear any existing targets
                 tower.setTarget(null);
             }
-            
-            // Update the tower regardless
-            tower.update(deltaTime);
-        }
-    }
 
-    /**
-     * Create a new tower at the specified position
-     * @param type The type of tower to create
-     * @param position The world position to place the tower
-     * @returns The created tower or null if creation failed
-     */
-    public createTower(type: string, position: Vector3): Tower | null {
-        let tower: Tower | null = null;
-        
-        // Create the appropriate tower type
-        switch (type) {
-            case 'basicTower':
-                tower = new BasicTower(this.game, position);
-                break;
-            case 'fastTower':
-                tower = new FastTower(this.game, position);
-                break;
-            case 'heavyTower':
-                tower = new HeavyTower(this.game, position);
-                break;
-            case 'sniperTower':
-                tower = new SniperTower(this.game, position);
-                break;
-            case 'aoeTower':
-                tower = new AOETower(this.game, position);
-                break;
-            // Add elemental tower types
-            case 'fireTower':
-                tower = new FireTower(this.game, position);
-                break;
-            case 'waterTower':
-                tower = new WaterTower(this.game, position);
-                break;
-            case 'windTower':
-                tower = new WindTower(this.game, position);
-                break;
-            case 'earthTower':
-                tower = new EarthTower(this.game, position);
-                break;
-            // Add hybrid tower types
-            case 'steamTower':
-                tower = new SteamTower(this.game, position);
-                break;
-            case 'lavaTower':
-                tower = new LavaTower(this.game, position);
-                break;
-            case 'iceTower':
-                tower = new IceTower(this.game, position);
-                break;
-            case 'stormTower':
-                tower = new StormTower(this.game, position);
-                break;
-            case 'mudTower':
-                tower = new MudTower(this.game, position);
-                break;
-            case 'dustTower':
-                tower = new DustTower(this.game, position);
-                break;
-            // Ultimate tower types
-            case 'geyserTower':
-                tower = new GeyserTower(this.game, position);
-                break;
-            case 'infernoTower':
-                tower = new InfernoTower(this.game, position);
-                break;
-            case 'glacierTower':
-                tower = new GlacierTower(this.game, position);
-                break;
-            case 'tempestTower':
-                tower = new TempestTower(this.game, position);
-                break;
-            case 'quagmireTower':
-                tower = new QuagmireTower(this.game, position);
-                break;
-            case 'cycloneTower':
-                tower = new CycloneTower(this.game, position);
-                break;
-            default:
-                console.error(`Unknown tower type: ${type}`);
-                return null;
-        }
-        
-        // Add to towers list
-        this.towers.push(tower);
-        
-        // Create placement effect
-        this.createPlacementEffect(position);
-        
-        // Check for possible tower combinations
-        if (tower && type.includes('Tower') && type !== 'basicTower') {
-            const fused = this.towerCombiner.checkForCombinations(tower);
-            if (fused) {
-                // The placed tower was consumed by fusion — return null so
-                // callers don't re-mark the original grid cell as occupied
-                return null;
+            tower.update(deltaTime);
+
+            // Process auto abilities with full enemy list
+            if (hasEnemies && this.enemyManager) {
+                const allEnemies = this.enemyManager.getEnemies();
+                tower.processAutoAbilities(allEnemies);
             }
         }
-
-        return tower;
     }
 
     /**
-     * Create a visual effect when placing a tower
-     * @param position The position to create the effect at
+     * Compute and apply aura buffs from support towers to nearby towers.
      */
+    private computeAuraBuffs(): void {
+        // Reset all aura buffs first
+        for (const tower of this.towers) {
+            tower.setAuraBuffs(0, 0, 0);
+        }
+
+        // For each tower with an auraBuff ability, apply to nearby towers
+        for (const tower of this.towers) {
+            const abilityState = tower.getAbilityState();
+            if (!abilityState) continue;
+
+            const system = Tower.getAbilitySystem();
+            if (!system) continue;
+
+            const aura = system.getAuraBuffValues(abilityState);
+            if (!aura) continue;
+
+            const pos = tower.getPosition();
+            for (const other of this.towers) {
+                if (other === tower) continue;
+                const dist = Vector3.Distance(pos, other.getPosition());
+                if (dist <= aura.radius) {
+                    // Stack aura buffs from multiple sources
+                    const currentDmg = (other as any).auraDamageBonus || 0;
+                    const currentRate = (other as any).auraFireRateBonus || 0;
+                    const currentRange = (other as any).auraRangeBonus || 0;
+                    other.setAuraBuffs(
+                        currentDmg + aura.bonusDamage,
+                        currentRate + aura.bonusFireRate,
+                        currentRange + aura.bonusRange
+                    );
+                }
+            }
+        }
+    }
+
+    /**
+     * Create a new tower from a definition ID at a world position.
+     */
+    public createTower(definitionId: string, position: Vector3): Tower | null {
+        const def = getTowerDefinition(definitionId);
+        if (!def) {
+            console.error(`Unknown tower definition: ${definitionId}`);
+            return null;
+        }
+
+        try {
+            const tower = new Tower(this.game, position, definitionId);
+            this.towers.push(tower);
+            this.createPlacementEffect(position);
+            return tower;
+        } catch (e) {
+            console.error(`Failed to create tower ${definitionId}:`, e);
+            return null;
+        }
+    }
+
+    /**
+     * Evolve an existing tower to a new definition (upgrade path).
+     */
+    public evolveTower(tower: Tower, targetId: string): boolean {
+        if (!tower) return false;
+        return tower.evolve(targetId);
+    }
+
+    /**
+     * Legacy upgrade method — now unused in the evolution system.
+     */
+    public upgradeTower(tower: Tower | null): boolean {
+        if (!tower) return false;
+        // In the new system, call evolveTower with the desired upgrade path ID
+        const options = tower.getUpgradeOptions();
+        if (options.length === 0) return false;
+        // Auto-pick the first option (caller should pick explicitly via UI)
+        return this.evolveTower(tower, options[0].id);
+    }
+
     private createPlacementEffect(position: Vector3): void {
-        // Create a particle system for the placement effect
         const particleSystem = new ParticleSystem('towerPlacementParticles', 50, this.scene);
-        
-        // Set particle texture
         particleSystem.particleTexture = new Texture('assets/textures/particle.png', this.scene);
-        
-        // Set emission properties
         particleSystem.emitter = new Vector3(position.x, position.y + 1, position.z);
         particleSystem.minEmitBox = new Vector3(-0.5, 0, -0.5);
         particleSystem.maxEmitBox = new Vector3(0.5, 0, 0.5);
-        
-        // Set particle properties
         particleSystem.color1 = new Color4(0.7, 0.8, 1.0, 1.0);
         particleSystem.color2 = new Color4(0.2, 0.5, 1.0, 1.0);
         particleSystem.colorDead = new Color4(0, 0, 0.2, 0.0);
-        
         particleSystem.minSize = 0.1;
         particleSystem.maxSize = 0.5;
-        
         particleSystem.minLifeTime = 0.3;
         particleSystem.maxLifeTime = 1.0;
-        
         particleSystem.emitRate = 100;
-        
         particleSystem.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-        
         particleSystem.gravity = new Vector3(0, 9.81, 0);
-        
         particleSystem.direction1 = new Vector3(-1, 8, -1);
         particleSystem.direction2 = new Vector3(1, 8, 1);
-        
         particleSystem.minAngularSpeed = 0;
         particleSystem.maxAngularSpeed = Math.PI;
-        
         particleSystem.minEmitPower = 1;
         particleSystem.maxEmitPower = 3;
         particleSystem.updateSpeed = 0.01;
-        
-        // Start the particle system
         particleSystem.start();
-        
-        // Stop and dispose after 1 second
         setTimeout(() => {
             particleSystem.stop();
-            setTimeout(() => {
-                particleSystem.dispose();
-            }, 1000);
+            setTimeout(() => particleSystem.dispose(), 1000);
         }, 1000);
     }
 
-    /**
-     * Get all towers managed by this manager
-     * @returns Array of all towers
-     */
     public getTowers(): Tower[] {
         return this.towers;
     }
 
-    /**
-     * Get a specific tower by its unique ID
-     * @param id The tower's unique ID
-     * @returns The tower if found, null otherwise
-     */
     public getTowerById(id: string): Tower | null {
         return this.towers.find(tower => tower.getId() === id) || null;
     }
 
-    /**
-     * Find the closest tower to a given position
-     * @param position The position to search from
-     * @param maxRange Maximum search range
-     * @returns The closest tower, or null if none found within range
-     */
     public getClosestTower(position: Vector3, maxRange: number): Tower | null {
         let closestTower: Tower | null = null;
         let closestDistance = maxRange;
-        
         for (const tower of this.towers) {
             const distance = Vector3.Distance(position, tower.getPosition());
             if (distance < closestDistance) {
@@ -291,89 +210,48 @@ export class TowerManager {
                 closestTower = tower;
             }
         }
-        
         return closestTower;
     }
 
-    /**
-     * Check if a tower still exists in this manager
-     */
     public hasTower(tower: Tower): boolean {
         return this.towers.includes(tower);
     }
 
-    /**
-     * Upgrade a tower
-     * @param tower The tower to upgrade
-     * @returns True if upgrade was successful
-     */
-    public upgradeTower(tower: Tower | null): boolean {
-        if (!tower) return false;
-        const success = tower.upgrade();
-        if (success && tower.getFusionTier() === 1 && tower.getLevel() >= tower.getMaxLevel()) {
-            this.towerCombiner.checkTier2Combinations(tower);
-        }
-        return success;
-    }
-
-    /**
-     * Add a tower to the manager
-     * @param tower The tower to add
-     */
     public addTower(tower: Tower): void {
         this.towers.push(tower);
     }
 
-    /**
-     * Remove a tower from the manager
-     * @param tower The tower to remove
-     */
     public removeTower(tower: Tower): void {
         const index = this.towers.indexOf(tower);
         if (index !== -1) {
             this.towers.splice(index, 1);
-            tower.dispose(); // Clean up tower resources
+            tower.dispose();
         }
     }
 
-    /**
-     * Sell a tower
-     * @param tower The tower to sell
-     * @returns The amount of money received from selling
-     */
     public sellTower(tower: Tower): number {
         const sellValue = tower.getSellValue();
 
-        // Resolve which map segment the tower belongs to
         const towerMap = this.levelManager
             ? (this.levelManager.getMapForWorldPosition(tower.getPosition()) || this.map)
             : this.map;
 
-        // Get the grid position before removing the tower
         const gridPosition = towerMap.worldToGrid(tower.getPosition());
-
-        // Dispose the tower (which will clean up projectiles)
         tower.dispose();
 
-        // Remove from towers list after disposal
         const index = this.towers.indexOf(tower);
         if (index !== -1) {
             this.towers.splice(index, 1);
         }
 
-        // Update the grid after tower is disposed
         towerMap.setTowerPlaced(gridPosition.x, gridPosition.y, false);
-
         return sellValue;
     }
 
-    /**
-     * Clean up resources
-     */
     public dispose(): void {
         for (const tower of this.towers) {
             tower.dispose();
         }
         this.towers = [];
     }
-} 
+}

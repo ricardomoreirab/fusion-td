@@ -75,13 +75,14 @@ export class PauseScreen {
 
     private createPauseText(): void {
         const isMobile = this.isMobileDevice();
+        const isLandscape = isMobile && window.innerWidth > window.innerHeight;
 
         this.pauseText = new TextBlock('pauseText');
         this.pauseText.text = 'GAME PAUSED';
         this.pauseText.color = '#FFFFFF';
-        this.pauseText.fontSize = isMobile ? 40 : 60;
+        this.pauseText.fontSize = isLandscape ? 28 : (isMobile ? 40 : 60);
         this.pauseText.fontWeight = 'bold';
-        this.pauseText.top = isMobile ? '-80px' : '-120px';
+        this.pauseText.top = isLandscape ? '-55px' : (isMobile ? '-80px' : '-120px');
         this.pauseText.zIndex = 9001;
         this.pauseText.outlineWidth = 2;
         this.pauseText.outlineColor = "black";
@@ -94,15 +95,16 @@ export class PauseScreen {
 
     private createInstructionText(): void {
         const isMobile = this.isMobileDevice();
+        const isLandscape = isMobile && window.innerWidth > window.innerHeight;
 
         this.instructionText = new TextBlock('instructionText');
         this.instructionText.text = isMobile
             ? 'Tap Resume to continue'
             : 'Press Escape or click Resume to continue';
         this.instructionText.color = '#B0B8C8';
-        this.instructionText.fontSize = isMobile ? 16 : 22;
+        this.instructionText.fontSize = isLandscape ? 12 : (isMobile ? 16 : 22);
         this.instructionText.fontWeight = 'bold';
-        this.instructionText.top = isMobile ? '10px' : '20px';
+        this.instructionText.top = isLandscape ? '5px' : (isMobile ? '10px' : '20px');
         this.instructionText.zIndex = 9001;
         this.instructionText.outlineWidth = 1;
         this.instructionText.outlineColor = "black";
@@ -111,18 +113,19 @@ export class PauseScreen {
 
     private createResumeButton(): void {
         const isMobile = this.isMobileDevice();
+        const isLandscape = isMobile && window.innerWidth > window.innerHeight;
 
         this.resumeButton = Button.CreateSimpleButton('resumeButton', 'RESUME');
-        this.resumeButton.width = isMobile ? '180px' : '200px';
-        this.resumeButton.height = isMobile ? '48px' : '50px';
+        this.resumeButton.width = isLandscape ? '160px' : '200px';
+        this.resumeButton.height = isLandscape ? '36px' : (isMobile ? '48px' : '50px');
         this.resumeButton.color = '#FFFFFF';
         this.resumeButton.background = '#4CAF50';
         this.resumeButton.cornerRadius = 32;
         this.resumeButton.thickness = 0;
         this.resumeButton.fontFamily = 'Arial';
-        this.resumeButton.fontSize = isMobile ? 18 : 22;
+        this.resumeButton.fontSize = isLandscape ? 14 : (isMobile ? 18 : 22);
         this.resumeButton.fontWeight = 'bold';
-        this.resumeButton.top = isMobile ? '65px' : '80px';
+        this.resumeButton.top = isLandscape ? '42px' : (isMobile ? '65px' : '80px');
         this.resumeButton.zIndex = 9002;
         this.resumeButton.shadowColor = 'rgba(0, 0, 0, 0.4)';
         this.resumeButton.shadowBlur = 5;

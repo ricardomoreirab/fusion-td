@@ -206,6 +206,7 @@ export class MenuState implements GameState {
 
     private createUI(): void {
         const isMobile = this.isMobileDevice();
+        const isLandscape = isMobile && window.innerWidth > window.innerHeight;
 
         // Create fullscreen UI with proper scaling for mobile
         this.ui = AdvancedDynamicTexture.CreateFullscreenUI('menuUI', true, this.game.getScene());
@@ -228,8 +229,8 @@ export class MenuState implements GameState {
         const titleText = new TextBlock('titleText');
         titleText.text = 'FUSION TD';
         titleText.color = '#F5A623';
-        titleText.fontSize = isMobile ? 52 : 80;
-        titleText.top = isMobile ? '-130px' : '-200px';
+        titleText.fontSize = isLandscape ? 36 : (isMobile ? 52 : 80);
+        titleText.top = isLandscape ? '-80px' : (isMobile ? '-130px' : '-200px');
         titleText.fontFamily = 'Arial';
         titleText.fontWeight = 'bold';
         titleText.shadowColor = 'rgba(0,0,0,0.8)';
@@ -241,9 +242,9 @@ export class MenuState implements GameState {
         touchBlocker.addControl(titleText);
 
         // START GAME button - responsive pill shape
-        const btnWidth = isMobile ? '240px' : '280px';
-        const btnHeight = isMobile ? '54px' : '60px';
-        const btnFontSize = isMobile ? 20 : 24;
+        const btnWidth = isLandscape ? '200px' : (isMobile ? '240px' : '280px');
+        const btnHeight = isLandscape ? '40px' : (isMobile ? '54px' : '60px');
+        const btnFontSize = isLandscape ? 16 : (isMobile ? 20 : 24);
 
         const startButton = Button.CreateSimpleButton('startButton', 'START GAME');
         startButton.width = btnWidth;
@@ -255,7 +256,7 @@ export class MenuState implements GameState {
         startButton.fontFamily = 'Arial';
         startButton.fontSize = btnFontSize;
         startButton.fontWeight = 'bold';
-        startButton.top = isMobile ? '-15px' : '-20px';
+        startButton.top = isLandscape ? '-5px' : (isMobile ? '-15px' : '-20px');
         startButton.shadowColor = 'rgba(0, 0, 0, 0.5)';
         startButton.shadowBlur = 8;
         startButton.shadowOffsetY = 3;
@@ -287,7 +288,7 @@ export class MenuState implements GameState {
         instructionsButton.fontFamily = 'Arial';
         instructionsButton.fontSize = btnFontSize;
         instructionsButton.fontWeight = 'bold';
-        instructionsButton.top = isMobile ? '55px' : '60px';
+        instructionsButton.top = isLandscape ? '42px' : (isMobile ? '55px' : '60px');
         instructionsButton.shadowColor = 'rgba(0, 0, 0, 0.5)';
         instructionsButton.shadowBlur = 8;
         instructionsButton.shadowOffsetY = 3;
@@ -311,6 +312,7 @@ export class MenuState implements GameState {
 
     private showInstructions(): void {
         const isMobile = this.isMobileDevice();
+        const isLandscape = isMobile && window.innerWidth > window.innerHeight;
 
         // Overlay to block background interaction and dim the scene
         const overlay = new Rectangle('instructionsOverlay');
@@ -323,8 +325,8 @@ export class MenuState implements GameState {
 
         // Dark panel background - responsive sizing
         const panel = new Rectangle();
-        panel.width = isMobile ? '92%' : '600px';
-        panel.height = isMobile ? '70%' : '400px';
+        panel.width = isLandscape ? '80%' : (isMobile ? '92%' : '600px');
+        panel.height = isLandscape ? '88%' : (isMobile ? '70%' : '400px');
         panel.cornerRadius = 12;
         panel.background = 'rgba(28, 32, 40, 0.95)';
         panel.thickness = 1;
@@ -335,9 +337,9 @@ export class MenuState implements GameState {
         const titleText = new TextBlock('instructionsTitle');
         titleText.text = 'HOW TO PLAY';
         titleText.color = '#F5A623';
-        titleText.fontSize = isMobile ? 22 : 28;
+        titleText.fontSize = isLandscape ? 16 : (isMobile ? 22 : 28);
         titleText.fontWeight = 'bold';
-        titleText.top = isMobile ? '-38%' : '-160px';
+        titleText.top = isLandscape ? '-42%' : (isMobile ? '-38%' : '-160px');
         titleText.fontFamily = 'Arial';
         panel.addControl(titleText);
 
@@ -357,28 +359,28 @@ export class MenuState implements GameState {
               '5. Upgrade towers to increase their power\n\n' +
               '6. Survive as many waves as you can!';
         instructionsText.color = '#B0B8C8';
-        instructionsText.fontSize = isMobile ? 14 : 18;
+        instructionsText.fontSize = isLandscape ? 11 : (isMobile ? 15 : 18);
         instructionsText.top = '0px';
         instructionsText.fontFamily = 'Arial';
         instructionsText.textWrapping = true;
         instructionsText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        instructionsText.paddingLeft = isMobile ? '16px' : '30px';
-        instructionsText.paddingRight = isMobile ? '16px' : '30px';
+        instructionsText.paddingLeft = isLandscape ? '16px' : (isMobile ? '20px' : '30px');
+        instructionsText.paddingRight = isLandscape ? '16px' : (isMobile ? '20px' : '30px');
         panel.addControl(instructionsText);
 
         // Close button - pill shape
         const closeButton = Button.CreateSimpleButton('closeButton', 'CLOSE');
-        closeButton.width = isMobile ? '160px' : '200px';
-        closeButton.height = isMobile ? '44px' : '50px';
+        closeButton.width = isLandscape ? '120px' : (isMobile ? '160px' : '200px');
+        closeButton.height = isLandscape ? '32px' : (isMobile ? '44px' : '50px');
         closeButton.color = '#FFFFFF';
         closeButton.background = '#E53935';
         closeButton.cornerRadius = 32;
         closeButton.thickness = 0;
         closeButton.fontFamily = 'Arial';
-        closeButton.fontSize = isMobile ? 18 : 20;
+        closeButton.fontSize = isLandscape ? 13 : (isMobile ? 18 : 20);
         closeButton.fontWeight = 'bold';
         closeButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        closeButton.top = isMobile ? '-12px' : '-20px';
+        closeButton.top = isLandscape ? '-6px' : (isMobile ? '-12px' : '-20px');
         closeButton.shadowColor = 'rgba(0, 0, 0, 0.4)';
         closeButton.shadowBlur = 5;
         closeButton.shadowOffsetY = 2;

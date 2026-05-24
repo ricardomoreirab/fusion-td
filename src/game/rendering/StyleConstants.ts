@@ -35,59 +35,41 @@ export const PALETTE = {
     PORTAL_START: new Color3(0.15, 0.85, 0.35),
     PORTAL_END: new Color3(0.90, 0.20, 0.20),
 
-    // Towers
-    TOWER_BASIC: new Color3(0.70, 0.55, 0.35),
-    TOWER_BASIC_ROOF: new Color3(0.55, 0.30, 0.15),
-    TOWER_FIRE: new Color3(0.90, 0.35, 0.12),
-    TOWER_FIRE_LAVA: new Color3(1.0, 0.55, 0.10),
-    TOWER_WATER: new Color3(0.20, 0.55, 0.90),
-    TOWER_WATER_CRYSTAL: new Color3(0.45, 0.78, 0.95),
-    TOWER_WIND: new Color3(0.60, 0.88, 0.65),
-    TOWER_WIND_BLADE: new Color3(0.85, 0.95, 0.88),
-    TOWER_EARTH: new Color3(0.58, 0.48, 0.32),
-    TOWER_EARTH_CRYSTAL: new Color3(0.45, 0.82, 0.55),
-    TOWER_SNIPER: new Color3(0.35, 0.35, 0.45),
-    TOWER_SNIPER_LENS: new Color3(0.85, 0.22, 0.22),
-    TOWER_HEAVY: new Color3(0.48, 0.48, 0.50),
-    TOWER_HEAVY_BARREL: new Color3(0.32, 0.32, 0.35),
-    TOWER_FAST: new Color3(0.85, 0.75, 0.25),
-    TOWER_FAST_BARREL: new Color3(0.65, 0.55, 0.18),
-    TOWER_AOE: new Color3(0.70, 0.30, 0.80),
-    TOWER_AOE_CRYSTAL: new Color3(0.85, 0.50, 0.95),
+    // Medieval Tower Tree — stone, wood, iron theme
+    MEDIEVAL_STONE: new Color3(0.72, 0.68, 0.62),
+    MEDIEVAL_DARK_STONE: new Color3(0.50, 0.47, 0.42),
+    MEDIEVAL_WOOD: new Color3(0.55, 0.38, 0.22),
+    MEDIEVAL_IRON: new Color3(0.45, 0.43, 0.45),
+    MEDIEVAL_GOLD: new Color3(0.85, 0.70, 0.25),
+    MEDIEVAL_BANNER: new Color3(0.80, 0.22, 0.18),
+    MEDIEVAL_ARCHER: new Color3(0.65, 0.55, 0.35),
+    MEDIEVAL_GARRISON: new Color3(0.58, 0.55, 0.52),
+    MEDIEVAL_PRECISION: new Color3(0.78, 0.72, 0.58),
+    MEDIEVAL_RAPIDFIRE: new Color3(0.62, 0.52, 0.38),
+    MEDIEVAL_SUPPORT: new Color3(0.70, 0.60, 0.45),
+    MEDIEVAL_DEFENSE: new Color3(0.55, 0.50, 0.48),
+    MEDIEVAL_ELITE_GOLD: new Color3(0.90, 0.78, 0.35),
+    MEDIEVAL_ELITE_DARK: new Color3(0.30, 0.28, 0.32),
+    MEDIEVAL_SIEGE: new Color3(0.48, 0.42, 0.35),
 
-    // Hybrid Towers
-    TOWER_STEAM_COPPER: new Color3(0.72, 0.45, 0.20),
-    TOWER_STEAM_PIPE: new Color3(0.50, 0.50, 0.55),
-    TOWER_STEAM_CLOUD: new Color3(0.80, 0.82, 0.88),
-    TOWER_LAVA_ROCK: new Color3(0.30, 0.18, 0.10),
-    TOWER_LAVA_GLOW: new Color3(1.00, 0.40, 0.05),
-    TOWER_LAVA_CRUST: new Color3(0.50, 0.22, 0.08),
-    TOWER_ICE_CRYSTAL: new Color3(0.70, 0.88, 1.00),
-    TOWER_ICE_FROST: new Color3(0.85, 0.92, 1.00),
-    TOWER_ICE_DEEP: new Color3(0.25, 0.45, 0.80),
-    TOWER_STORM_DARK: new Color3(0.25, 0.25, 0.38),
-    TOWER_STORM_LIGHTNING: new Color3(0.70, 0.70, 1.00),
-    TOWER_STORM_ORB: new Color3(0.45, 0.45, 0.95),
-    TOWER_MUD_DARK: new Color3(0.32, 0.22, 0.12),
-    TOWER_MUD_WET: new Color3(0.42, 0.32, 0.18),
-    TOWER_MUD_POOL: new Color3(0.38, 0.28, 0.15),
-    TOWER_DUST_SAND: new Color3(0.78, 0.68, 0.48),
-    TOWER_DUST_ROCK: new Color3(0.62, 0.52, 0.38),
-    TOWER_DUST_VORTEX: new Color3(0.72, 0.62, 0.45),
-
-    // Ultimate Towers
-    TOWER_GEYSER_COPPER: new Color3(0.82, 0.55, 0.25),
-    TOWER_GEYSER_STEAM: new Color3(0.90, 0.92, 0.98),
-    TOWER_INFERNO_OBSIDIAN: new Color3(0.15, 0.08, 0.05),
-    TOWER_INFERNO_MAGMA: new Color3(1.00, 0.35, 0.00),
-    TOWER_GLACIER_ICE: new Color3(0.55, 0.80, 1.00),
-    TOWER_GLACIER_DEEP: new Color3(0.20, 0.40, 0.85),
-    TOWER_TEMPEST_CLOUD: new Color3(0.20, 0.20, 0.35),
-    TOWER_TEMPEST_BOLT: new Color3(0.80, 0.80, 1.00),
-    TOWER_QUAGMIRE_MUD: new Color3(0.28, 0.18, 0.08),
-    TOWER_QUAGMIRE_SLIME: new Color3(0.35, 0.45, 0.15),
-    TOWER_CYCLONE_SAND: new Color3(0.85, 0.75, 0.55),
-    TOWER_CYCLONE_STORM: new Color3(0.65, 0.58, 0.42),
+    // Elemental Tower Tree — magical, glowing theme
+    ELEMENTAL_OBSIDIAN: new Color3(0.22, 0.18, 0.25),
+    ELEMENTAL_CRYSTAL: new Color3(0.65, 0.55, 0.85),
+    ELEMENTAL_FIRE: new Color3(0.90, 0.35, 0.12),
+    ELEMENTAL_FIRE_GLOW: new Color3(1.0, 0.55, 0.10),
+    ELEMENTAL_FIRE_DARK: new Color3(0.45, 0.12, 0.05),
+    ELEMENTAL_LIGHTNING: new Color3(0.55, 0.55, 1.0),
+    ELEMENTAL_LIGHTNING_BRIGHT: new Color3(0.80, 0.80, 1.0),
+    ELEMENTAL_PLASMA: new Color3(0.75, 0.40, 0.95),
+    ELEMENTAL_ICE: new Color3(0.45, 0.75, 0.95),
+    ELEMENTAL_ICE_DEEP: new Color3(0.20, 0.45, 0.80),
+    ELEMENTAL_ICE_FROST: new Color3(0.85, 0.92, 1.0),
+    ELEMENTAL_WATER: new Color3(0.20, 0.50, 0.85),
+    ELEMENTAL_NATURE: new Color3(0.35, 0.65, 0.30),
+    ELEMENTAL_NATURE_DARK: new Color3(0.22, 0.45, 0.18),
+    ELEMENTAL_SHADOW: new Color3(0.35, 0.18, 0.45),
+    ELEMENTAL_SHADOW_DARK: new Color3(0.18, 0.08, 0.25),
+    ELEMENTAL_VOID: new Color3(0.28, 0.12, 0.38),
 
     // Enemies - Basic (Goblin Warrior: earthy greens and browns)
     ENEMY_BASIC: new Color3(0.45, 0.58, 0.28),           // Olive-green skin
@@ -171,21 +153,15 @@ export const PALETTE = {
     ELEMENT_EARTH: '#CC9933',
     ELEMENT_NONE: '#FFFFFF',
 
-    // Medieval non-elemental tower palette
-    TOWER_BASIC_STONE: new Color3(0.72, 0.68, 0.62),      // Limestone
-    TOWER_BASIC_MERLON: new Color3(0.60, 0.56, 0.50),     // Dark stone
-    TOWER_BASIC_WOOD: new Color3(0.55, 0.38, 0.22),       // Timber
-    TOWER_BASIC_BANNER: new Color3(0.85, 0.68, 0.18),     // Heraldic gold
-    TOWER_FAST_TIMBER: new Color3(0.48, 0.32, 0.16),      // Dark log
-    TOWER_FAST_TORSION: new Color3(0.65, 0.55, 0.35),     // Bronze spring
-    TOWER_HEAVY_SIEGE: new Color3(0.58, 0.52, 0.45),      // Weathered stone
-    TOWER_HEAVY_ARM: new Color3(0.55, 0.40, 0.22),        // Trebuchet wood
-    TOWER_HEAVY_IRON: new Color3(0.35, 0.33, 0.35),       // Iron fittings
-    TOWER_SNIPER_LIMESTONE: new Color3(0.80, 0.76, 0.70), // Pale spire stone
-    TOWER_SNIPER_SLATE: new Color3(0.35, 0.32, 0.38),     // Roof slate
-    TOWER_AOE_RUNE: new Color3(0.60, 0.28, 0.85),         // Purple rune glow
-    TOWER_AOE_STONE: new Color3(0.45, 0.42, 0.48),        // Dark arcane stone
-    TOWER_AOE_ORB: new Color3(0.72, 0.40, 0.95),          // Conjurer orb
+    // Tower tier accent colors (used for UI highlights)
+    TIER_1: '#8B7355',
+    TIER_2: '#A09080',
+    TIER_3: '#B0A890',
+    TIER_4: '#C0B898',
+    TIER_5: '#D4C8A0',
+    TIER_6: '#E0D4A8',
+    TIER_7: '#F0E0B0',
+    TIER_8: '#FFD54F',
 } as const;
 
 // ==================== MAP THEME PALETTES ====================
