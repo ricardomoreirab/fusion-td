@@ -5,7 +5,7 @@ import { EnemyManager } from './EnemyManager';
 import { StatusEffect } from './GameTypes';
 import { PALETTE } from '../rendering/StyleConstants';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../rendering/LowPolyMaterial';
-import { buildBarbarianMesh, BarbarianMeshParts } from './champions/BarbarianBuilder';
+import { buildBarbarianMesh } from './champions/BarbarianBuilder';
 
 /**
  * Champion — a friendly boss-like unit that walks the path in reverse,
