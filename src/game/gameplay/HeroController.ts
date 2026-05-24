@@ -53,8 +53,6 @@ export class HeroController {
             const key = kbInfo.event.key.toLowerCase();
             if (kbInfo.type === KeyboardEventTypes.KEYDOWN) {
                 this.keys[key] = true;
-                // TEMP: press H to deal 25 damage (sanity check — removed in Task 2.7)
-                if (key === 'h') this.takeDamage(25);
             }
             if (kbInfo.type === KeyboardEventTypes.KEYUP) {
                 this.keys[key] = false;
