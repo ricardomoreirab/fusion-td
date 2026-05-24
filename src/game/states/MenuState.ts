@@ -273,7 +273,7 @@ export class MenuState implements GameState {
             });
         }
         startButton.onPointerUpObservable.add(() => {
-            this.game.getStateManager().changeState('gameplay');
+            this.game.getStateManager().changeState('survivors');
         });
         touchBlocker.addControl(startButton);
 

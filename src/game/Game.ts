@@ -2,6 +2,7 @@ import { Engine, Scene, Vector3, HemisphericLight, ArcRotateCamera, Camera, Colo
 import { GameState } from './states/GameState';
 import { MenuState } from './states/MenuState';
 import { GameplayState } from './states/GameplayState';
+import { SurvivorsGameplayState } from './states/SurvivorsGameplayState';
 import { GameOverState } from './states/GameOverState';
 import { AssetManager } from './managers/AssetManager';
 import { StateManager } from './managers/StateManager';
@@ -40,6 +41,7 @@ export class Game {
         // Register game states
         this.stateManager.registerState('menu', new MenuState(this));
         this.stateManager.registerState('gameplay', new GameplayState(this));
+        this.stateManager.registerState('survivors', new SurvivorsGameplayState(this));
         this.stateManager.registerState('gameOver', new GameOverState(this));
         
         // Initialize pause screen
