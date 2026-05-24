@@ -106,6 +106,95 @@ export function buildBarbarianMesh(scene: Scene, position: Vector3): BarbarianMe
     clasp.position = new Vector3(0, 0, 0.50);
     clasp.material = createEmissiveMaterial('barbClaspMat', steelGrey, 0.3, scene);
 
+    // ===== Belt decorations =====
+
+    // Trophy skull — hung from belt at front-left
+    const skullCord = MeshBuilder.CreateCylinder('barbTrophyCord', {
+        height: 0.18,
+        diameterTop: 0.02,
+        diameterBottom: 0.02,
+        tessellation: 5,
+    }, scene);
+    skullCord.parent = belt;
+    skullCord.position = new Vector3(-0.40, -0.18, 0.45);
+    skullCord.material = createLowPolyMaterial('barbTrophyCordMat', darkLeather, scene);
+
+    const beltTrophy = MeshBuilder.CreateSphere('barbTrophySkull', {
+        diameter: 0.18,
+        segments: 4,
+    }, scene);
+    makeFlatShaded(beltTrophy);
+    beltTrophy.parent = skullCord;
+    beltTrophy.position = new Vector3(0, -0.12, 0);
+    beltTrophy.material = createLowPolyMaterial('barbTrophySkullMat', boneWhite, scene);
+
+    const skullJaw = MeshBuilder.CreateBox('barbTrophyJaw', {
+        width: 0.12,
+        height: 0.05,
+        depth: 0.09,
+    }, scene);
+    makeFlatShaded(skullJaw);
+    skullJaw.parent = beltTrophy;
+    skullJaw.position = new Vector3(0, -0.07, 0.02);
+    skullJaw.material = createLowPolyMaterial('barbTrophyJawMat', new Color3(0.85, 0.80, 0.70), scene);
+
+    // Two eye-socket holes — small black emissive boxes
+    for (let e = -1; e <= 1; e += 2) {
+        const socket = MeshBuilder.CreateBox(`barbTrophySocket${e}`, {
+            width: 0.03,
+            height: 0.03,
+            depth: 0.02,
+        }, scene);
+        socket.parent = beltTrophy;
+        socket.position = new Vector3(e * 0.04, 0.01, 0.08);
+        socket.material = createEmissiveMaterial(`barbTrophySocketMat${e}`,
+            new Color3(0.05, 0.05, 0.05), 0.0, scene);
+    }
+
+    // Dangling bone fragments — 3 bones on the front-right of the belt
+    const danglePositions: Array<[number, number, number]> = [
+        [0.30, -0.20, 0.45],
+        [0.42, -0.24, 0.43],
+        [0.36, -0.28, 0.42],
+    ];
+    const dangleLengths = [0.20, 0.16, 0.24];
+    for (let d = 0; d < danglePositions.length; d++) {
+        const [x, y, z] = danglePositions[d];
+        const dangleCord = MeshBuilder.CreateCylinder(`barbDangleCord${d}`, {
+            height: 0.06,
+            diameterTop: 0.015,
+            diameterBottom: 0.015,
+            tessellation: 4,
+        }, scene);
+        dangleCord.parent = belt;
+        dangleCord.position = new Vector3(x, y - 0.03, z);
+        dangleCord.material = createLowPolyMaterial(`barbDangleCordMat${d}`, darkLeather, scene);
+
+        const boneFrag = MeshBuilder.CreateCylinder(`barbDangleBone${d}`, {
+            height: dangleLengths[d],
+            diameterTop: 0.03,
+            diameterBottom: 0.04,
+            tessellation: 5,
+        }, scene);
+        makeFlatShaded(boneFrag);
+        boneFrag.parent = dangleCord;
+        boneFrag.position = new Vector3(0, -dangleLengths[d] * 0.5 - 0.03, 0);
+        boneFrag.material = createLowPolyMaterial(`barbDangleBoneMat${d}`, boneWhite, scene);
+    }
+
+    // Iron studs — 6 small studs along the belt's front face
+    for (let s = 0; s < 6; s++) {
+        const stud = MeshBuilder.CreateBox(`barbBeltStud${s}`, {
+            width: 0.06,
+            height: 0.06,
+            depth: 0.03,
+        }, scene);
+        makeFlatShaded(stud);
+        stud.parent = belt;
+        stud.position = new Vector3(-0.50 + s * 0.20, 0, 0.49);
+        stud.material = createEmissiveMaterial(`barbBeltStudMat${s}`, steelGrey, 0.3, scene);
+    }
+
     // Fur kilt — multiple trapezoid-ish flat boxes angled around the waist
     const kiltAngles = [-0.28, -0.14, 0, 0.14, 0.28];
     for (let i = 0; i < kiltAngles.length; i++) {
@@ -437,6 +526,28 @@ export function buildBarbarianMesh(scene: Scene, position: Vector3): BarbarianMe
     axeBracer.position = new Vector3(0, -0.38, 0);
     axeBracer.material = createLowPolyMaterial('barbAxeBracerMat', leather, scene);
 
+    // Axe-hand wrap — small bandage box at the gripping hand
+    const axeHandWrap = MeshBuilder.CreateBox('barbAxeHandWrap', {
+        width: 0.34,
+        height: 0.18,
+        depth: 0.34,
+    }, scene);
+    makeFlatShaded(axeHandWrap);
+    axeHandWrap.parent = swordArm;
+    axeHandWrap.position = new Vector3(0, -0.55, 0.08);
+    axeHandWrap.material = createLowPolyMaterial('barbAxeHandWrapMat', boneWhite, scene);
+
+    // Red blood streak on the axe hand wrap
+    const axeHandBlood = MeshBuilder.CreateBox('barbAxeHandBlood', {
+        width: 0.18,
+        height: 0.03,
+        depth: 0.16,
+    }, scene);
+    makeFlatShaded(axeHandBlood);
+    axeHandBlood.parent = axeHandWrap;
+    axeHandBlood.position = new Vector3(0.04, 0.10, 0.08);
+    axeHandBlood.material = createEmissiveMaterial('barbAxeHandBloodMat', bloodRed, 0.5, scene);
+
     // --- Battle axe held in the dominant hand ---
     // Shaft: long dark wood cylinder
     const axeShaft = MeshBuilder.CreateCylinder('barbAxeShaft', {
@@ -531,16 +642,43 @@ export function buildBarbarianMesh(scene: Scene, position: Vector3): BarbarianMe
     offBracer.position = new Vector3(0, -0.38, 0);
     offBracer.material = createLowPolyMaterial('barbOffBracerMat', leather, scene);
 
-    // Clenched fist (small box at end of arm)
-    const fist = MeshBuilder.CreateBox('barbFist', {
-        width: 0.34,
-        height: 0.28,
-        depth: 0.34
+    // 2 red emissive scar lines wrapping the off-arm bracer
+    for (let i = 0; i < 2; i++) {
+        const scar = MeshBuilder.CreateBox(`barbOffForearmScar${i}`, {
+            width: 0.44,
+            height: 0.018,
+            depth: 0.10,
+        }, scene);
+        makeFlatShaded(scar);
+        scar.parent = offBracer;
+        scar.position = new Vector3(0, 0.05 - i * 0.08, 0.18);
+        scar.rotation.y = (i === 0 ? 0.25 : -0.20);
+        scar.material = createEmissiveMaterial(`barbOffForearmScarMat${i}`, bloodRed, 0.5, scene);
+    }
+
+    // Bloody hand wrap on the off-arm fist
+    const offFistWrap = MeshBuilder.CreateBox('barbOffFistWrap', {
+        width: 0.38,
+        height: 0.32,
+        depth: 0.38,
     }, scene);
-    makeFlatShaded(fist);
-    fist.parent = shieldArm;
-    fist.position = new Vector3(0, -0.60, 0.04);
-    fist.material = createLowPolyMaterial('barbFistMat', skinDark, scene);
+    makeFlatShaded(offFistWrap);
+    offFistWrap.parent = shieldArm;
+    offFistWrap.position = new Vector3(0, -0.60, 0.04);
+    offFistWrap.material = createLowPolyMaterial('barbOffFistWrapMat', boneWhite, scene);
+
+    // Red blood splotch on the wrap
+    const offBloodSplotch = MeshBuilder.CreateBox('barbOffBloodSplotch', {
+        width: 0.25,
+        height: 0.04,
+        depth: 0.20,
+    }, scene);
+    makeFlatShaded(offBloodSplotch);
+    offBloodSplotch.parent = offFistWrap;
+    offBloodSplotch.position = new Vector3(0.05, 0.16, 0.10);
+    offBloodSplotch.rotation.y = 0.4;
+    offBloodSplotch.material = createEmissiveMaterial('barbOffBloodSplotchMat',
+        bloodRed, 0.5, scene);
 
     // --- Bare legs (skin tone, knee cap detail) ---
     const leftLeg = MeshBuilder.CreateBox('barbLeftLeg', {
@@ -606,7 +744,7 @@ export function buildBarbarianMesh(scene: Scene, position: Vector3): BarbarianMe
         rightLeg,
         axeHead,
         kiltFlaps: [],
-        beltTrophy: null,
+        beltTrophy,
         snarlJaw,
         chestPulseGroup,
     };
