@@ -756,7 +756,9 @@ export class Map {
         }
 
         // Animate rings
+        let startPortalTime = 0;
         this.scene.registerBeforeRender(() => {
+            startPortalTime += this.scene.getEngine().getDeltaTime() / 1000;
             ring1.rotation.y += 0.012;
             ring2.rotation.y -= 0.018;
             ring2.rotation.x += 0.008;
@@ -764,7 +766,7 @@ export class Map {
             ring3.rotation.z -= 0.01;
             // Pulse the sigil
             if (sigilMat.alpha !== undefined) {
-                sigilMat.alpha = 0.4 + Math.sin(Date.now() * 0.003) * 0.15;
+                sigilMat.alpha = 0.4 + Math.sin(startPortalTime * 3.0) * 0.15;
             }
         });
     }
@@ -880,17 +882,19 @@ export class Map {
         this.endPortalMeshes.push(core);
 
         // Animate end portal
+        let endPortalTime = 0;
         this.scene.registerBeforeRender(() => {
+            endPortalTime += this.scene.getEngine().getDeltaTime() / 1000;
             vortex.rotation.y -= 0.015;
             innerVortex.rotation.y += 0.022;
             innerVortex.rotation.x += 0.01;
             core.rotation.y += 0.03;
             core.rotation.x += 0.02;
             // Bobbing core
-            core.position.y = 1.8 + Math.sin(Date.now() * 0.002) * 0.15;
+            core.position.y = 1.8 + Math.sin(endPortalTime * 2.0) * 0.15;
             // Pulse the crater
             if (sigilMat.alpha !== undefined) {
-                sigilMat.alpha = 0.4 + Math.sin(Date.now() * 0.004) * 0.2;
+                sigilMat.alpha = 0.4 + Math.sin(endPortalTime * 4.0) * 0.2;
             }
         });
     }

@@ -100,6 +100,7 @@ export class SurvivorsGameplayState implements GameState {
 
         // Create UI layer
         this.ui = AdvancedDynamicTexture.CreateFullscreenUI('survivorsUI', true, this.scene);
+        this.ui.idealWidth = 800; // cap GUI rasterization — matches MenuState and GameOverState
 
         // Show champion select; actual run starts when player picks
         this.championSelect = new ChampionSelectOverlay(this.ui);

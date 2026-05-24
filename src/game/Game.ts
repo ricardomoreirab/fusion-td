@@ -138,7 +138,8 @@ export class Game {
         this.scene.fogMode = Scene.FOGMODE_NONE;
 
         // Glow layer for emissive elements (portals, tower effects)
-        const glowLayer = new GlowLayer('glowLayer', this.scene);
+        // mainTextureRatio 0.5 halves fill rate on retina/4K; blurKernelSize 16 halves blur work
+        const glowLayer = new GlowLayer('glowLayer', this.scene, { mainTextureRatio: 0.5 });
         glowLayer.intensity = 0.4;
         glowLayer.blurKernelSize = 16; // default 32 — half the blur work per frame
 
