@@ -2184,9 +2184,11 @@ export class Map {
         }
 
         // Top-down camera always sees the whole arena — skip per-mesh frustum culling.
-        // Apply to arena decorations (border tiles, rocks, grass, etc.).
+        // All decorations are static (no registerBeforeRender touches them), so their
+        // world matrices are safe to freeze too.
         for (const m of this.arenaDecorations) {
             m.alwaysSelectAsActiveMesh = true;
+            m.freezeWorldMatrix();
         }
         // Also apply to the ground disc layers pushed just above (last 5 groundMeshes).
         // The survivors arena adds exactly groundLayers.length discs to groundMeshes.
@@ -2194,6 +2196,7 @@ export class Map {
         const groundMeshCount = this.groundMeshes.length;
         for (let i = groundMeshCount - groundDiscCount; i < groundMeshCount; i++) {
             this.groundMeshes[i].alwaysSelectAsActiveMesh = true;
+            this.groundMeshes[i].freezeWorldMatrix();
         }
     }
 
