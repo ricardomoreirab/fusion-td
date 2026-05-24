@@ -1,7 +1,7 @@
 {
-  "name": "fusion-td",
+  "name": "ktg",
   "version": "1.0.0",
-  "description": "Tower Defense game built with Babylon.js",
+  "description": "KTG — Kill the Goblins. Vampire Survivors-style arena game built with Babylon.js",
   "main": "index.js",
   "scripts": {
     "start": "webpack serve --open",
@@ -14,7 +14,9 @@
   "keywords": [
     "babylonjs",
     "game",
-    "tower-defense"
+    "vampire-survivors",
+    "arena",
+    "ktg"
   ],
   "author": "",
   "license": "MIT",

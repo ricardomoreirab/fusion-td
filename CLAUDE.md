@@ -1,4 +1,4 @@
-# Fusion TD — Claude Code Project Notes
+# KTG — Kill the Goblins — Claude Code Project Notes
 
 ## Project summary
 

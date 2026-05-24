@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "name": "fusion-td",
+  "name": "ktg",
   "builds": [
     {
       "src": "package.json",

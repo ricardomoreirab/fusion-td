@@ -225,49 +225,62 @@ export class MenuState implements GameState {
         touchBlocker.isPointerBlocker = true;
         this.ui.addControl(touchBlocker);
 
-        // Title "FUSION TD" - responsive sizing
+        // Title "KTG" + "KILL THE GOBLINS" subtitle - responsive sizing
         const titleText = new TextBlock('titleText');
-        titleText.text = 'FUSION TD';
-        titleText.color = '#F5A623';
-        titleText.fontSize = isLandscape ? 36 : (isMobile ? 52 : 80);
-        titleText.top = isLandscape ? '-80px' : (isMobile ? '-130px' : '-200px');
-        titleText.fontFamily = 'Arial';
+        titleText.text = 'KTG';
+        titleText.color = '#C8302A';
+        titleText.fontSize = isLandscape ? 56 : (isMobile ? 84 : 128);
+        titleText.top = isLandscape ? '-95px' : (isMobile ? '-160px' : '-230px');
+        titleText.fontFamily = 'Georgia';
         titleText.fontWeight = 'bold';
-        titleText.shadowColor = 'rgba(0,0,0,0.8)';
-        titleText.shadowBlur = isMobile ? 6 : 10;
+        titleText.shadowColor = 'rgba(0,0,0,0.85)';
+        titleText.shadowBlur = isMobile ? 8 : 14;
         titleText.shadowOffsetX = isMobile ? 2 : 4;
-        titleText.shadowOffsetY = isMobile ? 2 : 4;
+        titleText.shadowOffsetY = isMobile ? 3 : 6;
         titleText.outlineWidth = 2;
-        titleText.outlineColor = '#B8860B';
+        titleText.outlineColor = '#4A0E08';
         touchBlocker.addControl(titleText);
+
+        const subtitleText = new TextBlock('subtitleText');
+        subtitleText.text = 'KILL THE GOBLINS';
+        subtitleText.color = '#88A070';
+        subtitleText.fontSize = isLandscape ? 14 : (isMobile ? 18 : 24);
+        subtitleText.top = isLandscape ? '-55px' : (isMobile ? '-95px' : '-145px');
+        subtitleText.fontFamily = 'Georgia';
+        subtitleText.fontWeight = 'bold';
+        subtitleText.outlineWidth = 1;
+        subtitleText.outlineColor = '#000000';
+        touchBlocker.addControl(subtitleText);
 
         // START GAME button - responsive pill shape
         const btnWidth = isLandscape ? '200px' : (isMobile ? '240px' : '280px');
         const btnHeight = isLandscape ? '40px' : (isMobile ? '54px' : '60px');
         const btnFontSize = isLandscape ? 16 : (isMobile ? 20 : 24);
 
-        const startButton = Button.CreateSimpleButton('startButton', 'START GAME');
+        const startButton = Button.CreateSimpleButton('startButton', 'BEGIN THE HUNT');
         startButton.width = btnWidth;
         startButton.height = btnHeight;
-        startButton.color = '#FFFFFF';
-        startButton.background = '#4CAF50';
-        startButton.cornerRadius = 32;
-        startButton.thickness = 0;
-        startButton.fontFamily = 'Arial';
+        startButton.color = '#C8302A';            // border color (Button extends Rectangle)
+        startButton.background = '#8A1812';
+        startButton.cornerRadius = 6;
+        startButton.thickness = 2;
+        startButton.fontFamily = 'Georgia';
         startButton.fontSize = btnFontSize;
         startButton.fontWeight = 'bold';
         startButton.top = isLandscape ? '-5px' : (isMobile ? '-15px' : '-20px');
-        startButton.shadowColor = 'rgba(0, 0, 0, 0.5)';
-        startButton.shadowBlur = 8;
-        startButton.shadowOffsetY = 3;
+        startButton.shadowColor = 'rgba(0, 0, 0, 0.7)';
+        startButton.shadowBlur = 10;
+        startButton.shadowOffsetY = 4;
+        // Force the inner text label to white (Button's text child)
+        if (startButton.textBlock) startButton.textBlock.color = '#FFFFFF';
         if (!isMobile) {
             startButton.onPointerEnterObservable.add(() => {
-                startButton.background = '#66BB6A';
+                startButton.background = '#C8302A';
                 startButton.scaleX = 1.05;
                 startButton.scaleY = 1.05;
             });
             startButton.onPointerOutObservable.add(() => {
-                startButton.background = '#4CAF50';
+                startButton.background = '#8A1812';
                 startButton.scaleX = 1.0;
                 startButton.scaleY = 1.0;
             });

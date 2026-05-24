@@ -9,7 +9,9 @@ export interface ScoreData {
     date: string;
 }
 
-const STORAGE_KEY = 'fusionTD_highScore';
+const STORAGE_KEY = 'ktg_highScore';
+// One-time migration: read the old fusionTD key if the new one is empty
+const LEGACY_STORAGE_KEY = 'fusionTD_highScore';
 
 export class ScoreManager {
     /**
@@ -27,7 +29,16 @@ export class ScoreManager {
      */
     public static getHighScore(): ScoreData | null {
         try {
-            const data = localStorage.getItem(STORAGE_KEY);
+            let data = localStorage.getItem(STORAGE_KEY);
+            // Fall back to legacy fusionTD key for one-time migration
+            if (!data) {
+                data = localStorage.getItem(LEGACY_STORAGE_KEY);
+                if (data) {
+                    // Promote to new key so future reads skip the legacy lookup
+                    localStorage.setItem(STORAGE_KEY, data);
+                    localStorage.removeItem(LEGACY_STORAGE_KEY);
+                }
+            }
             if (data) {
                 return JSON.parse(data) as ScoreData;
             }

@@ -1,17 +1,18 @@
-# Fusion TD - Vampire Survivors Style Arena Game
+# KTG — Kill the Goblins
 
-A single-hero wave-survival game built with Babylon.js and TypeScript, inspired by Vampire Survivors. Pick a champion, fight off endless waves of enemies in a circular arena, collect elemental power orbs, and spend gold between waves on stat upgrades.
+A single-hero wave-survival arena game built with Babylon.js and TypeScript, inspired by Vampire Survivors. Pick a champion, fight off escalating goblin hordes in a circular arena, collect elemental power orbs, and spend gold between waves on upgrades.
 
 ## Core Gameplay
 
-- **Champion select** before each run — choose from Knight, Ranger, or Mage, each with unique stats and a starting power.
-- **Single hero**, player-controlled via WASD or virtual joystick (mobile).
-- **Auto-attack** fires continuously at the nearest enemy.
-- **4 power slots** — equip elemental powers that auto-fire on cooldown. Powers level up when you collect duplicate orbs.
-- **Elemental powers**: Fireball (Fire), Frost Shards (Ice), Arcane Nova (Arcane), Piercing Arrow (Physical), Whirling Blades (Physical), Lightning Chain (Storm).
-- **Elite enemies** drop element-tagged power orbs on death, triggering a 3-card slow-motion choice overlay.
-- **Between-wave shop** — spend gold on Vitality, Swiftness, Magnetism, Power, Haste, or Bulwark upgrades.
-- **Manual ultimates** — Meteor Strike (45s cooldown) and Frost Nova (30s cooldown), shown in the HUD.
+- **Champion select** before each run — Barbarian (melee axe), Ranger (elemental arrows), or Mage (magic spells). Each plays differently.
+- **Single hero**, player-controlled via WASD (desktop) or virtual joystick (mobile).
+- **Class-specific basic attack** — Barbarian: 360° axe spin; Ranger: arrow projectile; Mage: magic bolt.
+- **4 power slots** — equip elemental powers. Mage spells and Ranger arrows auto-fire on cooldown; Barbarian enchantments are passive modifiers on every axe swing.
+- **5 elements × 3 classes = 15 distinct powers**. Fire / Ice / Arcane / Physical / Storm, themed per class (e.g., fire = Fireball for Mage, Fire Arrow for Ranger, Flaming Edge enchant for Barbarian).
+- **Element decorations** appear on the hero's weapon when equipped — flames around the axe, ice crystals on the bow, lightning on the staff orb.
+- **Elite enemies** drop element-tagged power orbs on death, triggering a 3-card pause-time choice overlay.
+- **Between-wave shop** — spend gold on Vitality, Swiftness, Reach, Power, Haste, Bulwark, or Quickness upgrades.
+- **Class-specific manual ultimates** — Barbarian: Whirlwind + Smash. Ranger: Volley + Explosive Arrow. Mage: Meteor Strike + Frost Nova.
 - Run ends when the hero dies. High score tracked via localStorage.
 
 ## Enemy Types
@@ -45,8 +46,8 @@ A single-hero wave-survival game built with Babylon.js and TypeScript, inspired 
 ## Installation
 
 ```bash
-git clone https://github.com/yourusername/fusion-td.git
-cd fusion-td
+git clone https://github.com/yourusername/ktg.git
+cd ktg
 npm install
 ```
 

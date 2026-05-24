@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Fusion TD - Tower Defense Game</title>
+    <title>KTG — Kill the Goblins</title>
     <style>
         html, body {
             width: 100%;
@@ -15,6 +15,7 @@
             top: 0;
             left: 0;
             -webkit-overflow-scrolling: touch;
+            background: #07050a;
         }
         #renderCanvas {
             width: 100%;
@@ -24,50 +25,117 @@
             -webkit-tap-highlight-color: transparent;
             outline: none;
         }
+
+        /* ── Loading screen ────────────────────────────────────────────── */
         .loading-screen {
             position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: #2a2a2a;
+            inset: 0;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            color: white;
-            font-family: Arial, sans-serif;
+            color: #d8c8b8;
+            font-family: 'Georgia', 'Times New Roman', serif;
             z-index: 100;
-        }
-        .loading-screen h1 {
-            font-size: 2em;
-            margin-bottom: 10px;
-        }
-        .loading-bar-container {
-            width: 300px;
-            max-width: 80%;
-            height: 30px;
-            background-color: #444;
-            border-radius: 15px;
-            margin-top: 20px;
+            background:
+                radial-gradient(ellipse at center, rgba(80, 20, 10, 0.35) 0%, rgba(7, 5, 10, 0.95) 60%),
+                radial-gradient(ellipse at top, rgba(20, 30, 10, 0.2) 0%, transparent 70%),
+                #07050a;
             overflow: hidden;
         }
+
+        /* Faint dripping particle layer behind text */
+        .loading-screen::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background:
+                radial-gradient(circle at 20% 30%, rgba(120, 30, 20, 0.10) 0%, transparent 8%),
+                radial-gradient(circle at 80% 60%, rgba(60, 100, 30, 0.08) 0%, transparent 10%),
+                radial-gradient(circle at 50% 80%, rgba(100, 40, 20, 0.10) 0%, transparent 9%);
+            pointer-events: none;
+        }
+
+        .ktg-title {
+            font-size: clamp(3.5rem, 14vw, 7rem);
+            font-weight: 900;
+            letter-spacing: 0.18em;
+            color: #c8302a;
+            text-shadow:
+                0 0 12px rgba(200, 50, 40, 0.6),
+                0 2px 0 #4a0e08,
+                0 4px 0 #2a0604,
+                0 6px 20px rgba(0, 0, 0, 0.9);
+            margin: 0;
+            line-height: 1;
+            animation: ktg-pulse 2.4s ease-in-out infinite;
+        }
+
+        .ktg-subtitle {
+            font-size: clamp(0.9rem, 3.5vw, 1.4rem);
+            font-weight: 600;
+            letter-spacing: 0.4em;
+            color: #88a070;
+            margin-top: 14px;
+            text-transform: uppercase;
+            text-shadow: 0 0 6px rgba(60, 120, 30, 0.4), 0 2px 4px rgba(0, 0, 0, 0.8);
+        }
+
+        .ktg-loading-label {
+            margin-top: 48px;
+            font-size: 0.85rem;
+            letter-spacing: 0.25em;
+            text-transform: uppercase;
+            color: #8a7868;
+            font-family: 'Georgia', serif;
+        }
+
+        .loading-bar-container {
+            width: min(360px, 75vw);
+            height: 18px;
+            background-color: rgba(20, 12, 8, 0.85);
+            border: 1px solid #3a2418;
+            border-radius: 3px;
+            margin-top: 14px;
+            overflow: hidden;
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.6);
+            position: relative;
+        }
+
         .loading-bar {
             height: 100%;
             width: 0%;
-            background-color: #4CAF50;
+            background: linear-gradient(90deg, #6a1812 0%, #c8302a 50%, #f06030 100%);
             transition: width 0.3s ease;
+            box-shadow: 0 0 12px rgba(200, 60, 40, 0.6);
+        }
+
+        /* Slow heartbeat pulse on the title */
+        @keyframes ktg-pulse {
+            0%, 100% { transform: scale(1); filter: brightness(1); }
+            50%      { transform: scale(1.025); filter: brightness(1.15); }
+        }
+
+        .ktg-tagline {
+            position: absolute;
+            bottom: 32px;
+            font-size: 0.75rem;
+            letter-spacing: 0.3em;
+            color: #5a4a3a;
+            text-transform: uppercase;
         }
     </style>
 </head>
 <body>
     <canvas id="renderCanvas"></canvas>
     <div id="loadingScreen" class="loading-screen">
-        <h1>Fusion TD</h1>
-        <p>Loading game assets...</p>
+        <h1 class="ktg-title">KTG</h1>
+        <div class="ktg-subtitle">Kill the Goblins</div>
+        <div class="ktg-loading-label">Sharpening the blades…</div>
         <div class="loading-bar-container">
             <div id="loadingBar" class="loading-bar"></div>
         </div>
+        <div class="ktg-tagline">Survive the horde</div>
     </div>
 </body>
 </html>
