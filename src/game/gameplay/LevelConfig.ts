@@ -6,6 +6,13 @@ export enum MapTheme {
     EARTH = 'EARTH'
 }
 
+/** Defines a group of elite enemies to include in a wave (survivors mode). */
+export interface EliteSpec {
+    type: string;
+    element: 'fire' | 'ice' | 'arcane' | 'physical' | 'storm';
+    count: number;
+}
+
 export interface LevelConfig {
     levelNumber: number;
     name: string;
