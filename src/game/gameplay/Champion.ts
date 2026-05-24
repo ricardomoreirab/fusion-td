@@ -34,6 +34,9 @@ export class Champion extends Enemy {
 
     // Animation (walkTime approach like BasicEnemy)
     private walkTime: number = 0;
+    // Spin-attack state (player-controlled knight): runs a 360° body spin on melee swing
+    private spinAttackTimer: number = 0;
+    private static readonly SPIN_ATTACK_DURATION = 0.4;
     private swordArm: Mesh | null = null;
     private shieldArm: Mesh | null = null;
     private head: Mesh | null = null;
@@ -101,6 +104,15 @@ export class Champion extends Enemy {
      */
     public getPosition(): Vector3 {
         return this.position.clone();
+    }
+
+    /** Triggered by HeroBasicAttack when the melee swing fires. */
+    public triggerSpinAttack(): void {
+        this.spinAttackTimer = Champion.SPIN_ATTACK_DURATION;
+    }
+
+    public isSpinning(): boolean {
+        return this.spinAttackTimer > 0;
     }
 
     /**
@@ -1186,11 +1198,37 @@ export class Champion extends Enemy {
             this.mesh.position.x = this.position.x;
             this.mesh.position.z = this.position.z;
             this.mesh.position.y = this.position.y + 2.0;
-            // Face movement direction
-            if (this.playerVelocity.lengthSquared() > 0.001) {
+
+            // Decrement spin-attack timer
+            if (this.spinAttackTimer > 0) {
+                this.spinAttackTimer = Math.max(0, this.spinAttackTimer - deltaTime);
+            }
+
+            // Walking animation — advance walkTime while moving, animate limbs
+            const isMoving = this.playerVelocity.lengthSquared() > 0.001;
+            if (isMoving) {
+                this.walkTime += deltaTime * 5; // stride pace for player-controlled
+            }
+            if (this.championType === 'mage') {
+                this.animateMage(deltaTime);
+            } else if (this.championType === 'ranger' || isMoving || this.spinAttackTimer > 0) {
+                this.animateHumanoid();
+            }
+
+            // Facing: spin override > movement direction > idle
+            if (this.spinAttackTimer > 0) {
+                // Spin fast: full 360° rotation over SPIN_ATTACK_DURATION
+                const progress = 1 - this.spinAttackTimer / Champion.SPIN_ATTACK_DURATION;
+                this.mesh.rotation.y = progress * Math.PI * 2;
+            } else if (isMoving) {
                 this.mesh.rotation.y = Math.atan2(this.playerVelocity.x, this.playerVelocity.z);
             }
-            // Update health bar position
+
+            // Mage orb pulse regardless of movement state
+            if (this.championType === 'mage') {
+                this.pulseMageOrb(deltaTime);
+            }
+
             this.updateHealthBar();
             return false; // never "reached end of path"
         }
@@ -1238,34 +1276,44 @@ export class Champion extends Enemy {
 
     /** Knight / Ranger shared humanoid walk animation */
     private animateHumanoid(): void {
-        // Body: bob up/down + slight side-to-side weight shift
-        const bobAmount = Math.abs(Math.sin(this.walkTime)) * 0.05;
-        this.mesh!.position.y = this.position.y + 2.0 + bobAmount;
-        this.mesh!.rotation.z = Math.sin(this.walkTime) * 0.04; // Torso lean
+        const spinning = this.spinAttackTimer > 0;
 
-        // Legs: alternating stride
+        // Body: bob up/down + slight side-to-side weight shift (more pronounced for heavy knight)
+        const bobAmount = Math.abs(Math.sin(this.walkTime)) * 0.09;
+        this.mesh!.position.y = this.position.y + 2.0 + bobAmount;
+        this.mesh!.rotation.z = Math.sin(this.walkTime) * 0.08; // Torso lean side-to-side
+
+        // Legs: alternating stride (bigger swing for confident knight gait)
         if (this.leftLeg && this.rightLeg) {
-            this.leftLeg.rotation.x  = Math.sin(this.walkTime) * 0.45;
-            this.rightLeg.rotation.x = Math.sin(this.walkTime + Math.PI) * 0.45;
+            const stride = spinning ? 0.15 : 0.6;
+            this.leftLeg.rotation.x  = Math.sin(this.walkTime) * stride;
+            this.rightLeg.rotation.x = Math.sin(this.walkTime + Math.PI) * stride;
         }
 
-        // Sword/bow arm swing
+        // Sword arm: hold straight out during spin attack, normal swing otherwise
         if (this.swordArm) {
-            if (this.attackTimer > this.attackCooldown - 0.3) {
+            if (spinning) {
+                // Extended out to the side, blade horizontal — wide arc
+                this.swordArm.rotation.x = 0;
+                this.swordArm.rotation.z = -Math.PI / 2;
+            } else if (this.attackTimer > this.attackCooldown - 0.3) {
                 this.swordArm.rotation.x = -Math.PI / 2.5;
                 this.swordArm.rotation.z = -Math.PI / 8;
             } else {
-                this.swordArm.rotation.x = Math.sin(this.walkTime) * 0.40;
+                this.swordArm.rotation.x = Math.sin(this.walkTime) * 0.50;
                 this.swordArm.rotation.z = -0.08;
             }
         }
 
-        // Shield/draw arm counter-sway
+        // Shield arm: braced inward during spin, normal counter-sway otherwise
         if (this.shieldArm) {
-            if (this.attackTimer > this.attackCooldown - 0.3) {
+            if (spinning) {
+                this.shieldArm.rotation.x = -0.3;
+                this.shieldArm.rotation.z = Math.PI / 6;
+            } else if (this.attackTimer > this.attackCooldown - 0.3) {
                 this.shieldArm.rotation.x = -0.2;
             } else {
-                this.shieldArm.rotation.x = Math.sin(this.walkTime + Math.PI) * 0.20;
+                this.shieldArm.rotation.x = Math.sin(this.walkTime + Math.PI) * 0.25;
                 this.shieldArm.rotation.z = (this.championType === 'knight' ? 0.15 : -0.15)
                     + Math.sin(this.walkTime * 0.7) * 0.04;
             }

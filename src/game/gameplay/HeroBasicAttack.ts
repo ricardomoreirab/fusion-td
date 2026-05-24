@@ -112,46 +112,69 @@ export class HeroBasicAttack {
             }
         }
 
-        // Expanding ring visual
+        // Bright sword-arc visual (thick golden torus + sweeping blade trail)
         this.spawnSwingRing(heroPos, range);
 
-        // Animate sword arm if accessible
-        const arm = (this.hero as any)['swordArm'];
-        if (arm && arm.rotation) {
-            arm.rotation.x = -Math.PI / 2.2;
-            setTimeout(() => {
-                if (arm && !arm.isDisposed()) {
-                    arm.rotation.x = 0;
-                }
-            }, 200);
+        // Trigger the full-body spin attack on the Champion
+        const hero = this.hero as any;
+        if (typeof hero.triggerSpinAttack === 'function') {
+            hero.triggerSpinAttack();
         }
     }
 
     private spawnSwingRing(center: Vector3, range: number): void {
-        const ring = MeshBuilder.CreateDisc('swingRing', { radius: 0.05, tessellation: 24 }, this.scene);
+        // Thick golden torus on the ground — the main slash arc readout
+        const ring = MeshBuilder.CreateTorus(
+            'swingRing',
+            { diameter: range * 2, thickness: 0.45, tessellation: 32 },
+            this.scene,
+        );
         ring.position.copyFrom(center);
-        ring.position.y = 0.3;
-        ring.rotation.x = Math.PI / 2;
-        const mat = getCachedMaterial(this.scene, 'swingRingMat', m => {
-            m.emissiveColor = new Color3(1, 1, 1);
-            m.alpha = 0.6;
+        ring.position.y = 0.25;
+        const ringMat = getCachedMaterial(this.scene, 'swingRingMat', m => {
+            m.emissiveColor = new Color3(1, 0.85, 0.4);
+            m.diffuseColor = new Color3(0, 0, 0);
+            m.alpha = 0.9;
         });
-        ring.material = mat;
+        ring.material = ringMat;
+        ring.scaling.set(0.7, 0.7, 0.7); // starts a bit smaller
 
-        const duration = 0.15; // seconds
-        const startScale = 0.1;
-        const endScale = range;
+        // Sweeping blade trail — a flat half-disc that rotates around the hero matching the spin
+        const arc = MeshBuilder.CreateDisc(
+            'swingArc',
+            { radius: range, tessellation: 32, arc: 0.5 },
+            this.scene,
+        );
+        arc.position.copyFrom(center);
+        arc.position.y = 0.35;
+        arc.rotation.x = Math.PI / 2;
+        const arcMat = getCachedMaterial(this.scene, 'swingArcMat', m => {
+            m.emissiveColor = new Color3(1, 0.95, 0.7);
+            m.diffuseColor = new Color3(0, 0, 0);
+            m.alpha = 0.5;
+        });
+        arc.material = arcMat;
+
+        const duration = 0.35; // seconds — matches Champion spin duration roughly
         let elapsed = 0;
 
         const observer = this.scene.onBeforeRenderObservable.add(() => {
             const dt = this.scene.getEngine().getDeltaTime() / 1000;
             elapsed += dt;
             const t = Math.min(elapsed / duration, 1);
-            const s = startScale + (endScale - startScale) * t;
-            ring.scaling.set(s, s, s);
-            mat.alpha = 0.6 * (1 - t);
+
+            // Ring: expand from 0.7 to 1.0× and fade out
+            const ringScale = 0.7 + 0.3 * t;
+            ring.scaling.set(ringScale, ringScale, ringScale);
+            ringMat.alpha = 0.9 * (1 - t);
+
+            // Arc: sweep a full 360° (the half-disc rotates twice to look like a continuous sweep)
+            arc.rotation.y = t * Math.PI * 2;
+            arcMat.alpha = 0.5 * (1 - t);
+
             if (t >= 1) {
                 ring.dispose();
+                arc.dispose();
                 this.scene.onBeforeRenderObservable.remove(observer);
             }
         });
