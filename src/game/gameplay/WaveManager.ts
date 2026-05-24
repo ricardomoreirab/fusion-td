@@ -773,8 +773,11 @@ export class WaveManager {
         // Update spawn timer
         this.timeSinceLastSpawn += deltaTime;
         
-        // Check if it's time to spawn the next enemy (delay scaled by survivors rate)
-        const effectiveDelay = this.enemiesLeftToSpawn[0].delay / this.spawnRateMultiplier;
+        // Check if it's time to spawn the next enemy (delay scaled by survivors rate
+        // and per-wave ramp — later waves spawn even faster)
+        const waveRamp = 1 + Math.max(0, this.currentWave - 1) * 0.08;
+        const effectiveSpawnRate = this.spawnRateMultiplier * waveRamp;
+        const effectiveDelay = this.enemiesLeftToSpawn[0].delay / effectiveSpawnRate;
         if (this.timeSinceLastSpawn >= effectiveDelay) {
             // Spawn the enemy via the injectable spawn function
             const { type: enemyType, eliteElement } = this.enemiesLeftToSpawn[0];
@@ -985,15 +988,21 @@ export class WaveManager {
         this.enemiesLeftToSpawn = [];
 
         // Convert the wave format to a flat list of enemies with delays
-        // (survivors mode multiplies count per group)
+        // (survivors mode multiplies count per group, with per-wave ramp on top)
+        const waveRamp = 1 + Math.max(0, this.currentWave - 1) * 0.08;
+        const effectiveCountMult = this.enemyCountMultiplier * waveRamp;
         for (const enemyGroup of wave.enemies) {
-            const scaledCount = Math.max(1, Math.round(enemyGroup.count * this.enemyCountMultiplier));
+            const scaledCount = Math.max(1, Math.round(enemyGroup.count * effectiveCountMult));
             for (let i = 0; i < scaledCount; i++) {
                 this.enemiesLeftToSpawn.push({
                     type: enemyGroup.type,
                     delay: enemyGroup.delay,
                 });
             }
+        }
+        // First enemy of every wave spawns immediately — no opening dead time
+        if (this.enemiesLeftToSpawn.length > 0) {
+            this.enemiesLeftToSpawn[0].delay = 0;
         }
 
         // Survivors mode: queue elite spawns from wave config (staggered halfway through)
