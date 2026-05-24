@@ -1,16 +1,41 @@
-# Fusion TD - Tower Defense Game
+# Fusion TD - Vampire Survivors Style Arena Game
 
-A modern tower defense game built with Babylon.js and TypeScript.
+A single-hero wave-survival game built with Babylon.js and TypeScript, inspired by Vampire Survivors. Pick a champion, fight off endless waves of enemies in a circular arena, collect elemental power orbs, and spend gold between waves on stat upgrades.
 
-## Features
+## Core Gameplay
 
-- 3D tower defense gameplay with multiple tower types
-- Enemy pathfinding using A* algorithm
-- Wave-based enemy spawning system
-- Tower placement, upgrading, and selling
-- Resource management (health and money)
-- Particle effects for visual feedback
-- State machine architecture for game flow
+- **Champion select** before each run — choose from Knight, Ranger, or Mage, each with unique stats and a starting power.
+- **Single hero**, player-controlled via WASD or virtual joystick (mobile).
+- **Auto-attack** fires continuously at the nearest enemy.
+- **4 power slots** — equip elemental powers that auto-fire on cooldown. Powers level up when you collect duplicate orbs.
+- **Elemental powers**: Fireball (Fire), Frost Shards (Ice), Arcane Nova (Arcane), Piercing Arrow (Physical), Whirling Blades (Physical), Lightning Chain (Storm).
+- **Elite enemies** drop element-tagged power orbs on death, triggering a 3-card slow-motion choice overlay.
+- **Between-wave shop** — spend gold on Vitality, Swiftness, Magnetism, Power, Haste, or Bulwark upgrades.
+- **Manual ultimates** — Meteor Strike (45s cooldown) and Frost Nova (30s cooldown), shown in the HUD.
+- Run ends when the hero dies. High score tracked via localStorage.
+
+## Enemy Types
+
+| Name | Notes |
+|---|---|
+| Basic (Goblin) | Standard melee enemy |
+| Fast (Wraith) | High-speed, low HP, flying |
+| Tank (Beetle) | Slow, heavy, high HP |
+| Boss | Massive, high resist; appears every 10 waves |
+| Splitting (Hydra) | Splits into 3 MiniEnemies on death |
+| Healer (Shaman) | Heals nearby enemies |
+| Shield (Paladin) | 30 HP regenerating shield |
+
+## Controls
+
+| Platform | Action | Control |
+|---|---|---|
+| Desktop | Move | WASD |
+| Desktop | Pause | Space |
+| Desktop | Meteor Strike | HUD button (M) |
+| Desktop | Frost Nova | HUD button (F) |
+| Mobile | Move | Virtual joystick (bottom-left) |
+| Mobile | Meteor / Frost Nova | HUD buttons |
 
 ## Prerequisites
 
@@ -19,100 +44,84 @@ A modern tower defense game built with Babylon.js and TypeScript.
 
 ## Installation
 
-1. Clone the repository:
-   ```
-   git clone https://github.com/yourusername/fusion-td.git
-   cd fusion-td
-   ```
-
-2. Install dependencies:
-   ```
-   npm install
-   ```
+```bash
+git clone https://github.com/yourusername/fusion-td.git
+cd fusion-td
+npm install
+```
 
 ## Development
 
-Start the development server:
-```
+```bash
 npm start
 ```
 
-This will start a development server at http://localhost:9000 with hot reloading enabled.
+Starts a dev server at http://localhost:9000 with hot reloading.
 
 ## Building for Production
 
-Build the project for production:
-```
+```bash
 npm run build
 ```
 
-The built files will be in the `dist` directory.
+Output goes to the `dist/` directory.
 
-## Deployment
+## Deploying to Vercel
 
-### Deploying to Vercel
+```bash
+npm install -g vercel
+vercel login
+vercel --prod
+```
 
-This project is configured for easy deployment to Vercel:
-
-1. Install the Vercel CLI:
-   ```
-   npm install -g vercel
-   ```
-
-2. Login to Vercel:
-   ```
-   vercel login
-   ```
-
-3. Deploy the project:
-   ```
-   vercel
-   ```
-
-4. For production deployment:
-   ```
-   vercel --prod
-   ```
-
-Alternatively, you can connect your GitHub repository to Vercel for automatic deployments.
-
-## Game Controls
-
-- **Left Click**: Place selected tower / Interact with UI
-- **ESC**: Cancel tower placement
-- **Space**: Start next wave (when available)
-
-## Tower Types
-
-- **Basic Tower**: Balanced tower with medium range, damage, and fire rate
-- **Fast Tower**: Rapid-fire tower with high fire rate but low damage
-- **Heavy Tower**: High damage tower with low fire rate and medium range
-- **Sniper Tower**: Long-range tower with high damage but very low fire rate
-
-## Enemy Types
-
-- **Basic Enemy**: Standard enemy with balanced stats
-- **Fast Enemy**: Quick enemy with low health
-- **Tank Enemy**: Slow enemy with high health
-- **Boss Enemy**: Very strong enemy that appears in the final wave
+Or connect the GitHub repository to Vercel for automatic deployments.
 
 ## Project Structure
 
-- `src/`: Source code
-  - `game/`: Game-related code
-    - `gameplay/`: Core gameplay components
-      - `towers/`: Tower classes
-      - `enemies/`: Enemy classes
-    - `managers/`: Game managers (assets, state, etc.)
-    - `states/`: Game states (menu, gameplay, game over)
-  - `assets/`: Game assets (textures, models, sounds)
+```
+src/game/
+  states/
+    MenuState.ts              — main menu
+    SurvivorsGameplayState.ts — core game loop (champion select → run → death)
+    GameOverState.ts          — shows run summary (wave, kills, time, loadout)
+  gameplay/
+    HeroController.ts         — WASD/joystick input, follow camera, basic attack, HP
+    Champion.ts               — hero mesh + animations (controlMode: 'ai'|'player')
+    EnemyManager.ts           — enemy lifecycle, survivors-mode perimeter spawn
+    WaveManager.ts            — wave scheduling, wave-cleared callback
+    PlayerStats.ts            — gold, HP, shop stat multipliers
+    PowerSlotManager.ts       — 4-slot power tracking, cooldowns, auto-fire
+    PowerDrop.ts              — elemental orb: spawn, magnet, pickup
+    EliteSpawner.ts           — elite visual treatment (scale, emissive, aura)
+    AbilityManager.ts         — Meteor Strike + Frost Nova manual ultimates
+    GameTypes.ts              — shared ElementType / EnemyType / StatusEffect enums
+    enemies/                  — BasicEnemy, FastEnemy, TankEnemy, BossEnemy,
+                                SplittingEnemy, HealerEnemy, ShieldEnemy, MiniEnemy
+    powers/
+      PowerDefinitions.ts     — catalog of 6 powers with per-level scaling
+  ui/
+    HeroHud.ts                — HP bar, gold, 4 slot icons with cooldown sweeps,
+                                ultimate buttons, low-HP vignette
+    ChampionSelectOverlay.ts  — 3-card champion picker at run start
+    PowerChoiceOverlay.ts     — 3-card slow-mo overlay on orb pickup
+    ReplaceSlotOverlay.ts     — secondary prompt when swapping a full slot
+    BetweenWaveShopOverlay.ts — 6-item shop between waves
+    EliteIndicators.ts        — off-screen elite direction arrows
+    SurvivorsJoystick.ts      — virtual joystick for mobile
+  rendering/
+    StyleConstants.ts         — PALETTE color constants
+    LowPolyMaterial.ts        — createLowPolyMaterial / createEmissiveMaterial helpers
+  managers/
+    StateManager.ts           — game-state machine
+    AssetManager.ts           — asset loading
+```
 
-## Technologies Used
+## Technologies
 
-- [Babylon.js](https://www.babylonjs.com/) - 3D game engine
-- [TypeScript](https://www.typescriptlang.org/) - Type-safe JavaScript
-- [Webpack](https://webpack.js.org/) - Module bundler
+- [Babylon.js](https://www.babylonjs.com/) — 3D engine + GUI
+- [TypeScript](https://www.typescriptlang.org/)
+- [Webpack](https://webpack.js.org/)
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details. 
+MIT License — see LICENSE for details.
