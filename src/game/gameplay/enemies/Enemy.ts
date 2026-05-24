@@ -683,6 +683,14 @@ export class Enemy {
         // Hit flash: briefly turn mesh white for 80ms
         this.flashHit();
 
+        const dmgEvent = new CustomEvent('enemyDamage', {
+            detail: {
+                position: this.position.clone(),
+                damage: actualDamage,
+            },
+        });
+        document.dispatchEvent(dmgEvent);
+
         if (this.health <= 0) {
             this.health = 0;
             this.die();

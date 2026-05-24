@@ -22,6 +22,7 @@ import { EliteIndicators } from '../ui/EliteIndicators';
 import { ChampionSelectOverlay, ChampionOption } from '../ui/ChampionSelectOverlay';
 import { GameOverState, SurvivorsRunSummary } from './GameOverState';
 import { AbilityManager } from '../gameplay/AbilityManager';
+import { DamageNumberManager } from '../gameplay/DamageNumberManager';
 
 export class SurvivorsGameplayState implements GameState {
     private game: Game;
@@ -58,6 +59,11 @@ export class SurvivorsGameplayState implements GameState {
     // Run tracking for game-over summary
     private runStartTime: number = 0;
     private currentChampionType: ChampionType = 'mage';
+
+    // Floating damage / reward text
+    private damageNumbers: DamageNumberManager | null = null;
+    private damageHandler: ((e: Event) => void) | null = null;
+    private rewardHandler: ((e: Event) => void) | null = null;
 
     // UI modules
     private hud: HeroHud | null = null;
@@ -168,6 +174,19 @@ export class SurvivorsGameplayState implements GameState {
         // Pre-warm all enemy types so the first spawn of each doesn't hitch
         // the frame with shader compilation and GPU buffer uploads.
         this.enemyManager.prewarmEnemyTypes();
+
+        // Damage / reward floating text manager
+        this.damageNumbers = new DamageNumberManager(this.game);
+        this.damageHandler = (e: Event) => {
+            const d = (e as CustomEvent).detail;
+            this.damageNumbers?.showDamage(d.position, d.damage);
+        };
+        this.rewardHandler = (e: Event) => {
+            const d = (e as CustomEvent).detail;
+            this.damageNumbers?.showReward(d.position, d.reward);
+        };
+        document.addEventListener('enemyDamage', this.damageHandler);
+        document.addEventListener('enemyReward', this.rewardHandler);
 
         // Power slot manager — consults playerStats for damage/cooldown multipliers
         this.powerSlots = new PowerSlotManager(
@@ -308,6 +327,17 @@ export class SurvivorsGameplayState implements GameState {
         this.powerChoice?.close();
         this.powerChoice = null;
 
+        if (this.damageHandler) {
+            document.removeEventListener('enemyDamage', this.damageHandler);
+            this.damageHandler = null;
+        }
+        if (this.rewardHandler) {
+            document.removeEventListener('enemyReward', this.rewardHandler);
+            this.rewardHandler = null;
+        }
+        this.damageNumbers?.dispose();
+        this.damageNumbers = null;
+
         this.hud?.dispose();
         this.hud = null;
 
@@ -372,13 +402,23 @@ export class SurvivorsGameplayState implements GameState {
         for (const d of this.powerDrops) d.update(dt);
         this.powerDrops = this.powerDrops.filter(d => d.isAlive());
 
+        this.damageNumbers?.update(dt);
+
         // HUD update
         if (this.hud && this.powerSlots && this.playerStats) {
+            const waveInfo = this.waveManager
+                ? {
+                    wave: this.waveManager.getCurrentWave(),
+                    enemiesAlive: this.enemyManager?.getEnemyCount() ?? 0,
+                    inProgress: this.waveManager.isWaveInProgress(),
+                  }
+                : undefined;
             this.hud.update(
                 this.heroController.getHealth(),
                 this.playerStats.getGold(),
                 this.powerSlots.getSlots(),
                 dt,
+                waveInfo,
             );
         }
 

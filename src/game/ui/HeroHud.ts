@@ -37,6 +37,7 @@ export class HeroHud {
     private hpDangerZone!: Rectangle;
     private hpText!: TextBlock;
     private goldText!: TextBlock;
+    private waveText!: TextBlock;
     private slotContainers: {
         bg: Rectangle;
         icon: TextBlock;
@@ -167,6 +168,24 @@ export class HeroHud {
         this.ui.addControl(this.goldText);
         this.builtControls.push(this.goldText);
 
+        // Wave indicator — top-center text "WAVE X · N enemies"
+        this.waveText = new TextBlock('waveText');
+        this.waveText.text = '';
+        this.waveText.color = '#ffe040';
+        this.waveText.fontSize = 22;
+        this.waveText.fontStyle = 'bold';
+        this.waveText.fontFamily = 'Arial';
+        this.waveText.shadowBlur = 4;
+        this.waveText.shadowColor = '#000';
+        this.waveText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.waveText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.waveText.top = '20px';
+        this.waveText.height = '32px';
+        this.waveText.width = '320px';
+        this.waveText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.ui.addControl(this.waveText);
+        this.builtControls.push(this.waveText);
+
         // ── 4 power-slot icons — bottom row ──────────────────────────────────
         for (let i = 0; i < 4; i++) {
             const bg = new Rectangle(`slotBg_${i}`);
@@ -278,6 +297,24 @@ export class HeroHud {
         this.goldText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         this.ui.addControl(this.goldText);
         this.builtControls.push(this.goldText);
+
+        // Wave indicator — top-center text "WAVE X · N enemies"
+        this.waveText = new TextBlock('waveText');
+        this.waveText.text = '';
+        this.waveText.color = '#ffe040';
+        this.waveText.fontSize = 18;
+        this.waveText.fontStyle = 'bold';
+        this.waveText.fontFamily = 'Arial';
+        this.waveText.shadowBlur = 4;
+        this.waveText.shadowColor = '#000';
+        this.waveText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.waveText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.waveText.top = '14px';
+        this.waveText.height = '32px';
+        this.waveText.width = '320px';
+        this.waveText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.ui.addControl(this.waveText);
+        this.builtControls.push(this.waveText);
 
         // ── 4 power slots — bottom-left, 40×40 ───────────────────────────────
         for (let i = 0; i < 4; i++) {
@@ -473,6 +510,7 @@ export class HeroHud {
         gold: number,
         slots: (PowerSlot | null)[],
         deltaTime: number = 0,
+        waveInfo?: { wave: number; enemiesAlive: number; inProgress: boolean },
     ): void {
         const ratio = Math.max(0, hp.current / hp.max);
         const inDanger = ratio < 0.25;
@@ -574,6 +612,19 @@ export class HeroHud {
                     cdMask.height = frac;
                 }
             }
+        }
+
+        // ── Wave indicator ──────────────────────────────────────────────────
+        if (waveInfo) {
+            if (waveInfo.inProgress) {
+                this.waveText.text = `WAVE ${waveInfo.wave}  ·  ${waveInfo.enemiesAlive} enemies`;
+            } else if (waveInfo.wave === 0) {
+                this.waveText.text = `WAVE 1 STARTING...`;
+            } else {
+                this.waveText.text = `WAVE ${waveInfo.wave} CLEARED`;
+            }
+        } else {
+            this.waveText.text = '';
         }
     }
 
