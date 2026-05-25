@@ -262,7 +262,7 @@ export class SurvivorsGameplayState implements GameState {
 
         // HUD (HP bar, gold, power slots, ultimate buttons)
         // Built AFTER configureForClass so HUD reads the correct ability IDs.
-        this.hud = new HeroHud(this.ui, this.abilityManager);
+        this.hud = new HeroHud(this.ui, this.abilityManager, this.game);
 
         // Overlays
         this.powerChoice     = new PowerChoiceOverlay(this.ui);

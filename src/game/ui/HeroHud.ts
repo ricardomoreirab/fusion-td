@@ -1,4 +1,5 @@
 import { AdvancedDynamicTexture, Rectangle, TextBlock, Control } from '@babylonjs/gui';
+import { Game } from '../Game';
 import { PowerSlot } from '../gameplay/PowerSlotManager';
 import { AbilityManager } from '../gameplay/AbilityManager';
 import { getLayoutMode } from './responsive';
@@ -34,11 +35,14 @@ const ELEMENT_COLOR: Record<string, string> = {
 
 export class HeroHud {
     private ui: AdvancedDynamicTexture;
+    private game: Game | null = null;
     private hpFill!: Rectangle;
     private hpDangerZone!: Rectangle;
     private hpText!: TextBlock;
     private goldText!: TextBlock;
     private waveText!: TextBlock;
+    private pauseButtonIcon: TextBlock | null = null;
+    private prevPaused: boolean | null = null;
     private slotContainers: {
         bg: Rectangle;
         icon: TextBlock;
@@ -74,9 +78,10 @@ export class HeroHud {
     // Track layout for rebuild
     private isMobile: boolean = false;
 
-    constructor(ui: AdvancedDynamicTexture, abilityManager?: AbilityManager) {
+    constructor(ui: AdvancedDynamicTexture, abilityManager?: AbilityManager, game?: Game) {
         this.ui = ui;
         this.abilityManager = abilityManager ?? null;
+        this.game = game ?? null;
         this.build();
 
         // Register resize listener
@@ -128,6 +133,8 @@ export class HeroHud {
         this.hpBg = null;
         this.goldPillBg = null;
         this.wavePillBg = null;
+        this.pauseButtonIcon = null;
+        this.prevPaused = null;
         this.build();
     }
 
@@ -216,6 +223,9 @@ export class HeroHud {
         this.builtControls.push(goldPill.bg);
         this.goldText = goldPill.text;
         this.goldPillBg = goldPill.bg;
+
+        // ── Pause/play button — top row, left of gold pill ────────────────
+        this._buildPauseButton({ sizePx: 25, rightOffset: 10 + 110 + 8 });
 
         // ── 4 power-slot icons — bottom-center row ────────────────────────
         const slotSize = 56;
@@ -378,6 +388,9 @@ export class HeroHud {
         this.goldText = goldPill.text;
         this.goldPillBg = goldPill.bg;
 
+        // ── Pause/play button — top row, left of gold pill ────────────────
+        this._buildPauseButton({ sizePx: 28, rightOffset: 10 + 90 + 8 });
+
         // ── 4 power-slot icons — bottom-center row ────────────────────────
         const slotSize = 42;
         const slotGap = 8;
@@ -482,6 +495,39 @@ export class HeroHud {
         });
     }
 
+    private _buildPauseButton(opts: { sizePx: number; rightOffset: number }): void {
+        const bg = makeFrame({
+            name: 'pauseBtn',
+            sizePx: opts.sizePx,
+            color: '#c0c0d0',
+            cornerRadius: STYLE.pillRadius,
+        });
+        bg.height = `${opts.sizePx}px`;
+        bg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        bg.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        bg.top = '10px';
+        bg.left = `-${opts.rightOffset}px`;
+
+        const icon = new TextBlock('pauseIcon', '⏸');
+        icon.color = '#fff';
+        icon.fontSize = Math.round(opts.sizePx * 0.55);
+        icon.fontStyle = 'bold';
+        icon.fontFamily = 'Arial';
+        icon.shadowColor = STYLE.textShadowColor;
+        icon.shadowBlur = STYLE.textShadowBlur;
+        bg.addControl(icon);
+
+        addPressFeedback(bg, () => {
+            if (!this.game) return;
+            this.game.togglePause();
+            icon.text = this.game.getIsPaused() ? '▶' : '⏸';
+        });
+
+        this.ui.addControl(bg);
+        this.builtControls.push(bg);
+        this.pauseButtonIcon = icon;
+    }
+
     private _buildUltimateButtons(opts: {
         btnSize: number;
         fontSize: number;
@@ -555,6 +601,15 @@ export class HeroHud {
         waveInfo?: { wave: number; enemiesAlive: number; inProgress: boolean },
     ): void {
         const ratio = Math.max(0, hp.current / hp.max);
+
+        // ── Pause button glyph sync ─────────────────────────────────────────
+        if (this.game && this.pauseButtonIcon) {
+            const isPaused = this.game.getIsPaused();
+            if (isPaused !== this.prevPaused) {
+                this.pauseButtonIcon.text = isPaused ? '▶' : '⏸';
+                this.prevPaused = isPaused;
+            }
+        }
 
         // ── Diff-based tactile feedback ─────────────────────────────────────
         const currentHp = hp.current;
