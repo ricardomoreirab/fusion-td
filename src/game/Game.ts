@@ -13,6 +13,11 @@ export class Game {
     private engine: Engine;
     private scene: Scene;
     private stateManager: StateManager;
+    /** Set true by StateManager.changeState; consumed (cleared) by the next
+     *  render loop tick. While true, scene.render is skipped — prevents the
+     *  same rAF cycle that ran a state change (and disposed everything) from
+     *  also trying to render against the half-torn-down scene. */
+    public skipRenderThisFrame: boolean = false;
     private assetManager: AssetManager;
     private _isPaused: boolean = false;
     private pauseScreen: PauseScreen;
@@ -67,11 +72,25 @@ export class Game {
             
             // Start the render loop
             this.engine.runRenderLoop(() => {
-                // Update the current state
+                // Update the current state. update() can trigger a state
+                // change (hero death → gameOver) which synchronously runs
+                // exit()+enter() and tears the scene down.
                 this.stateManager.update(this.engine.getDeltaTime() / 1000);
-                
-                // Render the scene
-                this.scene.render();
+
+                // If a state transition happened this frame, skip the render.
+                // Half-disposed asset references (skeleton bone-matrix texture,
+                // material textures, etc.) would otherwise crash mid-render.
+                // Render resumes cleanly on the next rAF.
+                if (this.skipRenderThisFrame) {
+                    this.skipRenderThisFrame = false;
+                    return;
+                }
+
+                try {
+                    this.scene.render();
+                } catch (err) {
+                    console.warn('[render] swallowed render error:', err);
+                }
             });
         }, (progress: number) => {
             // Update loading progress
@@ -184,32 +203,29 @@ export class Game {
      * This should be called when transitioning between states to ensure a clean slate
      */
     public cleanupScene(): void {
-        // Dispose all meshes in the scene
-        const meshes = this.scene.meshes.slice(); // Create a copy to avoid modification during iteration
+        // Dispose all meshes in the scene (cleanup what state.exit() may have
+        // missed). Use the default (false, false) — disposeMaterialAndTextures
+        // would nuke textures owned by cached GLB AssetContainers (loadAssetContainerAsync
+        // adds source textures to scene.textures), crashing the next
+        // instantiateModelsToScene call after a state change.
+        const meshes = this.scene.meshes.slice();
         for (const mesh of meshes) {
-            if (!mesh.name.includes('camera')) { // Don't dispose camera
-                mesh.dispose(false, true); // dispose mesh and its children
+            if (!mesh.name.includes('camera')) {
+                try { mesh.dispose(); } catch (_) { /* already disposed */ }
             }
         }
 
-        // Dispose all materials
-        const materials = this.scene.materials.slice();
-        for (const material of materials) {
-            material.dispose();
-        }
-
-        // Dispose all textures
-        const textures = this.scene.textures.slice();
-        for (const texture of textures) {
-            texture.dispose();
-        }
-        
-        // Dispose all particle systems
+        // Dispose only ParticleSystems — those are always state-owned and
+        // never managed by cached AssetContainers. Materials, textures, and
+        // skeletons are intentionally NOT bulk-disposed here: they may be
+        // owned by cached GLB AssetContainers that the next state will
+        // re-instantiate from. State.exit() is responsible for disposing
+        // state-owned per-instance materials.
         const particleSystems = this.scene.particleSystems.slice();
         for (const particleSystem of particleSystems) {
-            particleSystem.dispose();
+            try { particleSystem.dispose(); } catch (_) { /* already disposed */ }
         }
-        
+
         // Clear all animations
         this.scene.stopAllAnimations();
         

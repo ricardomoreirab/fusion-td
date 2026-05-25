@@ -159,9 +159,13 @@ export class Champion extends Enemy {
         this.leftLeg = null;
         this.rightLeg = null;
         this.cape = null;
-        // Dispose the knight body and all parented sub-meshes.
+        // Dispose the knight body and all parented sub-meshes. Use the default
+        // (false, false) — disposeMaterialAndTextures=true would nuke textures
+        // shared with cached GLB AssetContainers (used by the next
+        // instantiateModelsToScene call inside createChampionMeshFromGLB below),
+        // crashing the new champion's clone in Mesh.refreshBoundingInfo.
         if (this.mesh) {
-            this.mesh.dispose(false, true);
+            this.mesh.dispose();
             this.mesh = null;
         }
         // Build the correct class mesh.

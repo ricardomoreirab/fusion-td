@@ -33,6 +33,13 @@ export class StateManager {
             return;
         }
 
+        // Tell the render loop to skip this frame's render. Without this, the
+        // same rAF cycle that ran update() (and synchronously disposed the
+        // scene via exit() below) would also try to scene.render() against
+        // half-torn-down state and crash inside Babylon (e.g. Skeleton.prepare
+        // accessing a disposed bone-matrix RawTexture).
+        this.game.skipRenderThisFrame = true;
+
         // Exit the current state if there is one
         if (this.currentState) {
             this.currentState.exit();
@@ -43,14 +50,14 @@ export class StateManager {
 
         // Get the new state
         const newState = this.states.get(name)!;
-        
+
         // Update current state
         this.currentState = newState;
         this.currentStateName = name;
-        
+
         // Enter the new state
         this.currentState.enter();
-        
+
         console.log(`Changed to state: ${name}`);
     }
 

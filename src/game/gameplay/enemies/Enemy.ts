@@ -1067,10 +1067,21 @@ export class Enemy {
         this.glbAnimationGroups.length = 0;
 
         if (this.mesh) {
-            // disposeMaterialAndTextures=true releases the per-instance materials
-            // the GLB pipeline clones (instantiateModelsToScene with cloneMaterials=true).
-            // Without this every enemy death leaked 3-10 materials into scene.materials.
-            this.mesh.dispose(false, true);
+            // Dispose per-instance materials (cloned via instantiateModelsToScene
+            // with cloneMaterials=true) but NOT their textures. The textures are
+            // shared with the source AssetContainer — disposing them was nulling
+            // bone-matrix RawTextures on the source skeleton, crashing the next
+            // instantiateModelsToScene (e.g. after death → re-pick champion)
+            // inside Mesh.clone → Skeleton.prepare.
+            const allMeshes = [this.mesh, ...this.mesh.getChildMeshes(false)];
+            for (const m of allMeshes) {
+                const mat = m.material;
+                if (mat) {
+                    m.material = null;
+                    try { mat.dispose(false, false); } catch (_) { /* already disposed */ }
+                }
+            }
+            this.mesh.dispose();
             this.mesh = null;
         }
 
