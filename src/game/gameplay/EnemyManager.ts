@@ -176,10 +176,17 @@ export class EnemyManager {
 
         // Create enemy at spawn position with empty path. Before each construction, stage
         // any preloaded GLB asset on the per-class static pendingAsset slot so createMesh
-        // can pick it up. Cleared inside the subclass after consumption.
+        // can pick it up. Cleared inside the subclass after consumption. Elite variants
+        // look up a separate `<type>_elite` asset (with fallback to the base asset).
+        const assetFor = (baseType: string) => {
+            if (eliteElement) {
+                return this.enemyAssets[`${baseType}_elite`] ?? this.enemyAssets[baseType] ?? null;
+            }
+            return this.enemyAssets[baseType] ?? null;
+        };
         let enemy: Enemy;
         switch (type) {
-            case 'basic':    BasicEnemy.pendingAsset = this.enemyAssets['basic'] ?? null;
+            case 'basic':    BasicEnemy.pendingAsset = assetFor('basic');
                              enemy = new BasicEnemy(this.game, spawnPos, []); break;
             case 'fast':     enemy = new FastEnemy(this.game, spawnPos, []); break;
             case 'tank':     enemy = new TankEnemy(this.game, spawnPos, []); break;

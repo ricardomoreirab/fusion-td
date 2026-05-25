@@ -42,7 +42,8 @@ const CHAMPION_GLB_PATHS: Partial<Record<string, { dir: string; file: string }>>
 };
 
 const ENEMY_GLB_PATHS: Partial<Record<string, { dir: string; file: string }>> = {
-    basic: { dir: 'assets/blue-melee-minion/source/', file: 'blue_melee_minion.glb' },
+    basic:       { dir: 'assets/blue-melee-minion/source/',       file: 'blue_melee_minion.glb' },
+    basic_elite: { dir: 'assets/blue-super-melee-minion/source/', file: 'blue_super_melee_minion.glb' },
 };
 function loadChampionAsset(championType: string, scene: Scene): Promise<AssetContainer> | null {
     return loadAsset(CHAMPION_GLB_PATHS, championType, scene);
