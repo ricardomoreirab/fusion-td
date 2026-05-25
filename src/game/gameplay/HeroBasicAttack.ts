@@ -21,6 +21,9 @@ export type BasicAttackMode = 'projectile' | 'melee';
 
 export type ProjectileShape = 'sphere' | 'arrow' | 'mageBolt';
 
+/** Delay between the main melee swing and each queued follow-up spin. */
+const EXTRA_SPIN_DELAY = 0.15;
+
 export class HeroBasicAttack {
     private scene: Scene;
     private hero: Champion;
@@ -35,6 +38,8 @@ export class HeroBasicAttack {
     private powerSlots: PowerSlotManager | null = null;
     private playerStats: PlayerStats | null = null;
     private projectileShape: ProjectileShape;
+    private queuedSwings: number = 0;
+    private queuedSpinTimer: number = 0;
 
     // For melee: reference to full enemy list for AOE
     private enemyProvider: (() => Enemy[]) | null = null;
@@ -95,11 +100,28 @@ export class HeroBasicAttack {
     }
 
     public update(deltaTime: number): void {
+        // Queued follow-up swings (barbarian extraAttacks) bypass the normal cooldown gate
+        // so they fire at the chosen cadence regardless of the base attack interval.
+        if (this.queuedSwings > 0) {
+            this.queuedSpinTimer -= deltaTime;
+            if (this.queuedSpinTimer <= 0) {
+                this.performMeleeSwing();
+                this.queuedSwings--;
+                this.queuedSpinTimer = EXTRA_SPIN_DELAY;
+            }
+        }
+
         this.cooldown -= deltaTime;
         if (this.cooldown > 0) return;
 
         if (this.mode === 'melee') {
             this.performMeleeSwing();
+            // After the main swing, queue any extra spins from RunItems.
+            const extras = this.playerStats?.extraAttacks ?? 0;
+            if (extras > 0) {
+                this.queuedSwings = extras;
+                this.queuedSpinTimer = EXTRA_SPIN_DELAY;
+            }
             this.cooldown = this.effectiveInterval;
         } else {
             const target = this.targetProvider();
@@ -114,8 +136,6 @@ export class HeroBasicAttack {
             if (total === 1) {
                 this.spawnProjectile(heroPos.clone(), target);
             } else {
-                // Total fan spread is 20°. Angles distributed evenly from -10° to +10°
-                // (e.g. 2 projectiles → -5° / +5°; 3 → -10° / 0° / +10°).
                 const totalSpreadRad = (20 * Math.PI) / 180;
                 const step = total > 1 ? totalSpreadRad / (total - 1) : 0;
                 const start = -totalSpreadRad / 2;
