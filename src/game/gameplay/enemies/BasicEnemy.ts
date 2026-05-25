@@ -18,6 +18,11 @@ export class BasicEnemy extends Enemy {
     /** True when this instance is rendered via the blue-melee-minion GLB. */
     private usingGLB: boolean = false;
     private glbWalkAnim: AnimationGroup | null = null;
+    private glbAttackAnim: AnimationGroup | null = null;
+    private glbIdleAnim: AnimationGroup | null = null;
+    private glbCurrentAnim: AnimationGroup | null = null;
+    /** Distance at which the minion switches from walk to attack animation. */
+    private static readonly GLB_ATTACK_RANGE = 1.6;
 
     constructor(game: Game, position: Vector3, path: Vector3[]) {
         // Basic enemy has medium speed, medium health, medium damage, and low reward
@@ -58,6 +63,12 @@ export class BasicEnemy extends Enemy {
             if ('scaling' in root && root.scaling) {
                 (root as TransformNode).scaling.scaleInPlace(MINION_SCALE);
             }
+            // Flip 180° around Y so the model's face points the same direction as
+            // Enemy.update's atan2(-dirX, -dirZ) seek-rotation (which was tuned for
+            // the procedural goblin whose body was authored facing -z).
+            if ('rotation' in root && root.rotation) {
+                (root as TransformNode).rotation.y += Math.PI;
+            }
         }
 
         // Shift the GLB so its feet sit at y=0 (most rigged humanoids center on torso).
@@ -70,17 +81,41 @@ export class BasicEnemy extends Enemy {
             }
         }
 
-        // Pick the first animation group as the walk loop (minions are always seeking).
-        // If the asset has multiple clips and one matches "walk"/"run", prefer that.
+        // Categorize all anim clips by name so we can switch between walk/attack/idle.
         for (const ag of inst.animationGroups) ag.stop();
-        const walk = inst.animationGroups.find(ag => {
+        console.log(`[basic-minion] available animations (${inst.animationGroups.length}):`);
+        for (const ag of inst.animationGroups) {
+            console.log(`  - "${ag.name}"`);
             const n = ag.name.toLowerCase();
-            return n.includes('walk') || n.includes('run') || n.includes('idle');
-        }) ?? inst.animationGroups[0] ?? null;
-        if (walk) {
-            walk.start(true);
-            this.glbWalkAnim = walk;
+            if (!this.glbWalkAnim && (n.includes('walk') || n.includes('run'))) {
+                this.glbWalkAnim = ag;
+            } else if (!this.glbAttackAnim && (n.includes('attack') || n.includes('hit') || n.includes('punch') || n.includes('strike') || n.includes('swing'))) {
+                this.glbAttackAnim = ag;
+            } else if (!this.glbIdleAnim && (n.includes('idle') || n === 'stand')) {
+                this.glbIdleAnim = ag;
+            }
         }
+        // Fallbacks — make sure something plays.
+        if (!this.glbWalkAnim && inst.animationGroups.length > 0) this.glbWalkAnim = inst.animationGroups[0];
+        if (!this.glbIdleAnim) this.glbIdleAnim = this.glbWalkAnim;
+        if (!this.glbAttackAnim) this.glbAttackAnim = this.glbWalkAnim;
+        if (this.glbWalkAnim) {
+            this.glbWalkAnim.start(true);
+            this.glbCurrentAnim = this.glbWalkAnim;
+        }
+        console.log(
+            `[basic-minion] mapped: walk="${this.glbWalkAnim?.name ?? '(none)'}", ` +
+            `attack="${this.glbAttackAnim?.name ?? '(none)'}", idle="${this.glbIdleAnim?.name ?? '(none)'}"`,
+        );
+    }
+
+    /** Switch to the named animation slot, no-op if already playing it. */
+    private playGlbAnim(slot: AnimationGroup | null, loop: boolean): void {
+        if (!slot) return;
+        if (this.glbCurrentAnim === slot) return;
+        if (this.glbCurrentAnim) this.glbCurrentAnim.stop();
+        slot.start(loop);
+        this.glbCurrentAnim = slot;
     }
 
     /**
@@ -449,8 +484,27 @@ export class BasicEnemy extends Enemy {
         // Get the result from the parent update method
         const result = super.update(deltaTime);
 
-        // GLB minions skip the procedural limb animation — the asset's walk anim runs.
-        if (this.usingGLB) return result;
+        // GLB minions skip the procedural limb animation — the asset's clips drive it.
+        if (this.usingGLB) {
+            // Within attack range of the hero (seek target) → play attack clip on loop.
+            // Otherwise → walk clip. Frozen/stunned → idle (stop walking).
+            if (this.isFrozen || this.isStunned) {
+                this.playGlbAnim(this.glbIdleAnim, true);
+            } else if (this.seekTarget) {
+                const heroPos = this.seekTarget.getPosition();
+                const dx = heroPos.x - this.position.x;
+                const dz = heroPos.z - this.position.z;
+                const distSq = dx * dx + dz * dz;
+                if (distSq <= BasicEnemy.GLB_ATTACK_RANGE * BasicEnemy.GLB_ATTACK_RANGE) {
+                    this.playGlbAnim(this.glbAttackAnim, true);
+                } else {
+                    this.playGlbAnim(this.glbWalkAnim, true);
+                }
+            } else {
+                this.playGlbAnim(this.glbWalkAnim, true);
+            }
+            return result;
+        }
 
         // Update walking animation
         if (!this.isFrozen && !this.isStunned && this.currentPathIndex < this.path.length && this.mesh) {
