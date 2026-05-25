@@ -1,110 +1,114 @@
-import { AdvancedDynamicTexture, Ellipse, Control } from '@babylonjs/gui';
-import { MOBILE_BREAKPOINT } from './responsive';
+import { AdvancedDynamicTexture, Ellipse, Rectangle, Control, Vector2WithInfo } from '@babylonjs/gui';
+import { Vector2 } from '@babylonjs/core/Maths/math.vector';
 
 /**
- * Minimal virtual joystick for mobile hero movement.
- * Renders in the bottom-left corner; dragging produces a [-1, 1] direction vector.
- * On narrow viewports (<700px wide) the visual radius is shrunk to 45px to leave
- * more room for the power slots to the right.
+ * Floating-anywhere virtual joystick.
+ *
+ * The joystick has no static visual. The first pointer-down on the GUI's
+ * transparent catcher (any area not consumed by another GUI button)
+ * positions the ring at that touch point. Dragging produces a [-1, 1]
+ * direction. Release hides the ring and emits (0, 0).
+ *
+ * UI button precedence comes for free: any control with isPointerBlocker
+ * set on top of the catcher (slots, ults, overlays) consumes the touch
+ * before it reaches the catcher.
  */
 export class SurvivorsJoystick {
-    private container: Ellipse;
-    private thumb: Ellipse;
     private ui: AdvancedDynamicTexture;
+    private catcher: Rectangle;
+    private ring: Ellipse;
+    private thumb: Ellipse;
+
+    private readonly baseRadius: number = 52; // visual radius (matches ring half-size)
+    private readonly thumbRadius: number = 12;
 
     private dx: number = 0;
     private dz: number = 0;
-    private active: boolean = false;
-    private baseRadius: number; // px — set at construction based on viewport width
+    private activePointerId: number | null = null;
+    private originX: number = 0;
+    private originY: number = 0;
 
     private onDirectionCallback: ((dx: number, dz: number) => void) | null = null;
 
     constructor(ui: AdvancedDynamicTexture) {
         this.ui = ui;
 
-        // Choose radius based on viewport width
-        const vw = ui.getScene()?.getEngine().getRenderWidth() ?? 800;
-        this.baseRadius = vw < MOBILE_BREAKPOINT ? 45 : 55;
+        // ── Transparent full-canvas catcher ────────────────────────────────
+        this.catcher = new Rectangle('joystickCatcher');
+        this.catcher.width = '100%';
+        this.catcher.height = '100%';
+        this.catcher.thickness = 0;
+        this.catcher.background = '';
+        this.catcher.isPointerBlocker = true; // consumes events that reach it
+        this.catcher.zIndex = -10;            // lowest — UI buttons sit above
+        this.ui.addControl(this.catcher);
 
-        // Outer ring
-        this.container = new Ellipse('joystickBase');
-        this.container.width = `${this.baseRadius * 2}px`;
-        this.container.height = `${this.baseRadius * 2}px`;
-        this.container.thickness = 3;
-        this.container.color = 'rgba(255,255,255,0.4)';
-        this.container.background = 'rgba(255,255,255,0.08)';
-        this.container.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        this.container.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        this.container.left = '20px';
-        this.container.top = '-20px';
-        this.ui.addControl(this.container);
+        // ── Ring ──────────────────────────────────────────────────────────
+        this.ring = new Ellipse('joystickRing');
+        this.ring.width = `${this.baseRadius * 2}px`;
+        this.ring.height = `${this.baseRadius * 2}px`;
+        this.ring.thickness = 1.5;
+        this.ring.color = 'rgba(255, 255, 255, 0.40)';
+        this.ring.background = 'rgba(255, 255, 255, 0.06)';
+        this.ring.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.ring.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.ring.isVisible = false;
+        this.ring.isPointerBlocker = false;
+        this.ring.zIndex = -5; // above catcher, below buttons
+        this.ui.addControl(this.ring);
 
-        // Inner thumb
+        // ── Thumb ─────────────────────────────────────────────────────────
         this.thumb = new Ellipse('joystickThumb');
-        this.thumb.width = '40px';
-        this.thumb.height = '40px';
+        this.thumb.width = `${this.thumbRadius * 2}px`;
+        this.thumb.height = `${this.thumbRadius * 2}px`;
         this.thumb.thickness = 0;
-        this.thumb.background = 'rgba(255,255,255,0.55)';
-        this.container.addControl(this.thumb);
+        this.thumb.background = 'rgba(255, 255, 255, 0.70)';
+        this.thumb.isPointerBlocker = false;
+        this.ring.addControl(this.thumb);
 
         this.wireEvents();
     }
 
     private wireEvents(): void {
-        const canvas = this.ui.getScene()?.getEngine().getRenderingCanvas();
-        if (!canvas) return;
+        this.catcher.onPointerDownObservable.add((coords: Vector2WithInfo) => {
+            if (this.activePointerId !== null) return;
+            this.activePointerId = coords.buttonIndex;
+            this.originX = coords.x;
+            this.originY = coords.y;
 
-        let pointerId: number | null = null;
-        let baseX = 0;
-        let baseY = 0;
+            this.ring.left = `${coords.x - this.baseRadius}px`;
+            this.ring.top = `${coords.y - this.baseRadius}px`;
+            this.ring.isVisible = true;
+            this.thumb.left = '0px';
+            this.thumb.top = '0px';
+        });
 
-        const onStart = (e: PointerEvent) => {
-            if (pointerId !== null) return;
-            // Only activate for touches in the bottom-left quadrant
-            const rect = canvas.getBoundingClientRect();
-            const cx = e.clientX - rect.left;
-            const cy = e.clientY - rect.top;
-            if (cx > rect.width / 2 || cy < rect.height / 2) return;
+        this.catcher.onPointerMoveObservable.add((coords: Vector2) => {
+            if (this.activePointerId === null) return;
+            const rawDx = coords.x - this.originX;
+            const rawDy = coords.y - this.originY;
+            const dist = Math.hypot(rawDx, rawDy);
+            const normX = dist > 0 ? rawDx / dist : 0;
+            const normY = dist > 0 ? rawDy / dist : 0;
+            const clamped = Math.min(dist, this.baseRadius);
 
-            pointerId = e.pointerId;
-            baseX = cx;
-            baseY = cy;
-            this.active = true;
-        };
+            this.dx = normX * (clamped / this.baseRadius);
+            this.dz = -normY * (clamped / this.baseRadius);
 
-        const onMove = (e: PointerEvent) => {
-            if (e.pointerId !== pointerId || !this.active) return;
-            const rect = canvas.getBoundingClientRect();
-            const cx = e.clientX - rect.left;
-            const cy = e.clientY - rect.top;
-
-            const rawDx = cx - baseX;
-            const rawDz = cy - baseY; // screen Y+ → world Z-
-
-            const dist = Math.hypot(rawDx, rawDz);
-            const clampedDist = Math.min(dist, this.baseRadius);
-            const normX = clampedDist > 0 ? (rawDx / dist) : 0;
-            const normY = clampedDist > 0 ? (rawDz / dist) : 0;
-
-            this.dx = normX * (clampedDist / this.baseRadius);
-            this.dz = -normY * (clampedDist / this.baseRadius); // invert Y for world Z
-
-            // Move thumb visual
-            const thumbMaxPx = this.baseRadius - 20;
-            this.thumb.left = `${normX * thumbMaxPx}px`;
-            this.thumb.top = `${normY * thumbMaxPx}px`;
+            const thumbMax = this.baseRadius - this.thumbRadius;
+            this.thumb.left = `${normX * thumbMax}px`;
+            this.thumb.top = `${normY * thumbMax}px`;
 
             if (this.onDirectionCallback) {
                 this.onDirectionCallback(this.dx, this.dz);
             }
-        };
+        });
 
-        const onEnd = (e: PointerEvent) => {
-            if (e.pointerId !== pointerId) return;
-            pointerId = null;
-            this.active = false;
+        const reset = () => {
+            this.activePointerId = null;
             this.dx = 0;
             this.dz = 0;
+            this.ring.isVisible = false;
             this.thumb.left = '0px';
             this.thumb.top = '0px';
             if (this.onDirectionCallback) {
@@ -112,10 +116,10 @@ export class SurvivorsJoystick {
             }
         };
 
-        canvas.addEventListener('pointerdown', onStart);
-        canvas.addEventListener('pointermove', onMove);
-        canvas.addEventListener('pointerup', onEnd);
-        canvas.addEventListener('pointercancel', onEnd);
+        this.catcher.onPointerUpObservable.add(reset);
+        this.catcher.onPointerOutObservable.add(() => {
+            // off-screen: keep input alive; pointer-up handles end
+        });
     }
 
     public onDirection(fn: (dx: number, dz: number) => void): void {
@@ -126,6 +130,7 @@ export class SurvivorsJoystick {
     public getDz(): number { return this.dz; }
 
     public dispose(): void {
-        this.container.dispose();
+        this.catcher.dispose();
+        this.ring.dispose();
     }
 }
