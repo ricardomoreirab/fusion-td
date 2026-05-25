@@ -1,4 +1,4 @@
-import { Engine, EngineFactory, AbstractEngine, Scene, Vector3, HemisphericLight, ArcRotateCamera, Camera, Animation, AbstractMesh, GlowLayer, WebGPUEngine, DefaultRenderingPipeline } from '@babylonjs/core';
+import { Engine, EngineFactory, AbstractEngine, Scene, Vector3, HemisphericLight, PointLight, Color3, ArcRotateCamera, Camera, Animation, AbstractMesh, GlowLayer, WebGPUEngine, DefaultRenderingPipeline } from '@babylonjs/core';
 import { GameState } from './states/GameState';
 import { MenuState } from './states/MenuState';
 import { SurvivorsGameplayState } from './states/SurvivorsGameplayState';
@@ -25,6 +25,12 @@ export class Game {
     private _isPaused: boolean = false;
     private pauseScreen!: PauseScreen;
     private _timeScale: number = 1;
+    /** Pre-created in setupScene at intensity 0 so every material compiles
+     *  with knowledge of this slot. Champion.enableTorch parents it to the
+     *  hero mesh and cranks the intensity up. Without pre-registration,
+     *  scene.blockMaterialDirtyMechanism (true) means new lights added later
+     *  never reach the already-compiled material shaders. */
+    private heroTorch!: PointLight;
 
     constructor(canvasId: string) {
         // Lightweight constructor — only resolve the canvas. Everything else
@@ -175,15 +181,25 @@ export class Game {
         // useGeometryUniqueIdsMap / useMaterialMeshMap / useClonedMeshMap are
         // constructor-only (SceneOptions) — passed above in new Scene(...).
 
-        // Warm hemisphere light for low-poly stylized look — back to the
-        // original baseline. The pipeline experiment (ACES tone-mapping +
-        // vignette + a second directional) ended up crushing the whole scene
-        // because most materials are frozen-StandardMaterial with no specular
-        // and don't benefit from a 2nd light source.
+        // Warm hemisphere light for low-poly stylized look. Single global
+        // fill — survivors mode no longer stacks another hemi on top
+        // (was making the scene read as flat / "full bright").
         const light = new HemisphericLight('light', new Vector3(0, 1, 0), this.scene);
         light.diffuse = PALETTE.LIGHT_DIFFUSE.clone();
         light.groundColor = PALETTE.LIGHT_GROUND.clone();
-        light.intensity = 0.65;
+        light.intensity = 0.55;
+
+        // ── Pre-register the hero torch ───────────────────────────────────────
+        // Created here at intensity 0 so every material that compiles after
+        // this point picks up the slot in its shader. Champion.enableTorch()
+        // later parents this light to the hero mesh and cranks the intensity.
+        // Without pre-registration the dirty-block (set above) prevents the
+        // torch from ever reaching already-compiled materials.
+        this.heroTorch = new PointLight('heroTorch', new Vector3(0, 1.4, 0), this.scene);
+        this.heroTorch.diffuse  = new Color3(1.00, 0.62, 0.28);
+        this.heroTorch.specular = new Color3(0, 0, 0);
+        this.heroTorch.intensity = 0; // dormant until enabled
+        this.heroTorch.range = 9;
 
         // Fog disabled -- doesn't work properly with orthographic projection
         this.scene.fogMode = Scene.FOGMODE_NONE;
@@ -426,6 +442,12 @@ export class Game {
     }
 
     // Getters for accessing game components
+    /** The pre-registered torch light (parented to origin until activated).
+     *  Champion.enableTorch reparents it to the hero mesh and sets intensity. */
+    public getHeroTorch(): PointLight {
+        return this.heroTorch;
+    }
+
     public getScene(): Scene {
         return this.scene;
     }

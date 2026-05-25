@@ -1,4 +1,4 @@
-import { Scene, Vector3, Color3, Color4, HemisphericLight, DirectionalLight, SpotLight, AssetContainer, LoadAssetContainerAsync, CubeTexture, Texture, MeshBuilder, StandardMaterial, Mesh, BackgroundMaterial } from '@babylonjs/core';
+import { Scene, Vector3, Color3, Color4, DirectionalLight, SpotLight, AssetContainer, LoadAssetContainerAsync, CubeTexture, Texture, MeshBuilder, StandardMaterial, Mesh, BackgroundMaterial } from '@babylonjs/core';
 import '@babylonjs/loaders/glTF';
 import { AdvancedDynamicTexture } from '@babylonjs/gui';
 import { Game } from '../Game';
@@ -127,6 +127,7 @@ export class SurvivorsGameplayState implements GameState {
     private heroController: HeroController | null = null;
     private joystick: SurvivorsJoystick | null = null;
     private grass: ReturnType<typeof createProceduralGrass> | null = null;
+    private shadowSourceLight: DirectionalLight | null = null;
 
     // Gameplay systems
     private enemyManager: EnemyManager | null = null;
@@ -190,17 +191,19 @@ export class SurvivorsGameplayState implements GameState {
         this.scene = this.game.getScene();
         this.scene.clearColor = new Color4(0.04, 0.03, 0.05, 1); // near-black warm
 
-        // Ambient fill — keep low so the directional light gives form. Tuned warm
-        // to match the ancient-ruins env palette.
-        const ambientLight = new HemisphericLight('survivorsAmbient', new Vector3(0, 1, 0), this.scene);
-        ambientLight.intensity = 0.25;
-        ambientLight.diffuse = new Color3(0.75, 0.55, 0.45);
-        ambientLight.groundColor = new Color3(0.10, 0.06, 0.04);
-
-        // Key light — warm directional from upper-left-front for form / falloff.
+        // No second hemispheric light here — Game.setupScene already added
+        // 'light' (warm fill, intensity 0.55). Stacking another hemi was
+        // washing the scene out, contributing to the "flat / full bright" look.
+        //
+        // Key light — warm directional from upper-left-front. Bumped to 0.9
+        // (was 0.5) so it's the dominant directional source giving real form
+        // and falloff after the SpotLight + ambient cuts below.
         const keyLight = new DirectionalLight('survivorsKey', new Vector3(-0.4, -1, -0.6), this.scene);
-        keyLight.intensity = 0.5;
+        keyLight.intensity = 0.9;
         keyLight.diffuse = new Color3(1.0, 0.78, 0.55);
+        keyLight.specular = new Color3(0, 0, 0); // low-poly mats are spec-zero anyway
+        // Save for the shadow pass attached later.
+        this.shadowSourceLight = keyLight;
 
         // Build base scene resources first
         this.map = new Map(this.game);
@@ -532,8 +535,11 @@ export class SurvivorsGameplayState implements GameState {
         // ── Env cube + skybox ─────────────────────────────────────────────────
         const envTexture = CubeTexture.CreateFromImages(envFiles, scene);
         // Use the env as scene IBL so the rigged GLB heroes pick up nice reflections.
+        // intensity reduced 0.6 → 0.25 — IBL was adding a huge uniform ambient
+        // term on every surface, which is the dominant cause of the "full bright"
+        // / flat look. 0.25 still gives heroes some sky reflection.
         scene.environmentTexture = envTexture;
-        scene.environmentIntensity = 0.6;
+        scene.environmentIntensity = 0.25;
 
         const skydome = MeshBuilder.CreateBox('ruinsSky', { size: 1000, sideOrientation: Mesh.BACKSIDE }, scene);
         skydome.rotation.y = Math.PI;
@@ -545,6 +551,9 @@ export class SurvivorsGameplayState implements GameState {
         skydome.material = skyMat;
 
         // ── Warm spot light from above ────────────────────────────────────────
+        // Intensity 3.0 → 1.2 — top-down spot was the main contributor to the
+        // washed-out "full bright" look. At 1.2 it still gives the arena a
+        // warm orange overhead glow without crushing the directional shading.
         const spot = new SpotLight(
             'ruinsSpot',
             new Vector3(0, 18, 0),         // high overhead — survivors arena center
@@ -553,8 +562,9 @@ export class SurvivorsGameplayState implements GameState {
             12,                             // gentle falloff
             scene,
         );
-        spot.intensity = 3.0;
+        spot.intensity = 1.2;
         spot.diffuse = new Color3(1.0, 0.55, 0.18);
+        spot.specular = new Color3(0, 0, 0);
 
         // ── Grass floor ──────────────────────────────────────────────────────
         // Two-layer setup:

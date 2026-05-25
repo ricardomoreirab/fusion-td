@@ -1586,15 +1586,14 @@ export class Champion extends Enemy {
     public enableTorch(): void {
         if (this.torchLight || !this.mesh) return;
 
-        // Position the torch near torso height (~1.4) so its cone reaches the
-        // ground close to the hero. Has to compete with the bright overhead
-        // SpotLight (intensity 3.0) so we bump it to 5.0 to be visible.
-        const torch = new PointLight('heroTorch', new Vector3(0, 1.4, 0.0), this.scene);
-        torch.diffuse  = new Color3(1.00, 0.62, 0.28); // warm flame
-        torch.specular = new Color3(0, 0, 0);          // low-poly mats have no specular
-        torch.intensity = 5.0;
-        torch.range     = 9;
-        torch.parent    = this.mesh;
+        // Reuse the pre-registered torch from Game.setupScene. Creating it
+        // here AFTER materials compiled would never reach them (the dirty
+        // mechanism is blocked for perf — see Game.ts setupScene). Pre-
+        // registration is what makes the torch actually light meshes.
+        const torch = this.game.getHeroTorch();
+        torch.position.set(0, 1.4, 0);
+        torch.parent     = this.mesh;
+        torch.intensity  = 5.0;
 
         this.torchLight          = torch;
         this.torchBaseIntensity  = torch.intensity;
@@ -1612,7 +1611,10 @@ export class Champion extends Enemy {
 
     private _disposeTorch(): void {
         if (this.torchLight) {
-            this.torchLight.dispose();
+            // Don't dispose — the torch lives on Game and is reused across
+            // runs. Just unparent it and put it back to dormant.
+            this.torchLight.parent     = null;
+            this.torchLight.intensity  = 0;
             this.torchLight = null;
         }
     }
