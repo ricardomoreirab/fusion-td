@@ -82,6 +82,12 @@ export class Champion extends Enemy {
     private mageOrbColor: Color3 = new Color3(0, 0, 0);
     private barbSpinArcColor: Color3 = new Color3(0, 0, 0);
 
+    // Red hit-flash state — used by flashHitRed() to refresh the in-flight
+    // flash instead of stacking snapshots that capture the already-red emissive.
+    private flashHitRedActive: boolean = false;
+    private flashHitRedRestoreTimer: ReturnType<typeof setTimeout> | null = null;
+    private flashHitRedSnapshot: { mat: StandardMaterial; color: Color3 }[] = [];
+
     // Pooled footstep dust particle system (barbarian only)
     private barbFootDustPs: ParticleSystem | null = null;
 
@@ -1232,6 +1238,45 @@ export class Champion extends Enemy {
         ps.maxEmitPower = 3;
         ps.start();
         setTimeout(() => { ps.stop(); setTimeout(() => ps.dispose(), 400); }, 100);
+    }
+
+    /**
+     * Pulse the champion mesh red for 150ms to signal damage taken.
+     * Walks the full child-mesh tree. If a flash is already in progress,
+     * restart its timer instead of re-snapshotting (which would otherwise
+     * capture the already-red emissive and "restore" to red).
+     */
+    public flashHitRed(): void {
+        if (!this.mesh || this.mesh.isDisposed()) return;
+
+        const RED = new Color3(1, 0.15, 0.15);
+        const DURATION_MS = 150;
+
+        if (!this.flashHitRedActive) {
+            // Fresh flash — snapshot original emissive colors.
+            const meshes = [this.mesh, ...this.mesh.getChildMeshes(false)];
+            this.flashHitRedSnapshot = [];
+            for (const m of meshes) {
+                const mat = m.material as StandardMaterial;
+                if (mat && mat.emissiveColor !== undefined) {
+                    this.flashHitRedSnapshot.push({ mat, color: mat.emissiveColor.clone() });
+                    mat.emissiveColor = RED;
+                }
+            }
+            this.flashHitRedActive = true;
+        }
+        // Reset / extend the restore timer either way.
+        if (this.flashHitRedRestoreTimer !== null) {
+            clearTimeout(this.flashHitRedRestoreTimer);
+        }
+        this.flashHitRedRestoreTimer = setTimeout(() => {
+            for (const entry of this.flashHitRedSnapshot) {
+                try { entry.mat.emissiveColor = entry.color; } catch (_) { /* mat disposed */ }
+            }
+            this.flashHitRedSnapshot = [];
+            this.flashHitRedActive = false;
+            this.flashHitRedRestoreTimer = null;
+        }, DURATION_MS);
     }
 
     /**

@@ -4,6 +4,14 @@ import { HeroBasicAttack, BasicAttackTarget, BasicAttackMode, ProjectileShape } 
 import { PowerSlotManager } from './PowerSlotManager';
 import { Enemy } from './enemies/Enemy';
 
+/** Hero damage-feedback tuning — adjust here, not deep in the update loop. */
+const HIT_REACTION_COOLDOWN_S = 0.5;
+const KNOCKBACK_SPEED         = 7.0;   // units / sec
+const KNOCKBACK_DURATION_S    = 0.15;
+const CAMERA_SHAKE_MAGNITUDE  = 0.15;  // world units on camera target XZ
+const CAMERA_SHAKE_DURATION_S = 0.10;
+const BLOOD_BURST_COUNT       = 12;
+
 /** Per-class basic-attack configuration */
 const CLASS_ATTACK_CONFIG: Record<string, { mode: BasicAttackMode; fireRate: number; damage: number; range: number; shape: ProjectileShape }> = {
     barbarian: { mode: 'melee',      fireRate: 1.0, damage: 18, range: 3.5, shape: 'sphere'   },
@@ -38,6 +46,10 @@ export class HeroController {
 
     // Move speed multiplier (from Swiftness shop purchases)
     private moveSpeedMultiplier: number = 1.0;
+
+    // Damage-feedback state — see HIT_REACTION_* / KNOCKBACK_* constants.
+    private lastHitReactionTime: number = -Infinity;
+    private elapsedTime: number = 0;
 
     // Scratch Vector3 fields — reused every frame to eliminate per-frame allocations
     private _scratchVel: Vector3 = new Vector3();
@@ -132,14 +144,28 @@ export class HeroController {
         this.onDeathCallback = fn;
     }
 
-    public takeDamage(amount: number, _sourcePos?: Vector3): void {
+    /**
+     * Fire the damage-feedback reaction (flash for now, knockback / particles /
+     * shake added in later tasks). Rate-limited to once per HIT_REACTION_COOLDOWN_S
+     * so per-frame contact damage doesn't produce a permanent strobe.
+     */
+    private triggerHitReaction(_sourcePos: Vector3 | undefined): void {
+        if (this.elapsedTime - this.lastHitReactionTime < HIT_REACTION_COOLDOWN_S) return;
+        this.lastHitReactionTime = this.elapsedTime;
+
+        this.hero.flashHitRed();
+    }
+
+    public takeDamage(amount: number, sourcePos?: Vector3): void {
         if (this.isDead) return;
         this.currentHealth -= amount;
         if (this.currentHealth <= 0) {
             this.currentHealth = 0;
             this.isDead = true;
             this.onDeathCallback();
+            return;
         }
+        this.triggerHitReaction(sourcePos);
     }
 
     public getHealthRatio(): number {
@@ -184,6 +210,8 @@ export class HeroController {
     }
 
     public update(deltaTime: number): void {
+        this.elapsedTime += deltaTime;
+
         // Compute movement input from keyboard + external joystick
         let dx = this.externalDx;
         let dz = this.externalDz;
