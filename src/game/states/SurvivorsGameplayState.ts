@@ -495,27 +495,10 @@ export class SurvivorsGameplayState implements GameState {
         spot.intensity = 3.0;
         spot.diffuse = new Color3(1.0, 0.55, 0.18);
 
-        // ── Stone-tile texture on the central arena ground ────────────────────
-        // Tileable stone wall image from Babylon's CDN — close to ancient-ruins tone.
-        const groundTex = new Texture(
-            'https://assets.babylonjs.com/textures/stone.jpg',
-            scene,
-            true,                            // noMipmap
-            false,                           // invertY
-            Texture.TRILINEAR_SAMPLINGMODE,
-        );
-        groundTex.uScale = 6;
-        groundTex.vScale = 6;
-        const stoneGround = MeshBuilder.CreateDisc('ruinsStoneGround', { radius: 22, tessellation: 48 }, scene);
-        stoneGround.rotation.x = Math.PI / 2;
-        stoneGround.position.y = 0.001; // just above the existing arena discs
-        const stoneMat = new StandardMaterial('ruinsStoneMat', scene);
-        stoneMat.diffuseTexture = groundTex;
-        stoneMat.diffuseColor = new Color3(1, 1, 1);
-        stoneMat.specularColor = Color3.Black();
-        stoneMat.emissiveColor = new Color3(0.08, 0.05, 0.03); // very faint warm self-illum
-        stoneGround.material = stoneMat;
-        stoneGround.receiveShadows = true;
+        // (Stone-tile texture overlay removed — the URL we tried failed and Babylon
+        // rendered its red/black "missing texture" placeholder. The existing colored
+        // arena ground discs underneath read fine on their own; we can re-add a
+        // texture later with a known-good URL or a locally-bundled image.)
     }
 
     private spawnItemDrop(position: Vector3, waveTier: number): void {
