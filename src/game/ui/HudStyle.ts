@@ -48,8 +48,8 @@ export function makePill(opts: {
     bg.color = opts.color;
     bg.background = STYLE.panelBg;
     bg.cornerRadius = STYLE.pillRadius;
-    bg.paddingLeft = '16px';
-    bg.paddingRight = '16px';
+    bg.paddingLeft = '20px';
+    bg.paddingRight = '20px';
 
     const text = new TextBlock(opts.name + 'Text', opts.initialText);
     text.color = opts.textColor ?? '#fff';

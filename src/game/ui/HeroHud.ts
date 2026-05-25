@@ -185,8 +185,8 @@ export class HeroHud {
             name: 'wave',
             color: '#ffe040',
             initialText: '',
-            fontSize: 16,
-            height: 28,
+            fontSize: 14,
+            height: 34,
             textColor: '#ffe040',
         });
         wavePill.bg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
@@ -202,8 +202,8 @@ export class HeroHud {
             name: 'gold',
             color: '#ffd700',
             initialText: '◯ 0',
-            fontSize: 16,
-            height: 28,
+            fontSize: 14,
+            height: 34,
             textColor: '#ffd700',
         });
         goldPill.bg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
@@ -344,8 +344,8 @@ export class HeroHud {
             name: 'wave',
             color: '#ffe040',
             initialText: '',
-            fontSize: 12,
-            height: 22,
+            fontSize: 11,
+            height: 28,
             textColor: '#ffe040',
         });
         wavePill.bg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
@@ -361,8 +361,8 @@ export class HeroHud {
             name: 'gold',
             color: '#ffd700',
             initialText: '◯ 0',
-            fontSize: 12,
-            height: 22,
+            fontSize: 11,
+            height: 28,
             textColor: '#ffd700',
         });
         goldPill.bg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;

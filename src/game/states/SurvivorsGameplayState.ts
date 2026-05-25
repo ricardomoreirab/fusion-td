@@ -411,7 +411,7 @@ export class SurvivorsGameplayState implements GameState {
             const waveInfo = this.waveManager
                 ? {
                     wave: this.waveManager.getCurrentWave(),
-                    enemiesAlive: this.enemyManager?.getEnemyCount() ?? 0,
+                    enemiesAlive: this.waveManager?.getRemainingEnemiesInWave() ?? 0,
                     inProgress: this.waveManager.isWaveInProgress(),
                   }
                 : undefined;
