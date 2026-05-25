@@ -285,7 +285,26 @@ export class Champion extends Enemy {
         // fast but breaks for skinned/rigged humanoid GLBs where each instance needs its own
         // skeleton clone — instances render collapsed/invisible. Full clones are heavier per
         // mesh but render correctly with their own skeleton.
-        const inst = asset.instantiateModelsToScene(name => `ranger_${name}`, true);
+        // Probe source asset first — instantiate sometimes loses skeletons depending
+        // on options. If asset.skeletons.length > 0 but inst.skeletons.length === 0,
+        // we need doNotInstantiate: true to force proper skeleton cloning.
+        console.log(
+            `[ranger] source asset — meshes=${asset.meshes.length}, ` +
+            `skeletons=${asset.skeletons.length}, ` +
+            `animationGroups=${asset.animationGroups.length}`,
+        );
+        for (const sk of asset.skeletons) {
+            console.log(`  source skeleton "${sk.name}" — ${sk.bones.length} bones`);
+        }
+
+        // doNotInstantiate: true does full Mesh.clone() which copies skeleton + bone refs.
+        // The default (false) returns lightweight InstancedMesh entries that often don't
+        // populate inst.skeletons even when the source has them.
+        const inst = asset.instantiateModelsToScene(
+            name => `ranger_${name}`,
+            true,
+            { doNotInstantiate: true },
+        );
         const RANGER_SCALE = 1.5;
         for (const root of inst.rootNodes) {
             root.parent = this.mesh;
