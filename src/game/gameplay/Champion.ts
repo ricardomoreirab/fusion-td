@@ -266,28 +266,53 @@ export class Champion extends Enemy {
         this.mesh = new Mesh('rangerRoot', scene);
         this.mesh.position = this.position.clone();
 
-        const inst = asset.instantiateModelsToScene(name => `ranger_${name}`, true);
+        // doNotInstantiate: true forces full Mesh clones (instead of lightweight InstancedMesh).
+        // Lightweight instances share geometry + skeleton bindings with the source, which is
+        // fast but breaks for skinned/rigged humanoid GLBs where each instance needs its own
+        // skeleton clone — instances render collapsed/invisible. Full clones are heavier per
+        // mesh but render correctly with their own skeleton.
+        const inst = asset.instantiateModelsToScene(
+            name => `ranger_${name}`,
+            true,
+            { doNotInstantiate: true },
+        );
         const RANGER_SCALE = 1.5;
         console.log(
             `[Champion] rangerArcher instantiated — ${inst.rootNodes.length} rootNodes, ` +
-            `${inst.animationGroups.length} anim groups`,
+            `${inst.animationGroups.length} anim groups, ${inst.skeletons.length} skeletons`,
         );
         for (const root of inst.rootNodes) {
             console.log(
                 `[Champion]   root: name="${root.name}" type=${root.constructor.name} ` +
-                `enabled=${root.isEnabled()} ` +
-                `pos=(${(root as TransformNode).position?.x?.toFixed(2)}, ` +
-                `${(root as TransformNode).position?.y?.toFixed(2)}, ` +
-                `${(root as TransformNode).position?.z?.toFixed(2)}) ` +
-                `scale=(${(root as TransformNode).scaling?.x?.toFixed(2)}, ` +
-                `${(root as TransformNode).scaling?.y?.toFixed(2)}, ` +
-                `${(root as TransformNode).scaling?.z?.toFixed(2)})`,
+                `enabled=${root.isEnabled()}`,
             );
             root.parent = this.mesh;
+            // doNotInstantiate uses mesh.clone() which copies the source's enabled state.
+            // AssetManager hides source meshes via setEnabled(false), so the clones come
+            // out disabled too — force them back on.
+            root.setEnabled(true);
             if ('scaling' in root && root.scaling) {
                 (root as TransformNode).scaling.scaleInPlace(RANGER_SCALE);
             }
         }
+        // Walk every descendant and re-enable. Clones of skinned meshes may have nested
+        // children that also inherited the source's disabled state.
+        for (const d of this.mesh.getChildMeshes(false)) {
+            d.setEnabled(true);
+        }
+
+        // BabylonJS GLB loader adds a __root__ node with scale (1,1,-1) to convert from
+        // GLB's right-handed space to Babylon's left-handed space. Multiplying that by our
+        // 1.5 scale gives a final scale with a negative-determinant — which flips triangle
+        // winding so backface culling hides the front faces. Disable backface culling on
+        // every cloned material so both sides render.
+        const descendants = this.mesh.getChildMeshes(false);
+        for (const d of descendants) {
+            if (d.material) {
+                d.material.backFaceCulling = false;
+            }
+        }
+        console.log(`[Champion] descendant meshes after parenting: ${descendants.length}`);
 
         // Diagnostic: bright red cube at the ranger root position so we can confirm
         // the hero spawn location is on-camera. If you see the cube but no ranger,
