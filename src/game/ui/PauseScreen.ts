@@ -1,6 +1,7 @@
 import { Scene } from '@babylonjs/core';
-import { AdvancedDynamicTexture, Button, Control, Rectangle, TextBlock } from '@babylonjs/gui';
+import { AdvancedDynamicTexture, Control, Rectangle, TextBlock } from '@babylonjs/gui';
 import { Game } from '../Game';
+import { makeFrame, addPressFeedback, STYLE } from './HudStyle';
 
 export class PauseScreen {
     private game: Game;
@@ -9,7 +10,9 @@ export class PauseScreen {
     private overlay!: Rectangle;
     private pauseText!: TextBlock;
     private instructionText!: TextBlock;
-    private resumeButton!: Button;
+    private resumeButton!: Rectangle;
+    private restartButton!: Rectangle;
+    private menuButton!: Rectangle;
     private isVisible: boolean = false;
     private boundVisibilityHandler: EventListener;
 
@@ -33,6 +36,8 @@ export class PauseScreen {
         this.createPauseText();
         this.createInstructionText();
         this.createResumeButton();
+        this.createRestartButton();
+        this.createMenuButton();
 
         // Initially hide UI elements
         this.isVisible = false;
@@ -40,6 +45,8 @@ export class PauseScreen {
         this.pauseText.isVisible = false;
         this.instructionText.isVisible = false;
         this.resumeButton.isVisible = false;
+        this.restartButton.isVisible = false;
+        this.menuButton.isVisible = false;
 
         // Bind the handler once to maintain the same reference
         this.boundVisibilityHandler = this.handleVisibilityChange.bind(this);
@@ -66,8 +73,8 @@ export class PauseScreen {
         this.overlay = new Rectangle('pauseOverlay');
         this.overlay.width = 1;
         this.overlay.height = 1;
-        this.overlay.background = 'black';
-        this.overlay.alpha = 0.8;
+        this.overlay.background = STYLE.backdropDim;
+        this.overlay.thickness = 0;
         this.overlay.zIndex = 9000;
         this.overlay.isPointerBlocker = true;
         this.guiTexture.addControl(this.overlay);
@@ -115,41 +122,94 @@ export class PauseScreen {
         const isMobile = this.isMobileDevice();
         const isLandscape = isMobile && window.innerWidth > window.innerHeight;
 
-        this.resumeButton = Button.CreateSimpleButton('resumeButton', 'RESUME');
-        this.resumeButton.width = isLandscape ? '160px' : '200px';
-        this.resumeButton.height = isLandscape ? '36px' : (isMobile ? '48px' : '50px');
-        this.resumeButton.color = '#FFFFFF';
-        this.resumeButton.background = '#4CAF50';
-        this.resumeButton.cornerRadius = 32;
-        this.resumeButton.thickness = 0;
-        this.resumeButton.fontFamily = 'Arial';
-        this.resumeButton.fontSize = isLandscape ? 14 : (isMobile ? 18 : 22);
-        this.resumeButton.fontWeight = 'bold';
+        const width = isLandscape ? 160 : 200;
+        const height = isLandscape ? '36px' : (isMobile ? '48px' : '50px');
+
+        this.resumeButton = makeFrame({ name: 'resumeButton', sizePx: width, color: '#ffe040', cornerRadius: 10 });
+        this.resumeButton.height = height;
         this.resumeButton.top = isLandscape ? '42px' : (isMobile ? '65px' : '80px');
         this.resumeButton.zIndex = 9002;
-        this.resumeButton.shadowColor = 'rgba(0, 0, 0, 0.4)';
-        this.resumeButton.shadowBlur = 5;
-        this.resumeButton.shadowOffsetY = 2;
         this.resumeButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.resumeButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
 
-        if (!isMobile) {
-            this.resumeButton.onPointerEnterObservable.add(() => {
-                this.resumeButton.background = '#66BB6A';
-                this.resumeButton.scaleX = 1.05;
-                this.resumeButton.scaleY = 1.05;
-            });
-            this.resumeButton.onPointerOutObservable.add(() => {
-                this.resumeButton.background = '#4CAF50';
-                this.resumeButton.scaleX = 1.0;
-                this.resumeButton.scaleY = 1.0;
-            });
-        }
-        this.resumeButton.onPointerUpObservable.add(() => {
+        const label = new TextBlock('resumeLabel', 'RESUME');
+        label.color = '#ffe040';
+        label.fontSize = isLandscape ? 14 : (isMobile ? 18 : 22);
+        label.fontWeight = 'bold';
+        label.fontFamily = 'Arial';
+        label.shadowColor = STYLE.textShadowColor;
+        label.shadowBlur = STYLE.textShadowBlur;
+        this.resumeButton.addControl(label);
+
+        addPressFeedback(this.resumeButton, () => {
             this.game.resume();
         });
 
         this.guiTexture.addControl(this.resumeButton);
+    }
+
+    private createRestartButton(): void {
+        const isMobile = this.isMobileDevice();
+        const isLandscape = isMobile && window.innerWidth > window.innerHeight;
+
+        const width = isLandscape ? 160 : 200;
+        const height = isLandscape ? '36px' : (isMobile ? '48px' : '50px');
+        const topOffset = isLandscape ? '86px' : (isMobile ? '123px' : '145px');
+
+        this.restartButton = makeFrame({ name: 'restartButton', sizePx: width, color: '#888', cornerRadius: 10 });
+        this.restartButton.height = height;
+        this.restartButton.top = topOffset;
+        this.restartButton.zIndex = 9002;
+        this.restartButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.restartButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+
+        const label = new TextBlock('restartLabel', 'RESTART');
+        label.color = '#cccccc';
+        label.fontSize = isLandscape ? 14 : (isMobile ? 18 : 22);
+        label.fontWeight = 'bold';
+        label.fontFamily = 'Arial';
+        label.shadowColor = STYLE.textShadowColor;
+        label.shadowBlur = STYLE.textShadowBlur;
+        this.restartButton.addControl(label);
+
+        addPressFeedback(this.restartButton, () => {
+            this.game.resume();
+            this.game.getStateManager().changeState('survivors');
+        });
+
+        this.guiTexture.addControl(this.restartButton);
+    }
+
+    private createMenuButton(): void {
+        const isMobile = this.isMobileDevice();
+        const isLandscape = isMobile && window.innerWidth > window.innerHeight;
+
+        const width = isLandscape ? 160 : 200;
+        const height = isLandscape ? '36px' : (isMobile ? '48px' : '50px');
+        const topOffset = isLandscape ? '130px' : (isMobile ? '181px' : '210px');
+
+        this.menuButton = makeFrame({ name: 'menuButton', sizePx: width, color: '#888', cornerRadius: 10 });
+        this.menuButton.height = height;
+        this.menuButton.top = topOffset;
+        this.menuButton.zIndex = 9002;
+        this.menuButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.menuButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+
+        const label = new TextBlock('menuLabel', 'MAIN MENU');
+        label.color = '#cccccc';
+        label.fontSize = isLandscape ? 14 : (isMobile ? 18 : 22);
+        label.fontWeight = 'bold';
+        label.fontFamily = 'Arial';
+        label.shadowColor = STYLE.textShadowColor;
+        label.shadowBlur = STYLE.textShadowBlur;
+        this.menuButton.addControl(label);
+
+        addPressFeedback(this.menuButton, () => {
+            this.game.resume();
+            this.game.getStateManager().changeState('menu');
+        });
+
+        this.guiTexture.addControl(this.menuButton);
     }
 
     public show(): void {
@@ -161,6 +221,8 @@ export class PauseScreen {
         this.pauseText.isVisible = true;
         this.instructionText.isVisible = true;
         this.resumeButton.isVisible = true;
+        this.restartButton.isVisible = true;
+        this.menuButton.isVisible = true;
 
         // Force the screen to be dirty to ensure it renders
         this.guiTexture.markAsDirty();
@@ -175,6 +237,8 @@ export class PauseScreen {
         this.pauseText.isVisible = false;
         this.instructionText.isVisible = false;
         this.resumeButton.isVisible = false;
+        this.restartButton.isVisible = false;
+        this.menuButton.isVisible = false;
     }
 
     public dispose(): void {
