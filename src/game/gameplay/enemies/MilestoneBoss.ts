@@ -7,15 +7,24 @@ type LungeState = 'walking' | 'telegraph' | 'dashing' | 'recover';
 
 /** Per-tier stat multipliers applied on top of BossEnemy base stats. */
 const TIER_HP_MULT:    Record<number, number> = { 1: 1.8, 2: 2.6, 3: 3.4, 4: 4.4 };
-const TIER_SPEED_MULT: Record<number, number> = { 1: 1.4, 2: 1.5, 3: 1.6, 4: 1.7 };
 const TIER_DPS_MULT:   Record<number, number> = { 1: 1.0, 2: 1.1, 3: 1.2, 4: 1.3 };
 
-/** Tier 5+ HP: 4.4 + 0.6 × (tier − 4). Speed and DPS clamp at tier-4 values. */
+/**
+ * Per-tier ABSOLUTE base movement speed (world units/sec). Overrides BossEnemy's
+ * path-walker speed of 0.7 — that was tuned for TD-mode path crawling, but in
+ * survivors mode the hero moves ~5 u/s and would simply outrun a 1 u/s boss
+ * forever, so the lunge would never matter. These values keep the boss slower
+ * than the hero so straight-line kiting still works, but the lunge can close
+ * the gap quickly.
+ */
+const TIER_BASE_SPEED: Record<number, number> = { 1: 3.0, 2: 3.5, 3: 4.0, 4: 4.5 };
+
+/** Tier 5+ HP: 4.4 + 0.6 × (tier − 4). DPS and base speed clamp at tier-4 values. */
 function tierHpMult(tier: number): number {
     return tier <= 4 ? TIER_HP_MULT[tier] : 4.4 + 0.6 * (tier - 4);
 }
-function tierSpeedMult(tier: number): number { return TIER_SPEED_MULT[tier] ?? 1.7; }
 function tierDpsMult(tier: number): number   { return TIER_DPS_MULT[tier]   ?? 1.3; }
+function tierBaseSpeed(tier: number): number { return TIER_BASE_SPEED[tier] ?? 4.5; }
 
 /** Lunge cadence per tier (seconds between lunges). Faster at higher tiers. */
 const LUNGE_COOLDOWN_BY_TIER: Record<number, number> = { 1: 4.0, 2: 3.5, 3: 3.0, 4: 2.4 };
@@ -67,14 +76,15 @@ export class MilestoneBoss extends BossEnemy {
 
         // Apply tier-scaled stat multipliers on top of the base BossEnemy stats.
         const hpMult    = tierHpMult(waveTier);
-        const speedMult = tierSpeedMult(waveTier);
         const dpsMult   = tierDpsMult(waveTier);
+        const baseSpeed = tierBaseSpeed(waveTier);
 
         // BossEnemy constructor already set maxHealth=500 and contactDamagePerSecond=30.
         this.maxHealth = Math.floor(this.maxHealth * hpMult);
         this.health    = this.maxHealth;
-        this.speed     = this.speed * speedMult;
-        this.originalSpeed = this.originalSpeed * speedMult;
+        // Speed is OVERRIDDEN (not multiplied) — BossEnemy.speed = 0.7 is for path-walker TD mode.
+        this.speed     = baseSpeed;
+        this.originalSpeed = baseSpeed;
         this.contactDamagePerSecond = this.contactDamagePerSecond * dpsMult;
 
         this.updateHealthBar();
@@ -87,15 +97,18 @@ export class MilestoneBoss extends BossEnemy {
         this.tickLungeStateMachine(deltaTime);
         this.maybeEnrage();
 
-        // While dashing, we override the seek behavior to travel in the locked direction.
-        // Otherwise BossEnemy.update handles the normal seek + status + animation.
+        // While dashing, the boss travels in the locked direction (not toward the hero).
+        // We zero out `speed` so the parent's seek branch doesn't add hero-ward motion,
+        // then apply the dash velocity in advanceDash after the parent has run animation
+        // and copied this.position into the mesh. (DON'T null seekTarget — that drops the
+        // parent into its path-walker branch, which with an empty path returns true and
+        // makes EnemyManager treat the boss as "reached goal" → 50 HP loss + boss removed.)
         if (this.lungeState === 'dashing') {
-            this.advanceDash(deltaTime);
-            // Skip the parent's seek by clearing seekTarget for this frame — restore after.
-            const savedSeek = this.seekTarget;
-            this.seekTarget = null;
+            const savedSpeed = this.speed;
+            this.speed = 0;
             const result = super.update(deltaTime);
-            this.seekTarget = savedSeek;
+            this.speed = savedSpeed;
+            this.advanceDash(deltaTime);
             return result;
         }
 

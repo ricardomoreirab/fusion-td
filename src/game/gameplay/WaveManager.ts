@@ -289,20 +289,16 @@ export class WaveManager {
             name: 'Hydra Brood',
             description: 'Hydras split into mini-enemies on death! AOE towers help here.'
         });
-        // Wave 5: The Wall — 2 elites
+        // Wave 5: The Hunter — first milestone boss
         this.waves.push({
             enemies: [
-                { type: 'basic', count: 6, delay: 1.4 },
-                { type: 'tank', count: 2, delay: 4.0 },
-                { type: 'splitting', count: 2, delay: 2.5 }
+                { type: 'basic', count: 4, delay: 1.4 },
+                { type: 'tank', count: 1, delay: 3.0 },
+                { type: 'boss', count: 1, delay: 0 }
             ],
             reward: 100,
-            name: 'The Wall',
-            description: 'Armored enemies and hydras! Focus fire on tanks, AOE the rest.',
-            elites: [
-                { type: 'tank', element: 'physical', count: 1 },
-                { type: 'basic', element: 'fire', count: 1 },
-            ],
+            name: 'The Hunter',
+            description: 'A boss approaches! Defeat it for a powerful item drop.'
         });
         // Wave 6: Shaman's Call — introducing Healers
         this.waves.push({
