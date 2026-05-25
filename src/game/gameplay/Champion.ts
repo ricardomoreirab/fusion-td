@@ -341,14 +341,15 @@ export class Champion extends Enemy {
         // picks a clip that doesn't look right, hard-pick the one we want. The
         // substring is matched against the (prefixed) clip name.
         const PREFERRED: Partial<Record<string, { attack?: string; special?: string; walk?: string; idle?: string }>> = {
-            barbarian: { special: 'aulus_warrior_of_ferocity_in_game_skill3_5' },
+            barbarian: { special: 'aulus_warrior_of_ferocity_in_game_skill3' },
         };
         const overrides = PREFERRED[this.championType];
         if (overrides) {
             for (const slot of ['attack', 'special', 'walk', 'idle'] as const) {
                 const needle = overrides[slot];
                 if (!needle) continue;
-                const match = this.championAnims.all.find(ag => ag.name.includes(needle));
+                // endsWith so we match "...skill3" but not "...skill3_5".
+                const match = this.championAnims.all.find(ag => ag.name.endsWith(needle));
                 if (match) this.championAnims[slot] = match;
             }
         }
@@ -400,6 +401,10 @@ export class Champion extends Enemy {
      *  during the attack timer the model turns to face the target. */
     public triggerAttack(targetPos?: Vector3): void {
         if (!this.championAsset) return;
+        // Don't interrupt the special animation. Per-frame logic already prioritises
+        // special over attack, but triggerAttack force-stops the current clip and
+        // starts attack, which without this guard would cut the whirlwind short.
+        if (this.glbSpecialTimer > 0) return;
         const dur = (this as any).glbAttackDurationActual ?? Champion.GLB_ATTACK_DURATION;
         this.glbAttackTimer = dur;
         this.glbAttackFacingTarget = targetPos ? targetPos.clone() : null;
