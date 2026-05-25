@@ -26,7 +26,11 @@ export class EnemyManager {
     private healHandler: ((e: Event) => void) | null = null;
 
     // Survivors mode fields
-    private heroProvider: { getPosition: () => Vector3 } | null = null;
+    private heroProvider: {
+        getPosition: () => Vector3;
+        takeDamage?: (amount: number, sourcePos?: Vector3) => void;
+        isAlive?: () => boolean;
+    } | null = null;
     private arenaRadius: number = 25;
     private onEliteDeathCallback: (position: Vector3, element: string) => void = () => {};
     private onMilestoneBossDeathCallback: (position: Vector3, waveTier: number) => void = () => {};
@@ -47,6 +51,7 @@ export class EnemyManager {
             for (let i = 0; i < count; i++) {
                 const offset = new Vector3((Math.random() - 0.5) * 1.5, 0, (Math.random() - 0.5) * 1.5);
                 const spawnPos = position.add(offset);
+                MiniEnemy.pendingAsset = this.enemyAssets['mini'] ?? null;
                 const mini = new MiniEnemy(this.game, spawnPos, [...path]);
                         this.enemies.push(mini);
             }
@@ -78,7 +83,14 @@ export class EnemyManager {
     /**
      * Configure survivors mode: enemies spawn at arena perimeter and seek the hero.
      */
-    public configureSurvivorsMode(heroProvider: { getPosition: () => Vector3 }, arenaRadius: number): void {
+    public configureSurvivorsMode(
+        heroProvider: {
+            getPosition: () => Vector3;
+            takeDamage?: (amount: number, sourcePos?: Vector3) => void;
+            isAlive?: () => boolean;
+        },
+        arenaRadius: number,
+    ): void {
         this.heroProvider = heroProvider;
         this.arenaRadius = arenaRadius;
 
@@ -92,6 +104,7 @@ export class EnemyManager {
             for (let i = 0; i < count; i++) {
                 const offset = new Vector3((Math.random() - 0.5) * 1.5, 0, (Math.random() - 0.5) * 1.5);
                 const spawnPos = position.add(offset);
+                MiniEnemy.pendingAsset = this.enemyAssets['mini'] ?? null;
                 const mini = new MiniEnemy(this.game, spawnPos, this.heroProvider ? [] : [...path]);
                         if (this.heroProvider) {
                     mini.seekTarget = this.heroProvider;
@@ -142,20 +155,102 @@ export class EnemyManager {
      * added to the enemies[] array, so they don't participate in gameplay; they
      * are disposed immediately after the warmup render.
      */
-    public prewarmEnemyTypes(): void {
+    public async prewarmEnemyTypes(): Promise<void> {
+        const t0 = performance.now();
         const farAway = new Vector3(1000, 0, 1000);
-        const warmup: Enemy[] = [
-            new BasicEnemy(this.game, farAway, []),
-            new FastEnemy(this.game, farAway, []),
-            new TankEnemy(this.game, farAway, []),
-            new BossEnemy(this.game, farAway, []),
-            new SplittingEnemy(this.game, farAway, []),
-            new HealerEnemy(this.game, farAway, []),
-            new ShieldEnemy(this.game, farAway, []),
-            new MiniEnemy(this.game, farAway, []),
+        const warmup: Enemy[] = [];
+
+        // 1) Procedural fallback meshes (covers the no-GLB code path).
+        warmup.push(new BasicEnemy(this.game, farAway, []));
+        warmup.push(new FastEnemy(this.game, farAway, []));
+        warmup.push(new TankEnemy(this.game, farAway, []));
+        warmup.push(new BossEnemy(this.game, farAway, []));
+        warmup.push(new SplittingEnemy(this.game, farAway, []));
+        warmup.push(new HealerEnemy(this.game, farAway, []));
+        warmup.push(new ShieldEnemy(this.game, farAway, []));
+        warmup.push(new MiniEnemy(this.game, farAway, []));
+
+        // 2) GLB variants — each unique GLB has its own materials/skeleton that
+        // need shader compilation on first render. Without this loop the player
+        // hits a 1–2s GPU stall the first time each variant (base + elite + each
+        // boss tier) actually appears in a wave. We mirror the spawn-side staging
+        // pattern: set pendingAsset on the class, then construct.
+        type EnemyClass = { pendingAsset: AssetContainer | null };
+        const glbVariants: Array<{ cls: EnemyClass; key: string; build: () => Enemy }> = [
+            { cls: BasicEnemy,     key: 'basic',        build: () => new BasicEnemy(this.game, farAway, []) },
+            { cls: BasicEnemy,     key: 'basic_elite',  build: () => new BasicEnemy(this.game, farAway, []) },
+            { cls: FastEnemy,      key: 'fast',         build: () => new FastEnemy(this.game, farAway, []) },
+            { cls: FastEnemy,      key: 'fast_elite',   build: () => new FastEnemy(this.game, farAway, []) },
+            { cls: TankEnemy,      key: 'tank',         build: () => new TankEnemy(this.game, farAway, []) },
+            { cls: HealerEnemy,    key: 'healer',       build: () => new HealerEnemy(this.game, farAway, []) },
+            { cls: HealerEnemy,    key: 'healer_elite', build: () => new HealerEnemy(this.game, farAway, []) },
+            { cls: SplittingEnemy, key: 'splitting',    build: () => new SplittingEnemy(this.game, farAway, []) },
+            { cls: MiniEnemy,      key: 'mini',         build: () => new MiniEnemy(this.game, farAway, []) },
         ];
+        for (const { cls, key, build } of glbVariants) {
+            const asset = this.enemyAssets[key];
+            if (!asset) continue;
+            cls.pendingAsset = asset;
+            warmup.push(build());
+        }
+        // Per-tier MilestoneBoss GLBs (waves 5/10/15/20).
+        for (let tier = 1; tier <= 4; tier++) {
+            const asset = this.enemyAssets[`boss_tier${tier}`];
+            if (!asset) continue;
+            MilestoneBoss.pendingAsset = asset;
+            warmup.push(new MilestoneBoss(this.game, farAway, [], tier));
+        }
+
+        // 3) Force frustum inclusion. Babylon culls anything outside the camera
+        // before drawing — the far-away warmup meshes would normally be skipped,
+        // so the shader compile (the whole point of the prewarm) never happens.
+        for (const e of warmup) {
+            const root = (e as unknown as { mesh: { alwaysSelectAsActiveMesh: boolean; getChildMeshes: (deep: boolean) => { alwaysSelectAsActiveMesh: boolean }[] } | null }).mesh;
+            if (!root) continue;
+            root.alwaysSelectAsActiveMesh = true;
+            for (const child of root.getChildMeshes(false)) {
+                child.alwaysSelectAsActiveMesh = true;
+            }
+        }
+
         this.game.getScene().render();
+
+        // 4) Force shader compilation to COMPLETE before we dispose. The render()
+        // above only kicks off compilation; under KHR_parallel_shader_compile the
+        // actual GLSL→GPU compile runs on a driver worker thread. Without this
+        // await, the first in-gameplay use of each shader stalls the main thread
+        // waiting for the still-in-flight compile (the actual freeze cause).
+        const compilePromises: Promise<void>[] = [];
+        type MeshLike = {
+            material: { forceCompilationAsync: (mesh: object) => Promise<void> } | null;
+            getChildMeshes: (deep: boolean) => MeshLike[];
+        };
+        const seen = new Set<object>();
+        for (const e of warmup) {
+            const root = (e as unknown as { mesh: MeshLike | null }).mesh;
+            if (!root) continue;
+            const meshes: MeshLike[] = [root, ...root.getChildMeshes(false)];
+            for (const m of meshes) {
+                const mat = m.material;
+                if (!mat || seen.has(mat)) continue;
+                seen.add(mat);
+                compilePromises.push(
+                    mat.forceCompilationAsync(m as unknown as object).catch((err) => {
+                        console.warn('[prewarm] material compile failed:', err);
+                    }),
+                );
+            }
+        }
+        await Promise.all(compilePromises);
+
         for (const e of warmup) e.dispose();
+        const variantCount = warmup.length;
+        const glbKeysAvailable = Object.keys(this.enemyAssets);
+        console.info(
+            `[prewarm] ${variantCount} variants + ${compilePromises.length} shaders compiled in ` +
+            `${Math.round(performance.now() - t0)}ms ` +
+            `(GLB assets: ${glbKeysAvailable.length === 0 ? 'NONE — only procedural fallbacks' : glbKeysAvailable.join(', ')})`,
+        );
     }
 
     /**
@@ -166,6 +261,10 @@ export class EnemyManager {
      */
     public spawnSurvivorsEnemy(type: string, eliteElement?: string, bossStrengthMultiplier: number = 1): Enemy | null {
         if (!this.heroProvider) return null;
+
+        // Diagnostic: any single spawn taking >50ms is suspicious. Logs the type
+        // + elite tag + duration so we can correlate spawn cost with rAF freezes.
+        const spawnStart = performance.now();
 
         const heroPos = this.heroProvider.getPosition();
         const theta = Math.random() * Math.PI * 2;
@@ -192,7 +291,8 @@ export class EnemyManager {
                              enemy = new BasicEnemy(this.game, spawnPos, []); break;
             case 'fast':     FastEnemy.pendingAsset = assetFor('fast');
                              enemy = new FastEnemy(this.game, spawnPos, []); break;
-            case 'tank':     enemy = new TankEnemy(this.game, spawnPos, []); break;
+            case 'tank':     TankEnemy.pendingAsset = assetFor('tank');
+                             enemy = new TankEnemy(this.game, spawnPos, []); break;
             case 'boss': {
                 const currentWave = this.waveManager?.getCurrentWave() ?? 0;
                 if (currentWave > 0 && currentWave % 5 === 0) {
@@ -206,8 +306,10 @@ export class EnemyManager {
                 }
                 break;
             }
-            case 'splitting':enemy = new SplittingEnemy(this.game, spawnPos, []); break;
-            case 'healer':   enemy = new HealerEnemy(this.game, spawnPos, []); break;
+            case 'splitting':SplittingEnemy.pendingAsset = assetFor('splitting');
+                             enemy = new SplittingEnemy(this.game, spawnPos, []); break;
+            case 'healer':   HealerEnemy.pendingAsset = assetFor('healer');
+                             enemy = new HealerEnemy(this.game, spawnPos, []); break;
             case 'shield':   enemy = new ShieldEnemy(this.game, spawnPos, []); break;
             default:         enemy = new BasicEnemy(this.game, spawnPos, []); break;
         }
@@ -221,6 +323,10 @@ export class EnemyManager {
         }
 
         this.enemies.push(enemy);
+        const spawnMs = performance.now() - spawnStart;
+        if (spawnMs > 50) {
+            console.warn(`[spawn] ${type}${eliteElement ? `:${eliteElement}` : ''} took ${Math.round(spawnMs)}ms`);
+        }
         return enemy;
     }
 
@@ -249,9 +355,26 @@ export class EnemyManager {
         // Create a copy of the array to safely remove enemies during iteration
         const enemiesToUpdate = [...this.enemies];
 
+        // Diagnostic: time each enemy.update() and log the slowest of this frame
+        // if the total update spend exceeds 50ms. Helps pinpoint per-enemy cost.
+        const tUpdateStart = performance.now();
+        let slowestEnemyMs = 0;
+        let slowestEnemyType = '';
+
         for (const enemy of enemiesToUpdate) {
+            // If an earlier enemy's attack killed the hero this frame, the gameplay
+            // state has already started tearing down. Stop iterating to avoid
+            // running enemy.update against a half-disposed scene.
+            if (this.heroProvider?.isAlive && !this.heroProvider.isAlive()) break;
+
             // Update enemy and check if it reached the end
+            const tE = performance.now();
             const reachedEnd = enemy.update(deltaTime);
+            const dE = performance.now() - tE;
+            if (dE > slowestEnemyMs) {
+                slowestEnemyMs = dE;
+                slowestEnemyType = enemy.constructor.name;
+            }
 
             if (reachedEnd) {
                 // Enemy reached the end, damage player
@@ -274,14 +397,21 @@ export class EnemyManager {
                 }
 
                 // Survivors mode: fire milestone-boss death callback so an ItemDrop can be spawned
-                if ((enemy as MilestoneBoss).isMilestone) {
-                    const mb = enemy as MilestoneBoss;
-                    this.onMilestoneBossDeathCallback(mb.getPosition().clone(), mb.waveTier);
+                if (enemy instanceof MilestoneBoss) {
+                    this.onMilestoneBossDeathCallback(enemy.getPosition().clone(), enemy.waveTier);
                 }
 
                 // Remove from enemies list
                 this.removeEnemy(enemy);
             }
+        }
+
+        const totalUpdateMs = performance.now() - tUpdateStart;
+        if (totalUpdateMs > 50) {
+            console.warn(
+                `[slow-update] EnemyManager.update ${Math.round(totalUpdateMs)}ms ` +
+                `· ${enemiesToUpdate.length} enemies · slowest=${slowestEnemyType} ${Math.round(slowestEnemyMs)}ms`,
+            );
         }
     }
 

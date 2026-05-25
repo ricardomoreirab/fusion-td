@@ -1,10 +1,14 @@
-import { Vector3, MeshBuilder, StandardMaterial, Color3, Color4, ParticleSystem, Texture, Mesh } from '@babylonjs/core';
+import { Vector3, MeshBuilder, StandardMaterial, Color3, Color4, ParticleSystem, Texture, Mesh, AssetContainer, AnimationGroup, TransformNode, Quaternion } from '@babylonjs/core';
 import { Game } from '../../Game';
 import { Enemy } from './Enemy';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../rendering/LowPolyMaterial';
 import { PALETTE } from '../../rendering/StyleConstants';
 
 export class SplittingEnemy extends Enemy {
+    /** Static slot used by EnemyManager.spawnSurvivorsEnemy to stage a preloaded GLB
+     *  asset before constructing a SplittingEnemy. createMesh() consumes + clears it. */
+    public static pendingAsset: AssetContainer | null = null;
+
     private walkTime: number = 0;
     private headLeft: Mesh | null = null;
     private headCenter: Mesh | null = null;
@@ -13,17 +17,115 @@ export class SplittingEnemy extends Enemy {
     private rightLeg: Mesh | null = null;
     private backLeg: Mesh | null = null;
 
+    /** True when this instance renders via the thunder-fenrir GLB. */
+    private usingGLB: boolean = false;
+    private glbWalkAnim: AnimationGroup | null = null;
+    private glbAttackAnim: AnimationGroup | null = null;
+    private glbIdleAnim: AnimationGroup | null = null;
+    private glbCurrentAnim: AnimationGroup | null = null;
+    private glbAttackHoldTimer: number = 0;
+    private static readonly GLB_ATTACK_RANGE = 3.5;
+    private static readonly GLB_ATTACK_HOLD = 0.6;
+    private static readonly GLB_SCALE = 1.4;
+
     constructor(game: Game, position: Vector3, path: Vector3[]) {
         // Splitting enemy: moderate speed, medium HP, medium damage, decent reward
         super(game, position, path, 2.5, 40, 8, 20);
         this.contactDamagePerSecond = 10;
+
+        // Hydra bite — slightly longer reach (multiple heads), moderate damage.
+        this.meleeRange            = 1.6;
+        this.meleeHitRange         = 1.9;
+        this.meleeHitDamage        = 12;
+        this.meleeWindupDuration   = 0.3;
+        this.meleeStrikeDuration   = 0.1;
+        this.meleeCooldownDuration = 0.55;
     }
 
     /**
-     * Create the enemy mesh - low-poly Multi-Headed Hydra/Slime
-     * Squat wide body, 3 serpentine heads with emissive eyes, short stubby legs
+     * Create the enemy mesh. If a GLB asset was staged via SplittingEnemy.pendingAsset
+     * (set by EnemyManager just before construction), instantiate it. Otherwise fall
+     * back to the procedural multi-headed hydra build below.
      */
     protected createMesh(): void {
+        const asset = SplittingEnemy.pendingAsset;
+        SplittingEnemy.pendingAsset = null;
+        if (asset) {
+            this.createMeshFromGLB(asset);
+            return;
+        }
+        this.createMeshProcedural();
+    }
+
+    private createMeshFromGLB(asset: AssetContainer): void {
+        this.usingGLB = true;
+        this.mesh = new Mesh('splittingEnemyGlbRoot', this.scene);
+        this.mesh.position.copyFrom(this.position);
+
+        const inst = asset.instantiateModelsToScene(
+            name => `splitting_${name}`,
+            true,
+            { doNotInstantiate: true },
+        );
+        for (const root of inst.rootNodes) {
+            root.parent = this.mesh;
+            if ('scaling' in root && root.scaling) {
+                (root as TransformNode).scaling.scaleInPlace(SplittingEnemy.GLB_SCALE);
+            }
+            const tn = root as TransformNode;
+            const flip = Quaternion.RotationYawPitchRoll(Math.PI, 0, 0);
+            if (tn.rotationQuaternion) {
+                tn.rotationQuaternion = flip.multiply(tn.rotationQuaternion);
+            } else if (tn.rotation) {
+                tn.rotation.y += Math.PI;
+            }
+        }
+
+        this.mesh.computeWorldMatrix(true);
+        const bbox = this.mesh.getHierarchyBoundingVectors(true);
+        const feetOffset = -bbox.min.y;
+        for (const root of inst.rootNodes) {
+            if ('position' in root && root.position) {
+                (root as TransformNode).position.y += feetOffset;
+            }
+        }
+
+        // Register groups for base-class dispose cleanup (prevents animatable leak).
+        this.glbAnimationGroups = inst.animationGroups;
+
+        for (const ag of inst.animationGroups) ag.stop();
+        for (const ag of inst.animationGroups) {
+            const n = ag.name.toLowerCase();
+            if (!this.glbWalkAnim && (n.includes('walk') || n.includes('run') || n.includes('move'))) {
+                this.glbWalkAnim = ag;
+            } else if (!this.glbAttackAnim && (n.includes('attack') || n.includes('bite') || n.includes('hit') || n.includes('strike') || n.includes('swing') || n.includes('lunge'))) {
+                this.glbAttackAnim = ag;
+            } else if (!this.glbIdleAnim && (n.includes('idle') || n === 'stand')) {
+                this.glbIdleAnim = ag;
+            }
+        }
+        if (!this.glbWalkAnim && inst.animationGroups.length > 0) this.glbWalkAnim = inst.animationGroups[0];
+        if (!this.glbIdleAnim) this.glbIdleAnim = this.glbWalkAnim;
+        if (!this.glbAttackAnim) this.glbAttackAnim = this.glbWalkAnim;
+        if (this.glbWalkAnim) {
+            this.glbWalkAnim.start(true);
+            this.glbCurrentAnim = this.glbWalkAnim;
+        }
+    }
+
+    private playGlbAnim(slot: AnimationGroup | null, loop: boolean): void {
+        if (!slot) return;
+        if (this.glbCurrentAnim === slot) return;
+        if (this.glbCurrentAnim) this.glbCurrentAnim.stop();
+        slot.start(loop);
+        this.glbCurrentAnim = slot;
+    }
+
+    /**
+     * Create the enemy mesh - low-poly Multi-Headed Hydra/Slime (procedural fallback)
+     * Squat wide body, 3 serpentine heads with emissive eyes, short stubby legs
+     */
+    private createMeshProcedural(): void {
         // --- Main body: squat wide box (blobby torso) ---
         this.mesh = MeshBuilder.CreateBox('splittingEnemyBody', {
             width: 0.90,
@@ -406,6 +508,33 @@ export class SplittingEnemy extends Enemy {
 
         // Get the result from the parent update method
         const result = super.update(deltaTime);
+
+        // GLB fenrir skips the procedural multi-head sway — the asset's clips drive it.
+        if (this.usingGLB) {
+            if (this.glbAttackHoldTimer > 0) {
+                this.glbAttackHoldTimer = Math.max(0, this.glbAttackHoldTimer - deltaTime);
+            }
+            if (this.isFrozen || this.isStunned) {
+                this.playGlbAnim(this.glbIdleAnim, true);
+            } else if (this.seekTarget) {
+                const heroPos = this.seekTarget.getPosition();
+                const dx = heroPos.x - this.position.x;
+                const dz = heroPos.z - this.position.z;
+                const distSq = dx * dx + dz * dz;
+                const inRange = distSq <= SplittingEnemy.GLB_ATTACK_RANGE * SplittingEnemy.GLB_ATTACK_RANGE;
+                if (inRange) {
+                    this.glbAttackHoldTimer = SplittingEnemy.GLB_ATTACK_HOLD;
+                }
+                if (this.glbAttackHoldTimer > 0) {
+                    this.playGlbAnim(this.glbAttackAnim, true);
+                } else {
+                    this.playGlbAnim(this.glbWalkAnim, true);
+                }
+            } else {
+                this.playGlbAnim(this.glbWalkAnim, true);
+            }
+            return result;
+        }
 
         // Update walking animation
         if (!this.isFrozen && !this.isStunned && this.currentPathIndex < this.path.length && this.mesh) {

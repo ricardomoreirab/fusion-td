@@ -76,6 +76,18 @@ export class HeroBasicAttack {
         this.powerSlots = slots;
     }
 
+    /** Global damage-multiplier provider (shop upgrades + run perks). Multiplies
+     *  every basic-attack hit and is passed to enchantment onHit hooks so passive
+     *  bonus-damage effects scale with global power too. */
+    private damageMultiplierProvider: () => number = () => 1.0;
+    public setDamageMultiplierProvider(fn: () => number): void {
+        this.damageMultiplierProvider = fn;
+    }
+
+    private get effectiveDamage(): number {
+        return this.damage * this.damageMultiplierProvider();
+    }
+
     /** Wire up player stats so run-item effects (lifesteal, knockback, multishot, multi-spin) apply. */
     public setPlayerStats(stats: PlayerStats): void {
         this.playerStats = stats;
@@ -214,9 +226,10 @@ export class HeroBasicAttack {
             const dz = e.getPosition().z - heroPos.z;
             const horizDist = Math.hypot(dx, dz);
             if (horizDist <= range) {
-                e.takeDamage(this.damage);
+                const dmg = this.effectiveDamage;
+                e.takeDamage(dmg);
                 if (lifestealPct > 0 && this.healCallback) {
-                    this.healCallback(this.damage * lifestealPct);
+                    this.healCallback(dmg * lifestealPct);
                 }
                 if (knockback > 0 && horizDist > 0.001) {
                     // Direction: from hero outward toward the enemy.
@@ -400,7 +413,9 @@ export class HeroBasicAttack {
 
         const speed = 22;
         const startTime = performance.now() / 1000;
-        const capturedDamage = this.damage;
+        // Snapshot damage at fire time — projectile carries that value; upgrades
+        // mid-flight don't retroactively buff already-fired arrows.
+        const capturedDamage = this.effectiveDamage;
         const heroPos = from;
         const allEnemies = this.enemyProvider ? this.enemyProvider() : [];
         const shape = this.projectileShape;
@@ -480,7 +495,10 @@ export class HeroBasicAttack {
             scene: this.scene,
             heroPosition: heroPos,
             enemies: allEnemies,
-            baseDamage: this.damage,
+            // Pass the multiplied damage so passive on-hit bonuses (Arcane Bite,
+            // Flaming Edge DoT, Heavy Strike, Shock Chain) also scale with shop
+            // upgrades and the per-card global power bump.
+            baseDamage: this.effectiveDamage,
         };
 
         for (const enc of enchantments) {

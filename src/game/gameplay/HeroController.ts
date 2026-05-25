@@ -83,11 +83,11 @@ export class HeroController {
         // appears larger and more close-range threats are visible.
         const viewportWidth = scene.getEngine().getRenderWidth();
         if (viewportWidth < 700) {
-            this.cameraHeight = 25;    // closer than desktop (30)
-            this.cameraOffsetZ = -5;   // less tilt back
+            this.cameraHeight = 16;    // closer than desktop (20)
+            this.cameraOffsetZ = -3;   // less tilt back
         } else {
-            this.cameraHeight = 30;
-            this.cameraOffsetZ = -7;   // slight tilt back for depth; ~13° off vertical
+            this.cameraHeight = 20;
+            this.cameraOffsetZ = -5;   // slight tilt back for depth
         }
 
         // Top-down follow camera — replace the old isometric camera from Game.setupScene
@@ -146,6 +146,12 @@ export class HeroController {
     /** Wire the power slot manager into the basic attack for enchantments. */
     public setPowerSlots(slots: PowerSlotManager): void {
         this.basicAttack?.setPowerSlots(slots);
+    }
+
+    /** Forward the global damage multiplier (shop + run perks) into basic-attack
+     *  damage so every weapon swing / arrow / etc. respects upgrades. */
+    public setDamageMultiplierProvider(fn: () => number): void {
+        this.basicAttack?.setDamageMultiplierProvider(fn);
     }
 
     public setOnDeath(fn: () => void): void {

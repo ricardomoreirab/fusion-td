@@ -7,8 +7,8 @@ import { PALETTE } from '../../rendering/StyleConstants';
 export class BossEnemy extends Enemy {
     private animationTime: number = 0;
     private head: Mesh | null = null;
-    private leftArm: Mesh | null = null;
-    private rightArm: Mesh | null = null;
+    protected leftArm: Mesh | null = null;
+    protected rightArm: Mesh | null = null;
     private jaw: Mesh | null = null;
     private crystals: Mesh[] = [];
     private leftLeg: Mesh | null = null;
@@ -24,6 +24,16 @@ export class BossEnemy extends Enemy {
         // Add innate damage resistance for bosses (15%, reduced from 20%)
         this.damageResistance = 0.15;
         this.contactDamagePerSecond = 30;
+
+        // Melee-swing tuning — reach is ~2.8u so the strike lands when the hero is
+        // just outside body contact. Arm-raise + slam animation acts as the
+        // telegraph (see onMeleeAttackPhase below); no ground disc needed.
+        this.meleeRange            = 2.8;
+        this.meleeHitRange         = 3.2;
+        this.meleeHitDamage        = 35;
+        this.meleeWindupDuration   = 0.5;
+        this.meleeStrikeDuration   = 0.18;
+        this.meleeCooldownDuration = 0.85;
     }
 
     /**
@@ -364,8 +374,24 @@ export class BossEnemy extends Enemy {
         // Animate parts
         this.animateParts(deltaTime);
 
-        // Call parent update method (handles movement and status effects)
+        // Call parent update method (handles movement, status effects, and the
+        // melee-swing state machine — which calls onMeleeAttackPhase below for
+        // the boss's overhead claw animation).
         return super.update(deltaTime);
+    }
+
+    /** Overrides animateParts' idle arm sway with the swing pose while attacking. */
+    protected onMeleeAttackPhase(state: 'windup' | 'strike' | 'cooldown', progress: number): void {
+        if (!this.leftArm || !this.rightArm) return;
+        const t = Math.max(0, Math.min(1, progress));
+        let armX: number;
+        switch (state) {
+            case 'windup':    armX = -1.6 * t;                break; // 0 → -1.6 rad (overhead)
+            case 'strike':    armX = -1.6 + 2.3 * t;          break; // -1.6 → +0.7 rad (slam down)
+            case 'cooldown':  armX = 0.7 * (1 - t);           break; // 0.7 → 0 (return)
+        }
+        this.leftArm.rotation.x = armX!;
+        this.rightArm.rotation.x = armX!;
     }
 
 

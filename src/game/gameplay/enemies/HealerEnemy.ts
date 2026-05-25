@@ -1,10 +1,14 @@
-import { Vector3, MeshBuilder, StandardMaterial, Color3, Color4, ParticleSystem, Mesh } from '@babylonjs/core';
+import { Vector3, MeshBuilder, StandardMaterial, Color3, Color4, ParticleSystem, Mesh, AssetContainer, AnimationGroup, TransformNode, Quaternion } from '@babylonjs/core';
 import { Game } from '../../Game';
 import { Enemy, getStatusEffectTexture } from './Enemy';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../rendering/LowPolyMaterial';
 import { PALETTE } from '../../rendering/StyleConstants';
 
 export class HealerEnemy extends Enemy {
+    /** Static slot used by EnemyManager.spawnSurvivorsEnemy to stage a preloaded GLB
+     *  asset before constructing a HealerEnemy. createMesh() consumes + clears it. */
+    public static pendingAsset: AssetContainer | null = null;
+
     private walkTime: number = 0;
     private healTimer: number = 0;
     private staff: Mesh | null = null;
@@ -17,18 +21,118 @@ export class HealerEnemy extends Enemy {
     // Ground glow disc under healer (constant soft indicator)
     private groundGlow: Mesh | null = null;
 
+    /** True when this instance renders via the blue-wizard GLB. */
+    private usingGLB: boolean = false;
+    private glbWalkAnim: AnimationGroup | null = null;
+    private glbAttackAnim: AnimationGroup | null = null;
+    private glbIdleAnim: AnimationGroup | null = null;
+    private glbCurrentAnim: AnimationGroup | null = null;
+    private glbAttackHoldTimer: number = 0;
+    private static readonly GLB_ATTACK_RANGE = 4.0;
+    private static readonly GLB_ATTACK_HOLD = 0.6;
+    private static readonly GLB_SCALE = 1.4;
+
     constructor(game: Game, position: Vector3, path: Vector3[]) {
         // Healer enemy: moderate speed, low HP, low damage, decent reward
         super(game, position, path, 3.5, 25, 5, 30);
         this.contactDamagePerSecond = 4;
+
+        // Shaman staff-poke — weak melee; the healer's role is to heal allies, not brawl.
+        this.meleeRange            = 1.3;
+        this.meleeHitRange         = 1.6;
+        this.meleeHitDamage        = 6;
+        this.meleeWindupDuration   = 0.35;
+        this.meleeStrikeDuration   = 0.1;
+        this.meleeCooldownDuration = 0.7;
     }
 
     /**
-     * Create the enemy mesh - low-poly Mystic Shaman
+     * Create the enemy mesh. If a GLB asset was staged via HealerEnemy.pendingAsset
+     * (set by EnemyManager just before construction), instantiate it. Otherwise fall
+     * back to the procedural mystic-shaman build below.
+     */
+    protected createMesh(): void {
+        const asset = HealerEnemy.pendingAsset;
+        HealerEnemy.pendingAsset = null;
+        if (asset) {
+            this.createMeshFromGLB(asset);
+            return;
+        }
+        this.createMeshProcedural();
+    }
+
+    private createMeshFromGLB(asset: AssetContainer): void {
+        this.usingGLB = true;
+        this.mesh = new Mesh('healerEnemyGlbRoot', this.scene);
+        this.mesh.position.copyFrom(this.position);
+
+        const inst = asset.instantiateModelsToScene(
+            name => `healer_${name}`,
+            true,
+            { doNotInstantiate: true },
+        );
+        for (const root of inst.rootNodes) {
+            root.parent = this.mesh;
+            if ('scaling' in root && root.scaling) {
+                (root as TransformNode).scaling.scaleInPlace(HealerEnemy.GLB_SCALE);
+            }
+            // 180° Y flip — same pattern as BasicEnemy GLB.
+            const tn = root as TransformNode;
+            const flip = Quaternion.RotationYawPitchRoll(Math.PI, 0, 0);
+            if (tn.rotationQuaternion) {
+                tn.rotationQuaternion = flip.multiply(tn.rotationQuaternion);
+            } else if (tn.rotation) {
+                tn.rotation.y += Math.PI;
+            }
+        }
+
+        // Feet-on-ground offset.
+        this.mesh.computeWorldMatrix(true);
+        const bbox = this.mesh.getHierarchyBoundingVectors(true);
+        const feetOffset = -bbox.min.y;
+        for (const root of inst.rootNodes) {
+            if ('position' in root && root.position) {
+                (root as TransformNode).position.y += feetOffset;
+            }
+        }
+
+        // Register groups for base-class dispose cleanup (prevents animatable leak).
+        this.glbAnimationGroups = inst.animationGroups;
+
+        for (const ag of inst.animationGroups) ag.stop();
+        for (const ag of inst.animationGroups) {
+            const n = ag.name.toLowerCase();
+            if (!this.glbWalkAnim && (n.includes('walk') || n.includes('run') || n.includes('move'))) {
+                this.glbWalkAnim = ag;
+            } else if (!this.glbAttackAnim && (n.includes('attack') || n.includes('cast') || n.includes('spell') || n.includes('shoot') || n.includes('fire') || n.includes('hit') || n.includes('strike'))) {
+                this.glbAttackAnim = ag;
+            } else if (!this.glbIdleAnim && (n.includes('idle') || n === 'stand')) {
+                this.glbIdleAnim = ag;
+            }
+        }
+        if (!this.glbWalkAnim && inst.animationGroups.length > 0) this.glbWalkAnim = inst.animationGroups[0];
+        if (!this.glbIdleAnim) this.glbIdleAnim = this.glbWalkAnim;
+        if (!this.glbAttackAnim) this.glbAttackAnim = this.glbWalkAnim;
+        if (this.glbWalkAnim) {
+            this.glbWalkAnim.start(true);
+            this.glbCurrentAnim = this.glbWalkAnim;
+        }
+    }
+
+    private playGlbAnim(slot: AnimationGroup | null, loop: boolean): void {
+        if (!slot) return;
+        if (this.glbCurrentAnim === slot) return;
+        if (this.glbCurrentAnim) this.glbCurrentAnim.stop();
+        slot.start(loop);
+        this.glbCurrentAnim = slot;
+    }
+
+    /**
+     * Create the enemy mesh - low-poly Mystic Shaman (procedural fallback)
      * Robed figure with hood, carrying a staff with glowing orb,
      * glowing aura ring at feet, emissive cyan-green eyes
      */
-    protected createMesh(): void {
+    private createMeshProcedural(): void {
         // --- Robed Body: tapered cylinder (wide at bottom, narrow at top) ---
         this.mesh = MeshBuilder.CreateCylinder('healerEnemyBody', {
             height: 1.0,
@@ -290,6 +394,35 @@ export class HealerEnemy extends Enemy {
 
             // Expanding pulse ring visual at healer's feet
             this.spawnHealPulseRing();
+        }
+
+        // GLB wizard skips the procedural staff/orb anim — the asset's clips drive it.
+        // Facing is handled by Enemy.update's seek-rotation; the GLB roots are pre-rotated
+        // 180° in createMeshFromGLB so the model ends up facing the hero.
+        if (this.usingGLB) {
+            if (this.glbAttackHoldTimer > 0) {
+                this.glbAttackHoldTimer = Math.max(0, this.glbAttackHoldTimer - deltaTime);
+            }
+            if (this.isFrozen || this.isStunned) {
+                this.playGlbAnim(this.glbIdleAnim, true);
+            } else if (this.seekTarget) {
+                const heroPos = this.seekTarget.getPosition();
+                const dx = heroPos.x - this.position.x;
+                const dz = heroPos.z - this.position.z;
+                const distSq = dx * dx + dz * dz;
+                const inRange = distSq <= HealerEnemy.GLB_ATTACK_RANGE * HealerEnemy.GLB_ATTACK_RANGE;
+                if (inRange) {
+                    this.glbAttackHoldTimer = HealerEnemy.GLB_ATTACK_HOLD;
+                }
+                if (this.glbAttackHoldTimer > 0) {
+                    this.playGlbAnim(this.glbAttackAnim, true);
+                } else {
+                    this.playGlbAnim(this.glbWalkAnim, true);
+                }
+            } else {
+                this.playGlbAnim(this.glbWalkAnim, true);
+            }
+            return result;
         }
 
         // Update walking animation

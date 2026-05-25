@@ -1,16 +1,31 @@
-import { Vector3, MeshBuilder, StandardMaterial, Color3, Mesh } from '@babylonjs/core';
+import { Vector3, MeshBuilder, StandardMaterial, Color3, Mesh, AssetContainer, AnimationGroup, TransformNode, Quaternion } from '@babylonjs/core';
 import { Game } from '../../Game';
 import { Enemy } from './Enemy';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../rendering/LowPolyMaterial';
 import { PALETTE } from '../../rendering/StyleConstants';
 
 export class TankEnemy extends Enemy {
+    /** Static slot used by EnemyManager.spawnSurvivorsEnemy to stage a preloaded GLB
+     *  asset before constructing a TankEnemy. createMesh() consumes + clears it. */
+    public static pendingAsset: AssetContainer | null = null;
+
     private stompTime: number = 0;
     private rocks: Mesh[] = [];
     private legs: Mesh[] = [];
     private mandibleLeft: Mesh | null = null;
     private mandibleRight: Mesh | null = null;
     private shellTop: Mesh | null = null;
+
+    /** True when this instance renders via the lava-golem GLB. */
+    private usingGLB: boolean = false;
+    private glbWalkAnim: AnimationGroup | null = null;
+    private glbAttackAnim: AnimationGroup | null = null;
+    private glbIdleAnim: AnimationGroup | null = null;
+    private glbCurrentAnim: AnimationGroup | null = null;
+    private glbAttackHoldTimer: number = 0;
+    private static readonly GLB_ATTACK_RANGE = 4.0;
+    private static readonly GLB_ATTACK_HOLD = 0.8;
+    private static readonly GLB_SCALE = 1.6;
 
     constructor(game: Game, position: Vector3, path: Vector3[]) {
         // Tank enemy has low speed, 5x health, high damage, and high reward
@@ -19,14 +34,107 @@ export class TankEnemy extends Enemy {
         // Set as a heavy enemy type
         this.isHeavy = true;
         this.contactDamagePerSecond = 20;
+
+        // Heavy shell-slam — long windup, big chunk of damage. The rooted pause
+        // during windup acts as the telegraph (no ground disc — too much churn
+        // when a swarm of tanks all cycle swings at once).
+        this.meleeRange            = 1.9;
+        this.meleeHitRange         = 2.3;
+        this.meleeHitDamage        = 25;
+        this.meleeWindupDuration   = 0.55;
+        this.meleeStrikeDuration   = 0.15;
+        this.meleeCooldownDuration = 0.95;
     }
 
     /**
-     * Create the enemy mesh - low-poly Ironclad Beetle
+     * Create the enemy mesh. If a GLB asset was staged via TankEnemy.pendingAsset
+     * (set by EnemyManager just before construction), instantiate it. Otherwise fall
+     * back to the procedural ironclad-beetle build below.
+     */
+    protected createMesh(): void {
+        const asset = TankEnemy.pendingAsset;
+        TankEnemy.pendingAsset = null;
+        if (asset) {
+            this.createMeshFromGLB(asset);
+            return;
+        }
+        this.createMeshProcedural();
+    }
+
+    private createMeshFromGLB(asset: AssetContainer): void {
+        this.usingGLB = true;
+        this.mesh = new Mesh('tankEnemyGlbRoot', this.scene);
+        this.mesh.position.copyFrom(this.position);
+
+        const inst = asset.instantiateModelsToScene(
+            name => `tank_${name}`,
+            true,
+            { doNotInstantiate: true },
+        );
+        for (const root of inst.rootNodes) {
+            root.parent = this.mesh;
+            if ('scaling' in root && root.scaling) {
+                (root as TransformNode).scaling.scaleInPlace(TankEnemy.GLB_SCALE);
+            }
+            // 180° Y flip — same pattern as BasicEnemy GLB. Enemy.update's seek-rotation
+            // expects the model to be authored facing -z.
+            const tn = root as TransformNode;
+            const flip = Quaternion.RotationYawPitchRoll(Math.PI, 0, 0);
+            if (tn.rotationQuaternion) {
+                tn.rotationQuaternion = flip.multiply(tn.rotationQuaternion);
+            } else if (tn.rotation) {
+                tn.rotation.y += Math.PI;
+            }
+        }
+
+        // Feet-on-ground offset.
+        this.mesh.computeWorldMatrix(true);
+        const bbox = this.mesh.getHierarchyBoundingVectors(true);
+        const feetOffset = -bbox.min.y;
+        for (const root of inst.rootNodes) {
+            if ('position' in root && root.position) {
+                (root as TransformNode).position.y += feetOffset;
+            }
+        }
+
+        // Categorize animation clips for walk/attack/idle state.
+        // Register groups for base-class dispose cleanup (prevents animatable leak).
+        this.glbAnimationGroups = inst.animationGroups;
+
+        for (const ag of inst.animationGroups) ag.stop();
+        for (const ag of inst.animationGroups) {
+            const n = ag.name.toLowerCase();
+            if (!this.glbWalkAnim && (n.includes('walk') || n.includes('run') || n.includes('move'))) {
+                this.glbWalkAnim = ag;
+            } else if (!this.glbAttackAnim && (n.includes('attack') || n.includes('slam') || n.includes('smash') || n.includes('strike') || n.includes('swing') || n.includes('punch') || n.includes('hit'))) {
+                this.glbAttackAnim = ag;
+            } else if (!this.glbIdleAnim && (n.includes('idle') || n === 'stand')) {
+                this.glbIdleAnim = ag;
+            }
+        }
+        if (!this.glbWalkAnim && inst.animationGroups.length > 0) this.glbWalkAnim = inst.animationGroups[0];
+        if (!this.glbIdleAnim) this.glbIdleAnim = this.glbWalkAnim;
+        if (!this.glbAttackAnim) this.glbAttackAnim = this.glbWalkAnim;
+        if (this.glbWalkAnim) {
+            this.glbWalkAnim.start(true);
+            this.glbCurrentAnim = this.glbWalkAnim;
+        }
+    }
+
+    private playGlbAnim(slot: AnimationGroup | null, loop: boolean): void {
+        if (!slot) return;
+        if (this.glbCurrentAnim === slot) return;
+        if (this.glbCurrentAnim) this.glbCurrentAnim.stop();
+        slot.start(loop);
+        this.glbCurrentAnim = slot;
+    }
+
+    /**
+     * Create the enemy mesh - low-poly Ironclad Beetle (procedural fallback)
      * Massive armored insect: domed shell on top, segmented body underneath,
      * 6 short legs, two large mandibles, glowing amber thorax vents, armored plates
      */
-    protected createMesh(): void {
+    private createMeshProcedural(): void {
         // Ensure arrays are initialized
         this.rocks = [];
         this.legs = [];
@@ -367,6 +475,35 @@ export class TankEnemy extends Enemy {
 
         // Get the result from the parent update method
         const result = super.update(deltaTime);
+
+        // GLB golem skips the procedural scuttle anim — the asset's own clips drive it.
+        // Facing is handled by Enemy.update's seek-rotation; the GLB roots are pre-rotated
+        // 180° in createMeshFromGLB so the model ends up facing the hero.
+        if (this.usingGLB) {
+            if (this.glbAttackHoldTimer > 0) {
+                this.glbAttackHoldTimer = Math.max(0, this.glbAttackHoldTimer - deltaTime);
+            }
+            if (this.isFrozen || this.isStunned) {
+                this.playGlbAnim(this.glbIdleAnim, true);
+            } else if (this.seekTarget) {
+                const heroPos = this.seekTarget.getPosition();
+                const dx = heroPos.x - this.position.x;
+                const dz = heroPos.z - this.position.z;
+                const distSq = dx * dx + dz * dz;
+                const inRange = distSq <= TankEnemy.GLB_ATTACK_RANGE * TankEnemy.GLB_ATTACK_RANGE;
+                if (inRange) {
+                    this.glbAttackHoldTimer = TankEnemy.GLB_ATTACK_HOLD;
+                }
+                if (this.glbAttackHoldTimer > 0) {
+                    this.playGlbAnim(this.glbAttackAnim, true);
+                } else {
+                    this.playGlbAnim(this.glbWalkAnim, true);
+                }
+            } else {
+                this.playGlbAnim(this.glbWalkAnim, true);
+            }
+            return result;
+        }
 
         // Update scuttling animation
         if (!this.isFrozen && !this.isStunned && this.currentPathIndex < this.path.length) {

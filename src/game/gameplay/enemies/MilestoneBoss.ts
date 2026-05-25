@@ -78,9 +78,9 @@ export class MilestoneBoss extends BossEnemy {
     private glbAttackAnim: AnimationGroup | null = null;
     private glbIdleAnim: AnimationGroup | null = null;
     private glbCurrentAnim: AnimationGroup | null = null;
-    /** Generous — bosses are large and we want the attack swing playing whenever
-     *  they're in striking range, not only when literally touching. */
-    private static readonly GLB_ATTACK_RANGE = 5.0;
+    /** Slightly larger than the inherited melee swing range so the GLB attack
+     *  animation eases in just before the windup begins. */
+    private static readonly GLB_ATTACK_RANGE = 3.2;
 
     constructor(
         game: Game,
@@ -157,13 +157,11 @@ export class MilestoneBoss extends BossEnemy {
             }
         }
 
+        // Register groups for base-class dispose cleanup (prevents animatable leak).
+        this.glbAnimationGroups = inst.animationGroups;
+
         for (const ag of inst.animationGroups) ag.stop();
-        // Note: this.waveTier is undefined at this point (super() runs createMesh
-        // before MilestoneBoss field initializers assign waveTier), so the log
-        // just uses "milestone-boss".
-        console.log(`[milestone-boss] available animations (${inst.animationGroups.length}):`);
         for (const ag of inst.animationGroups) {
-            console.log(`  - "${ag.name}"`);
             const n = ag.name.toLowerCase();
             if (n.includes('run3')) {
                 this.glbWalkAnim = ag;
@@ -182,10 +180,6 @@ export class MilestoneBoss extends BossEnemy {
             this.glbWalkAnim.start(true);
             this.glbCurrentAnim = this.glbWalkAnim;
         }
-        console.log(
-            `[milestone-boss] mapped: walk="${this.glbWalkAnim?.name ?? '(none)'}", ` +
-            `attack="${this.glbAttackAnim?.name ?? '(none)'}", idle="${this.glbIdleAnim?.name ?? '(none)'}"`,
-        );
     }
 
     private playGlbAnim(slot: AnimationGroup | null, loop: boolean): void {
@@ -195,6 +189,9 @@ export class MilestoneBoss extends BossEnemy {
         slot.start(loop);
         this.glbCurrentAnim = slot;
     }
+
+    /** Only swing during the 'walking' phase — the lunge owns telegraph/dashing/recover. */
+    protected canMeleeAttack(): boolean { return this.lungeState === 'walking'; }
 
     public update(deltaTime: number): boolean {
         if (!this.alive || !this.mesh) return false;
@@ -272,6 +269,9 @@ export class MilestoneBoss extends BossEnemy {
     private tickLungeStateMachine(deltaTime: number): void {
         switch (this.lungeState) {
             case 'walking':
+                // Pause the lunge timer while a melee swing is in progress so the
+                // boss commits to one attack at a time (no swing-cancelled-by-lunge).
+                if (this.isMeleeAttacking()) return;
                 this.lungeTimer -= deltaTime;
                 if (this.lungeTimer <= 0 && this.seekTarget) {
                     this.enterTelegraph();

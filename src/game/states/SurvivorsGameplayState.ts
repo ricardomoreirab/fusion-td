@@ -46,6 +46,11 @@ const ENEMY_GLB_PATHS: Partial<Record<string, { dir: string; file: string }>> = 
     basic_elite: { dir: 'assets/blue-super-melee-minion/source/',      file: 'blue_super_melee_minion.glb' },
     fast:        { dir: 'assets/blue-gold-artillery-carriage/source/', file: 'blue_gold_artillery_carriage.glb' },
     fast_elite:  { dir: 'assets/blue-super-artillery-carriage/source/', file: 'blue_super_artillery_carriage.glb' },
+    tank:        { dir: 'assets/lava-golem/source/',                   file: 'lava_golem.glb' },
+    healer:      { dir: 'assets/blue-wizard/source/',                  file: 'blue_wizard.glb' },
+    healer_elite:{ dir: 'assets/blue-super-wizard/source/',            file: 'blue_super_wizard.glb' },
+    splitting:   { dir: 'assets/thunder-fenrir/source/',               file: 'thunder_fenrir.glb' },
+    mini:        { dir: 'assets/thunder-fenrir-cab/source/',           file: 'thunder_fenrir_cab.glb' },
     // Per-tier milestone-boss GLBs (waves 5/10/15/20). EnemyManager picks the right
     // one from MilestoneBoss.waveTier when staging on MilestoneBoss.pendingAsset.
     boss_tier1:  { dir: 'assets/thamuz-lord-lava-in-game/source/',         file: 'thamuz_lord_lava_in_game.glb' },
@@ -141,6 +146,14 @@ export class SurvivorsGameplayState implements GameState {
     private runStartTime: number = 0;
     private currentChampionType: ChampionType = 'mage';
 
+    // Diagnostic: freeze detectors to localize random hitches. longtask catches
+    // main-thread blocks; the rAF-delta watcher catches GPU stalls (e.g. shader
+    // compile) because rAF won't tick until the rendering pipeline can present
+    // a frame. Both removed once root cause is identified.
+    private longTaskObserver: PerformanceObserver | null = null;
+    private rafFreezeDetectorId: number | null = null;
+    private lastRafTimestamp: number = 0;
+
     // Floating damage / reward text
     private damageNumbers: DamageNumberManager | null = null;
     private damageHandler: ((e: Event) => void) | null = null;
@@ -200,14 +213,14 @@ export class SurvivorsGameplayState implements GameState {
                 type: 'ranger',
                 name: 'Ranger',
                 summary: 'HP: 90  Speed: 9  Attack: 8 ranged\nElement orbs unlock arrow variants. Fast and nimble.',
-                startingPower: 'Fire Arrow',
+                startingPower: 'Frost Arrow',
                 color: '#60C080',
             },
             {
                 type: 'mage',
                 name: 'Mage',
                 summary: 'HP: 80  Speed: 7  Attack: 10 ranged\nElement orbs unlock spells. Fragile but devastating.',
-                startingPower: 'Arcane Nova',
+                startingPower: 'Frost Shards',
                 color: '#6080C0',
             },
         ];
@@ -245,11 +258,13 @@ export class SurvivorsGameplayState implements GameState {
         this.runStartTime = performance.now();
         this.currentChampionType = (championType as ChampionType) ?? 'mage';
 
+        this.startLongTaskObserver();
+
         // Stat variants by champion type
         const variants: Record<string, { hp: number; speed: number; startPower?: string }> = {
             barbarian: { hp: 140, speed: 6  },
-            ranger:    { hp: 90,  speed: 9,  startPower: 'ranger_fire' },
-            mage:      { hp: 80,  speed: 7,  startPower: 'mage_arcane' },
+            ranger:    { hp: 90,  speed: 9,  startPower: 'ranger_ice' },
+            mage:      { hp: 80,  speed: 7,  startPower: 'mage_ice' },
         };
         const variant = variants[championType] ?? variants['barbarian'];
 
@@ -282,10 +297,34 @@ export class SurvivorsGameplayState implements GameState {
 
         this.playerStats = new PlayerStats(variant.hp, 100);
 
+        // Install the global crit provider — every Enemy.takeDamage() reads from it.
+        // Cleared in exit() so the menu / non-survivors flows never crit.
+        Enemy.critProvider = () => ({
+            chance:     this.playerStats?.critChance          ?? 0,
+            damageMult: this.playerStats?.critDamageMultiplier ?? 1.5,
+        });
+
         this.enemyManager = new EnemyManager(this.game, this.map);
         this.enemyManager.setPlayerStats(this.playerStats);
+        // Cache the last known hero position so the provider stays null-safe even
+        // when an enemy attack kills the hero mid-frame: HeroController.takeDamage
+        // triggers state.exit() synchronously (nulling this.hero), and the rest of
+        // EnemyManager.update would otherwise crash on this.hero!.getPosition().
+        const heroPosFallback = new Vector3();
         this.enemyManager.configureSurvivorsMode(
-            { getPosition: () => this.hero!.getPosition() },
+            {
+                getPosition: () => {
+                    const p = this.hero?.getPosition();
+                    if (p) { heroPosFallback.copyFrom(p); return p; }
+                    return heroPosFallback;
+                },
+                takeDamage: (amount: number, sourcePos?: Vector3) => {
+                    if (!this.heroController) return;
+                    const mult = this.playerStats?.damageReductionMultiplier ?? 1.0;
+                    this.heroController.takeDamage(amount * mult, sourcePos);
+                },
+                isAlive: () => !!this.heroController,
+            },
             this.map.getArenaRadius(),
         );
 
@@ -304,14 +343,16 @@ export class SurvivorsGameplayState implements GameState {
         }
 
         // Pre-warm all enemy types so the first spawn of each doesn't hitch
-        // the frame with shader compilation and GPU buffer uploads.
-        this.enemyManager.prewarmEnemyTypes();
+        // the frame with shader compilation and GPU buffer uploads. Awaited
+        // because forceCompilationAsync resolves only once each shader has
+        // actually finished compiling on the GPU driver thread.
+        await this.enemyManager.prewarmEnemyTypes();
 
         // Damage / reward floating text manager
         this.damageNumbers = new DamageNumberManager(this.game);
         this.damageHandler = (e: Event) => {
             const d = (e as CustomEvent).detail;
-            this.damageNumbers?.showDamage(d.position, d.damage);
+            this.damageNumbers?.showDamage(d.position, d.damage, undefined, !!d.isCrit);
         };
         this.rewardHandler = (e: Event) => {
             const d = (e as CustomEvent).detail;
@@ -346,6 +387,12 @@ export class SurvivorsGameplayState implements GameState {
         // Wire enemy provider and power slots into HeroController for melee AOE + enchantments
         this.heroController.setEnemyProvider(() => this.enemyManager!.getEnemies());
         this.heroController.setPowerSlots(this.powerSlots);
+        // Route the global damage multiplier (shop powerDamageMultiplier × run perk)
+        // into the basic attack — without this, weapon damage never scaled with
+        // upgrades and power picks felt purely cosmetic for melee/projectile champs.
+        this.heroController.setDamageMultiplierProvider(
+            () => (this.playerStats?.powerDamageMultiplier ?? 1.0) * this.runPerks.damageMultiplier,
+        );
 
         // Push playerStats into the controller-owned HeroBasicAttack so run-item
         // effects (lifesteal, knockback, multishot, multi-spin) can read them.
@@ -623,6 +670,9 @@ export class SurvivorsGameplayState implements GameState {
         this.enemyManager?.dispose();
         this.enemyManager = null;
 
+        this.stopLongTaskObserver();
+
+        Enemy.critProvider = null;
         this.playerStats = null;
 
         this.joystick?.dispose();
@@ -654,25 +704,43 @@ export class SurvivorsGameplayState implements GameState {
 
         const dt = deltaTime * this.timeScale;
 
+        // Diagnostic: time every per-frame subsystem; if total exceeds 50ms,
+        // dump the breakdown so we can see which subsystem is the slow one.
+        const _t0 = performance.now();
+        let _tMark = _t0;
+        const _times: Record<string, number> = {};
+        const _measure = (key: string) => {
+            const now = performance.now();
+            _times[key] = now - _tMark;
+            _tMark = now;
+        };
+
         this.heroController.update(dt);
         if (this.hero) this.hero.update(dt);
+        _measure('hero');
 
         if (this.waveManager) this.waveManager.update(dt);
+        _measure('wave');
         if (this.enemyManager) this.enemyManager.update(dt);
+        _measure('enemies');
 
         // Contact damage
         this.applyContactDamage(dt);
+        _measure('contact');
 
         // Power auto-fire
         if (this.powerSlots) this.powerSlots.update(dt);
+        _measure('powers');
 
         // Element visual decorations on the hero's weapon
         if (this.hero && this.powerSlots) {
             this.hero.updateElementVisuals(this.powerSlots.getActiveElements());
         }
+        _measure('elemVis');
 
         // Manual ultimates (Meteor Strike + Frost Nova)
         if (this.abilityManager) this.abilityManager.update(dt);
+        _measure('abilities');
 
         // Power drops (magnet + pickup)
         for (const d of this.powerDrops) d.update(dt);
@@ -681,8 +749,10 @@ export class SurvivorsGameplayState implements GameState {
         // Item drops (milestone boss rewards)
         for (const d of this.itemDrops) d.update(dt);
         this.itemDrops = this.itemDrops.filter(d => d.isAlive());
+        _measure('drops');
 
         this.damageNumbers?.update(dt);
+        _measure('damageNum');
 
         // HUD update
         if (this.hud && this.powerSlots && this.playerStats) {
@@ -701,9 +771,21 @@ export class SurvivorsGameplayState implements GameState {
                 waveInfo,
             );
         }
+        _measure('hud');
 
         // Off-screen elite indicators
         if (this.eliteIndicators) this.eliteIndicators.update();
+        _measure('eliteInd');
+
+        const totalMs = performance.now() - _t0;
+        if (totalMs > 50) {
+            const breakdown = Object.entries(_times)
+                .filter(([, ms]) => ms > 1)
+                .sort(([, a], [, b]) => b - a)
+                .map(([k, ms]) => `${k}=${Math.round(ms)}ms`)
+                .join(' ');
+            console.warn(`[slow-frame] ${Math.round(totalMs)}ms · ${breakdown}`);
+        }
     }
 
     private isPausedForOverlay(): boolean {
@@ -817,6 +899,18 @@ export class SurvivorsGameplayState implements GameState {
             onPick:   perk.apply,
         });
 
+        // Every orb pickup grants a small global power bump on top of the chosen
+        // card's effect, so any pick feels universally stronger (not just one
+        // spell scaling). User explicitly asked for global, card-independent power.
+        const GLOBAL_POWER_BUMP = 1.06;
+        for (const card of cards) {
+            const cardPick = card.onPick;
+            card.onPick = () => {
+                cardPick();
+                this.runPerks.damageMultiplier *= GLOBAL_POWER_BUMP;
+            };
+        }
+
         // Pause game while overlay is open (handled by isPausedForOverlay in update)
         this.powerChoice.show(
             cards,
@@ -874,13 +968,13 @@ export class SurvivorsGameplayState implements GameState {
             {
                 id:          'swiftness',
                 name:        'Swiftness',
-                description: '+10% move speed',
+                description: '+5% move speed',
                 baseCost:    40,
                 costGrowth:  1.6,
                 isCapped:    () => false,
                 apply: () => {
                     this.playerStats!.incrementPurchase('swiftness');
-                    this.playerStats!.moveSpeedMultiplier *= 1.10;
+                    this.playerStats!.moveSpeedMultiplier *= 1.05;
                     this.heroController!.updateMoveSpeed(
                         this.playerStats!.moveSpeedMultiplier * this.runPerks.moveSpeedMultiplier,
                     );
@@ -889,13 +983,13 @@ export class SurvivorsGameplayState implements GameState {
             {
                 id:          'reach',
                 name:        'Reach',
-                description: '+10% basic attack range',
+                description: '+5% basic attack range',
                 baseCost:    35,
                 costGrowth:  1.55,
                 isCapped:    () => false,
                 apply: () => {
                     this.playerStats!.incrementPurchase('reach');
-                    this.playerStats!.attackRangeMultiplier *= 1.10;
+                    this.playerStats!.attackRangeMultiplier *= 1.05;
                     this.heroController!.updateBasicAttackRange(
                         this.playerStats!.attackRangeMultiplier * this.runPerks.attackRangeMultiplier,
                     );
@@ -904,13 +998,13 @@ export class SurvivorsGameplayState implements GameState {
             {
                 id:          'power',
                 name:        'Power',
-                description: '+10% all power damage',
+                description: '+5% all power damage',
                 baseCost:    50,
                 costGrowth:  1.7,
                 isCapped:    () => false,
                 apply: () => {
                     this.playerStats!.incrementPurchase('power');
-                    this.playerStats!.powerDamageMultiplier *= 1.10;
+                    this.playerStats!.powerDamageMultiplier *= 1.05;
                 },
             },
             {
@@ -946,14 +1040,38 @@ export class SurvivorsGameplayState implements GameState {
             {
                 id:          'quickness',
                 name:        'Quickness',
-                description: '+10% basic attack speed',
+                description: '+5% basic attack speed',
                 baseCost:    45,
                 costGrowth:  1.6,
                 isCapped:    () => false,
                 apply: () => {
                     this.playerStats!.incrementPurchase('quickness');
-                    this.playerStats!.basicAttackSpeedMultiplier *= 1.10;
+                    this.playerStats!.basicAttackSpeedMultiplier *= 1.05;
                     this.heroController!.updateBasicAttackSpeed(this.playerStats!.basicAttackSpeedMultiplier);
+                },
+            },
+            {
+                id:          'precision',
+                name:        'Precision',
+                description: '+1% critical strike chance',
+                baseCost:    55,
+                costGrowth:  1.65,
+                isCapped:    () => this.playerStats!.critChance >= 1.0,
+                apply: () => {
+                    this.playerStats!.incrementPurchase('precision');
+                    this.playerStats!.critChance = Math.min(1.0, this.playerStats!.critChance + 0.01);
+                },
+            },
+            {
+                id:          'savagery',
+                name:        'Savagery',
+                description: '+5% critical strike damage',
+                baseCost:    55,
+                costGrowth:  1.65,
+                isCapped:    () => false,
+                apply: () => {
+                    this.playerStats!.incrementPurchase('savagery');
+                    this.playerStats!.critDamageMultiplier += 0.05;
                 },
             },
         ];
@@ -985,6 +1103,83 @@ export class SurvivorsGameplayState implements GameState {
             takeDamage: (n) => captured.takeDamage(n),
             isAlive:    () => captured.isAlive(),
         };
+    }
+
+    /**
+     * Diagnostic only. Two complementary detectors:
+     *   - longtask: catches main-thread blocks (Chrome/Edge only).
+     *   - rAF-delta: catches GPU stalls + main-thread blocks in any browser, by
+     *     measuring the wall-clock gap between consecutive rAF callbacks.
+     * Either fires console.error with wave/enemy-count context so the most
+     * recent game event before the freeze identifies the culprit.
+     */
+    private startLongTaskObserver(): void {
+        // 1. longtask observer — only fires in Chromium browsers.
+        if (typeof PerformanceObserver !== 'undefined') {
+            try {
+                this.longTaskObserver = new PerformanceObserver((list) => {
+                    for (const entry of list.getEntries()) {
+                        if (entry.duration < 100) continue;
+                        this.logFreeze('longtask', Math.round(entry.duration));
+                    }
+                });
+                this.longTaskObserver.observe({ entryTypes: ['longtask'] });
+                console.info('[freeze-detector] longtask observer active');
+            } catch (err) {
+                console.warn('[freeze-detector] longtask not supported in this browser:', err);
+                this.longTaskObserver = null;
+            }
+        }
+
+        // 2. rAF-delta watcher — works everywhere. Logs when more than ~3
+        //    expected frames pass between rAF ticks (200ms gap @ 60fps ≈ 12 dropped frames).
+        const FREEZE_THRESHOLD_MS = 200;
+        this.lastRafTimestamp = performance.now();
+        const tick = (now: number): void => {
+            const delta = now - this.lastRafTimestamp;
+            if (delta > FREEZE_THRESHOLD_MS) {
+                this.logFreeze('rAF-gap', Math.round(delta));
+            }
+            this.lastRafTimestamp = now;
+            // Stop scheduling if the detector was cancelled.
+            if (this.rafFreezeDetectorId === null) return;
+            this.rafFreezeDetectorId = requestAnimationFrame(tick);
+        };
+        this.rafFreezeDetectorId = requestAnimationFrame(tick);
+        console.info('[freeze-detector] rAF-delta watcher active');
+    }
+
+    private logFreeze(kind: string, durationMs: number): void {
+        const tRun = ((performance.now() - this.runStartTime) / 1000).toFixed(1);
+        const wave = this.waveManager?.getCurrentWave() ?? 0;
+        const enemies = this.enemyManager?.getEnemies().length ?? 0;
+        const overlays: string[] = [];
+        if (this.shopOverlay?.isOpen()) overlays.push('shop');
+        if (this.powerChoice?.isOpen()) overlays.push('powerChoice');
+        if (this.replaceSlotOverlay?.isOpen()) overlays.push('replaceSlot');
+        const overlayStr = overlays.length ? ` · overlay=[${overlays.join(',')}]` : '';
+
+        // Snapshot Babylon scene state — these are the lists the scene walks
+        // every frame. If they grow across waves, we have a leak (the most
+        // likely cause given the rAF gap is outside our update tick).
+        const scene = this.scene;
+        const sceneInfo = scene
+            ? ` · ps=${scene.particleSystems.length}` +
+              ` anim=${(scene as unknown as { _activeAnimatables?: unknown[] })._activeAnimatables?.length ?? '?'}` +
+              ` meshes=${scene.meshes.length}` +
+              ` materials=${scene.materials.length}` +
+              ` textures=${scene.textures.length}`
+            : '';
+        console.error(`[freeze:${kind}] ${durationMs}ms at t=${tRun}s · wave ${wave} · ${enemies} enemies${overlayStr}${sceneInfo}`);
+    }
+
+    private stopLongTaskObserver(): void {
+        this.longTaskObserver?.disconnect();
+        this.longTaskObserver = null;
+        if (this.rafFreezeDetectorId !== null) {
+            cancelAnimationFrame(this.rafFreezeDetectorId);
+            this.rafFreezeDetectorId = null;
+        }
     }
 
     private applyContactDamage(deltaTime: number): void {

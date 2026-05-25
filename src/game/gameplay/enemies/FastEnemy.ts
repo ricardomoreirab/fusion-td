@@ -37,6 +37,14 @@ export class FastEnemy extends Enemy {
         // Set as a flying enemy
         this.isFlying = true;
         this.contactDamagePerSecond = 5;
+
+        // Wraith slash — quick darting strike, very short windup.
+        this.meleeRange            = 1.4;
+        this.meleeHitRange         = 1.7;
+        this.meleeHitDamage        = 7;
+        this.meleeWindupDuration   = 0.2;
+        this.meleeStrikeDuration   = 0.08;
+        this.meleeCooldownDuration = 0.35;
     }
 
     /**
@@ -90,10 +98,11 @@ export class FastEnemy extends Enemy {
             }
         }
 
+        // Register groups for base-class dispose cleanup (prevents animatable leak).
+        this.glbAnimationGroups = inst.animationGroups;
+
         for (const ag of inst.animationGroups) ag.stop();
-        console.log(`[fast-minion] available animations (${inst.animationGroups.length}):`);
         for (const ag of inst.animationGroups) {
-            console.log(`  - "${ag.name}"`);
             const n = ag.name.toLowerCase();
             if (n.includes('run3')) {
                 this.glbWalkAnim = ag;
@@ -112,10 +121,6 @@ export class FastEnemy extends Enemy {
             this.glbWalkAnim.start(true);
             this.glbCurrentAnim = this.glbWalkAnim;
         }
-        console.log(
-            `[fast-minion] mapped: walk="${this.glbWalkAnim?.name ?? '(none)'}", ` +
-            `attack="${this.glbAttackAnim?.name ?? '(none)'}", idle="${this.glbIdleAnim?.name ?? '(none)'}"`,
-        );
     }
 
     private playGlbAnim(slot: AnimationGroup | null, loop: boolean): void {

@@ -1,4 +1,4 @@
-import { Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, Color4, Scene, ParticleSystem, Texture, DynamicTexture, Sound, Animation } from '@babylonjs/core';
+import { Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, Color4, Scene, ParticleSystem, Texture, DynamicTexture, Sound, Animation, AnimationGroup } from '@babylonjs/core';
 import { Game } from '../../Game';
 import { EnemyType, StatusEffect } from '../GameTypes';
 
@@ -17,6 +17,14 @@ export function getStatusEffectTexture(scene: Scene): Texture {
 }
 
 export class Enemy {
+    /**
+     * Global crit provider — set once at run start by SurvivorsGameplayState.
+     * Every `takeDamage()` call rolls a crit using these values. Cleared on
+     * state exit so menu / non-survivors flows never accidentally inherit
+     * stale stats from a prior run.
+     */
+    public static critProvider: (() => { chance: number; damageMult: number }) | null = null;
+
     protected game: Game;
     protected scene: Scene;
     protected mesh: Mesh | null = null;
@@ -36,10 +44,38 @@ export class Enemy {
     protected originalScale: number = 1.0; // Store original scale for health-based scaling
 
     // Survivors-mode seek-target fields
-    public seekTarget: { getPosition: () => Vector3 } | null = null;
+    public seekTarget: {
+        getPosition: () => Vector3;
+        takeDamage?: (amount: number, sourcePos?: Vector3) => void;
+        isAlive?: () => boolean;
+    } | null = null;
     public contactDamagePerSecond: number = 10;
     public isElite: boolean = false;
     public eliteDropElement: string | null = null;
+
+    // Melee-swing tuning (survivors mode). Each subclass overrides these in its
+    // constructor; defaults below are tuned for a basic-enemy quick jab.
+    // The swing gives the enemy *reach* — without it, passive contactDamagePerSecond
+    // never connects against a kiting hero because it requires literal overlap.
+    protected meleeRange: number = 1.3;
+    protected meleeHitRange: number = 1.6;
+    protected meleeHitDamage: number = 12;
+    protected meleeWindupDuration: number = 0.3;
+    protected meleeStrikeDuration: number = 0.1;
+    protected meleeCooldownDuration: number = 0.5;
+    protected meleeRootDuringSwing: boolean = true;
+
+    // Melee-swing state machine
+    private meleeState: 'idle' | 'windup' | 'strike' | 'cooldown' = 'idle';
+    private meleeTimer: number = 0;
+    private meleeStrikeHasHit: boolean = false;
+
+    /** AnimationGroups cloned by GLB instantiation. Subclasses register them
+     *  here (typically `this.glbAnimationGroups = inst.animationGroups`) so
+     *  dispose() can stop+release them. Without this every dead enemy left
+     *  ~hundreds of animatables ticking in the scene every frame — the leak
+     *  that made each subsequent wave's freeze longer than the last. */
+    protected glbAnimationGroups: AnimationGroup[] = [];
     
     // Elemental properties
     protected enemyType: EnemyType = EnemyType.NORMAL;
@@ -251,21 +287,36 @@ export class Enemy {
             // Always tick status effects so slow/freeze/stun/burn still work
             this.updateStatusEffects(deltaTime);
 
-            // Don't move if frozen or stunned
+            // Don't move if frozen or stunned (also cancel any in-progress swing)
             if (this.isFrozen || this.isStunned) {
+                if (this.meleeState !== 'idle') this.cancelMeleeAttack();
                 return false;
             }
 
+            // Fetch the hero position ONCE per frame — Champion.getPosition() clones
+            // a fresh Vector3 on each call, so calling it twice per enemy per frame
+            // (once for the swing tick, once for movement) doubles GC pressure and
+            // eventually triggers a stop-the-world pause that looks like a freeze.
             const targetPos = this.seekTarget.getPosition();
+
+            // Tick the melee-swing state machine BEFORE movement so we can root
+            // the enemy (skip movement) during windup + strike frames.
+            this.updateMeleeAttack(deltaTime, targetPos);
+            const rooted = this.meleeRootDuringSwing &&
+                (this.meleeState === 'windup' || this.meleeState === 'strike');
+
             targetPos.subtractToRef(this.position, this._scratchDir);
             this._scratchDir.y = 0;
             const dist = this._scratchDir.length();
 
-            if (dist > 0.001) {
+            if (dist > 0.001 && !rooted) {
                 this._scratchDir.normalize();
                 // Respect slow/freeze speed modifications already applied to this.speed
                 this._scratchDir.scaleToRef(this.speed * deltaTime, this._scratchMovement);
                 this.position.addInPlace(this._scratchMovement);
+            } else if (dist > 0.001) {
+                // Rooted: still normalize the direction so the mesh faces the hero
+                this._scratchDir.normalize();
             }
 
             if (this.mesh && !this.mesh.isDisposed()) {
@@ -422,7 +473,85 @@ export class Enemy {
             this.removeStatusEffect(effect);
         }
     }
-    
+
+    /** True while a swing is winding up, striking, or recovering. Subclasses
+     *  with their own attack timing (e.g., MilestoneBoss lunge) can check this. */
+    public isMeleeAttacking(): boolean { return this.meleeState !== 'idle'; }
+
+    /** Subclasses override to disable the swing under specific conditions
+     *  (e.g., MilestoneBoss only swings while in its 'walking' lunge state). */
+    protected canMeleeAttack(): boolean { return true; }
+
+    /** Hook for subclass-specific swing visuals (e.g., the boss's overhead claw
+     *  smash). `progress` is 0..1 within the current phase. */
+    protected onMeleeAttackPhase(
+        _state: 'windup' | 'strike' | 'cooldown',
+        _progress: number,
+    ): void {}
+
+    /** Drive the melee-swing state machine. Called from the seek-target branch
+     *  every frame. Damage applies on the FIRST frame of 'strike' if the hero is
+     *  still inside meleeHitRange — a clean dodge if you backstep on telegraph.
+     *  `heroPos` is passed in (not fetched) to avoid an extra Champion.getPosition
+     *  clone per enemy per frame. */
+    private updateMeleeAttack(deltaTime: number, heroPos: Vector3): void {
+        if (!this.canMeleeAttack() || !this.seekTarget) {
+            if (this.meleeState !== 'idle') this.cancelMeleeAttack();
+            return;
+        }
+
+        this.meleeTimer -= deltaTime;
+        const dx = heroPos.x - this.position.x;
+        const dz = heroPos.z - this.position.z;
+        const distSq = dx * dx + dz * dz;
+
+        switch (this.meleeState) {
+            case 'idle': {
+                if (distSq <= this.meleeRange * this.meleeRange) {
+                    this.meleeState = 'windup';
+                    this.meleeTimer = this.meleeWindupDuration;
+                    this.meleeStrikeHasHit = false;
+                }
+                break;
+            }
+            case 'windup': {
+                this.onMeleeAttackPhase('windup', 1 - this.meleeTimer / this.meleeWindupDuration);
+                if (this.meleeTimer <= 0) {
+                    this.meleeState = 'strike';
+                    this.meleeTimer = this.meleeStrikeDuration;
+                }
+                break;
+            }
+            case 'strike': {
+                if (!this.meleeStrikeHasHit) {
+                    if (distSq <= this.meleeHitRange * this.meleeHitRange) {
+                        // Pass this.position by reference — triggerHitReaction only
+                        // reads it for direction, never stores or mutates it.
+                        this.seekTarget.takeDamage?.(this.meleeHitDamage, this.position);
+                    }
+                    this.meleeStrikeHasHit = true;
+                }
+                this.onMeleeAttackPhase('strike', 1 - this.meleeTimer / this.meleeStrikeDuration);
+                if (this.meleeTimer <= 0) {
+                    this.meleeState = 'cooldown';
+                    this.meleeTimer = this.meleeCooldownDuration;
+                }
+                break;
+            }
+            case 'cooldown': {
+                this.onMeleeAttackPhase('cooldown', 1 - this.meleeTimer / this.meleeCooldownDuration);
+                if (this.meleeTimer <= 0) this.meleeState = 'idle';
+                break;
+            }
+        }
+    }
+
+    private cancelMeleeAttack(): void {
+        this.meleeState = 'idle';
+        this.meleeTimer = 0;
+        this.meleeStrikeHasHit = false;
+    }
+
     /**
      * Process burning damage over time
      * @param deltaTime Time elapsed since last update in seconds
@@ -694,10 +823,20 @@ export class Enemy {
     public takeDamage(amount: number): boolean {
         if (!this.alive) return false;
 
-        // Apply damage resistance if it exists
+        // Roll for crit using the global provider (player run stats). DoT ticks
+        // and chained sub-hits all flow through here, so every damage source —
+        // basic attack, power, enchantment — gets one crit roll per call.
+        let isCrit = false;
         let actualDamage = amount;
+        const cp = Enemy.critProvider?.();
+        if (cp && cp.chance > 0 && Math.random() < cp.chance) {
+            isCrit = true;
+            actualDamage *= cp.damageMult;
+        }
+
+        // Apply damage resistance if it exists
         if (this.damageResistance && this.damageResistance > 0) {
-            actualDamage = amount * (1 - this.damageResistance);
+            actualDamage = actualDamage * (1 - this.damageResistance);
         }
 
         this.health -= actualDamage;
@@ -712,6 +851,7 @@ export class Enemy {
             detail: {
                 position: this.position.clone(),
                 damage: actualDamage,
+                isCrit,
             },
         });
         document.dispatchEvent(dmgEvent);
@@ -760,12 +900,15 @@ export class Enemy {
      */
     protected die(): void {
         if (!this.alive) return;
-        
+
         this.alive = false;
-        
+
+        // Tear down any in-progress melee swing.
+        this.cancelMeleeAttack();
+
         // Create death effect
         this.createDeathEffect();
-        
+
         // Remove from scene
         if (this.mesh) {
             this.mesh.dispose();
@@ -911,27 +1054,48 @@ export class Enemy {
      * Clean up resources
      */
     public dispose(): void {
+        this.cancelMeleeAttack();
+
+        // Stop + dispose every AnimationGroup that GLB instantiation cloned
+        // for this enemy. Without this the animatables keep running every
+        // frame even though the mesh is gone — the dominant leak that made
+        // scene._activeAnimatables grow to ~1900 with only a few enemies alive.
+        for (const ag of this.glbAnimationGroups) {
+            try { ag.stop(); } catch (_) { /* already stopped */ }
+            try { ag.dispose(); } catch (_) { /* already disposed */ }
+        }
+        this.glbAnimationGroups.length = 0;
+
         if (this.mesh) {
-            this.mesh.dispose();
+            // disposeMaterialAndTextures=true releases the per-instance materials
+            // the GLB pipeline clones (instantiateModelsToScene with cloneMaterials=true).
+            // Without this every enemy death leaked 3-10 materials into scene.materials.
+            this.mesh.dispose(false, true);
             this.mesh = null;
         }
 
+        // Health bar materials are per-enemy `new StandardMaterial(...)` allocations
+        // (see createHealthBar). Dispose them explicitly along with their meshes.
         if (this.healthBarMesh) {
+            const m = this.healthBarMesh.material;
             this.healthBarMesh.dispose();
+            if (m) m.dispose();
             this.healthBarMesh = null;
         }
-
         if (this.healthBarBackgroundMesh) {
+            const m = this.healthBarBackgroundMesh.material;
             this.healthBarBackgroundMesh.dispose();
+            if (m) m.dispose();
             this.healthBarBackgroundMesh = null;
         }
-
         if (this.healthBarOutlineMesh) {
+            const m = this.healthBarOutlineMesh.material;
             this.healthBarOutlineMesh.dispose();
+            if (m) m.dispose();
             this.healthBarOutlineMesh = null;
         }
 
-        // Dispose all particle systems
+        // Dispose all status-effect particle systems
         this.statusEffectParticles.forEach(particleSystem => {
             particleSystem.dispose();
         });

@@ -19,6 +19,7 @@ interface DamageNumberSlot {
     lifetime: number;
     maxLifetime: number;
     startY: number;
+    critScale: number;
 }
 
 const POOL_SIZE = 24;
@@ -57,6 +58,7 @@ export class DamageNumberManager {
                 lifetime: 0,
                 maxLifetime: 0,
                 startY: 0,
+                critScale: 1.0,
             });
         }
     }
@@ -93,17 +95,26 @@ export class DamageNumberManager {
         slot.texture.update();
     }
 
-    public showDamage(position: Vector3, damage: number, elementType: ElementType = ElementType.NONE): void {
+    public showDamage(
+        position: Vector3,
+        damage: number,
+        elementType: ElementType = ElementType.NONE,
+        isCrit: boolean = false,
+    ): void {
         const slot = this.acquireSlot();
-        this.drawText(slot, Math.round(damage).toString(), this.getColorForElement(elementType), 56);
+        const color = isCrit ? '#FFD000' : this.getColorForElement(elementType);
+        const fontSize = isCrit ? 72 : 56;
+        const text = isCrit ? `${Math.round(damage)}!` : Math.round(damage).toString();
+        this.drawText(slot, text, color, fontSize);
         slot.mesh.position.x = position.x + (Math.random() - 0.5) * 0.5;
         slot.mesh.position.y = position.y + 1.5;
         slot.mesh.position.z = position.z + (Math.random() - 0.5) * 0.5;
         slot.material.alpha = 1;
         slot.inUse = true;
         slot.lifetime = 0;
-        slot.maxLifetime = 0.8;
+        slot.maxLifetime = isCrit ? 1.1 : 0.8;
         slot.startY = slot.mesh.position.y;
+        slot.critScale = isCrit ? 1.6 : 1.0;
         slot.mesh.setEnabled(true);
     }
 
@@ -119,6 +130,7 @@ export class DamageNumberManager {
         slot.lifetime = 0;
         slot.maxLifetime = 1.2;
         slot.startY = slot.mesh.position.y;
+        slot.critScale = 1.0;
         slot.mesh.setEnabled(true);
     }
 
@@ -133,6 +145,7 @@ export class DamageNumberManager {
         slot.lifetime = 0;
         slot.maxLifetime = 1.0;
         slot.startY = slot.mesh.position.y;
+        slot.critScale = 1.0;
         slot.mesh.setEnabled(true);
     }
 
@@ -151,14 +164,16 @@ export class DamageNumberManager {
             }
 
             const popDuration = 0.25;
+            const restScale = slot.critScale;
+            const peakScale = restScale * 1.5;
             let scale: number;
             if (progress < popDuration / 2) {
-                scale = (progress / (popDuration / 2)) * 1.5;
+                scale = (progress / (popDuration / 2)) * peakScale;
             } else if (progress < popDuration) {
                 const t = (progress - popDuration / 2) / (popDuration / 2);
-                scale = 1.5 - t * 0.5;
+                scale = peakScale - t * (peakScale - restScale);
             } else {
-                scale = 1.0;
+                scale = restScale;
             }
             slot.mesh.scaling.setAll(scale);
 

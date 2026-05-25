@@ -29,6 +29,14 @@ export class ShieldEnemy extends Enemy {
         // Set as a heavy enemy type (armored paladin)
         this.isHeavy = true;
         this.contactDamagePerSecond = 12;
+
+        // Paladin shield-bash — moderate reach, solid damage, telegraphed.
+        this.meleeRange            = 1.6;
+        this.meleeHitRange         = 1.9;
+        this.meleeHitDamage        = 14;
+        this.meleeWindupDuration   = 0.4;
+        this.meleeStrikeDuration   = 0.12;
+        this.meleeCooldownDuration = 0.7;
     }
 
     /**

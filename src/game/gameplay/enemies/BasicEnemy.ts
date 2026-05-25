@@ -35,6 +35,14 @@ export class BasicEnemy extends Enemy {
         // Basic enemy has medium speed, medium health, medium damage, and low reward
         super(game, position, path, 3, 30, 10, 10);
         this.contactDamagePerSecond = 8;
+
+        // Quick goblin jab — short reach, snappy windup, low damage per swing.
+        this.meleeRange            = 1.4;
+        this.meleeHitRange         = 1.7;
+        this.meleeHitDamage        = 10;
+        this.meleeWindupDuration   = 0.28;
+        this.meleeStrikeDuration   = 0.1;
+        this.meleeCooldownDuration = 0.5;
     }
 
     /**
@@ -93,11 +101,12 @@ export class BasicEnemy extends Enemy {
             }
         }
 
+        // Register groups for base-class dispose cleanup (prevents animatable leak).
+        this.glbAnimationGroups = inst.animationGroups;
+
         // Categorize all anim clips by name so we can switch between walk/attack/idle.
         for (const ag of inst.animationGroups) ag.stop();
-        console.log(`[basic-minion] available animations (${inst.animationGroups.length}):`);
         for (const ag of inst.animationGroups) {
-            console.log(`  - "${ag.name}"`);
             const n = ag.name.toLowerCase();
             // Hard-prefer "run3" for walk — this specific minion asset has multiple
             // run clips and run3 is the one we want. Falls back to walk/run aliases
@@ -120,10 +129,6 @@ export class BasicEnemy extends Enemy {
             this.glbWalkAnim.start(true);
             this.glbCurrentAnim = this.glbWalkAnim;
         }
-        console.log(
-            `[basic-minion] mapped: walk="${this.glbWalkAnim?.name ?? '(none)'}", ` +
-            `attack="${this.glbAttackAnim?.name ?? '(none)'}", idle="${this.glbIdleAnim?.name ?? '(none)'}"`,
-        );
     }
 
     /** Switch to the named animation slot, no-op if already playing it. */
@@ -132,9 +137,7 @@ export class BasicEnemy extends Enemy {
         if (this.glbCurrentAnim === slot) return;
         if (this.glbCurrentAnim) this.glbCurrentAnim.stop();
         slot.start(loop);
-        const prev = this.glbCurrentAnim?.name ?? '(none)';
         this.glbCurrentAnim = slot;
-        console.log(`[basic-minion] anim switch: ${prev} → ${slot.name}`);
     }
 
     /**

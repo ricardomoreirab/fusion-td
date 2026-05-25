@@ -70,6 +70,10 @@ export class PlayerStats {
     public extraAttacks: number = 0;
     /** World units pushed radially away from the hero on each basic-attack hit. */
     public knockbackOnHit: number = 0;
+    /** Chance (0..1) for any damage dealt to crit. */
+    public critChance: number = 0;
+    /** Multiplier applied on a crit. Base 1.5×, each Savagery purchase adds +0.05. */
+    public critDamageMultiplier: number = 1.5;
     /** How many times each shop item has been purchased */
     public purchaseCounts: Record<string, number> = {};
 
