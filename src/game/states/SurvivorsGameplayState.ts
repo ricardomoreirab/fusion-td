@@ -552,11 +552,12 @@ export class SurvivorsGameplayState implements GameState {
         shadowLight.shadowMaxZ = 100;
         shadowLight.shadowFrustumSize = 70;
 
-        const shadowGen = new ShadowGenerator(1024, shadowLight);
-        shadowGen.usePoissonSampling = true;
-        shadowGen.bias = 0.001;
-        shadowGen.normalBias = 0.02;
-        shadowGen.setDarkness(0.55); // noticeable but not jet black
+        // Diagnostic config: hard shadows, no bias, max darkness — if THIS doesn't
+        // render visible shadows, the issue is in the receiver setup (not sampling).
+        const shadowGen = new ShadowGenerator(2048, shadowLight);
+        shadowGen.bias = 0;
+        shadowGen.normalBias = 0;
+        shadowGen.setDarkness(0.0); // 0 = fully opaque shadow (counter-intuitive: 1=no shadow)
         this.shadowGen = shadowGen;
 
         // Mark every ground mesh as a shadow receiver (both the colored arena
