@@ -14,7 +14,6 @@ export class PauseScreen {
     private restartButton!: Rectangle;
     private menuButton!: Rectangle;
     private isVisible: boolean = false;
-    private boundVisibilityHandler: EventListener;
 
     constructor(game: Game) {
         this.game = game;
@@ -47,26 +46,11 @@ export class PauseScreen {
         this.resumeButton.isVisible = false;
         this.restartButton.isVisible = false;
         this.menuButton.isVisible = false;
-
-        // Bind the handler once to maintain the same reference
-        this.boundVisibilityHandler = this.handleVisibilityChange.bind(this);
-
-        // Add tab visibility listener
-        document.addEventListener('visibilitychange', this.boundVisibilityHandler);
     }
 
     private isMobileDevice(): boolean {
         return ('ontouchstart' in window || navigator.maxTouchPoints > 0) &&
                window.innerWidth < 1024;
-    }
-
-    private handleVisibilityChange(): void {
-        console.log('Visibility changed, document.hidden:', document.hidden);
-        if (document.hidden) {
-            console.log('Tab hidden, pausing game');
-            // Call game.pause() directly
-            this.game.pause();
-        }
     }
 
     private createOverlay(): void {
@@ -242,10 +226,6 @@ export class PauseScreen {
     }
 
     public dispose(): void {
-        // Remove event listener when disposed
-        document.removeEventListener('visibilitychange', this.boundVisibilityHandler);
-
-        // Safely dispose the texture
         if (this.guiTexture) {
             this.guiTexture.dispose();
         }
