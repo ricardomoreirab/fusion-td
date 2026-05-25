@@ -1,4 +1,4 @@
-import { Scene, Vector3, Color3, Color4, HemisphericLight, DirectionalLight, SpotLight, AssetContainer, SceneLoader, CubeTexture, Texture, MeshBuilder, StandardMaterial, Mesh, BackgroundMaterial } from '@babylonjs/core';
+import { Scene, Vector3, Color3, Color4, HemisphericLight, DirectionalLight, SpotLight, AssetContainer, SceneLoader, CubeTexture, Texture, MeshBuilder, StandardMaterial, Mesh, BackgroundMaterial, ShadowGenerator, AbstractMesh } from '@babylonjs/core';
 import '@babylonjs/loaders/glTF';
 import { AdvancedDynamicTexture } from '@babylonjs/gui';
 import { Game } from '../Game';
@@ -494,6 +494,34 @@ export class SurvivorsGameplayState implements GameState {
         );
         spot.intensity = 3.0;
         spot.diffuse = new Color3(1.0, 0.55, 0.18);
+        spot.shadowMinZ = 1;
+        spot.shadowMaxZ = 60;
+
+        // ── Shadows ───────────────────────────────────────────────────────────
+        const shadowGen = new ShadowGenerator(1024, spot);
+        shadowGen.bias = 0.001;
+        shadowGen.normalBias = 0.02;
+        shadowGen.usePoissonSampling = true;
+        shadowGen.setDarkness(0.35);
+
+        // Add every existing eligible mesh as a caster, then keep adding new ones as
+        // they spawn (enemies, item drops, projectiles). Exclude:
+        //  - the sky box
+        //  - the ground discs (they only RECEIVE)
+        //  - empty roots used as transform parents (no geometry)
+        const isShadowCaster = (m: AbstractMesh): boolean => {
+            const n = m.name;
+            if (n.startsWith('ruinsSky')) return false;
+            if (n.startsWith('arenaGround') || n.startsWith('ruinsStoneGround') || n.startsWith('ruinsGrassGround')) return false;
+            if (m.getTotalVertices() === 0) return false;
+            return true;
+        };
+        for (const m of scene.meshes) {
+            if (isShadowCaster(m)) shadowGen.addShadowCaster(m);
+        }
+        scene.onNewMeshAddedObservable.add((m) => {
+            if (isShadowCaster(m)) shadowGen.addShadowCaster(m);
+        });
 
         // ── Grass floor — locally-bundled DDS tiled across the arena ──────────
         const grassTex = new Texture(
