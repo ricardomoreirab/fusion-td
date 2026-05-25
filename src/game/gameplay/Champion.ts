@@ -104,15 +104,22 @@ export class Champion extends Enemy {
         idle: AnimationGroup | null;
         walk: AnimationGroup | null;
         shoot: AnimationGroup | null;
+        special: AnimationGroup | null;
         all: AnimationGroup[];
-    } = { idle: null, walk: null, shoot: null, all: [] };
+    } = { idle: null, walk: null, shoot: null, special: null, all: [] };
     private rangerCurrentAnim: AnimationGroup | null = null;
     /** Seconds remaining of forced-shoot animation. Higher-priority than walk/idle while > 0. */
     private rangerShootTimer: number = 0;
+    /** Seconds remaining of forced-special animation. Higher-priority than shoot/walk/idle. */
+    private rangerSpecialTimer: number = 0;
     /** Duration the shoot animation plays after each triggerShoot(). */
     private static readonly RANGER_SHOOT_DURATION = 0.6;
+    /** Duration the special animation plays after each triggerSpecial(). */
+    private static readonly RANGER_SPECIAL_DURATION = 0.6;
     /** Playback speed multiplier for the GLB shoot clip. 2.0 = twice as fast. Adjust here. */
     private static readonly RANGER_SHOOT_SPEED = 5.5;
+    /** Playback speed multiplier for the GLB special clip. Adjust here. */
+    private static readonly RANGER_SPECIAL_SPEED = 2.0;
 
     constructor(
         game: Game,
@@ -309,8 +316,10 @@ export class Champion extends Enemy {
         }
 
         // Categorize the GLB's animation clips by name. Accept aliases per slot since
-        // different rigs/export tools use different conventions.
-        this.rangerAnims = { idle: null, walk: null, shoot: null, all: [...inst.animationGroups] };
+        // different rigs/export tools use different conventions. "special" matches power-
+        // slot attacks (Fire Arrow / Frost Shards / etc.) — usually a longer/more dramatic
+        // clip than the basic shoot.
+        this.rangerAnims = { idle: null, walk: null, shoot: null, special: null, all: [...inst.animationGroups] };
         console.log(`[ranger] available animation groups (${inst.animationGroups.length}):`);
         for (const ag of inst.animationGroups) {
             console.log(`  - "${ag.name}"`);
@@ -319,6 +328,8 @@ export class Champion extends Enemy {
                 this.rangerAnims.idle = ag;
             } else if (this.rangerAnims.walk == null && (n.includes('walk') || n.includes('run'))) {
                 this.rangerAnims.walk = ag;
+            } else if (this.rangerAnims.special == null && (n.includes('special') || n.includes('skill') || n.includes('magic') || n.includes('cast') || n.includes('spell') || n.includes('ult'))) {
+                this.rangerAnims.special = ag;
             } else if (this.rangerAnims.shoot == null && (n.includes('shoot') || n.includes('attack') || n.includes('fire') || n.includes('bow') || n.includes('arrow'))) {
                 this.rangerAnims.shoot = ag;
             }
@@ -333,47 +344,64 @@ export class Champion extends Enemy {
             if (!aa.walk)  aa.walk  = aa.all[1];
             if (!aa.shoot) aa.shoot = aa.all[aa.all.length - 1];
         }
-        // Speed up the shoot clip and compute its effective duration.
+        // Speed up the shoot/special clips and compute their effective durations.
         if (aa.shoot) {
             aa.shoot.speedRatio = Champion.RANGER_SHOOT_SPEED;
             const frames = aa.shoot.to - aa.shoot.from;
             const estDur = Math.min(2.5, frames / 60 / Champion.RANGER_SHOOT_SPEED);
             (this as any).rangerShootDurationActual = estDur > 0.1 ? estDur : Champion.RANGER_SHOOT_DURATION;
         }
+        if (aa.special) {
+            aa.special.speedRatio = Champion.RANGER_SPECIAL_SPEED;
+            const frames = aa.special.to - aa.special.from;
+            const estDur = Math.min(2.5, frames / 60 / Champion.RANGER_SPECIAL_SPEED);
+            (this as any).rangerSpecialDurationActual = estDur > 0.1 ? estDur : Champion.RANGER_SPECIAL_DURATION;
+        }
         console.log(
             `[ranger] mapped: idle="${aa.idle?.name ?? '(none)'}", ` +
-            `walk="${aa.walk?.name ?? '(none)'}", shoot="${aa.shoot?.name ?? '(none)'}"`,
+            `walk="${aa.walk?.name ?? '(none)'}", shoot="${aa.shoot?.name ?? '(none)'}", ` +
+            `special="${aa.special?.name ?? '(none)'}"`,
         );
 
         if (aa.idle) this.playRangerAnim('idle');
     }
 
     /** Switch the ranger to the named animation slot (no-op if already playing it). */
-    private playRangerAnim(slot: 'idle' | 'walk' | 'shoot'): void {
+    private playRangerAnim(slot: 'idle' | 'walk' | 'shoot' | 'special'): void {
         const target = this.rangerAnims[slot];
         if (!target) return;
         if (this.rangerCurrentAnim === target) return;
         if (this.rangerCurrentAnim) this.rangerCurrentAnim.stop();
-        target.start(slot !== 'shoot'); // loop walk/idle, play shoot once
+        const loop = slot === 'idle' || slot === 'walk';
+        target.start(loop);
         this.rangerCurrentAnim = target;
     }
 
     /** Called by HeroBasicAttack each time the ranger fires a projectile. Restarts the
-     *  shoot animation from frame 0 even if a previous one is still playing — so every
-     *  arrow gets a visible draw-back. If the attack cadence is faster than the clip
-     *  length the clip just gets re-triggered mid-flight, which looks "snappy" rather
-     *  than skipping animations entirely. */
+     *  shoot animation from frame 0 even if a previous one is still playing. */
     public triggerShoot(): void {
         if (this.championType !== 'ranger' || !this.rangerAsset) return;
         const dur = (this as any).rangerShootDurationActual ?? Champion.RANGER_SHOOT_DURATION;
         this.rangerShootTimer = dur;
         const shoot = this.rangerAnims.shoot;
         if (shoot) {
-            // Stop whatever is currently playing (could be the same shoot clip mid-play,
-            // or the walk/idle clip) and restart shoot from frame 0.
             if (this.rangerCurrentAnim) this.rangerCurrentAnim.stop();
             shoot.start(false);
             this.rangerCurrentAnim = shoot;
+        }
+    }
+
+    /** Called by PowerSlotManager when a power-slot attack (Fire Arrow / Frost Shards /
+     *  etc.) fires. Plays the special animation; higher priority than the basic shoot. */
+    public triggerSpecial(): void {
+        if (this.championType !== 'ranger' || !this.rangerAsset) return;
+        const dur = (this as any).rangerSpecialDurationActual ?? Champion.RANGER_SPECIAL_DURATION;
+        this.rangerSpecialTimer = dur;
+        const special = this.rangerAnims.special;
+        if (special) {
+            if (this.rangerCurrentAnim) this.rangerCurrentAnim.stop();
+            special.start(false);
+            this.rangerCurrentAnim = special;
         }
     }
 
@@ -979,11 +1007,14 @@ export class Champion extends Enemy {
             }
 
             // GLB ranger: prefer real GLB clips; fall back to mesh-level bob for any
-            // slot the asset doesn't provide.
+            // slot the asset doesn't provide. Priority: special > shoot > walk > idle.
             if (usingRangerGLB) {
                 const baseY = this.position.y;
                 this.mesh.position.y = baseY;
-                if (this.rangerShootTimer > 0) {
+                if (this.rangerSpecialTimer > 0) {
+                    this.rangerSpecialTimer = Math.max(0, this.rangerSpecialTimer - deltaTime);
+                    this.playRangerAnim('special');
+                } else if (this.rangerShootTimer > 0) {
                     this.rangerShootTimer = Math.max(0, this.rangerShootTimer - deltaTime);
                     this.playRangerAnim('shoot');
                 } else if (isMoving) {

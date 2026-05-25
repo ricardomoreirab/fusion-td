@@ -273,6 +273,15 @@ export class SurvivorsGameplayState implements GameState {
             this.powerSlots.addPower(variant.startPower);
         }
 
+        // When a power-slot fires, trigger the ranger's special-attack animation.
+        // No-op for non-ranger champs (triggerSpecial type-guards on championType).
+        this.powerSlots.setOnCast(() => {
+            const hero = this.hero as { triggerSpecial?: () => void } | null;
+            if (hero && typeof hero.triggerSpecial === 'function') {
+                hero.triggerSpecial();
+            }
+        });
+
         // Wire enemy provider and power slots into HeroController for melee AOE + enchantments
         this.heroController.setEnemyProvider(() => this.enemyManager!.getEnemies());
         this.heroController.setPowerSlots(this.powerSlots);

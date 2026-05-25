@@ -15,6 +15,9 @@ export class PowerSlotManager {
     private enemyProvider: () => Enemy[];
     private damageMultiplierProvider: () => number;
     private cooldownMultiplierProvider: () => number;
+    /** Fires whenever any power slot's cast() runs (after cooldown elapsed).
+     *  Used to drive hero attack animations for special/power attacks. */
+    private onCastCallback: ((slot: PowerSlot) => void) | null = null;
 
     constructor(
         scene: Scene,
@@ -87,6 +90,11 @@ export class PowerSlotManager {
         return true;
     }
 
+    /** Register a callback fired every time a power-slot's cast() executes. */
+    public setOnCast(fn: (slot: PowerSlot) => void): void {
+        this.onCastCallback = fn;
+    }
+
     public update(deltaTime: number): void {
         const ctx = this.buildContext();
         const cooldownMult = this.cooldownMultiplierProvider();
@@ -99,6 +107,7 @@ export class PowerSlotManager {
                 if (slot.def.cast) {
                     slot.def.cast(slot.state, ctx);
                 }
+                if (this.onCastCallback) this.onCastCallback(slot);
                 slot.state.cooldownRemaining = slot.def.cooldownFor(slot.state) * cooldownMult;
             }
         }
