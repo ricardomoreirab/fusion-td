@@ -341,10 +341,9 @@ export class Champion extends Enemy {
         // picks a clip that doesn't look right, hard-pick the one we want. The
         // substring is matched against the (prefixed) clip name.
         const PREFERRED: Partial<Record<string, { attack?: string; special?: string; walk?: string; idle?: string }>> = {
-            // Aulus's basic attack uses the skill3 clip (the dramatic whirlwind sweep).
-            // Special slot is unused for barbarian today (all barb powers are passives,
-            // so setOnCast never fires — see PowerDefinitions).
-            barbarian: { attack: 'aulus_warrior_of_ferocity_in_game_skill3' },
+            // (Per-champ explicit clip overrides. Barbarian's two ultimate abilities
+            //  fire through AbilityManager → Champion.playAbilityClip, not through
+            //  the basic-attack/special slots here.)
         };
         const overrides = PREFERRED[this.championType];
         if (overrides) {
@@ -439,15 +438,32 @@ export class Champion extends Enemy {
         const dur = (this as any).glbSpecialDurationActual ?? Champion.GLB_SPECIAL_DURATION;
         this.glbSpecialTimer = dur;
         const special = this.championAnims.special;
-        console.log(
-            `[${this.championType}] triggerSpecial fired — dur=${dur.toFixed(2)}s, ` +
-            `special clip=${special?.name ?? '(NONE — anim slot is null)'}`,
-        );
         if (special) {
             if (this.championCurrentAnim) this.championCurrentAnim.stop();
             special.start(false);
             this.championCurrentAnim = special;
         }
+    }
+
+    /** Play a specific GLB animation clip (looked up by suffix match) as a forced
+     *  "special" channel. Used by AbilityManager when a class-specific ultimate
+     *  fires (Aulus Whirlwind, Aulus Smash, etc.) — basic attacks suspend for
+     *  the clip's duration via isSpecialActive(). */
+    public playAbilityClip(clipSuffix: string, speed: number = 1.0): void {
+        if (!this.championAsset) return;
+        const match = this.championAnims.all.find(ag => ag.name.endsWith(clipSuffix));
+        if (!match) {
+            console.warn(`[${this.championType}] playAbilityClip: no clip ends with "${clipSuffix}"`);
+            return;
+        }
+        match.speedRatio = speed;
+        const frames = match.to - match.from;
+        const dur = Math.min(3.0, frames / 60 / speed);
+        this.glbSpecialTimer = dur > 0.1 ? dur : Champion.GLB_SPECIAL_DURATION;
+        if (this.championCurrentAnim) this.championCurrentAnim.stop();
+        match.start(false);
+        this.championCurrentAnim = match;
+        console.log(`[${this.championType}] ability clip "${match.name}" playing (${this.glbSpecialTimer.toFixed(2)}s)`);
     }
 
     private createRangerMeshProcedural(): void {

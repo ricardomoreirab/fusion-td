@@ -401,6 +401,24 @@ export class SurvivorsGameplayState implements GameState {
         this.abilityManager.setHero(this.hero);
         this.abilityManager.prewarmAbilityEffects();
 
+        // Map class-specific ultimate IDs → GLB clip suffix so the hero plays the
+        // right animation when the player presses an ultimate button. The clip plays
+        // as a forced "special" channel — basic attacks suspend for its duration.
+        const ABILITY_CLIPS: Partial<Record<string, { suffix: string; speed?: number }>> = {
+            // Barbarian (Aulus)
+            whirlwind: { suffix: 'aulus_warrior_of_ferocity_in_game_skill3' },
+            smash:     { suffix: 'aulus_warrior_of_ferocity_in_game_skill1' },
+            // Ranger / Mage clips can be added here later as needed.
+        };
+        this.abilityManager.setOnActivate((abilityId) => {
+            const clip = ABILITY_CLIPS[abilityId];
+            if (!clip || !this.hero) return;
+            const hero = this.hero as { playAbilityClip?: (s: string, sp?: number) => void };
+            if (typeof hero.playAbilityClip === 'function') {
+                hero.playAbilityClip(clip.suffix, clip.speed ?? 1.0);
+            }
+        });
+
         // ---------- UI ----------
 
         // Mobile virtual joystick

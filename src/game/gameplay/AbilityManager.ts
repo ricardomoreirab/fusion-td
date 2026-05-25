@@ -84,6 +84,10 @@ export class AbilityManager {
     // Active timed effects (Whirlwind, Volley, Explosive Arrow)
     private activeEffects: ActiveEffect[] = [];
 
+    /** Fires after a successful activate(). Used by SurvivorsGameplayState to drive
+     *  hero animations (e.g. play the Aulus whirlwind clip on barbarian whirlwind). */
+    private onActivateCallback: ((abilityId: string) => void) | null = null;
+
     constructor(game: Game, enemyManager: EnemyManager) {
         this.game = game;
         this.scene = game.getScene();
@@ -258,9 +262,17 @@ export class AbilityManager {
             ability.currentCooldown = ability.cooldown;
             this.isTargeting = false;
             this.targetingAbility = null;
+            if (this.onActivateCallback) this.onActivateCallback(abilityId);
         }
 
         return success;
+    }
+
+    /** Register a callback fired after each successful ability activation. The
+     *  callback receives the ability id ('whirlwind', 'smash', 'volley', etc.).
+     *  SurvivorsGameplayState uses this to drive hero GLB animations. */
+    public setOnActivate(fn: (abilityId: string) => void): void {
+        this.onActivateCallback = fn;
     }
 
     // ========================================================================
