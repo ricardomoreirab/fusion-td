@@ -1046,4 +1046,23 @@ export class Enemy {
         this.path.push(...additionalPoints);
     }
 
+    /**
+     * Push this enemy radially by `magnitude` world units in the given normalized
+     * direction. No-op if the enemy is frozen or stunned (CC-immune window).
+     * Boss subclasses may override to apply a fraction of the requested magnitude.
+     *
+     * Note: this only mutates `this.position` — the next seek-target frame will
+     * pull the enemy back toward the hero, so the push is naturally bounded and
+     * the enemy does not need to clamp itself to the arena radius.
+     */
+    public applyKnockback(dirX: number, dirZ: number, magnitude: number): void {
+        if (!this.alive) return;
+        if (this.isFrozen || this.isStunned) return;
+        this.position.x += dirX * magnitude;
+        this.position.z += dirZ * magnitude;
+        if (this.mesh && !this.mesh.isDisposed()) {
+            this.mesh.position.copyFrom(this.position);
+        }
+    }
+
 }

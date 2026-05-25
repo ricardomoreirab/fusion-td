@@ -499,4 +499,12 @@ export class BossEnemy extends Enemy {
 
         console.log(`Boss upgraded with additional multiplier: ${bossMultiplier}. Final stats - Health: ${this.maxHealth}, Resistance: ${(this.damageResistance * 100).toFixed(0)}%`);
     }
+
+    /**
+     * Bosses receive only 30% of incoming knockback so they remain threatening
+     * even when the hero has multiple knockback stacks.
+     */
+    public applyKnockback(dirX: number, dirZ: number, magnitude: number): void {
+        super.applyKnockback(dirX, dirZ, magnitude * 0.3);
+    }
 }
