@@ -533,8 +533,16 @@ export class SurvivorsGameplayState implements GameState {
         for (const m of scene.meshes) {
             if (isShadowCaster(m)) { shadowGen.addShadowCaster(m); casterCount++; }
         }
+        let dynamicCasters = 0;
         scene.onNewMeshAddedObservable.add((m) => {
-            if (isShadowCaster(m)) shadowGen.addShadowCaster(m);
+            if (isShadowCaster(m)) {
+                shadowGen.addShadowCaster(m);
+                dynamicCasters++;
+                // Throttle log — first 10 then every 50th.
+                if (dynamicCasters <= 10 || dynamicCasters % 50 === 0) {
+                    console.log(`[shadows] added dynamic caster #${dynamicCasters}: "${m.name}"`);
+                }
+            }
         });
         console.log(`[shadows] generator wired; initial caster count = ${casterCount}`);
 
