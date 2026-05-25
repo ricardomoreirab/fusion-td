@@ -112,6 +112,9 @@ export class Champion extends Enemy {
     private rangerShootTimer: number = 0;
     /** Seconds remaining of forced-special animation. Higher-priority than shoot/walk/idle. */
     private rangerSpecialTimer: number = 0;
+    /** Target the ranger is currently shooting at — used to override facing during shoot
+     *  timer so the model turns toward the enemy it's firing on. */
+    private rangerShootFacingTarget: Vector3 | null = null;
     /** Duration the shoot animation plays after each triggerShoot(). */
     private static readonly RANGER_SHOOT_DURATION = 0.6;
     /** Duration the special animation plays after each triggerSpecial(). */
@@ -378,11 +381,13 @@ export class Champion extends Enemy {
     }
 
     /** Called by HeroBasicAttack each time the ranger fires a projectile. Restarts the
-     *  shoot animation from frame 0 even if a previous one is still playing. */
-    public triggerShoot(): void {
+     *  shoot animation from frame 0 even if a previous one is still playing. The optional
+     *  targetPos overrides facing — during the shoot timer the model turns to face it. */
+    public triggerShoot(targetPos?: Vector3): void {
         if (this.championType !== 'ranger' || !this.rangerAsset) return;
         const dur = (this as any).rangerShootDurationActual ?? Champion.RANGER_SHOOT_DURATION;
         this.rangerShootTimer = dur;
+        this.rangerShootFacingTarget = targetPos ? targetPos.clone() : null;
         const shoot = this.rangerAnims.shoot;
         if (shoot) {
             if (this.rangerCurrentAnim) this.rangerCurrentAnim.stop();
@@ -1044,11 +1049,18 @@ export class Champion extends Enemy {
                 this.animateHumanoid();
             }
 
-            // Facing: spin override > movement direction > idle
+            // Facing: spin override > ranger-aim-at-target > movement direction > idle
             if (this.spinAttackTimer > 0) {
                 // Spin fast: full 360° rotation over SPIN_ATTACK_DURATION
                 const progress = 1 - this.spinAttackTimer / Champion.SPIN_ATTACK_DURATION;
                 this.mesh.rotation.y = progress * Math.PI * 2;
+            } else if (this.rangerShootTimer > 0 && this.rangerShootFacingTarget) {
+                // Ranger is mid-shoot — turn to face the target it's firing at.
+                const dx = this.rangerShootFacingTarget.x - this.position.x;
+                const dz = this.rangerShootFacingTarget.z - this.position.z;
+                if (dx * dx + dz * dz > 0.0001) {
+                    this.mesh.rotation.y = Math.atan2(dx, dz);
+                }
             } else if (isMoving) {
                 this.mesh.rotation.y = Math.atan2(this.playerVelocity.x, this.playerVelocity.z);
             }
