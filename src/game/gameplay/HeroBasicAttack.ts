@@ -109,7 +109,21 @@ export class HeroBasicAttack {
             const dist = Vector3.Distance(heroPos, target.position);
             if (dist > this.effectiveRange) return;
 
-            this.spawnProjectile(heroPos.clone(), target);
+            const extras = this.playerStats?.extraAttacks ?? 0;
+            const total  = 1 + extras;
+            if (total === 1) {
+                this.spawnProjectile(heroPos.clone(), target);
+            } else {
+                // Total fan spread is 20°. Angles distributed evenly from -10° to +10°
+                // (e.g. 2 projectiles → -5° / +5°; 3 → -10° / 0° / +10°).
+                const totalSpreadRad = (20 * Math.PI) / 180;
+                const step = total > 1 ? totalSpreadRad / (total - 1) : 0;
+                const start = -totalSpreadRad / 2;
+                for (let i = 0; i < total; i++) {
+                    const angle = start + step * i;
+                    this.spawnProjectileAtAngle(heroPos.clone(), target, angle);
+                }
+            }
             this.cooldown = this.effectiveInterval;
         }
     }
@@ -250,6 +264,38 @@ export class HeroBasicAttack {
             default:
                 return MeshBuilder.CreateSphere('basicProj', { diameter: 0.3, segments: 4 }, scene);
         }
+    }
+
+    /**
+     * Fan-variant of spawnProjectile: rotates the launch direction by `angleRad`
+     * around the vertical axis. Center projectile (angle = 0) is identical to
+     * a normal spawnProjectile call. Off-center projectiles fly straight in the
+     * rotated direction at the same speed; if they hit the original target
+     * along the way (the target's tracking is preserved by spawnProjectile),
+     * they still apply damage. Off-center projectiles miss the target most of
+     * the time — they exist primarily to make the fan readable and to clear
+     * out adjacent enemies.
+     */
+    private spawnProjectileAtAngle(from: Vector3, target: BasicAttackTarget, angleRad: number): void {
+        if (angleRad === 0) {
+            this.spawnProjectile(from, target);
+            return;
+        }
+        // Build a virtual target offset by rotating the (target - from) vector by angleRad.
+        const dx = target.position.x - from.x;
+        const dz = target.position.z - from.z;
+        const cos = Math.cos(angleRad);
+        const sin = Math.sin(angleRad);
+        const rotX = dx * cos - dz * sin;
+        const rotZ = dx * sin + dz * cos;
+        // Extend the rotated direction out to the same length so the projectile travels.
+        const virtualTargetPos = new Vector3(from.x + rotX, target.position.y, from.z + rotZ);
+        const virtualTarget: BasicAttackTarget = {
+            position: virtualTargetPos,
+            takeDamage: (amount: number) => target.takeDamage(amount),
+            isAlive: () => target.isAlive(),
+        };
+        this.spawnProjectile(from, virtualTarget);
     }
 
     private spawnProjectile(from: Vector3, target: BasicAttackTarget): void {
