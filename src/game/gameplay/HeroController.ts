@@ -255,9 +255,12 @@ export class HeroController {
         this.basicAttack?.updateAttackSpeed(multiplier);
     }
 
-    /** Push player-stats reference into the inner basic-attack instance (used by RunItems wiring). */
+    /** Push player-stats reference into the inner basic-attack instance, and also wire
+     *  the lifesteal heal callback to this controller's heal() so lifesteal updates the
+     *  real hero HP (not the phantom PlayerStats.health that the HUD doesn't read). */
     public setPlayerStats(stats: PlayerStats): void {
         this.basicAttack?.setPlayerStats(stats);
+        this.basicAttack?.setHealCallback((amount: number) => this.heal(amount));
     }
 
     /**

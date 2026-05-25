@@ -37,6 +37,9 @@ export class HeroBasicAttack {
     private targetProvider: () => BasicAttackTarget | null;
     private powerSlots: PowerSlotManager | null = null;
     private playerStats: PlayerStats | null = null;
+    /** Wired by HeroController.setPlayerStats — routes lifesteal heals to the hero's REAL HP
+     *  (PlayerStats.health is a separate phantom value that the HUD doesn't read). */
+    private healCallback: ((amount: number) => void) | null = null;
     private projectileShape: ProjectileShape;
     private queuedSwings: number = 0;
     private queuedSpinTimer: number = 0;
@@ -76,6 +79,11 @@ export class HeroBasicAttack {
     /** Wire up player stats so run-item effects (lifesteal, knockback, multishot, multi-spin) apply. */
     public setPlayerStats(stats: PlayerStats): void {
         this.playerStats = stats;
+    }
+
+    /** Wire the callback that applies lifesteal heals to the hero. */
+    public setHealCallback(fn: (amount: number) => void): void {
+        this.healCallback = fn;
     }
 
     /** Update the effective attack speed. multiplier > 1 = faster. */
@@ -166,8 +174,8 @@ export class HeroBasicAttack {
             const horizDist = Math.hypot(dx, dz);
             if (horizDist <= range) {
                 e.takeDamage(this.damage);
-                if (lifestealPct > 0 && this.playerStats) {
-                    this.playerStats.heal(this.damage * lifestealPct);
+                if (lifestealPct > 0 && this.healCallback) {
+                    this.healCallback(this.damage * lifestealPct);
                 }
                 if (knockback > 0 && horizDist > 0.001) {
                     // Direction: from hero outward toward the enemy.
@@ -369,10 +377,8 @@ export class HeroBasicAttack {
 
             if (dist < 0.4) {
                 target.takeDamage(capturedDamage);
-                if (this.playerStats) {
-                    if (this.playerStats.lifestealPct > 0) {
-                        this.playerStats.heal(capturedDamage * this.playerStats.lifestealPct);
-                    }
+                if (this.healCallback && this.playerStats && this.playerStats.lifestealPct > 0) {
+                    this.healCallback(capturedDamage * this.playerStats.lifestealPct);
                 }
                 // Apply enchantments AND knockback on projectile hit — look up the actual
                 // Enemy instance behind the BasicAttackTarget so we have applyKnockback.

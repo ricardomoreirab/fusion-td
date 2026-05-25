@@ -11,13 +11,12 @@ const TIER_DPS_MULT:   Record<number, number> = { 1: 1.0, 2: 1.1, 3: 1.2, 4: 1.3
 
 /**
  * Per-tier ABSOLUTE base movement speed (world units/sec). Overrides BossEnemy's
- * path-walker speed of 0.7 — that was tuned for TD-mode path crawling, but in
- * survivors mode the hero moves ~5 u/s and would simply outrun a 1 u/s boss
- * forever, so the lunge would never matter. These values keep the boss slower
- * than the hero so straight-line kiting still works, but the lunge can close
- * the gap quickly.
+ * path-walker speed of 0.7 — that was tuned for TD-mode path crawling. Hero
+ * base speed is 7 u/s. Boss should be just slightly slower so straight-line
+ * kiting at full sprint barely works, and any strafing/turning loses the gap
+ * almost immediately. The lunge then closes any remaining distance fast.
  */
-const TIER_BASE_SPEED: Record<number, number> = { 1: 3.0, 2: 3.5, 3: 4.0, 4: 4.5 };
+const TIER_BASE_SPEED: Record<number, number> = { 1: 5.5, 2: 6.0, 3: 6.5, 4: 7.0 };
 
 /** Tier 5+ HP: 4.4 + 0.6 × (tier − 4). DPS and base speed clamp at tier-4 values. */
 function tierHpMult(tier: number): number {
