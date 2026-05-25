@@ -1,5 +1,6 @@
 import { AdvancedDynamicTexture, Rectangle, TextBlock, Control, Button } from '@babylonjs/gui';
 import { getLayoutMode, getRenderWidth } from './responsive';
+import { makeFrame, addPressFeedback, STYLE } from './HudStyle';
 
 export type PowerCardKind = 'power' | 'wildcard' | 'perk';
 
@@ -82,7 +83,7 @@ export class PowerChoiceOverlay {
         this.panel = new Rectangle('powerChoiceBg');
         this.panel.width = '100%';
         this.panel.height = '100%';
-        this.panel.background = 'rgba(0,0,0,0.62)';
+        this.panel.background = STYLE.backdropDim;
         this.panel.thickness = 0;
         this.ui.addControl(this.panel);
 
@@ -138,13 +139,8 @@ export class PowerChoiceOverlay {
         }
 
         // ── Outer card frame (colored border) ──────────────────────────────
-        const outer = new Rectangle(`powerCardOuter_${index}`);
-        outer.width = '220px';
+        const outer = makeFrame({ name: `powerCardOuter_${index}`, sizePx: 220, color: borderColor, cornerRadius: 12 });
         outer.height = '300px';
-        outer.cornerRadius = 12;
-        outer.thickness = 2;
-        outer.color = borderColor;
-        outer.background = '#0d0d1a';
 
         const gap = 240;
         const offset = (index - (total - 1) / 2) * gap;
@@ -205,18 +201,7 @@ export class PowerChoiceOverlay {
         kindLbl.paddingBottom = '8px';
         inner.addControl(kindLbl);
 
-        outer.isPointerBlocker = true;
-        outer.onPointerEnterObservable.add(() => {
-            outer.scaleX = 1.05;
-            outer.scaleY = 1.05;
-            outer.color = '#ffffff';
-        });
-        outer.onPointerOutObservable.add(() => {
-            outer.scaleX = 1.0;
-            outer.scaleY = 1.0;
-            outer.color = borderColor;
-        });
-        outer.onPointerClickObservable.add(() => {
+        addPressFeedback(outer, () => {
             card.onPick();
             this.close();
         });
@@ -266,15 +251,9 @@ export class PowerChoiceOverlay {
             const topY = stackTop + i * (cardH + gap);
 
             // ── Outer card ─────────────────────────────────────────────────
-            const outer = new Rectangle(`powerCardOuter_${i}`);
-            outer.width = `${cardW}px`;
+            const outer = makeFrame({ name: `powerCardOuter_${i}`, sizePx: cardW, color: borderColor, cornerRadius: 10 });
             outer.height = `${cardH}px`;
-            outer.cornerRadius = 10;
-            outer.thickness = 2;
-            outer.color = borderColor;
-            outer.background = '#0d0d1a';
             outer.top = `${topY}px`;
-            outer.isPointerBlocker = true;
             this.panel!.addControl(outer);
 
             // ── Left glyph strip ───────────────────────────────────────────
@@ -333,17 +312,7 @@ export class PowerChoiceOverlay {
             kindLbl.paddingRight = '4px';
             inner.addControl(kindLbl);
 
-            outer.onPointerEnterObservable.add(() => {
-                outer.scaleX = 1.03;
-                outer.scaleY = 1.03;
-                outer.color = '#ffffff';
-            });
-            outer.onPointerOutObservable.add(() => {
-                outer.scaleX = 1.0;
-                outer.scaleY = 1.0;
-                outer.color = borderColor;
-            });
-            outer.onPointerClickObservable.add(() => {
+            addPressFeedback(outer, () => {
                 card.onPick();
                 this.close();
             });
