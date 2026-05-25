@@ -209,7 +209,7 @@ export class HeroHud {
         goldPill.bg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         goldPill.bg.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         goldPill.bg.top = '10px';
-        goldPill.bg.paddingRight = '10px';
+        goldPill.bg.left = '-10px';
         this.ui.addControl(goldPill.bg);
         this.builtControls.push(goldPill.bg);
         this.goldText = goldPill.text;
@@ -368,7 +368,7 @@ export class HeroHud {
         goldPill.bg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         goldPill.bg.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         goldPill.bg.top = '10px';
-        goldPill.bg.paddingRight = '10px';
+        goldPill.bg.left = '-10px';
         this.ui.addControl(goldPill.bg);
         this.builtControls.push(goldPill.bg);
         this.goldText = goldPill.text;
@@ -496,7 +496,7 @@ export class HeroHud {
         ultRow.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         ultRow.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
         ultRow.top = `-${opts.bottomOffset}px`;
-        ultRow.paddingRight = `${opts.rightOffset}px`;
+        ultRow.left = `-${opts.rightOffset}px`;
         this.ui.addControl(ultRow);
         this.builtControls.push(ultRow);
 

@@ -102,23 +102,6 @@ export class BetweenWaveShopOverlay {
         const onStartNextWave = this._onStartNextWave!;
         const items = this._items;
 
-        // ── Title ─────────────────────────────────────────────────────────────
-        const title = new TextBlock('shopTitle', 'Wave Complete — Upgrade Shop');
-        title.color = '#fff';
-        title.fontSize = 26;
-        title.fontWeight = 'bold';
-        title.top = '-280px';
-        title.height = '36px';
-        this.panel!.addControl(title);
-
-        // ── Gold display ─────────────────────────────────────────────────────
-        const goldLabel = new TextBlock('shopGold', `◯ ${currentGold()} gold`);
-        goldLabel.color = '#ffd700';
-        goldLabel.fontSize = 20;
-        goldLabel.top = '-238px';
-        goldLabel.height = '28px';
-        this.panel!.addControl(goldLabel);
-
         // ── Item cards ────────────────────────────────────────────────────────
         items.forEach((item, i) => {
             this._buildDesktopCard(item, i, currentGold, purchaseCount, spendGold, items, onStartNextWave);
@@ -126,9 +109,9 @@ export class BetweenWaveShopOverlay {
 
         // ── Start next wave button ────────────────────────────────────────────
         const startBtn = makeFrame({ name: 'skipBtn', sizePx: 260, color: '#888', cornerRadius: 10 });
-        startBtn.height = '52px';
+        startBtn.height = '44px';
         startBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        startBtn.top = '-28px';
+        startBtn.top = '-12px';
         const startBtnLabel = new TextBlock('skipBtnLabel', 'Start Next Wave  →');
         startBtnLabel.color = '#fff';
         startBtnLabel.fontSize = 17;
@@ -162,11 +145,11 @@ export class BetweenWaveShopOverlay {
         const col = i % 2;
         const row = Math.floor(i / 2);
         const offsetX = (col - 0.5) * 340;
-        const offsetY = (row - 1) * 110;
+        const offsetY = (row - 1) * 100 - 30;  // shift grid up to free room for Start Next Wave button
 
         // ── Outer card ───────────────────────────────────────────────────────
         const outer = makeFrame({ name: `shopOuter_${item.id}`, sizePx: 320, color: capped ? '#444' : accentColor, cornerRadius: 12 });
-        outer.height = '100px';
+        outer.height = '88px';
         if (capped) outer.background = 'rgba(10,10,22,0.40)';
         outer.left = `${offsetX}px`;
         outer.top = `${offsetY}px`;
@@ -176,7 +159,7 @@ export class BetweenWaveShopOverlay {
         // ── Header strip (left accent bar + glyph) ───────────────────────────
         const headerBar = new Rectangle(`shopHeader_${item.id}`);
         headerBar.width = '44px';
-        headerBar.height = '100px';
+        headerBar.height = '88px';
         headerBar.thickness = 0;
         headerBar.background = capped ? '#222' : accentColor + '55';
         headerBar.cornerRadius = 8;
@@ -191,7 +174,7 @@ export class BetweenWaveShopOverlay {
         // ── Inner content ────────────────────────────────────────────────────
         const inner = new Rectangle(`shopInner_${item.id}`);
         inner.width = '268px';
-        inner.height = '84px';
+        inner.height = '72px';
         inner.thickness = 0;
         inner.background = 'transparent';
         inner.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
