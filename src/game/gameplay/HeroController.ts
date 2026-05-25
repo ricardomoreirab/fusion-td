@@ -152,9 +152,9 @@ export class HeroController {
     }
 
     /**
-     * Fire the damage-feedback reaction (flash for now, knockback / particles /
-     * shake added in later tasks). Rate-limited to once per HIT_REACTION_COOLDOWN_S
-     * so per-frame contact damage doesn't produce a permanent strobe.
+     * Fire the four damage-feedback effects (red flash, blood burst, camera shake,
+     * knockback). Rate-limited to once per HIT_REACTION_COOLDOWN_S so per-frame
+     * contact damage doesn't produce a permanent strobe.
      */
     private triggerHitReaction(sourcePos: Vector3 | undefined): void {
         if (this.elapsedTime - this.lastHitReactionTime < HIT_REACTION_COOLDOWN_S) return;
