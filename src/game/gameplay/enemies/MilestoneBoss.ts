@@ -78,7 +78,9 @@ export class MilestoneBoss extends BossEnemy {
     private glbAttackAnim: AnimationGroup | null = null;
     private glbIdleAnim: AnimationGroup | null = null;
     private glbCurrentAnim: AnimationGroup | null = null;
-    private static readonly GLB_ATTACK_RANGE = 3.5;
+    /** Generous — bosses are large and we want the attack swing playing whenever
+     *  they're in striking range, not only when literally touching. */
+    private static readonly GLB_ATTACK_RANGE = 5.0;
 
     constructor(
         game: Game,
@@ -156,7 +158,10 @@ export class MilestoneBoss extends BossEnemy {
         }
 
         for (const ag of inst.animationGroups) ag.stop();
-        console.log(`[boss-tier${this.waveTier}] available animations (${inst.animationGroups.length}):`);
+        // Note: this.waveTier is undefined at this point (super() runs createMesh
+        // before MilestoneBoss field initializers assign waveTier), so the log
+        // just uses "milestone-boss".
+        console.log(`[milestone-boss] available animations (${inst.animationGroups.length}):`);
         for (const ag of inst.animationGroups) {
             console.log(`  - "${ag.name}"`);
             const n = ag.name.toLowerCase();
@@ -178,7 +183,7 @@ export class MilestoneBoss extends BossEnemy {
             this.glbCurrentAnim = this.glbWalkAnim;
         }
         console.log(
-            `[boss-tier${this.waveTier}] mapped: walk="${this.glbWalkAnim?.name ?? '(none)'}", ` +
+            `[milestone-boss] mapped: walk="${this.glbWalkAnim?.name ?? '(none)'}", ` +
             `attack="${this.glbAttackAnim?.name ?? '(none)'}", idle="${this.glbIdleAnim?.name ?? '(none)'}"`,
         );
     }
