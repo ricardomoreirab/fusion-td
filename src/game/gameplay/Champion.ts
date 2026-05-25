@@ -329,19 +329,32 @@ export class Champion extends Enemy {
             }
             ag.stop(); // Stop any auto-started clips; playRangerAnim controls them.
         }
-        // Fallbacks: reuse anything available so we always have SOMETHING to play.
+        // Fallbacks. Don't share a clip across slots — if there's only one anim, assume
+        // it's the shoot anim (the asset name hints at "shooting arrow"), and leave
+        // idle/walk null so update() falls back to mesh-level bob for those states.
         const aa = this.rangerAnims;
-        if (!aa.idle  && aa.all.length > 0) aa.idle  = aa.all[0];
-        if (!aa.walk  && aa.all.length > 1) aa.walk  = aa.all[1];
-        else if (!aa.walk && aa.all.length > 0) aa.walk = aa.all[0];
-        if (!aa.shoot && aa.all.length > 0) aa.shoot = aa.all[aa.all.length - 1];
+        if (aa.all.length === 1 && !aa.shoot) {
+            aa.shoot = aa.all[0];
+        } else if (aa.all.length >= 2) {
+            if (!aa.idle)  aa.idle  = aa.all[0];
+            if (!aa.walk)  aa.walk  = aa.all[1];
+            if (!aa.shoot) aa.shoot = aa.all[aa.all.length - 1];
+        }
+        // Match the shoot-state timer to the actual clip length so we don't cut it short.
+        if (aa.shoot) {
+            const frameCount = aa.shoot.to - aa.shoot.from;
+            // BabylonJS GLB anims usually run at ~60fps; getLength() doesn't always exist,
+            // so derive from frames + a sane fps assumption. Cap at 2.5s to avoid lockup.
+            const estDurationSec = Math.min(2.5, frameCount / 60);
+            (this as any).rangerShootDurationActual = estDurationSec > 0.1 ? estDurationSec : Champion.RANGER_SHOOT_DURATION;
+        }
         console.log(
             `[ranger] mapped: idle="${aa.idle?.name ?? '(none)'}", ` +
             `walk="${aa.walk?.name ?? '(none)'}", shoot="${aa.shoot?.name ?? '(none)'}"`,
         );
 
-        // Start in idle — update() will switch to walk/shoot as input changes.
-        this.playRangerAnim('idle');
+        // Start in idle if we have one — update() will switch to walk/shoot as input changes.
+        if (aa.idle) this.playRangerAnim('idle');
 
         void scene;
     }
@@ -357,10 +370,11 @@ export class Champion extends Enemy {
     }
 
     /** Called by HeroBasicAttack when the ranger fires a projectile. Plays the shoot
-     *  animation for RANGER_SHOOT_DURATION before returning to walk/idle. */
+     *  animation for the actual clip duration before returning to walk/idle. */
     public triggerShoot(): void {
         if (this.championType !== 'ranger' || !this.rangerAsset) return;
-        this.rangerShootTimer = Champion.RANGER_SHOOT_DURATION;
+        const dur = (this as any).rangerShootDurationActual ?? Champion.RANGER_SHOOT_DURATION;
+        this.rangerShootTimer = dur;
     }
 
     private createRangerMeshProcedural(): void {
@@ -964,15 +978,39 @@ export class Champion extends Enemy {
                 this.walkTime += deltaTime * 5; // stride pace for player-controlled
             }
 
-            // GLB ranger: drive Walk / Idle / Shoot via the GLB's animation groups.
+            // GLB ranger: prefer real GLB clips; fall back to mesh-level bob for any
+            // slot the asset doesn't provide (e.g. archer_shooting_arrow has only the
+            // shoot clip, so walk + idle use mesh translation).
             if (usingRangerGLB) {
+                const baseY = this.position.y;
                 if (this.rangerShootTimer > 0) {
                     this.rangerShootTimer = Math.max(0, this.rangerShootTimer - deltaTime);
                     this.playRangerAnim('shoot');
+                    this.mesh.position.y = baseY; // anim drives motion, no bob
                 } else if (isMoving) {
-                    this.playRangerAnim('walk');
+                    if (this.rangerAnims.walk) {
+                        this.playRangerAnim('walk');
+                        this.mesh.position.y = baseY;
+                    } else {
+                        // No walk clip — stop any anim and bob the mesh vertically.
+                        if (this.rangerCurrentAnim) {
+                            this.rangerCurrentAnim.stop();
+                            this.rangerCurrentAnim = null;
+                        }
+                        this.mesh.position.y = baseY + Math.abs(Math.sin(this.walkTime * 2)) * 0.18;
+                    }
                 } else {
-                    this.playRangerAnim('idle');
+                    if (this.rangerAnims.idle) {
+                        this.playRangerAnim('idle');
+                        this.mesh.position.y = baseY;
+                    } else {
+                        // No idle clip — stop any anim and use a subtle breathing bob.
+                        if (this.rangerCurrentAnim) {
+                            this.rangerCurrentAnim.stop();
+                            this.rangerCurrentAnim = null;
+                        }
+                        this.mesh.position.y = baseY + Math.sin(performance.now() / 700) * 0.04;
+                    }
                 }
             } else if (this.championType === 'mage') {
                 this.animateMage(deltaTime);
