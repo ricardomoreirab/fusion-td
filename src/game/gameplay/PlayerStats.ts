@@ -64,6 +64,12 @@ export class PlayerStats {
     public damageReductionMultiplier: number = 1.0;
     /** Multiplier applied to basic attack speed (Quickness item; higher = faster) */
     public basicAttackSpeedMultiplier: number = 1.0;
+    /** Fraction of damage dealt that is healed back to the hero (lifesteal item). */
+    public lifestealPct: number = 0;
+    /** For ranged classes: extra projectiles per basic attack. For barbarian: extra follow-up spins. */
+    public extraAttacks: number = 0;
+    /** World units pushed radially away from the hero on each basic-attack hit. */
+    public knockbackOnHit: number = 0;
     /** How many times each shop item has been purchased */
     public purchaseCounts: Record<string, number> = {};
 
