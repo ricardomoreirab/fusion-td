@@ -154,9 +154,9 @@ export class HeroBasicAttack {
             }
             // Trigger the ranger GLB's Shoot animation + face the target (no-op for
             // non-ranger champions).
-            const hero = this.hero as { triggerShoot?: (targetPos?: Vector3) => void };
-            if (typeof hero.triggerShoot === 'function') {
-                hero.triggerShoot(target.position);
+            const hero = this.hero as { triggerAttack?: (targetPos?: Vector3) => void };
+            if (typeof hero.triggerAttack === 'function') {
+                hero.triggerAttack(target.position);
             }
             this.cooldown = this.effectiveInterval;
         }
@@ -195,10 +195,15 @@ export class HeroBasicAttack {
         // Bright sword-arc visual (thick golden torus + sweeping blade trail)
         this.spawnSwingRing(heroPos, range);
 
-        // Trigger the full-body spin attack on the Champion
+        // Procedural barbarian spin FX (no-op for GLB champions — they lack barbAxeHead etc).
         const hero = this.hero as any;
         if (typeof hero.triggerSpinAttack === 'function') {
             hero.triggerSpinAttack();
+        }
+        // GLB attack animation — facing the nearest hit enemy if we landed any.
+        if (typeof hero.triggerAttack === 'function') {
+            const facing = hitEnemies.length > 0 ? hitEnemies[0].getPosition() : undefined;
+            hero.triggerAttack(facing);
         }
     }
 

@@ -94,42 +94,44 @@ export class Champion extends Enemy {
     // Per-element weapon decoration meshes, created lazily on first activation
     private elementDecorations: Map<string, Mesh[]> = new Map();
 
-    /** Optional preloaded ranger GLB asset; when present, createRangerMesh instantiates
-     *  it and drives Idle / Walk / Shoot from its animation groups. */
-    private rangerAsset: AssetContainer | null = null;
+    /** Optional preloaded GLB asset for whichever champion class this is (Miya for ranger,
+     *  Aulus for barbarian, etc.). When present, createMesh instantiates the GLB and
+     *  drives Idle / Walk / Attack / Special from its animation groups. */
+    private championAsset: AssetContainer | null = null;
 
-    /** Animation groups loaded from the ranger GLB, categorized by detected name.
+    /** Animation groups loaded from the champion GLB, categorized by detected name.
      *  When the asset ships skeletal anims we use these instead of mesh-level bob. */
-    private rangerAnims: {
+    private championAnims: {
         idle: AnimationGroup | null;
         walk: AnimationGroup | null;
-        shoot: AnimationGroup | null;
+        attack: AnimationGroup | null;
         special: AnimationGroup | null;
         all: AnimationGroup[];
-    } = { idle: null, walk: null, shoot: null, special: null, all: [] };
-    private rangerCurrentAnim: AnimationGroup | null = null;
-    /** Seconds remaining of forced-shoot animation. Higher-priority than walk/idle while > 0. */
-    private rangerShootTimer: number = 0;
-    /** Seconds remaining of forced-special animation. Higher-priority than shoot/walk/idle. */
-    private rangerSpecialTimer: number = 0;
-    /** Target the ranger is currently shooting at — used to override facing during shoot
-     *  timer so the model turns toward the enemy it's firing on. */
-    private rangerShootFacingTarget: Vector3 | null = null;
-    /** Duration the shoot animation plays after each triggerShoot(). */
-    private static readonly RANGER_SHOOT_DURATION = 0.6;
-    /** Duration the special animation plays after each triggerSpecial(). */
-    private static readonly RANGER_SPECIAL_DURATION = 0.6;
-    /** Playback speed multiplier for the GLB shoot clip. 2.0 = twice as fast. Adjust here. */
-    private static readonly RANGER_SHOOT_SPEED = 5.5;
-    /** Playback speed multiplier for the GLB special clip. Adjust here. */
-    private static readonly RANGER_SPECIAL_SPEED = 2.0;
+    } = { idle: null, walk: null, attack: null, special: null, all: [] };
+    private championCurrentAnim: AnimationGroup | null = null;
+    /** Seconds remaining of forced-attack animation. Higher-priority than walk/idle while > 0.
+     *  Distinct from the legacy this.attackTimer (auto-attack cooldown for path-walking mode). */
+    private glbAttackTimer: number = 0;
+    /** Seconds remaining of forced-special animation. Higher-priority than attack/walk/idle. */
+    private glbSpecialTimer: number = 0;
+    /** Target the champion is currently attacking — overrides facing during the attack
+     *  timer so the model turns toward the enemy. */
+    private glbAttackFacingTarget: Vector3 | null = null;
+    /** Duration the GLB attack animation plays after each triggerAttack(). */
+    private static readonly GLB_ATTACK_DURATION = 0.6;
+    /** Duration the GLB special animation plays after each triggerSpecial(). */
+    private static readonly GLB_SPECIAL_DURATION = 0.6;
+    /** Playback speed multiplier for the GLB attack clip. Adjust per-champ if needed. */
+    private static readonly GLB_ATTACK_SPEED = 5.5;
+    /** Playback speed multiplier for the GLB special clip. */
+    private static readonly GLB_SPECIAL_SPEED = 2.0;
 
     constructor(
         game: Game,
         reversedPath: Vector3[],
         enemyManager: EnemyManager | null = null,
         championType: 'barbarian' | 'ranger' | 'mage' = 'barbarian',
-        rangerAsset?: AssetContainer,
+        championAsset?: AssetContainer,
     ) {
         // HP 800, Speed 1.5, Damage 0 (doesn't damage player), Reward 0
         const startPos = reversedPath.length > 0 ? reversedPath[0] : new Vector3(0, 0, 0);
@@ -139,7 +141,7 @@ export class Champion extends Enemy {
         // so it always built the default knight. If we need a different class,
         // dispose the placeholder mesh and rebuild correctly.
         this.championType = championType;
-        this.rangerAsset = rangerAsset ?? null;
+        this.championAsset = championAsset ?? null;
         if (championType !== 'barbarian') {
             this.rebuildForType();
         }
@@ -238,11 +240,17 @@ export class Champion extends Enemy {
      * Create the champion mesh — dispatches to per-class builder.
      */
     protected createMesh(): void {
+        // Any champion class with a preloaded GLB uses the unified GLB pipeline.
+        // Falls through to per-class procedural builder when no asset is provided.
+        if (this.championAsset) {
+            this.createChampionMeshFromGLB(this.championAsset);
+            return;
+        }
         switch (this.championType) {
-            case 'ranger': this.createRangerMesh();    break;
-            case 'mage':   this.createMageMesh();      break;
+            case 'ranger': this.createRangerMeshProcedural(); break;
+            case 'mage':   this.createMageMesh();             break;
             case 'barbarian':
-            default:       this.createBarbarianMesh(); break;
+            default:       this.createBarbarianMesh();        break;
         }
     }
 
@@ -269,23 +277,11 @@ export class Champion extends Enemy {
         this.barbFootDustPs = this.createPooledFootstepDust();
     }
 
-    // =========================================================================
-    // RANGER — uses the GLB if provided (Miya Moonlight Archer ships rigged with
-    // Idle / Walk / Shoot clips). Otherwise falls back to the procedural build.
-    // =========================================================================
-    private createRangerMesh(): void {
-        if (this.rangerAsset) {
-            this.createRangerMeshFromGLB(this.rangerAsset);
-            return;
-        }
-        this.createRangerMeshProcedural();
-    }
-
     /** Instantiate the preloaded GLB and parent it under an empty transform root.
      *  Categorizes the GLB's animation groups by name so we can play Idle / Walk /
      *  Shoot from the appropriate clip; falls back to mesh-bob for any slot that
      *  doesn't have a matching clip. */
-    private createRangerMeshFromGLB(asset: AssetContainer): void {
+    private createChampionMeshFromGLB(asset: AssetContainer): void {
         const scene = this.scene;
 
         // Empty transform host that Champion's existing position/rotation pipeline drives.
@@ -322,91 +318,92 @@ export class Champion extends Enemy {
         // different rigs/export tools use different conventions. "special" matches power-
         // slot attacks (Fire Arrow / Frost Shards / etc.) — usually a longer/more dramatic
         // clip than the basic shoot.
-        this.rangerAnims = { idle: null, walk: null, shoot: null, special: null, all: [...inst.animationGroups] };
-        console.log(`[ranger] available animation groups (${inst.animationGroups.length}):`);
+        this.championAnims = { idle: null, walk: null, attack: null, special: null, all: [...inst.animationGroups] };
+        console.log(`[${this.championType}] available animation groups (${inst.animationGroups.length}):`);
         for (const ag of inst.animationGroups) {
             console.log(`  - "${ag.name}"`);
             const n = ag.name.toLowerCase();
-            if (this.rangerAnims.idle == null && (n.includes('idle') || n === 'stand' || n.includes('aim'))) {
-                this.rangerAnims.idle = ag;
-            } else if (this.rangerAnims.walk == null && (n.includes('walk') || n.includes('run'))) {
-                this.rangerAnims.walk = ag;
-            } else if (this.rangerAnims.special == null && (n.includes('special') || n.includes('skill') || n.includes('magic') || n.includes('cast') || n.includes('spell') || n.includes('ult'))) {
-                this.rangerAnims.special = ag;
-            } else if (this.rangerAnims.shoot == null && (n.includes('shoot') || n.includes('attack') || n.includes('fire') || n.includes('bow') || n.includes('arrow'))) {
-                this.rangerAnims.shoot = ag;
+            if (this.championAnims.idle == null && (n.includes('idle') || n === 'stand' || n.includes('aim'))) {
+                this.championAnims.idle = ag;
+            } else if (this.championAnims.walk == null && (n.includes('walk') || n.includes('run'))) {
+                this.championAnims.walk = ag;
+            } else if (this.championAnims.special == null && (n.includes('special') || n.includes('skill') || n.includes('magic') || n.includes('cast') || n.includes('spell') || n.includes('ult'))) {
+                this.championAnims.special = ag;
+            } else if (this.championAnims.attack == null && (n.includes('attack') || n.includes('attack') || n.includes('fire') || n.includes('bow') || n.includes('arrow'))) {
+                this.championAnims.attack = ag;
             }
-            ag.stop(); // Stop any auto-started clips; playRangerAnim controls them.
+            ag.stop(); // Stop any auto-started clips; playChampionAnim controls them.
         }
         // Final fallbacks for clips that didn't match any alias.
-        const aa = this.rangerAnims;
-        if (aa.all.length === 1 && !aa.shoot) {
-            aa.shoot = aa.all[0]; // Single-clip asset — assume shoot.
+        const aa = this.championAnims;
+        if (aa.all.length === 1 && !aa.attack) {
+            aa.attack = aa.all[0]; // Single-clip asset — assume shoot.
         } else if (aa.all.length >= 2) {
             if (!aa.idle)  aa.idle  = aa.all[0];
             if (!aa.walk)  aa.walk  = aa.all[1];
-            if (!aa.shoot) aa.shoot = aa.all[aa.all.length - 1];
+            if (!aa.attack) aa.attack = aa.all[aa.all.length - 1];
         }
         // Speed up the shoot/special clips and compute their effective durations.
-        if (aa.shoot) {
-            aa.shoot.speedRatio = Champion.RANGER_SHOOT_SPEED;
-            const frames = aa.shoot.to - aa.shoot.from;
-            const estDur = Math.min(2.5, frames / 60 / Champion.RANGER_SHOOT_SPEED);
-            (this as any).rangerShootDurationActual = estDur > 0.1 ? estDur : Champion.RANGER_SHOOT_DURATION;
+        if (aa.attack) {
+            aa.attack.speedRatio = Champion.GLB_ATTACK_SPEED;
+            const frames = aa.attack.to - aa.attack.from;
+            const estDur = Math.min(2.5, frames / 60 / Champion.GLB_ATTACK_SPEED);
+            (this as any).glbAttackDurationActual = estDur > 0.1 ? estDur : Champion.GLB_ATTACK_DURATION;
         }
         if (aa.special) {
-            aa.special.speedRatio = Champion.RANGER_SPECIAL_SPEED;
+            aa.special.speedRatio = Champion.GLB_SPECIAL_SPEED;
             const frames = aa.special.to - aa.special.from;
-            const estDur = Math.min(2.5, frames / 60 / Champion.RANGER_SPECIAL_SPEED);
-            (this as any).rangerSpecialDurationActual = estDur > 0.1 ? estDur : Champion.RANGER_SPECIAL_DURATION;
+            const estDur = Math.min(2.5, frames / 60 / Champion.GLB_SPECIAL_SPEED);
+            (this as any).glbSpecialDurationActual = estDur > 0.1 ? estDur : Champion.GLB_SPECIAL_DURATION;
         }
         console.log(
             `[ranger] mapped: idle="${aa.idle?.name ?? '(none)'}", ` +
-            `walk="${aa.walk?.name ?? '(none)'}", shoot="${aa.shoot?.name ?? '(none)'}", ` +
+            `walk="${aa.walk?.name ?? '(none)'}", shoot="${aa.attack?.name ?? '(none)'}", ` +
             `special="${aa.special?.name ?? '(none)'}"`,
         );
 
-        if (aa.idle) this.playRangerAnim('idle');
+        if (aa.idle) this.playChampionAnim('idle');
     }
 
     /** Switch the ranger to the named animation slot (no-op if already playing it). */
-    private playRangerAnim(slot: 'idle' | 'walk' | 'shoot' | 'special'): void {
-        const target = this.rangerAnims[slot];
+    private playChampionAnim(slot: 'idle' | 'walk' | 'attack' | 'special'): void {
+        const target = this.championAnims[slot];
         if (!target) return;
-        if (this.rangerCurrentAnim === target) return;
-        if (this.rangerCurrentAnim) this.rangerCurrentAnim.stop();
+        if (this.championCurrentAnim === target) return;
+        if (this.championCurrentAnim) this.championCurrentAnim.stop();
         const loop = slot === 'idle' || slot === 'walk';
         target.start(loop);
-        this.rangerCurrentAnim = target;
+        this.championCurrentAnim = target;
     }
 
-    /** Called by HeroBasicAttack each time the ranger fires a projectile. Restarts the
-     *  shoot animation from frame 0 even if a previous one is still playing. The optional
-     *  targetPos overrides facing — during the shoot timer the model turns to face it. */
-    public triggerShoot(targetPos?: Vector3): void {
-        if (this.championType !== 'ranger' || !this.rangerAsset) return;
-        const dur = (this as any).rangerShootDurationActual ?? Champion.RANGER_SHOOT_DURATION;
-        this.rangerShootTimer = dur;
-        this.rangerShootFacingTarget = targetPos ? targetPos.clone() : null;
-        const shoot = this.rangerAnims.shoot;
-        if (shoot) {
-            if (this.rangerCurrentAnim) this.rangerCurrentAnim.stop();
-            shoot.start(false);
-            this.rangerCurrentAnim = shoot;
+    /** Called by HeroBasicAttack each time the champion's basic attack fires (ranger
+     *  arrow, barbarian swing, etc.). Restarts the attack animation from frame 0 even
+     *  if a previous one is still playing. The optional targetPos overrides facing —
+     *  during the attack timer the model turns to face the target. */
+    public triggerAttack(targetPos?: Vector3): void {
+        if (!this.championAsset) return;
+        const dur = (this as any).glbAttackDurationActual ?? Champion.GLB_ATTACK_DURATION;
+        this.glbAttackTimer = dur;
+        this.glbAttackFacingTarget = targetPos ? targetPos.clone() : null;
+        const attack = this.championAnims.attack;
+        if (attack) {
+            if (this.championCurrentAnim) this.championCurrentAnim.stop();
+            attack.start(false);
+            this.championCurrentAnim = attack;
         }
     }
 
     /** Called by PowerSlotManager when a power-slot attack (Fire Arrow / Frost Shards /
-     *  etc.) fires. Plays the special animation; higher priority than the basic shoot. */
+     *  etc.) fires. Plays the special animation; higher priority than the basic attack. */
     public triggerSpecial(): void {
-        if (this.championType !== 'ranger' || !this.rangerAsset) return;
-        const dur = (this as any).rangerSpecialDurationActual ?? Champion.RANGER_SPECIAL_DURATION;
-        this.rangerSpecialTimer = dur;
-        const special = this.rangerAnims.special;
+        if (!this.championAsset) return;
+        const dur = (this as any).glbSpecialDurationActual ?? Champion.GLB_SPECIAL_DURATION;
+        this.glbSpecialTimer = dur;
+        const special = this.championAnims.special;
         if (special) {
-            if (this.rangerCurrentAnim) this.rangerCurrentAnim.stop();
+            if (this.championCurrentAnim) this.championCurrentAnim.stop();
             special.start(false);
-            this.rangerCurrentAnim = special;
+            this.championCurrentAnim = special;
         }
     }
 
@@ -995,10 +992,12 @@ export class Champion extends Enemy {
             this.position.addInPlace(this.playerVelocity.scale(deltaTime));
             this.mesh.position.x = this.position.x;
             this.mesh.position.z = this.position.z;
-            // GLB ranger sits on its own (feetOffset applied in createRangerMeshFromGLB);
+            // GLB ranger sits on its own (feetOffset applied in createChampionMeshFromGLB);
             // procedural meshes need +2.0 to keep box-bodies above the ground plane.
-            const usingRangerGLB = this.championType === 'ranger' && !!this.rangerAsset;
-            this.mesh.position.y = this.position.y + (usingRangerGLB ? 0 : 2.0);
+            // Any champion class with a preloaded GLB asset uses the GLB animation
+            // pipeline; otherwise the per-class procedural mesh runs the existing logic.
+            const usingChampionGLB = !!this.championAsset;
+            this.mesh.position.y = this.position.y + (usingChampionGLB ? 0 : 2.0);
 
             // Decrement spin-attack timer
             if (this.spinAttackTimer > 0) {
@@ -1013,32 +1012,32 @@ export class Champion extends Enemy {
 
             // GLB ranger: prefer real GLB clips; fall back to mesh-level bob for any
             // slot the asset doesn't provide. Priority: special > shoot > walk > idle.
-            if (usingRangerGLB) {
+            if (usingChampionGLB) {
                 const baseY = this.position.y;
                 this.mesh.position.y = baseY;
-                if (this.rangerSpecialTimer > 0) {
-                    this.rangerSpecialTimer = Math.max(0, this.rangerSpecialTimer - deltaTime);
-                    this.playRangerAnim('special');
-                } else if (this.rangerShootTimer > 0) {
-                    this.rangerShootTimer = Math.max(0, this.rangerShootTimer - deltaTime);
-                    this.playRangerAnim('shoot');
+                if (this.glbSpecialTimer > 0) {
+                    this.glbSpecialTimer = Math.max(0, this.glbSpecialTimer - deltaTime);
+                    this.playChampionAnim('special');
+                } else if (this.glbAttackTimer > 0) {
+                    this.glbAttackTimer = Math.max(0, this.glbAttackTimer - deltaTime);
+                    this.playChampionAnim('attack');
                 } else if (isMoving) {
-                    if (this.rangerAnims.walk) {
-                        this.playRangerAnim('walk');
+                    if (this.championAnims.walk) {
+                        this.playChampionAnim('walk');
                     } else {
-                        if (this.rangerCurrentAnim) {
-                            this.rangerCurrentAnim.stop();
-                            this.rangerCurrentAnim = null;
+                        if (this.championCurrentAnim) {
+                            this.championCurrentAnim.stop();
+                            this.championCurrentAnim = null;
                         }
                         this.mesh.position.y = baseY + Math.abs(Math.sin(this.walkTime * 2)) * 0.18;
                     }
                 } else {
-                    if (this.rangerAnims.idle) {
-                        this.playRangerAnim('idle');
+                    if (this.championAnims.idle) {
+                        this.playChampionAnim('idle');
                     } else {
-                        if (this.rangerCurrentAnim) {
-                            this.rangerCurrentAnim.stop();
-                            this.rangerCurrentAnim = null;
+                        if (this.championCurrentAnim) {
+                            this.championCurrentAnim.stop();
+                            this.championCurrentAnim = null;
                         }
                         this.mesh.position.y = baseY + Math.sin(performance.now() / 700) * 0.04;
                     }
@@ -1049,18 +1048,20 @@ export class Champion extends Enemy {
                 this.animateHumanoid();
             }
 
-            // Facing: spin override > ranger-aim-at-target > movement direction > idle
-            if (this.spinAttackTimer > 0) {
-                // Spin fast: full 360° rotation over SPIN_ATTACK_DURATION
-                const progress = 1 - this.spinAttackTimer / Champion.SPIN_ATTACK_DURATION;
-                this.mesh.rotation.y = progress * Math.PI * 2;
-            } else if (this.rangerShootTimer > 0 && this.rangerShootFacingTarget) {
-                // Ranger is mid-shoot — turn to face the target it's firing at.
-                const dx = this.rangerShootFacingTarget.x - this.position.x;
-                const dz = this.rangerShootFacingTarget.z - this.position.z;
+            // Facing priority: glb-aim-at-target > procedural spin (procedural champs only)
+            // > movement direction > idle. GLB champs skip the spin rotation since their
+            // animation already drives the swing visual.
+            if (this.glbAttackTimer > 0 && this.glbAttackFacingTarget) {
+                // GLB attack mid-fire — turn to face the target.
+                const dx = this.glbAttackFacingTarget.x - this.position.x;
+                const dz = this.glbAttackFacingTarget.z - this.position.z;
                 if (dx * dx + dz * dz > 0.0001) {
                     this.mesh.rotation.y = Math.atan2(dx, dz);
                 }
+            } else if (this.spinAttackTimer > 0 && !usingChampionGLB) {
+                // Procedural spin: full 360° rotation over SPIN_ATTACK_DURATION.
+                const progress = 1 - this.spinAttackTimer / Champion.SPIN_ATTACK_DURATION;
+                this.mesh.rotation.y = progress * Math.PI * 2;
             } else if (isMoving) {
                 this.mesh.rotation.y = Math.atan2(this.playerVelocity.x, this.playerVelocity.z);
             }

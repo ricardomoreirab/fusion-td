@@ -28,29 +28,37 @@ import { RunItems, ItemId } from '../gameplay/RunItems';
 import { ItemDrop } from '../gameplay/ItemDrop';
 
 /**
- * Module-level cache for the ranger GLB. Loaded on demand inside enter() (not at
+ * Module-level cache for champion GLBs. Loaded on demand inside enter() (not at
  * boot via AssetsManager — preloaded containers were getting wiped by cleanupScene
  * in ways I couldn't pin down). Cached across runs so re-entering survivors mode
  * doesn't re-fetch the asset.
+ *
+ * Keyed by champion type so we can support any subset of GLB-backed classes.
  */
-let _rangerAsset: AssetContainer | null = null;
-let _rangerAssetPromise: Promise<AssetContainer> | null = null;
+const CHAMPION_GLB_PATHS: Partial<Record<string, { dir: string; file: string }>> = {
+    ranger:    { dir: 'assets/miya-moonlight-archer-in-game/source/',     file: 'miya_moonlight_archer_in_game.glb' },
+    barbarian: { dir: 'assets/aulus-warrior-of-ferocity-in-game/source/', file: 'aulus_warrior_of_ferocity_in_game.glb' },
+};
+// Plain-object caches — the local `Map` import (../gameplay/Map) shadows the global Map class.
+const _championAssets: Record<string, AssetContainer> = {};
+const _championAssetPromises: Record<string, Promise<AssetContainer>> = {};
 
-function loadRangerAsset(scene: Scene): Promise<AssetContainer> {
-    if (_rangerAsset) return Promise.resolve(_rangerAsset);
-    if (_rangerAssetPromise) return _rangerAssetPromise;
-    _rangerAssetPromise = SceneLoader.LoadAssetContainerAsync(
-        'assets/miya-moonlight-archer-in-game/source/',
-        'miya_moonlight_archer_in_game.glb',
-        scene,
-    ).then(container => {
-        _rangerAsset = container;
-        return container;
-    }).catch(err => {
-        _rangerAssetPromise = null;
-        throw err;
-    });
-    return _rangerAssetPromise;
+function loadChampionAsset(championType: string, scene: Scene): Promise<AssetContainer> | null {
+    const path = CHAMPION_GLB_PATHS[championType];
+    if (!path) return null;
+    if (championType in _championAssets) return Promise.resolve(_championAssets[championType]);
+    if (championType in _championAssetPromises) return _championAssetPromises[championType];
+    const p = SceneLoader.LoadAssetContainerAsync(path.dir, path.file, scene)
+        .then(container => {
+            _championAssets[championType] = container;
+            return container;
+        })
+        .catch(err => {
+            delete _championAssetPromises[championType];
+            throw err;
+        });
+    _championAssetPromises[championType] = p;
+    return p;
 }
 
 /** Float-text labels and colors for item pickups (mirror the HUD slot colors). */
@@ -173,10 +181,12 @@ export class SurvivorsGameplayState implements GameState {
                 color: '#6080C0',
             },
         ];
-        // Kick off the ranger GLB load NOW so it's likely ready by the time the user
-        // picks. If they pick ranger before it's done, startRun awaits it.
-        loadRangerAsset(this.scene).catch(err =>
-            console.error('Ranger GLB preload failed (will retry on pick):', err));
+        // Preload every known champion GLB in parallel so whichever the user picks is
+        // likely already loaded by the time startRun fires.
+        for (const type of Object.keys(CHAMPION_GLB_PATHS)) {
+            const p = loadChampionAsset(type, this.scene);
+            if (p) p.catch(err => console.error(`Champion GLB preload failed (${type}):`, err));
+        }
 
         this.championSelect.show(championOptions, (type) => { void this.startRun(type); });
     }
@@ -185,13 +195,16 @@ export class SurvivorsGameplayState implements GameState {
     private async startRun(championType: string): Promise<void> {
         if (!this.scene || !this.ui || !this.map) return;
 
-        // Await the ranger GLB if needed (no-op for barbarian/mage; instant if already loaded).
-        let rangerAsset: AssetContainer | null = null;
-        if (championType === 'ranger') {
+        // Await the picked champion's GLB if one exists. No-op for champion types without
+        // a GLB; instant if the preload already finished. On failure we fall through with
+        // null and Champion uses the procedural builder.
+        let championAsset: AssetContainer | null = null;
+        const assetPromise = loadChampionAsset(championType, this.scene);
+        if (assetPromise) {
             try {
-                rangerAsset = await loadRangerAsset(this.scene);
+                championAsset = await assetPromise;
             } catch (err) {
-                console.error('Ranger GLB failed to load — falling back to procedural mesh:', err);
+                console.error(`Champion GLB failed to load (${championType}) — falling back to procedural mesh:`, err);
             }
         }
 
@@ -206,15 +219,15 @@ export class SurvivorsGameplayState implements GameState {
         };
         const variant = variants[championType] ?? variants['barbarian'];
 
-        // Spawn hero — Champion in player-controlled mode. Pass the preloaded ranger
-        // asset bundle so the ranger uses the archer GLBs instead of the procedural
-        // box-and-cylinder mesh.
+        // Spawn hero — Champion in player-controlled mode. Pass the preloaded champion
+        // GLB (Miya for ranger, Aulus for barbarian, etc.) so Champion uses the GLB
+        // pipeline instead of the procedural box-and-cylinder mesh.
         this.hero = new Champion(
             this.game,
             [],
             null,
             championType as 'barbarian' | 'ranger' | 'mage',
-            rangerAsset ?? undefined,
+            championAsset ?? undefined,
         );
         this.hero.controlMode = 'player';
 
