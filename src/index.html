@@ -124,6 +124,94 @@
             color: #5a4a3a;
             text-transform: uppercase;
         }
+
+        /* ── Rotate-device prompt ──────────────────────────────────────── */
+        /* Shown only when the viewport is taller than it is wide. Hides
+           the canvas + loading screen so only the prompt is visible. */
+        #rotatePrompt {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            background:
+                radial-gradient(ellipse at center, rgba(80, 20, 10, 0.35) 0%, rgba(7, 5, 10, 0.98) 60%),
+                #07050a;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #d8c8b8;
+            font-family: 'Georgia', 'Times New Roman', serif;
+            padding: 24px;
+            text-align: center;
+        }
+
+        @media (orientation: portrait) {
+            #rotatePrompt { display: flex; }
+            #renderCanvas, #loadingScreen { display: none !important; }
+        }
+
+        .rotate-icon {
+            width: 70px;
+            height: 110px;
+            border: 4px solid #c8302a;
+            border-radius: 12px;
+            position: relative;
+            margin-bottom: 36px;
+            box-shadow:
+                0 0 20px rgba(200, 50, 40, 0.45),
+                inset 0 0 12px rgba(200, 50, 40, 0.15);
+            animation: rotate-phone 2.6s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+            transform-origin: 50% 50%;
+        }
+
+        .rotate-icon::before {
+            content: '';
+            position: absolute;
+            top: 6px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 22px;
+            height: 4px;
+            background: #c8302a;
+            border-radius: 2px;
+        }
+
+        .rotate-icon::after {
+            content: '';
+            position: absolute;
+            bottom: 8px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 18px;
+            height: 18px;
+            border: 2px solid #c8302a;
+            border-radius: 50%;
+        }
+
+        @keyframes rotate-phone {
+            0%, 18%   { transform: rotate(0deg); }
+            50%, 68%  { transform: rotate(-90deg); }
+            100%      { transform: rotate(0deg); }
+        }
+
+        .rotate-title {
+            font-size: clamp(1.2rem, 5vw, 1.8rem);
+            font-weight: 700;
+            letter-spacing: 0.15em;
+            color: #c8302a;
+            margin: 0;
+            text-transform: uppercase;
+            text-shadow: 0 0 10px rgba(200, 50, 40, 0.5);
+        }
+
+        .rotate-subtitle {
+            font-size: clamp(0.85rem, 3vw, 1rem);
+            font-weight: 500;
+            letter-spacing: 0.2em;
+            color: #88a070;
+            margin-top: 12px;
+            text-transform: uppercase;
+        }
     </style>
 </head>
 <body>
@@ -136,6 +224,11 @@
             <div id="loadingBar" class="loading-bar"></div>
         </div>
         <div class="ktg-tagline">Survive the horde</div>
+    </div>
+    <div id="rotatePrompt">
+        <div class="rotate-icon"></div>
+        <h2 class="rotate-title">Rotate your device</h2>
+        <div class="rotate-subtitle">Landscape mode required</div>
     </div>
 </body>
 </html>
