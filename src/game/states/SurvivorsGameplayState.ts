@@ -494,21 +494,34 @@ export class SurvivorsGameplayState implements GameState {
         );
         spot.intensity = 3.0;
         spot.diffuse = new Color3(1.0, 0.55, 0.18);
-        spot.shadowMinZ = 1;
-        spot.shadowMaxZ = 60;
 
-        // ── Shadows ───────────────────────────────────────────────────────────
-        const shadowGen = new ShadowGenerator(1024, spot);
-        shadowGen.bias = 0.001;
-        shadowGen.normalBias = 0.02;
-        shadowGen.usePoissonSampling = true;
-        shadowGen.setDarkness(0.35);
+        // ── Shadows from a dedicated directional light ────────────────────────
+        // A DirectionalLight gives more reliable shadow coverage over the whole
+        // 25u arena than the wide-angle spot. Angled from upper-front so shadows
+        // fall behind characters rather than directly under them.
+        const shadowLight = new DirectionalLight('arenaShadowLight', new Vector3(-0.4, -1, -0.6), scene);
+        shadowLight.position = new Vector3(15, 25, 15);
+        shadowLight.intensity = 0.0; // illumination handled by other lights; this is shadow-only
+        shadowLight.autoUpdateExtends = true;
+        shadowLight.autoCalcShadowZBounds = true;
 
-        // Add every existing eligible mesh as a caster, then keep adding new ones as
-        // they spawn (enemies, item drops, projectiles). Exclude:
-        //  - the sky box
-        //  - the ground discs (they only RECEIVE)
-        //  - empty roots used as transform parents (no geometry)
+        const shadowGen = new ShadowGenerator(1024, shadowLight);
+        shadowGen.useBlurExponentialShadowMap = true;
+        shadowGen.blurKernel = 32;
+        shadowGen.darkness = 0.4;
+
+        // Mark every existing ground mesh as a shadow receiver — covers both the
+        // colored arena discs AND the grass overlay so the shadow doesn't fall
+        // through to nothing.
+        for (const m of scene.meshes) {
+            if (m.name.startsWith('arenaGround') || m.name.startsWith('ruinsGrassGround')) {
+                m.receiveShadows = true;
+            }
+        }
+
+        // Add every existing eligible mesh as a caster, then keep adding new ones
+        // as they spawn (enemies, item drops, projectiles). Skip sky / grounds /
+        // empty transform roots.
         const isShadowCaster = (m: AbstractMesh): boolean => {
             const n = m.name;
             if (n.startsWith('ruinsSky')) return false;
@@ -516,12 +529,14 @@ export class SurvivorsGameplayState implements GameState {
             if (m.getTotalVertices() === 0) return false;
             return true;
         };
+        let casterCount = 0;
         for (const m of scene.meshes) {
-            if (isShadowCaster(m)) shadowGen.addShadowCaster(m);
+            if (isShadowCaster(m)) { shadowGen.addShadowCaster(m); casterCount++; }
         }
         scene.onNewMeshAddedObservable.add((m) => {
             if (isShadowCaster(m)) shadowGen.addShadowCaster(m);
         });
+        console.log(`[shadows] generator wired; initial caster count = ${casterCount}`);
 
         // ── Grass floor — locally-bundled DDS tiled across the arena ──────────
         const grassTex = new Texture(
