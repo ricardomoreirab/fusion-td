@@ -23,6 +23,8 @@ import { ChampionSelectOverlay, ChampionOption } from '../ui/ChampionSelectOverl
 import { GameOverState, SurvivorsRunSummary } from './GameOverState';
 import { AbilityManager } from '../gameplay/AbilityManager';
 import { DamageNumberManager } from '../gameplay/DamageNumberManager';
+import { RunItems, ItemId } from '../gameplay/RunItems';
+import { ItemDrop } from '../gameplay/ItemDrop';
 
 export class SurvivorsGameplayState implements GameState {
     private game: Game;
@@ -42,6 +44,10 @@ export class SurvivorsGameplayState implements GameState {
 
     // Power drops
     private powerDrops: PowerDrop[] = [];
+
+    // Item drops (from milestone bosses)
+    private runItems: RunItems | null = null;
+    private itemDrops: ItemDrop[] = [];
 
     // Contact damage radius (hero bounding circle)
     private readonly heroRadius: number = 0.6;
@@ -207,6 +213,16 @@ export class SurvivorsGameplayState implements GameState {
         this.heroController.setEnemyProvider(() => this.enemyManager!.getEnemies());
         this.heroController.setPowerSlots(this.powerSlots);
 
+        // Push playerStats into the controller-owned HeroBasicAttack so run-item
+        // effects (lifesteal, knockback, multishot, multi-spin) can read them.
+        this.heroController.setPlayerStats(this.playerStats);
+
+        // Construct RunItems now that controller + playerStats + championType all exist.
+        this.runItems = new RunItems(this.playerStats, this.currentChampionType, this.heroController);
+
+        // Boss-death → item-drop pipeline.
+        this.enemyManager.setOnMilestoneBossDeath((pos, tier) => this.spawnItemDrop(pos, tier));
+
         // Elite death → spawn a PowerDrop
         this.enemyManager.setOnEliteDeath((pos, element) => {
             const baseRadius = 4;
@@ -227,6 +243,9 @@ export class SurvivorsGameplayState implements GameState {
         });
 
         this.waveManager = new WaveManager(this.enemyManager, this.playerStats);
+
+        // Hand the WaveManager to EnemyManager so boss spawns route to MilestoneBoss on 5th waves.
+        this.enemyManager.setWaveManager(this.waveManager);
 
         // Survivors mode: crank up spawn cadence and per-wave enemy count
         // so the arena feels swarmed (Vampire Survivors-y) instead of TD-paced.
@@ -281,6 +300,33 @@ export class SurvivorsGameplayState implements GameState {
         );
     }
 
+    private spawnItemDrop(position: Vector3, waveTier: number): void {
+        const itemId = RunItems.itemForTier(waveTier);
+        if (!itemId) return;
+        if (this.runItems?.hasItem(itemId)) return; // Already owned — no re-drop today.
+
+        const heroProvider = () => this.hero!.getPosition();
+        const drop = new ItemDrop(
+            this.scene!,
+            position,
+            itemId,
+            heroProvider,
+            {
+                pickupRadius: 1.2,
+                magnetRadius: 4.0,
+                magnetSpeed: 8.0,
+                onPickup: (id: ItemId) => this.onItemPickup(id),
+            },
+        );
+        this.itemDrops.push(drop);
+    }
+
+    private onItemPickup(id: ItemId): void {
+        if (!this.runItems) return;
+        this.runItems.grant(id);
+        // HUD pulse is wired in Task 10.
+    }
+
     /** Gather end-of-run stats and transition to game-over. */
     private buildAndSendRunSummary(): void {
         const timeSurvivedSec = (performance.now() - this.runStartTime) / 1000;
@@ -308,6 +354,10 @@ export class SurvivorsGameplayState implements GameState {
     public exit(): void {
         for (const d of this.powerDrops) d.dispose();
         this.powerDrops = [];
+
+        for (const d of this.itemDrops) d.dispose();
+        this.itemDrops = [];
+        this.runItems = null;
 
         this.championSelect?.close();
         this.championSelect = null;
@@ -403,6 +453,10 @@ export class SurvivorsGameplayState implements GameState {
         // Power drops (magnet + pickup)
         for (const d of this.powerDrops) d.update(dt);
         this.powerDrops = this.powerDrops.filter(d => d.isAlive());
+
+        // Item drops (milestone boss rewards)
+        for (const d of this.itemDrops) d.update(dt);
+        this.itemDrops = this.itemDrops.filter(d => d.isAlive());
 
         this.damageNumbers?.update(dt);
 
