@@ -98,10 +98,19 @@ export class Champion extends Enemy {
      *  instead of the procedural box-and-cylinder build. */
     private rangerAsset: AssetContainer | null = null;
 
-    /** Seconds remaining of forced-shoot mesh pitch. Higher-priority than walk/idle while > 0. */
+    /** Animation groups loaded from the ranger GLB, categorized by detected name.
+     *  When the asset ships skeletal anims we use these instead of mesh-level bob. */
+    private rangerAnims: {
+        idle: AnimationGroup | null;
+        walk: AnimationGroup | null;
+        shoot: AnimationGroup | null;
+        all: AnimationGroup[];
+    } = { idle: null, walk: null, shoot: null, all: [] };
+    private rangerCurrentAnim: AnimationGroup | null = null;
+    /** Seconds remaining of forced-shoot animation. Higher-priority than walk/idle while > 0. */
     private rangerShootTimer: number = 0;
-    /** Duration the shoot pitch-back animation plays after each triggerShoot(). */
-    private static readonly RANGER_SHOOT_DURATION = 0.45;
+    /** Duration the shoot animation plays after each triggerShoot(). */
+    private static readonly RANGER_SHOOT_DURATION = 0.6;
 
     constructor(
         game: Game,
@@ -303,11 +312,48 @@ export class Champion extends Enemy {
             }
         }
 
-        // Asset is unrigged + has no animation clips. Stop any auto-started clips just
-        // in case (defensive), but all real motion is driven at the mesh level in update().
-        for (const ag of inst.animationGroups) ag.stop();
+        // Categorize the GLB's animation clips by name. The archer_shooting_arrow asset
+        // ships with skeletal animations — we use them directly. Names vary per rig
+        // (Mixamo/Sketchfab/custom), so accept a few aliases per slot.
+        this.rangerAnims = { idle: null, walk: null, shoot: null, all: [...inst.animationGroups] };
+        console.log(`[ranger] available animation groups (${inst.animationGroups.length}):`);
+        for (const ag of inst.animationGroups) {
+            console.log(`  - "${ag.name}"`);
+            const n = ag.name.toLowerCase();
+            if (this.rangerAnims.idle == null && (n.includes('idle') || n === 'stand' || n.includes('aim'))) {
+                this.rangerAnims.idle = ag;
+            } else if (this.rangerAnims.walk == null && (n.includes('walk') || n.includes('run'))) {
+                this.rangerAnims.walk = ag;
+            } else if (this.rangerAnims.shoot == null && (n.includes('shoot') || n.includes('attack') || n.includes('fire') || n.includes('bow') || n.includes('arrow'))) {
+                this.rangerAnims.shoot = ag;
+            }
+            ag.stop(); // Stop any auto-started clips; playRangerAnim controls them.
+        }
+        // Fallbacks: reuse anything available so we always have SOMETHING to play.
+        const aa = this.rangerAnims;
+        if (!aa.idle  && aa.all.length > 0) aa.idle  = aa.all[0];
+        if (!aa.walk  && aa.all.length > 1) aa.walk  = aa.all[1];
+        else if (!aa.walk && aa.all.length > 0) aa.walk = aa.all[0];
+        if (!aa.shoot && aa.all.length > 0) aa.shoot = aa.all[aa.all.length - 1];
+        console.log(
+            `[ranger] mapped: idle="${aa.idle?.name ?? '(none)'}", ` +
+            `walk="${aa.walk?.name ?? '(none)'}", shoot="${aa.shoot?.name ?? '(none)'}"`,
+        );
+
+        // Start in idle — update() will switch to walk/shoot as input changes.
+        this.playRangerAnim('idle');
 
         void scene;
+    }
+
+    /** Switch the ranger to the named animation slot (no-op if already playing it). */
+    private playRangerAnim(slot: 'idle' | 'walk' | 'shoot'): void {
+        const target = this.rangerAnims[slot];
+        if (!target) return;
+        if (this.rangerCurrentAnim === target) return;
+        if (this.rangerCurrentAnim) this.rangerCurrentAnim.stop();
+        target.start(slot !== 'shoot'); // loop walk/idle, play shoot once
+        this.rangerCurrentAnim = target;
     }
 
     /** Called by HeroBasicAttack when the ranger fires a projectile. Plays the shoot
@@ -918,28 +964,15 @@ export class Champion extends Enemy {
                 this.walkTime += deltaTime * 5; // stride pace for player-controlled
             }
 
-            // GLB ranger: the asset is an unrigged static blob, so we fake motion at the
-            // whole-mesh level — vertical bob while running, subtle breathing while idle,
-            // and a brief back-then-upright pitch when a shoot is triggered.
+            // GLB ranger: drive Walk / Idle / Shoot via the GLB's animation groups.
             if (usingRangerGLB) {
-                const baseY = this.position.y;
-                let bob = 0;
-                if (isMoving) {
-                    // Walk hop: |sin| keeps the bob above ground, frequency tuned to walkTime
-                    bob = Math.abs(Math.sin(this.walkTime * 2)) * 0.18;
-                } else {
-                    // Idle breathing — uses absolute time so it animates even when walkTime is paused
-                    bob = Math.sin(performance.now() / 700) * 0.04;
-                }
-                this.mesh.position.y = baseY + bob;
-
                 if (this.rangerShootTimer > 0) {
                     this.rangerShootTimer = Math.max(0, this.rangerShootTimer - deltaTime);
-                    // Pitch peaks tilted back at mid-shot, returns to upright by the end
-                    const progress = 1 - this.rangerShootTimer / Champion.RANGER_SHOOT_DURATION;
-                    this.mesh.rotation.x = -Math.sin(progress * Math.PI) * 0.28;
+                    this.playRangerAnim('shoot');
+                } else if (isMoving) {
+                    this.playRangerAnim('walk');
                 } else {
-                    this.mesh.rotation.x = 0;
+                    this.playRangerAnim('idle');
                 }
             } else if (this.championType === 'mage') {
                 this.animateMage(deltaTime);

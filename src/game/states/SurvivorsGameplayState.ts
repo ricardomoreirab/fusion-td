@@ -45,8 +45,8 @@ function loadRangerAsset(scene: Scene): Promise<AssetContainer> {
     if (_rangerAsset) return Promise.resolve(_rangerAsset);
     if (_rangerAssetPromise) return _rangerAssetPromise;
     _rangerAssetPromise = SceneLoader.LoadAssetContainerAsync(
-        'assets/elven-archer-in-the-forest/source/',
-        'model.glb',
+        'assets/',
+        'archer_shooting_arrow_from_bow_in_battle.glb',
         scene,
     ).then(container => {
         _rangerAsset = container;
