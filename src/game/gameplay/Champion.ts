@@ -341,7 +341,10 @@ export class Champion extends Enemy {
         // picks a clip that doesn't look right, hard-pick the one we want. The
         // substring is matched against the (prefixed) clip name.
         const PREFERRED: Partial<Record<string, { attack?: string; special?: string; walk?: string; idle?: string }>> = {
-            barbarian: { special: 'aulus_warrior_of_ferocity_in_game_skill3' },
+            // Aulus's basic attack uses the skill3 clip (the dramatic whirlwind sweep).
+            // Special slot is unused for barbarian today (all barb powers are passives,
+            // so setOnCast never fires — see PowerDefinitions).
+            barbarian: { attack: 'aulus_warrior_of_ferocity_in_game_skill3' },
         };
         const overrides = PREFERRED[this.championType];
         if (overrides) {
@@ -384,10 +387,17 @@ export class Champion extends Enemy {
         if (aa.idle) this.playChampionAnim('idle');
     }
 
-    /** True while a GLB-driven special animation is still playing (whirlwind, etc.).
+    /** True while a GLB-driven special animation is still playing.
      *  HeroBasicAttack checks this to suspend basic attacks for the duration. */
     public isSpecialActive(): boolean {
         return this.glbSpecialTimer > 0;
+    }
+
+    /** True while a GLB-driven basic-attack animation is still playing — used to
+     *  prevent re-firing the basic attack mid-swing so long clips (like the Aulus
+     *  whirlwind sweep) finish before the next attack triggers. */
+    public isAttackActive(): boolean {
+        return this.glbAttackTimer > 0;
     }
 
     /** Switch the ranger to the named animation slot (no-op if already playing it). */

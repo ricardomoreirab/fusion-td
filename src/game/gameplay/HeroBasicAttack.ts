@@ -108,14 +108,16 @@ export class HeroBasicAttack {
     }
 
     public update(deltaTime: number): void {
-        // While a GLB special animation (e.g. Aulus whirlwind) is mid-channel,
-        // suspend basic attacks entirely — no swing, no projectile, no damage,
-        // no swing-arc visual. The special owns the hero's attack visuals for
-        // its duration. Cooldown still ticks so basic attacks resume promptly
-        // after the special ends.
-        const hero = this.hero as { isSpecialActive?: () => boolean };
-        const inSpecial = typeof hero.isSpecialActive === 'function' && hero.isSpecialActive();
-        if (inSpecial) {
+        // While a GLB special or basic-attack animation is still playing, suspend
+        // basic attacks — no swing, no projectile, no damage, no swing-arc visual.
+        // For barbarian this lets the long whirlwind clip (skill3) finish before
+        // the next attack restarts it. Cooldown still ticks so attacks resume
+        // promptly when the previous animation ends.
+        const hero = this.hero as { isSpecialActive?: () => boolean; isAttackActive?: () => boolean };
+        const busy =
+            (typeof hero.isSpecialActive === 'function' && hero.isSpecialActive()) ||
+            (typeof hero.isAttackActive  === 'function' && hero.isAttackActive());
+        if (busy) {
             this.cooldown -= deltaTime;
             return;
         }
