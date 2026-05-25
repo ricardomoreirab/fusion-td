@@ -495,10 +495,24 @@ export class SurvivorsGameplayState implements GameState {
         spot.intensity = 3.0;
         spot.diffuse = new Color3(1.0, 0.55, 0.18);
 
-        // (Stone-tile texture overlay removed — the URL we tried failed and Babylon
-        // rendered its red/black "missing texture" placeholder. The existing colored
-        // arena ground discs underneath read fine on their own; we can re-add a
-        // texture later with a known-good URL or a locally-bundled image.)
+        // ── Grass floor — locally-bundled DDS tiled across the arena ──────────
+        const grassTex = new Texture(
+            'assets/textures/grass.dds',
+            scene,
+            true,                            // noMipmap (DDS often ships its own)
+            false,                           // invertY
+            Texture.TRILINEAR_SAMPLINGMODE,
+        );
+        grassTex.uScale = 8;
+        grassTex.vScale = 8;
+        const grass = MeshBuilder.CreateDisc('ruinsGrassGround', { radius: 22, tessellation: 48 }, scene);
+        grass.rotation.x = Math.PI / 2;
+        grass.position.y = 0.001; // just above the existing arena ground discs
+        const grassMat = new StandardMaterial('ruinsGrassMat', scene);
+        grassMat.diffuseTexture = grassTex;
+        grassMat.specularColor = Color3.Black();
+        grass.material = grassMat;
+        grass.receiveShadows = true;
     }
 
     private spawnItemDrop(position: Vector3, waveTier: number): void {
