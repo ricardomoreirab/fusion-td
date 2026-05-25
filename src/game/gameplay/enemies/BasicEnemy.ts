@@ -21,11 +21,15 @@ export class BasicEnemy extends Enemy {
     private glbAttackAnim: AnimationGroup | null = null;
     private glbIdleAnim: AnimationGroup | null = null;
     private glbCurrentAnim: AnimationGroup | null = null;
-    /** Distance at which the minion switches from walk to attack animation.
-     *  Generous so the attack clip plays whenever the minion is in striking
-     *  range, not only literally touching. The melee-minion model is small so
-     *  it needs more margin than the artillery carriage. */
-    private static readonly GLB_ATTACK_RANGE = 3.5;
+    /** Seconds remaining of forced-attack anim. While > 0 we keep the attack clip
+     *  looping even if the minion briefly leaves attack range (the hero kites, dies,
+     *  whirlwinds them, etc.). Without this the attack switches off after a single
+     *  frame and the player never sees the swing. */
+    private glbAttackHoldTimer: number = 0;
+    /** Distance at which the minion enters the attack state. */
+    private static readonly GLB_ATTACK_RANGE = 4.0;
+    /** Minimum seconds the attack anim runs once it's triggered. */
+    private static readonly GLB_ATTACK_HOLD = 0.6;
 
     constructor(game: Game, position: Vector3, path: Vector3[]) {
         // Basic enemy has medium speed, medium health, medium damage, and low reward
@@ -503,6 +507,10 @@ export class BasicEnemy extends Enemy {
         // Facing is handled by Enemy.update's seek-rotation; the GLB roots are
         // pre-rotated 180° in createMeshFromGLB so the model ends up facing the hero.
         if (this.usingGLB) {
+            // Tick the attack hold timer regardless of state.
+            if (this.glbAttackHoldTimer > 0) {
+                this.glbAttackHoldTimer = Math.max(0, this.glbAttackHoldTimer - deltaTime);
+            }
             if (this.isFrozen || this.isStunned) {
                 this.playGlbAnim(this.glbIdleAnim, true);
             } else if (this.seekTarget) {
@@ -510,7 +518,13 @@ export class BasicEnemy extends Enemy {
                 const dx = heroPos.x - this.position.x;
                 const dz = heroPos.z - this.position.z;
                 const distSq = dx * dx + dz * dz;
-                if (distSq <= BasicEnemy.GLB_ATTACK_RANGE * BasicEnemy.GLB_ATTACK_RANGE) {
+                const inRange = distSq <= BasicEnemy.GLB_ATTACK_RANGE * BasicEnemy.GLB_ATTACK_RANGE;
+                if (inRange) {
+                    // Refresh / start the hold timer so the attack anim runs for at
+                    // least GLB_ATTACK_HOLD seconds even if the hero kites away.
+                    this.glbAttackHoldTimer = BasicEnemy.GLB_ATTACK_HOLD;
+                }
+                if (this.glbAttackHoldTimer > 0) {
                     this.playGlbAnim(this.glbAttackAnim, true);
                 } else {
                     this.playGlbAnim(this.glbWalkAnim, true);
