@@ -94,9 +94,17 @@ export class Champion extends Enemy {
     // Per-element weapon decoration meshes, created lazily on first activation
     private elementDecorations: Map<string, Mesh[]> = new Map();
 
-    /** Optional preloaded ranger GLB asset; when present, createRangerMesh uses it
-     *  instead of the procedural box-and-cylinder build. */
+    /** Optional preloaded ranger GLB asset bundle; when present, createRangerMesh
+     *  instantiates the shoot + walk models and toggles visibility based on state. */
+    private rangerAssets: { shoot: AssetContainer; walk: AssetContainer } | null = null;
+    /** Backwards-compatible single-asset flag — true when any ranger GLB is in use.
+     *  Existing code branches read `usingRangerGLB` via `this.rangerAsset != null` style
+     *  checks, so we keep this populated. */
     private rangerAsset: AssetContainer | null = null;
+    /** The instantiated shoot/walk model roots, parented to this.mesh. Toggled
+     *  exclusively — only one is enabled at a time. */
+    private rangerShootRoot: TransformNode | null = null;
+    private rangerWalkRoot: TransformNode | null = null;
 
     /** Animation groups loaded from the ranger GLB, categorized by detected name.
      *  When the asset ships skeletal anims we use these instead of mesh-level bob. */
@@ -112,14 +120,14 @@ export class Champion extends Enemy {
     /** Duration the shoot animation plays after each triggerShoot(). */
     private static readonly RANGER_SHOOT_DURATION = 0.6;
     /** Playback speed multiplier for the GLB shoot clip. 2.0 = twice as fast. Adjust here. */
-    private static readonly RANGER_SHOOT_SPEED = 2.5;
+    private static readonly RANGER_SHOOT_SPEED = 5.5;
 
     constructor(
         game: Game,
         reversedPath: Vector3[],
         enemyManager: EnemyManager | null = null,
         championType: 'barbarian' | 'ranger' | 'mage' = 'barbarian',
-        rangerAsset?: AssetContainer,
+        rangerAssets?: { shoot: AssetContainer; walk: AssetContainer },
     ) {
         // HP 800, Speed 1.5, Damage 0 (doesn't damage player), Reward 0
         const startPos = reversedPath.length > 0 ? reversedPath[0] : new Vector3(0, 0, 0);
@@ -129,7 +137,9 @@ export class Champion extends Enemy {
         // so it always built the default knight. If we need a different class,
         // dispose the placeholder mesh and rebuild correctly.
         this.championType = championType;
-        this.rangerAsset = rangerAsset ?? null;
+        this.rangerAssets = rangerAssets ?? null;
+        // Keep rangerAsset populated too for `usingRangerGLB` branches elsewhere.
+        this.rangerAsset = rangerAssets ? rangerAssets.shoot : null;
         if (championType !== 'barbarian') {
             this.rebuildForType();
         }
@@ -260,105 +270,103 @@ export class Champion extends Enemy {
     }
 
     // =========================================================================
-    // RANGER — uses a GLB model if provided (preloaded "elven-archer-in-the-forest"),
-    // otherwise falls back to the procedural lean-archer build below.
+    // RANGER — uses the GLB asset bundle if provided (shoot + walk variants of the
+    // same archer model), otherwise falls back to the procedural lean-archer build.
     // =========================================================================
     private createRangerMesh(): void {
-        if (this.rangerAsset) {
-            this.createRangerMeshFromGLB(this.rangerAsset);
+        if (this.rangerAssets) {
+            this.createRangerMeshFromGLB(this.rangerAssets);
             return;
         }
         this.createRangerMeshProcedural();
     }
 
-    /** Instantiate the preloaded GLB and parent it under an empty transform root
-     *  that the existing Champion movement code drives via this.mesh.position. */
-    private createRangerMeshFromGLB(asset: AssetContainer): void {
+    /** Instantiate BOTH preloaded GLBs (shoot model + walk model — same character).
+     *  Both are parented to the same empty root that Champion's movement code drives;
+     *  the per-frame update toggles which one is visible based on state. Each container
+     *  contributes its own animation clip to the appropriate rangerAnims slot. */
+    private createRangerMeshFromGLB(assets: { shoot: AssetContainer; walk: AssetContainer }): void {
         const scene = this.scene;
 
-        // Empty root mesh — invisible, just a transform host that Champion's existing
-        // position/rotation pipeline drives. Parenting the GLB instance to it lets us
-        // keep all the controller wiring untouched.
+        // Empty transform host that Champion's existing position/rotation pipeline drives.
         this.mesh = new Mesh('rangerRoot', scene);
         this.mesh.position = this.position.clone();
 
-        // doNotInstantiate: true forces full Mesh clones (instead of lightweight InstancedMesh).
-        // Lightweight instances share geometry + skeleton bindings with the source, which is
-        // fast but breaks for skinned/rigged humanoid GLBs where each instance needs its own
-        // skeleton clone — instances render collapsed/invisible. Full clones are heavier per
-        // mesh but render correctly with their own skeleton.
-        // doNotInstantiate: true does full Mesh.clone() so the geometry is independent of
-        // the source. Skeleton/anim cloning don't matter for this asset (it has neither).
-        const inst = asset.instantiateModelsToScene(
-            name => `ranger_${name}`,
-            true,
-            { doNotInstantiate: true },
-        );
         const RANGER_SCALE = 1.5;
-        for (const root of inst.rootNodes) {
-            root.parent = this.mesh;
-            if ('scaling' in root && root.scaling) {
-                (root as TransformNode).scaling.scaleInPlace(RANGER_SCALE);
-            }
-        }
 
-        // Shift the GLB so its feet sit on the ground. Most rigged humanoid GLBs are
-        // centered on torso/origin so half the model lands below y=0. Compute the
-        // post-parent bounding box and push the GLB roots up by -min.y.
+        // Helper: instantiate a container, parent its roots to this.mesh, scale them,
+        // and return the primary root node + the first animation group (or null).
+        const instantiateInto = (
+            asset: AssetContainer, prefix: string,
+        ): { root: TransformNode | null; anim: AnimationGroup | null } => {
+            const inst = asset.instantiateModelsToScene(
+                name => `${prefix}_${name}`,
+                true,
+                { doNotInstantiate: true },
+            );
+            let primaryRoot: TransformNode | null = null;
+            for (const root of inst.rootNodes) {
+                root.parent = this.mesh;
+                if ('scaling' in root && root.scaling) {
+                    (root as TransformNode).scaling.scaleInPlace(RANGER_SCALE);
+                }
+                if (!primaryRoot) primaryRoot = root as TransformNode;
+            }
+            // Stop any auto-started anim; we'll start the appropriate one on demand.
+            for (const ag of inst.animationGroups) ag.stop();
+            return { root: primaryRoot, anim: inst.animationGroups[0] ?? null };
+        };
+
+        const shootInst = instantiateInto(assets.shoot, 'rangerShoot');
+        const walkInst  = instantiateInto(assets.walk,  'rangerWalk');
+        this.rangerShootRoot = shootInst.root;
+        this.rangerWalkRoot  = walkInst.root;
+
+        // Categorize the loaded clips: shoot from the shoot container, walk from the
+        // catwalk container. Idle stays null — update() falls back to mesh-bob when no
+        // idle clip is available.
+        this.rangerAnims = {
+            idle: null,
+            walk: walkInst.anim,
+            shoot: shootInst.anim,
+            all: [shootInst.anim, walkInst.anim].filter((a): a is AnimationGroup => a != null),
+        };
+
+        // Shift each model so its feet sit on the ground.
         this.mesh.computeWorldMatrix(true);
         const bbox = this.mesh.getHierarchyBoundingVectors(true);
         const feetOffset = -bbox.min.y;
-        for (const root of inst.rootNodes) {
-            if ('position' in root && root.position) {
-                (root as TransformNode).position.y += feetOffset;
-            }
+        if (this.rangerShootRoot) this.rangerShootRoot.position.y += feetOffset;
+        if (this.rangerWalkRoot)  this.rangerWalkRoot.position.y  += feetOffset;
+
+        // Speed up the shoot clip and compute its effective duration.
+        if (this.rangerAnims.shoot) {
+            this.rangerAnims.shoot.speedRatio = Champion.RANGER_SHOOT_SPEED;
+            const frames = this.rangerAnims.shoot.to - this.rangerAnims.shoot.from;
+            const estDur = Math.min(2.5, frames / 60 / Champion.RANGER_SHOOT_SPEED);
+            (this as any).rangerShootDurationActual = estDur > 0.1 ? estDur : Champion.RANGER_SHOOT_DURATION;
         }
 
-        // Categorize the GLB's animation clips by name. The archer_shooting_arrow asset
-        // ships with skeletal animations — we use them directly. Names vary per rig
-        // (Mixamo/Sketchfab/custom), so accept a few aliases per slot.
-        this.rangerAnims = { idle: null, walk: null, shoot: null, all: [...inst.animationGroups] };
-        console.log(`[ranger] available animation groups (${inst.animationGroups.length}):`);
-        for (const ag of inst.animationGroups) {
-            console.log(`  - "${ag.name}"`);
-            const n = ag.name.toLowerCase();
-            if (this.rangerAnims.idle == null && (n.includes('idle') || n === 'stand' || n.includes('aim'))) {
-                this.rangerAnims.idle = ag;
-            } else if (this.rangerAnims.walk == null && (n.includes('walk') || n.includes('run'))) {
-                this.rangerAnims.walk = ag;
-            } else if (this.rangerAnims.shoot == null && (n.includes('shoot') || n.includes('attack') || n.includes('fire') || n.includes('bow') || n.includes('arrow'))) {
-                this.rangerAnims.shoot = ag;
-            }
-            ag.stop(); // Stop any auto-started clips; playRangerAnim controls them.
-        }
-        // Fallbacks. Don't share a clip across slots — if there's only one anim, assume
-        // it's the shoot anim (the asset name hints at "shooting arrow"), and leave
-        // idle/walk null so update() falls back to mesh-level bob for those states.
-        const aa = this.rangerAnims;
-        if (aa.all.length === 1 && !aa.shoot) {
-            aa.shoot = aa.all[0];
-        } else if (aa.all.length >= 2) {
-            if (!aa.idle)  aa.idle  = aa.all[0];
-            if (!aa.walk)  aa.walk  = aa.all[1];
-            if (!aa.shoot) aa.shoot = aa.all[aa.all.length - 1];
-        }
-        // Speed up the shoot clip + compute its effective duration (clip length / speed).
-        if (aa.shoot) {
-            aa.shoot.speedRatio = Champion.RANGER_SHOOT_SPEED;
-            const frameCount = aa.shoot.to - aa.shoot.from;
-            // GLB anims usually run at ~60fps; divide by speedRatio for effective duration.
-            const estDurationSec = Math.min(2.5, frameCount / 60 / Champion.RANGER_SHOOT_SPEED);
-            (this as any).rangerShootDurationActual = estDurationSec > 0.1 ? estDurationSec : Champion.RANGER_SHOOT_DURATION;
-        }
+        // Start with the shoot model visible (idle pose), walk model hidden.
+        if (this.rangerWalkRoot) this.rangerWalkRoot.setEnabled(false);
+        if (this.rangerShootRoot) this.rangerShootRoot.setEnabled(true);
+
         console.log(
-            `[ranger] mapped: idle="${aa.idle?.name ?? '(none)'}", ` +
-            `walk="${aa.walk?.name ?? '(none)'}", shoot="${aa.shoot?.name ?? '(none)'}"`,
+            `[ranger] mapped: walk="${this.rangerAnims.walk?.name ?? '(none)'}", ` +
+            `shoot="${this.rangerAnims.shoot?.name ?? '(none)'}"`,
         );
+    }
 
-        // Start in idle if we have one — update() will switch to walk/shoot as input changes.
-        if (aa.idle) this.playRangerAnim('idle');
-
-        void scene;
+    /** Toggle which of the two ranger GLB models (shoot-rigged vs walk-rigged) is
+     *  visible. Stopping anims on the OTHER root prevents wasted skinning work. */
+    private setRangerModelVisible(which: 'shoot' | 'walk'): void {
+        const showShoot = which === 'shoot';
+        if (this.rangerShootRoot && this.rangerShootRoot.isEnabled() !== showShoot) {
+            this.rangerShootRoot.setEnabled(showShoot);
+        }
+        if (this.rangerWalkRoot && this.rangerWalkRoot.isEnabled() === showShoot) {
+            this.rangerWalkRoot.setEnabled(!showShoot);
+        }
     }
 
     /** Switch the ranger to the named animation slot (no-op if already playing it). */
@@ -991,39 +999,32 @@ export class Champion extends Enemy {
                 this.walkTime += deltaTime * 5; // stride pace for player-controlled
             }
 
-            // GLB ranger: prefer real GLB clips; fall back to mesh-level bob for any
-            // slot the asset doesn't provide (e.g. archer_shooting_arrow has only the
-            // shoot clip, so walk + idle use mesh translation).
+            // GLB ranger: toggle between the shoot-model (idle + shoot anims) and the
+            // walk-model (catwalk anim). They share the same character, just bundled
+            // with different animation clips.
             if (usingRangerGLB) {
                 const baseY = this.position.y;
+                this.mesh.position.y = baseY;
                 if (this.rangerShootTimer > 0) {
                     this.rangerShootTimer = Math.max(0, this.rangerShootTimer - deltaTime);
+                    this.setRangerModelVisible('shoot');
                     this.playRangerAnim('shoot');
-                    this.mesh.position.y = baseY; // anim drives motion, no bob
                 } else if (isMoving) {
+                    this.setRangerModelVisible('walk');
                     if (this.rangerAnims.walk) {
                         this.playRangerAnim('walk');
-                        this.mesh.position.y = baseY;
                     } else {
-                        // No walk clip — stop any anim and bob the mesh vertically.
-                        if (this.rangerCurrentAnim) {
-                            this.rangerCurrentAnim.stop();
-                            this.rangerCurrentAnim = null;
-                        }
+                        // No walk clip — bob the mesh vertically as fallback.
                         this.mesh.position.y = baseY + Math.abs(Math.sin(this.walkTime * 2)) * 0.18;
                     }
                 } else {
-                    if (this.rangerAnims.idle) {
-                        this.playRangerAnim('idle');
-                        this.mesh.position.y = baseY;
-                    } else {
-                        // No idle clip — stop any anim and use a subtle breathing bob.
-                        if (this.rangerCurrentAnim) {
-                            this.rangerCurrentAnim.stop();
-                            this.rangerCurrentAnim = null;
-                        }
-                        this.mesh.position.y = baseY + Math.sin(performance.now() / 700) * 0.04;
+                    // Idle — stand still on the shoot model (it's the default pose).
+                    this.setRangerModelVisible('shoot');
+                    if (this.rangerCurrentAnim) {
+                        this.rangerCurrentAnim.stop();
+                        this.rangerCurrentAnim = null;
                     }
+                    this.mesh.position.y = baseY + Math.sin(performance.now() / 700) * 0.04;
                 }
             } else if (this.championType === 'mage') {
                 this.animateMage(deltaTime);

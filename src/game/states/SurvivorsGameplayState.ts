@@ -28,34 +28,37 @@ import { RunItems, ItemId } from '../gameplay/RunItems';
 import { ItemDrop } from '../gameplay/ItemDrop';
 
 /**
- * Module-level cache for the ranger GLB. We load it on demand inside enter()
+ * Module-level cache for the ranger GLBs. We load them on demand inside enter()
  * (NOT at boot via AssetsManager) because the cleanupScene that runs between
- * boot and survivors entry breaks the preloaded container's materials in a
- * way that I couldn't pin down — instances render invisibly even with
- * metadata protection. Loading after cleanupScene works reliably.
+ * boot and survivors entry breaks the preloaded container's materials. Loading
+ * after cleanupScene works reliably.
  *
- * The container survives state.exit() because it's not directly tied to
- * scene-managed arrays after the load (only its instantiated clones are),
- * so re-entering survivors mode reuses it without re-fetching the 39MB GLB.
+ * Two assets for the same character — one with the shoot animation, one with
+ * the walk animation. Champion uses both: parents both to a shared transform
+ * root and toggles which is visible based on movement state.
  */
-let _rangerAsset: AssetContainer | null = null;
-let _rangerAssetPromise: Promise<AssetContainer> | null = null;
+export interface RangerAssets {
+    shoot: AssetContainer;
+    walk: AssetContainer;
+}
 
-function loadRangerAsset(scene: Scene): Promise<AssetContainer> {
-    if (_rangerAsset) return Promise.resolve(_rangerAsset);
-    if (_rangerAssetPromise) return _rangerAssetPromise;
-    _rangerAssetPromise = SceneLoader.LoadAssetContainerAsync(
-        'assets/',
-        'archer_shooting_arrow_from_bow_in_battle.glb',
-        scene,
-    ).then(container => {
-        _rangerAsset = container;
-        return container;
+let _rangerAssets: RangerAssets | null = null;
+let _rangerAssetsPromise: Promise<RangerAssets> | null = null;
+
+function loadRangerAssets(scene: Scene): Promise<RangerAssets> {
+    if (_rangerAssets) return Promise.resolve(_rangerAssets);
+    if (_rangerAssetsPromise) return _rangerAssetsPromise;
+    _rangerAssetsPromise = Promise.all([
+        SceneLoader.LoadAssetContainerAsync('assets/', 'archer_shooting_arrow_from_bow_in_battle.glb', scene),
+        SceneLoader.LoadAssetContainerAsync('assets/', '624230050_erika_archer_catwalk.glb', scene),
+    ]).then(([shoot, walk]) => {
+        _rangerAssets = { shoot, walk };
+        return _rangerAssets;
     }).catch(err => {
-        _rangerAssetPromise = null;
+        _rangerAssetsPromise = null;
         throw err;
     });
-    return _rangerAssetPromise;
+    return _rangerAssetsPromise;
 }
 
 /** Float-text labels and colors for item pickups (mirror the HUD slot colors). */
@@ -180,8 +183,8 @@ export class SurvivorsGameplayState implements GameState {
         ];
         // Kick off the ranger GLB load NOW so it's likely ready by the time the user
         // picks. If they pick ranger before it's done, startRun awaits it.
-        loadRangerAsset(this.scene).catch(err =>
-            console.error('Ranger GLB preload failed (will retry on pick):', err));
+        loadRangerAssets(this.scene).catch(err =>
+            console.error('Ranger GLBs preload failed (will retry on pick):', err));
 
         this.championSelect.show(championOptions, (type) => { void this.startRun(type); });
     }
@@ -190,13 +193,13 @@ export class SurvivorsGameplayState implements GameState {
     private async startRun(championType: string): Promise<void> {
         if (!this.scene || !this.ui || !this.map) return;
 
-        // Await the ranger GLB if needed (no-op for barbarian/mage; instant if already loaded).
-        let rangerAsset: AssetContainer | null = null;
+        // Await the ranger GLBs if needed (no-op for barbarian/mage; instant if already loaded).
+        let rangerAssets: RangerAssets | null = null;
         if (championType === 'ranger') {
             try {
-                rangerAsset = await loadRangerAsset(this.scene);
+                rangerAssets = await loadRangerAssets(this.scene);
             } catch (err) {
-                console.error('Ranger GLB failed to load — falling back to procedural mesh:', err);
+                console.error('Ranger GLBs failed to load — falling back to procedural mesh:', err);
             }
         }
 
@@ -212,14 +215,14 @@ export class SurvivorsGameplayState implements GameState {
         const variant = variants[championType] ?? variants['barbarian'];
 
         // Spawn hero — Champion in player-controlled mode. Pass the preloaded ranger
-        // asset container so the ranger uses the elven-archer GLB instead of the
-        // procedural box-and-cylinder mesh.
+        // asset bundle so the ranger uses the archer GLBs instead of the procedural
+        // box-and-cylinder mesh.
         this.hero = new Champion(
             this.game,
             [],
             null,
             championType as 'barbarian' | 'ranger' | 'mage',
-            rangerAsset ?? undefined,
+            rangerAssets ?? undefined,
         );
         this.hero.controlMode = 'player';
 
