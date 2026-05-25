@@ -38,6 +38,7 @@ import { ItemDrop } from '../gameplay/ItemDrop';
 const CHAMPION_GLB_PATHS: Partial<Record<string, { dir: string; file: string }>> = {
     ranger:    { dir: 'assets/miya-moonlight-archer-in-game/source/',     file: 'miya_moonlight_archer_in_game.glb' },
     barbarian: { dir: 'assets/aulus-warrior-of-ferocity-in-game/source/', file: 'aulus_warrior_of_ferocity_in_game.glb' },
+    mage:      { dir: 'assets/framis-soul-binder-in-game/source/',        file: 'framis_soul_binder_in_game.glb' },
 };
 // Plain-object caches — the local `Map` import (../gameplay/Map) shadows the global Map class.
 const _championAssets: Record<string, AssetContainer> = {};
