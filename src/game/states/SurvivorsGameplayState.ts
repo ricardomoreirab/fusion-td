@@ -1,4 +1,4 @@
-import { Scene, Vector3, Color3, Color4, DirectionalLight, SpotLight, AssetContainer, LoadAssetContainerAsync, CubeTexture, Texture, MeshBuilder, StandardMaterial, Mesh, BackgroundMaterial } from '@babylonjs/core';
+import { Scene, Vector3, Color3, Color4, DirectionalLight, SpotLight, AssetContainer, LoadAssetContainerAsync, CubeTexture, Texture, MeshBuilder, StandardMaterial, Mesh, BackgroundMaterial, ShadowGenerator } from '@babylonjs/core';
 import '@babylonjs/loaders/glTF';
 import { AdvancedDynamicTexture } from '@babylonjs/gui';
 import { Game } from '../Game';
@@ -128,6 +128,7 @@ export class SurvivorsGameplayState implements GameState {
     private joystick: SurvivorsJoystick | null = null;
     private grass: ReturnType<typeof createProceduralGrass> | null = null;
     private shadowSourceLight: DirectionalLight | null = null;
+    private shadowGenerator: ShadowGenerator | null = null;
 
     // Gameplay systems
     private enemyManager: EnemyManager | null = null;
@@ -297,6 +298,13 @@ export class SurvivorsGameplayState implements GameState {
         this.hero.controlMode = 'player';
         this.hero.enableTorch();
 
+        // Register the hero as a shadow caster.
+        // GLB heroes are skinned, so all child meshes get added.
+        const heroMesh = (this.hero as unknown as { mesh: Mesh | null }).mesh;
+        if (heroMesh && this.shadowGenerator) {
+            this.shadowGenerator.addShadowCaster(heroMesh, true);
+        }
+
         this.heroController = new HeroController(
             this.scene,
             this.hero,
@@ -323,6 +331,8 @@ export class SurvivorsGameplayState implements GameState {
 
         this.enemyManager = new EnemyManager(this.game, this.map);
         this.enemyManager.setPlayerStats(this.playerStats);
+        // Wire the shadow generator so bosses + elites auto-register as casters.
+        this.enemyManager.setShadowGenerator(this.shadowGenerator);
         // Cache the last known hero position so the provider stays null-safe even
         // when an enemy attack kills the hero mid-frame: HeroController.takeDamage
         // triggers state.exit() synchronously (nulling this.hero), and the rest of
@@ -583,9 +593,9 @@ export class SurvivorsGameplayState implements GameState {
         groundMat.diffuseTexture = createProceduralGrassTexture(scene, { size: 2048, tile: 1 });
         groundMat.specularColor = Color3.Black();
         groundMat.backFaceCulling = false;
-        // Default is 4. Survivors has: game-hemi + survivors-ambient (hemi) +
-        // survivors-key (dir) + ruins-spot + hero-torch = 5 lights, so without
-        // this the torch gets culled from the ground disc and never lights it.
+        // Default is 4. Survivors has: game-hemi + survivors-key (dir) +
+        // ruins-spot + hero-torch = 4. We allow more so future additions don't
+        // silently cull the torch.
         groundMat.maxSimultaneousLights = 8;
         ground.material = groundMat;
         ground.receiveShadows = true;
@@ -594,6 +604,48 @@ export class SurvivorsGameplayState implements GameState {
             arenaRadius: this.map?.getArenaRadius() ?? 20,
             bladeCount: 8000,
         });
+
+        // ── Shadow generator ──────────────────────────────────────────────────
+        // Single shadow pass attached to survivorsKey (the dominant directional).
+        // Hero + bosses + elites are added as casters from EnemyManager / startRun.
+        // 1024 PCF gives soft edges without paying for blur-exponential cost.
+        // Frustum size matches the arena radius (~25u) with headroom.
+        if (this.shadowSourceLight) {
+            this.shadowSourceLight.position = new Vector3(20, 30, 30);
+            this.shadowSourceLight.shadowMinZ = 1;
+            this.shadowSourceLight.shadowMaxZ = 80;
+            this.shadowSourceLight.orthoLeft   = -32;
+            this.shadowSourceLight.orthoRight  =  32;
+            this.shadowSourceLight.orthoTop    =  32;
+            this.shadowSourceLight.orthoBottom = -32;
+            this.shadowSourceLight.autoCalcShadowZBounds = false;
+
+            const shadow = new ShadowGenerator(1024, this.shadowSourceLight);
+            shadow.usePercentageCloserFiltering = true;
+            shadow.filteringQuality = ShadowGenerator.QUALITY_LOW; // softer + faster
+            shadow.bias = 0.0008;            // avoid acne on flat ground
+            shadow.normalBias = 0.02;
+            shadow.darkness = 0.4;            // 0 = pitch black, 1 = no shadow
+            shadow.transparencyShadow = false;
+            shadow.frustumEdgeFalloff = 0.05; // fade at frustum edges instead of hard cutoff
+            this.shadowGenerator = shadow;
+
+            // Receivers
+            ground.receiveShadows = true;
+            // The 5 stacked dark ground discs from Map.buildSurvivorsArena —
+            // include them too so the shadow reads consistent across the arena.
+            const sceneMeshes = scene.meshes;
+            for (const m of sceneMeshes) {
+                if (m.name.startsWith('arenaGround')) {
+                    m.receiveShadows = true;
+                }
+            }
+        }
+    }
+
+    /** Public so EnemyManager can register boss/elite casters. */
+    public getShadowGenerator(): ShadowGenerator | null {
+        return this.shadowGenerator;
     }
 
     private spawnItemDrop(position: Vector3, waveTier: number): void {

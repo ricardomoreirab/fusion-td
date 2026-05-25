@@ -1,4 +1,4 @@
-import { Vector3, Scene } from '@babylonjs/core';
+import { Vector3, Scene, ShadowGenerator } from '@babylonjs/core';
 import { Game } from '../Game';
 import { Map } from './Map';
 import { Enemy } from './enemies/Enemy';
@@ -35,6 +35,11 @@ export class EnemyManager {
     private onEliteDeathCallback: (position: Vector3, element: string) => void = () => {};
     private onMilestoneBossDeathCallback: (position: Vector3, waveTier: number) => void = () => {};
     private waveManager: WaveManager | null = null;
+    /** Optional: when set, large enemies (bosses, elites) are registered as
+     *  shadow casters at spawn so the directional key light projects them
+     *  onto the arena floor. Basic enemies are excluded — 60 casters would
+     *  blow the per-frame shadow render budget. */
+    private shadowGenerator: ShadowGenerator | null = null;
     /** Preloaded GLB asset containers per enemy type. Passed in by SurvivorsGameplayState
      *  after load completes. spawnSurvivorsEnemy stages the asset on the matching enemy
      *  class's static pendingAsset slot before constructing the instance. */
@@ -142,6 +147,22 @@ export class EnemyManager {
      *  stages it on the matching enemy class's static pendingAsset slot. */
     public setEnemyAsset(type: string, container: AssetContainer): void {
         this.enemyAssets[type] = container;
+    }
+
+    /** Optional: route shadow caster registration through us — bosses + elites
+     *  spawned via spawnSurvivorsEnemy will be added automatically. */
+    public setShadowGenerator(generator: ShadowGenerator | null): void {
+        this.shadowGenerator = generator;
+    }
+
+    /** Internal helper — registers the enemy's root mesh (and children) as
+     *  shadow casters. No-op when no generator is wired. */
+    private _registerAsShadowCaster(enemy: Enemy): void {
+        if (!this.shadowGenerator) return;
+        const mesh = (enemy as unknown as { mesh: { name: string } | null }).mesh;
+        if (mesh) {
+            this.shadowGenerator.addShadowCaster(mesh as never, true);
+        }
     }
 
     /**
@@ -323,6 +344,18 @@ export class EnemyManager {
         if (eliteElement) {
             makeElite(enemy, eliteElement, this.game.getScene());
         }
+
+        // Register large/visually-important enemies as shadow casters. Cheap
+        // when no generator is wired (early-out). Skip swarm enemies (basic,
+        // fast, mini) — too many active at once to be worth the shadow-pass
+        // draw calls.
+        const castsShadow = type === 'boss'
+            || type === 'tank'
+            || type === 'shield'
+            || type === 'splitting'
+            || type === 'healer'
+            || !!eliteElement;
+        if (castsShadow) this._registerAsShadowCaster(enemy);
 
         this.enemies.push(enemy);
         const spawnMs = performance.now() - spawnStart;
