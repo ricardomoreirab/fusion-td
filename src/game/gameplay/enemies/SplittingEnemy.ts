@@ -40,6 +40,9 @@ export class SplittingEnemy extends Enemy {
         this.meleeWindupDuration   = 0.3;
         this.meleeStrikeDuration   = 0.1;
         this.meleeCooldownDuration = 0.55;
+
+        // Anchor HP bar above the hydra heads (taller than base enemy).
+        this.applyHealthBarTier('normal', { heightOffset: 1.8 });
     }
 
     /**
@@ -412,91 +415,8 @@ export class SplittingEnemy extends Enemy {
         this.originalScale = 1.0;
     }
 
-    /**
-     * Override the health bar creation for splitting enemies (positioned above heads)
-     */
-    protected createHealthBar(): void {
-        if (!this.mesh) return;
-
-        // Outline
-        this.healthBarOutlineMesh = MeshBuilder.CreateBox('healthBarOutline', {
-            width: 1.08,
-            height: 0.14,
-            depth: 0.04
-        }, this.scene);
-        this.healthBarOutlineMesh.position = new Vector3(this.position.x, this.position.y + 1.8, this.position.z);
-        const outlineMat = new StandardMaterial('healthBarOutlineMat', this.scene);
-        outlineMat.diffuseColor = new Color3(0, 0, 0);
-        outlineMat.specularColor = Color3.Black();
-        this.healthBarOutlineMesh.material = outlineMat;
-
-        // Background bar
-        this.healthBarBackgroundMesh = MeshBuilder.CreateBox('healthBarBg', {
-            width: 1.0,
-            height: 0.08,
-            depth: 0.05
-        }, this.scene);
-        this.healthBarBackgroundMesh.position = new Vector3(this.position.x, this.position.y + 1.8, this.position.z);
-        const bgMat = new StandardMaterial('healthBarBgMat', this.scene);
-        bgMat.diffuseColor = new Color3(0.3, 0.3, 0.3);
-        bgMat.specularColor = Color3.Black();
-        this.healthBarBackgroundMesh.material = bgMat;
-
-        // Health bar
-        this.healthBarMesh = MeshBuilder.CreateBox('healthBar', {
-            width: 1.0,
-            height: 0.08,
-            depth: 0.06
-        }, this.scene);
-        this.healthBarMesh.position = new Vector3(this.position.x, this.position.y + 1.8, this.position.z);
-        const healthMat = new StandardMaterial('healthBarMat', this.scene);
-        healthMat.diffuseColor = new Color3(0.2, 0.8, 0.2);
-        healthMat.specularColor = Color3.Black();
-        this.healthBarMesh.material = healthMat;
-
-        // Billboard mode
-        this.healthBarOutlineMesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
-        this.healthBarBackgroundMesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
-        this.healthBarMesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
-
-        this.updateHealthBar();
-    }
-
-    /**
-     * Override the updateHealthBar method for splitting enemies
-     */
-    protected updateHealthBar(): void {
-        if (!this.mesh || !this.healthBarMesh || !this.healthBarBackgroundMesh) return;
-
-        const healthPercent = Math.max(0, this.health / this.maxHealth);
-
-        this.healthBarMesh.scaling.x = healthPercent;
-
-        const offset = (1 - healthPercent) * 0.5;
-        this.healthBarMesh.position.x = this.position.x - offset;
-
-        const material = this.healthBarMesh.material as StandardMaterial;
-        if (healthPercent > 0.6) {
-            material.diffuseColor = new Color3(0.2, 0.8, 0.2);
-        } else if (healthPercent > 0.3) {
-            material.diffuseColor = new Color3(0.8, 0.8, 0.2);
-        } else {
-            material.diffuseColor = new Color3(0.8, 0.2, 0.2);
-        }
-
-        if (this.healthBarOutlineMesh && !this.healthBarOutlineMesh.isDisposed()) {
-            this.healthBarOutlineMesh.position.x = this.position.x;
-            this.healthBarOutlineMesh.position.y = this.position.y + 1.8;
-            this.healthBarOutlineMesh.position.z = this.position.z;
-        }
-
-        this.healthBarBackgroundMesh.position.x = this.position.x;
-        this.healthBarBackgroundMesh.position.y = this.position.y + 1.8;
-        this.healthBarBackgroundMesh.position.z = this.position.z;
-
-        this.healthBarMesh.position.y = this.position.y + 1.8;
-        this.healthBarMesh.position.z = this.position.z;
-    }
+    // HP bar creation/update is inherited from Enemy.ts and anchored by
+    // `barHeightOffset` set in the constructor via applyHealthBarTier.
 
     /**
      * Update the enemy with multi-headed swaying animation

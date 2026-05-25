@@ -23,8 +23,8 @@ interface DamageNumberSlot {
 }
 
 const POOL_SIZE = 24;
-const TEX_WIDTH = 128;
-const TEX_HEIGHT = 64;
+const TEX_WIDTH = 160;
+const TEX_HEIGHT = 80;
 
 export class DamageNumberManager {
     private scene: Scene;
@@ -45,7 +45,7 @@ export class DamageNumberManager {
             material.useAlphaFromDiffuseTexture = true;
             material.backFaceCulling = false;
 
-            const mesh = MeshBuilder.CreatePlane(`dmgNum${i}`, { width: 1.2, height: 0.6 }, this.scene);
+            const mesh = MeshBuilder.CreatePlane(`dmgNum${i}`, { width: 1.5, height: 0.75 }, this.scene);
             mesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
             mesh.material = material;
             mesh.setEnabled(false);
@@ -103,7 +103,7 @@ export class DamageNumberManager {
     ): void {
         const slot = this.acquireSlot();
         const color = isCrit ? '#FFD000' : this.getColorForElement(elementType);
-        const fontSize = isCrit ? 72 : 56;
+        const fontSize = isCrit ? 90 : 70;
         const text = isCrit ? `${Math.round(damage)}!` : Math.round(damage).toString();
         this.drawText(slot, text, color, fontSize);
         slot.mesh.position.x = position.x + (Math.random() - 0.5) * 0.5;
@@ -119,7 +119,7 @@ export class DamageNumberManager {
     }
 
     /** Show arbitrary float text at a world position (used by item pickups). */
-    public showText(position: Vector3, text: string, color: string = '#FFFFFF', fontSize: number = 44): void {
+    public showText(position: Vector3, text: string, color: string = '#FFFFFF', fontSize: number = 55): void {
         const slot = this.acquireSlot();
         this.drawText(slot, text, color, fontSize);
         slot.mesh.position.x = position.x;
@@ -136,7 +136,7 @@ export class DamageNumberManager {
 
     public showReward(position: Vector3, reward: number): void {
         const slot = this.acquireSlot();
-        this.drawText(slot, `+$${reward}`, '#FFD700', 48);
+        this.drawText(slot, `+$${reward}`, '#FFD700', 60);
         slot.mesh.position.x = position.x;
         slot.mesh.position.y = position.y + 1.8;
         slot.mesh.position.z = position.z;

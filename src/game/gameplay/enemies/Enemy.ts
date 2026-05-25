@@ -31,6 +31,16 @@ export class Enemy {
     protected healthBarMesh: Mesh | null = null;
     protected healthBarBackgroundMesh: Mesh | null = null;
     protected healthBarOutlineMesh: Mesh | null = null;
+
+    // HP-bar tier driven visual tweaks (set via applyHealthBarTier or subclass override).
+    // Normal: thin bar. Elite: 1.5× wider, orange frame. Boss: 2.5× wider,
+    // segmented into 4 chunks, red glowing frame, name label above.
+    protected barTier: 'normal' | 'elite' | 'boss' = 'normal';
+    protected barHeightOffset: number = 1.0;
+    protected bossLabel: string | null = null;
+    protected barSegmentMeshes: Mesh[] = [];
+    protected barLabelMesh: Mesh | null = null;
+    protected barLabelTexture: DynamicTexture | null = null;
     protected position: Vector3;
     protected speed: number;
     protected originalSpeed: number; // Store original speed for status effects
@@ -151,75 +161,136 @@ export class Enemy {
     }
 
     /**
-     * Create health bar for the enemy
+     * Promote this enemy's health bar to a higher visual tier (elite or boss),
+     * or adjust its head-height anchor / boss name label. Re-creates the bar
+     * meshes so it can be called any time after construction (e.g. by
+     * EliteSpawner once the enemy has already been built).
+     */
+    public applyHealthBarTier(
+        tier: 'normal' | 'elite' | 'boss',
+        opts?: { heightOffset?: number; label?: string | null },
+    ): void {
+        this.barTier = tier;
+        if (opts?.heightOffset !== undefined) this.barHeightOffset = opts.heightOffset;
+        if (opts?.label !== undefined) this.bossLabel = opts.label;
+        this._disposeHealthBarMeshes();
+        this.createHealthBar();
+    }
+
+    /** Return the (width, height) of the bar based on the current tier. */
+    private _barDims(): { width: number; height: number } {
+        if (this.barTier === 'boss')  return { width: 2.5, height: 0.18 };
+        if (this.barTier === 'elite') return { width: 1.5, height: 0.12 };
+        return { width: 1.0, height: 0.08 };
+    }
+
+    /**
+     * Create health bar for the enemy. Subclasses set `barHeightOffset` (in the
+     * constructor, after super()) to anchor it at the top of their head.
      */
     protected createHealthBar(): void {
         if (!this.mesh) return;
 
-        // Create dark outline border (slightly larger than background)
+        const { width, height } = this._barDims();
+        const y = this.position.y + this.barHeightOffset;
+
+        // Frame color + glow per tier
+        let frameColor: Color3;
+        let frameEmissive: Color3;
+        if (this.barTier === 'boss') {
+            frameColor    = new Color3(1.0, 0.20, 0.15);
+            frameEmissive = new Color3(0.55, 0.10, 0.05);
+        } else if (this.barTier === 'elite') {
+            frameColor    = new Color3(1.0, 0.55, 0.15);
+            frameEmissive = new Color3(0.35, 0.18, 0.04);
+        } else {
+            frameColor    = new Color3(0, 0, 0);
+            frameEmissive = Color3.Black();
+        }
+
+        // Outline / frame (slightly larger than background)
         this.healthBarOutlineMesh = MeshBuilder.CreateBox('healthBarOutline', {
-            width: 1.08,
-            height: 0.14,
-            depth: 0.04
+            width:  width  + 0.08,
+            height: height + 0.06,
+            depth:  0.04,
         }, this.scene);
-
-        this.healthBarOutlineMesh.position = new Vector3(
-            this.position.x,
-            this.position.y + 1.0,
-            this.position.z
-        );
-
+        this.healthBarOutlineMesh.position = new Vector3(this.position.x, y, this.position.z);
         const outlineMaterial = new StandardMaterial('healthBarOutlineMaterial', this.scene);
-        outlineMaterial.diffuseColor = new Color3(0, 0, 0);
+        outlineMaterial.diffuseColor  = frameColor;
+        outlineMaterial.emissiveColor = frameEmissive;
         outlineMaterial.specularColor = Color3.Black();
         this.healthBarOutlineMesh.material = outlineMaterial;
 
-        // Create background bar (gray)
-        this.healthBarBackgroundMesh = MeshBuilder.CreateBox('healthBarBg', {
-            width: 1.0,
-            height: 0.08,
-            depth: 0.05
-        }, this.scene);
-
-        // Position above the enemy
-        this.healthBarBackgroundMesh.position = new Vector3(
-            this.position.x,
-            this.position.y + 1.0,
-            this.position.z
-        );
-
-        // Create material for background
+        // Background (gray)
+        this.healthBarBackgroundMesh = MeshBuilder.CreateBox('healthBarBg', { width, height, depth: 0.05 }, this.scene);
+        this.healthBarBackgroundMesh.position = new Vector3(this.position.x, y, this.position.z);
         const bgMaterial = new StandardMaterial('healthBarBgMaterial', this.scene);
-        bgMaterial.diffuseColor = new Color3(0.3, 0.3, 0.3);
+        bgMaterial.diffuseColor  = new Color3(0.3, 0.3, 0.3);
         bgMaterial.specularColor = Color3.Black();
         this.healthBarBackgroundMesh.material = bgMaterial;
 
-        // Create health bar (green)
-        this.healthBarMesh = MeshBuilder.CreateBox('healthBar', {
-            width: 1.0,
-            height: 0.08,
-            depth: 0.06 // Slightly in front of background
-        }, this.scene);
-
-        // Position at the same place as background
-        this.healthBarMesh.position = new Vector3(
-            this.position.x,
-            this.position.y + 1.0,
-            this.position.z
-        );
-
-        // Create material for health bar
+        // Foreground (green health fill)
+        this.healthBarMesh = MeshBuilder.CreateBox('healthBar', { width, height, depth: 0.06 }, this.scene);
+        this.healthBarMesh.position = new Vector3(this.position.x, y, this.position.z);
         const healthMaterial = new StandardMaterial('healthBarMaterial', this.scene);
-        healthMaterial.diffuseColor = new Color3(0.2, 0.8, 0.2); // Green
+        healthMaterial.diffuseColor  = HEALTH_COLOR_GREEN;
         healthMaterial.specularColor = Color3.Black();
         this.healthBarMesh.material = healthMaterial;
 
-        // Make health bars always face the camera
-        this.healthBarOutlineMesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
+        this.healthBarOutlineMesh.billboardMode    = Mesh.BILLBOARDMODE_ALL;
         this.healthBarBackgroundMesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
-        this.healthBarMesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
+        this.healthBarMesh.billboardMode           = Mesh.BILLBOARDMODE_ALL;
 
-        // Update health bar to match initial health
+        // Boss-only: 3 thin black dividers carving the bar into 4 chunks
+        this.barSegmentMeshes = [];
+        if (this.barTier === 'boss') {
+            for (let i = 1; i <= 3; i++) {
+                const seg = MeshBuilder.CreateBox(`healthBarSeg_${i}`, {
+                    width:  0.04,
+                    height: height + 0.02,
+                    depth:  0.07,
+                }, this.scene);
+                const segMat = new StandardMaterial(`segMat_${i}`, this.scene);
+                segMat.diffuseColor  = Color3.Black();
+                segMat.specularColor = Color3.Black();
+                seg.material        = segMat;
+                seg.billboardMode   = Mesh.BILLBOARDMODE_ALL;
+                seg.position        = new Vector3(this.position.x, y, this.position.z);
+                this.barSegmentMeshes.push(seg);
+            }
+        }
+
+        // Boss-only: name label above the bar
+        if (this.barTier === 'boss' && this.bossLabel) {
+            const tex = new DynamicTexture('bossLabelTex', { width: 256, height: 64 }, this.scene, false);
+            tex.hasAlpha = true;
+            const ctx = tex.getContext() as CanvasRenderingContext2D;
+            ctx.clearRect(0, 0, 256, 64);
+            ctx.font = 'bold 36px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.strokeStyle = 'black';
+            ctx.lineWidth = 6;
+            ctx.strokeText(this.bossLabel, 128, 32);
+            ctx.fillStyle = '#ff5040';
+            ctx.fillText(this.bossLabel, 128, 32);
+            tex.update();
+
+            const labelMat = new StandardMaterial('bossLabelMat', this.scene);
+            labelMat.diffuseTexture            = tex;
+            labelMat.useAlphaFromDiffuseTexture = true;
+            labelMat.disableLighting           = true;
+            labelMat.emissiveColor             = new Color3(1, 1, 1);
+            labelMat.backFaceCulling           = false;
+            labelMat.specularColor             = Color3.Black();
+
+            this.barLabelMesh = MeshBuilder.CreatePlane('bossLabel', { width: 2.6, height: 0.65 }, this.scene);
+            this.barLabelMesh.material      = labelMat;
+            this.barLabelMesh.position      = new Vector3(this.position.x, y + 0.45, this.position.z);
+            this.barLabelMesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
+            this.barLabelTexture            = tex;
+        }
+
         this.updateHealthBar();
     }
 
@@ -229,14 +300,17 @@ export class Enemy {
     protected updateHealthBar(): void {
         if (!this.mesh || !this.healthBarMesh || !this.healthBarBackgroundMesh) return;
 
+        const { width } = this._barDims();
+        const y = this.position.y + this.barHeightOffset;
+
         // Calculate health percentage
         const healthPercent = Math.max(0, this.health / this.maxHealth);
 
         // Update health bar width based on health percentage
         this.healthBarMesh.scaling.x = healthPercent;
 
-        // Adjust position to align left side
-        const offset = (1 - healthPercent) * 0.5;
+        // Adjust position to align left side (offset scales with bar width)
+        const offset = (1 - healthPercent) * (width * 0.5);
         this.healthBarMesh.position.x = this.position.x - offset;
 
         // Update health bar color based on health percentage (use cached Color3 to avoid per-frame allocs)
@@ -252,17 +326,75 @@ export class Enemy {
         // Position outline behind everything
         if (this.healthBarOutlineMesh && !this.healthBarOutlineMesh.isDisposed()) {
             this.healthBarOutlineMesh.position.x = this.position.x;
-            this.healthBarOutlineMesh.position.y = this.position.y + 1.0;
+            this.healthBarOutlineMesh.position.y = y;
             this.healthBarOutlineMesh.position.z = this.position.z;
         }
 
         // Position health bars above the enemy
         this.healthBarBackgroundMesh.position.x = this.position.x;
-        this.healthBarBackgroundMesh.position.y = this.position.y + 1.0;
+        this.healthBarBackgroundMesh.position.y = y;
         this.healthBarBackgroundMesh.position.z = this.position.z;
 
-        this.healthBarMesh.position.y = this.position.y + 1.0;
+        this.healthBarMesh.position.y = y;
         this.healthBarMesh.position.z = this.position.z;
+
+        // Boss segments: track frame position, evenly spaced at -0.25/0/+0.25 of width
+        if (this.barSegmentMeshes.length > 0) {
+            for (let i = 0; i < this.barSegmentMeshes.length; i++) {
+                const seg = this.barSegmentMeshes[i];
+                if (!seg || seg.isDisposed()) continue;
+                const segOffset = ((i + 1) * 0.25 - 0.5) * width; // -0.25w, 0, +0.25w
+                seg.position.x = this.position.x + segOffset;
+                seg.position.y = y;
+                seg.position.z = this.position.z;
+            }
+        }
+
+        if (this.barLabelMesh && !this.barLabelMesh.isDisposed()) {
+            this.barLabelMesh.position.x = this.position.x;
+            this.barLabelMesh.position.y = y + 0.45;
+            this.barLabelMesh.position.z = this.position.z;
+        }
+    }
+
+    /** Dispose only the health-bar meshes/materials (keeps the enemy alive). */
+    private _disposeHealthBarMeshes(): void {
+        if (this.healthBarMesh) {
+            const m = this.healthBarMesh.material;
+            this.healthBarMesh.dispose();
+            if (m) m.dispose();
+            this.healthBarMesh = null;
+        }
+        if (this.healthBarBackgroundMesh) {
+            const m = this.healthBarBackgroundMesh.material;
+            this.healthBarBackgroundMesh.dispose();
+            if (m) m.dispose();
+            this.healthBarBackgroundMesh = null;
+        }
+        if (this.healthBarOutlineMesh) {
+            const m = this.healthBarOutlineMesh.material;
+            this.healthBarOutlineMesh.dispose();
+            if (m) m.dispose();
+            this.healthBarOutlineMesh = null;
+        }
+        for (const seg of this.barSegmentMeshes) {
+            if (seg && !seg.isDisposed()) {
+                const m = seg.material;
+                seg.dispose();
+                if (m) m.dispose();
+            }
+        }
+        this.barSegmentMeshes = [];
+        if (this.barLabelMesh) {
+            const m = this.barLabelMesh.material;
+            this.barLabelMesh.dispose();
+            if (m) m.dispose();
+            this.barLabelMesh = null;
+        }
+        if (this.barLabelTexture) {
+            this.barLabelTexture.dispose();
+            this.barLabelTexture = null;
+        }
     }
 
     /**
@@ -866,7 +998,8 @@ export class Enemy {
     }
 
     /**
-     * Flash the enemy mesh white briefly on hit (80ms emissive pulse)
+     * Brief red emissive tint on hit (~100ms). Read as damage but keeps the
+     * underlying texture visible — a full-white emissive blew out detail.
      */
     protected flashHit(): void {
         if (!this.mesh || this.mesh.isDisposed()) return;
@@ -875,15 +1008,16 @@ export class Enemy {
         const meshes = [this.mesh, ...this.mesh.getChildMeshes(false)];
         const originalEmissives: { mat: StandardMaterial, color: Color3 }[] = [];
 
+        const HIT_TINT = new Color3(0.85, 0.10, 0.05);
         for (const m of meshes) {
             const mat = m.material as StandardMaterial;
             if (mat && mat.emissiveColor !== undefined) {
                 originalEmissives.push({ mat, color: mat.emissiveColor.clone() });
-                mat.emissiveColor = new Color3(1, 1, 1);
+                mat.emissiveColor = HIT_TINT;
             }
         }
 
-        // Restore after 80ms
+        // Restore after 100ms
         setTimeout(() => {
             for (const entry of originalEmissives) {
                 try {
@@ -892,7 +1026,7 @@ export class Enemy {
                     // Material may have been disposed
                 }
             }
-        }, 80);
+        }, 100);
     }
 
     /**
@@ -915,22 +1049,9 @@ export class Enemy {
             this.mesh = null;
         }
         
-        // Remove health bar
-        if (this.healthBarMesh) {
-            this.healthBarMesh.dispose();
-            this.healthBarMesh = null;
-        }
+        // Remove health bar (handles segments + boss label too)
+        this._disposeHealthBarMeshes();
 
-        if (this.healthBarBackgroundMesh) {
-            this.healthBarBackgroundMesh.dispose();
-            this.healthBarBackgroundMesh = null;
-        }
-
-        if (this.healthBarOutlineMesh) {
-            this.healthBarOutlineMesh.dispose();
-            this.healthBarOutlineMesh = null;
-        }
-        
         // Remove status effect particles
         this.statusEffectParticles.forEach(particleSystem => {
             particleSystem.stop();
@@ -1087,24 +1208,7 @@ export class Enemy {
 
         // Health bar materials are per-enemy `new StandardMaterial(...)` allocations
         // (see createHealthBar). Dispose them explicitly along with their meshes.
-        if (this.healthBarMesh) {
-            const m = this.healthBarMesh.material;
-            this.healthBarMesh.dispose();
-            if (m) m.dispose();
-            this.healthBarMesh = null;
-        }
-        if (this.healthBarBackgroundMesh) {
-            const m = this.healthBarBackgroundMesh.material;
-            this.healthBarBackgroundMesh.dispose();
-            if (m) m.dispose();
-            this.healthBarBackgroundMesh = null;
-        }
-        if (this.healthBarOutlineMesh) {
-            const m = this.healthBarOutlineMesh.material;
-            this.healthBarOutlineMesh.dispose();
-            if (m) m.dispose();
-            this.healthBarOutlineMesh = null;
-        }
+        this._disposeHealthBarMeshes();
 
         // Dispose all status-effect particle systems
         this.statusEffectParticles.forEach(particleSystem => {

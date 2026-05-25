@@ -1,4 +1,4 @@
-import { Engine, Scene, Vector3, HemisphericLight, ArcRotateCamera, Camera, Color3, Color4, Animation, AbstractMesh, GlowLayer } from '@babylonjs/core';
+import { Engine, EngineFactory, AbstractEngine, Scene, Vector3, HemisphericLight, ArcRotateCamera, Camera, Animation, AbstractMesh, GlowLayer, WebGPUEngine, DefaultRenderingPipeline } from '@babylonjs/core';
 import { GameState } from './states/GameState';
 import { MenuState } from './states/MenuState';
 import { SurvivorsGameplayState } from './states/SurvivorsGameplayState';
@@ -10,55 +10,81 @@ import { PALETTE } from './rendering/StyleConstants';
 
 export class Game {
     private canvas: HTMLCanvasElement;
-    private engine: Engine;
-    private scene: Scene;
-    private stateManager: StateManager;
+    // Engine + scene + everything that depends on them are created in start()
+    // (async, because WebGPUEngine.initAsync is async). Marked with `!` since
+    // they are guaranteed to be assigned before any consumer can call them.
+    private engine!: AbstractEngine;
+    private scene!: Scene;
+    private stateManager!: StateManager;
     /** Set true by StateManager.changeState; consumed (cleared) by the next
      *  render loop tick. While true, scene.render is skipped — prevents the
      *  same rAF cycle that ran a state change (and disposed everything) from
      *  also trying to render against the half-torn-down scene. */
     public skipRenderThisFrame: boolean = false;
-    private assetManager: AssetManager;
+    private assetManager!: AssetManager;
     private _isPaused: boolean = false;
-    private pauseScreen: PauseScreen;
+    private pauseScreen!: PauseScreen;
     private _timeScale: number = 1;
 
     constructor(canvasId: string) {
-        // Get the canvas element
+        // Lightweight constructor — only resolve the canvas. Everything else
+        // (engine, scene, managers, state registration) happens in start()
+        // because WebGPU engine initialization is async.
         const element = document.getElementById(canvasId);
         if (!element) throw new Error(`Canvas element with id ${canvasId} not found`);
         if (!(element instanceof HTMLCanvasElement)) throw new Error(`Element with id ${canvasId} is not a canvas element`);
-        
         this.canvas = element;
+    }
 
-        // Initialize the Babylon engine
-        this.engine = new Engine(this.canvas, true);
-        
-        // Create the main scene (pass mesh-map options at construction — they are read-only after that)
+    /**
+     * Try to create a WebGPU engine; fall back to WebGL on browsers that
+     * don't support it (Safari at time of writing). EngineFactory.CreateAsync
+     * handles both cases and returns the right thing — we just await it.
+     */
+    private async createEngine(): Promise<AbstractEngine> {
+        try {
+            const engine = await EngineFactory.CreateAsync(this.canvas, {
+                antialias: true,
+                stencil: true,
+            });
+            // Babylon picks WebGPU automatically when supported. Log which we got.
+            const usingWebGPU = engine instanceof WebGPUEngine;
+            console.info(`[engine] initialised: ${usingWebGPU ? 'WebGPU' : 'WebGL'}`);
+            return engine;
+        } catch (err) {
+            // Fallback: any failure (e.g. WebGPU init crashed mid-load) → plain WebGL.
+            console.warn('[engine] EngineFactory failed, falling back to WebGL:', err);
+            return new Engine(this.canvas, true);
+        }
+    }
+
+    public async start(): Promise<void> {
+        // Async engine creation (WebGPU when available, WebGL otherwise).
+        this.engine = await this.createEngine();
+
+        // Create the main scene (mesh-map options are read-only after construction).
         this.scene = new Scene(this.engine, {
             useGeometryUniqueIdsMap: true,
             useMaterialMeshMap: true,
             useClonedMeshMap: true,
         });
         this.scene.clearColor = PALETTE.SKY.clone();
-        
+
         // Initialize managers
         this.assetManager = new AssetManager(this.scene);
         this.stateManager = new StateManager(this);
-        
-        // Register game states
+
+        // Register game states (their constructors don't touch scene yet — only enter() does)
         this.stateManager.registerState('menu', new MenuState(this));
         this.stateManager.registerState('survivors', new SurvivorsGameplayState(this));
         this.stateManager.registerState('gameOver', new GameOverState(this));
-        
+
         // Initialize pause screen
         this.pauseScreen = new PauseScreen(this);
-    }
 
-    public start(): void {
         // Setup the scene
         this.setupScene();
-        
+
         // Start loading assets
         this.assetManager.loadAssets(() => {
             // Hide loading screen
@@ -102,6 +128,8 @@ export class Game {
     }
 
     public resize(): void {
+        // Guard against early resize events that fire before async engine init completes.
+        if (!this.engine || !this.scene) return;
         this.engine.resize();
         this.updateOrthoBounds();
     }
@@ -147,7 +175,11 @@ export class Game {
         // useGeometryUniqueIdsMap / useMaterialMeshMap / useClonedMeshMap are
         // constructor-only (SceneOptions) — passed above in new Scene(...).
 
-        // Warm hemisphere light for low-poly stylized look
+        // Warm hemisphere light for low-poly stylized look — back to the
+        // original baseline. The pipeline experiment (ACES tone-mapping +
+        // vignette + a second directional) ended up crushing the whole scene
+        // because most materials are frozen-StandardMaterial with no specular
+        // and don't benefit from a 2nd light source.
         const light = new HemisphericLight('light', new Vector3(0, 1, 0), this.scene);
         light.diffuse = PALETTE.LIGHT_DIFFUSE.clone();
         light.groundColor = PALETTE.LIGHT_GROUND.clone();
@@ -156,8 +188,10 @@ export class Game {
         // Fog disabled -- doesn't work properly with orthographic projection
         this.scene.fogMode = Scene.FOGMODE_NONE;
 
-        // Glow layer for emissive elements (portals, tower effects)
-        // mainTextureRatio 0.5 halves fill rate on retina/4K; blurKernelSize 16 halves blur work
+        // Glow layer for emissive elements (portals, tower effects).
+        // mainTextureRatio 0.5 halves fill rate on retina/4K; blurKernelSize 16 halves blur work.
+        // Glow handles tight emissive highlights; bloom (set up below) adds the
+        // broader halo over the post-tone-mapped framebuffer.
         const glowLayer = new GlowLayer('glowLayer', this.scene, { mainTextureRatio: 0.5 });
         glowLayer.intensity = 0.4;
         glowLayer.blurKernelSize = 16; // default 32 — half the blur work per frame
@@ -196,6 +230,35 @@ export class Game {
         camera.upperBetaLimit = camera.beta;
         camera.lowerRadiusLimit = camera.radius;
         camera.upperRadiusLimit = camera.radius;
+
+        // ── Post-processing pipeline ──────────────────────────────────────────
+        // FXAA + bloom only. The previous experiment with ACES tone-mapping
+        // and a vignette darkened the 3D scene noticeably while doing nothing
+        // useful — most materials here are frozen-StandardMaterial with no
+        // dynamic-range content for ACES to flatter. Bloom alone gives the
+        // emissive elements (orbs, crit pops, boss eyes, UI titles) the halo
+        // the user actually liked.
+        const renderW = this.engine.getRenderWidth();
+        const isLowEnd = renderW < 800;
+        const pipeline = new DefaultRenderingPipeline('mainPipeline', true, this.scene, [camera]);
+
+        // FXAA — cheap edge smoothing, big readability win on low-poly geometry.
+        pipeline.fxaaEnabled = true;
+        pipeline.samples = 1; // we MSAA via FXAA, not HW multisample
+
+        // Bloom — soft halo over bright pixels only. Threshold keeps midtones
+        // out so the 3D scene isn't blurred; mostly catches emissive content
+        // and bright GUI text (which we like — gives titles a glow).
+        pipeline.bloomEnabled  = true;
+        pipeline.bloomThreshold = 0.85;
+        pipeline.bloomWeight    = isLowEnd ? 0.25 : 0.40;
+        pipeline.bloomScale     = isLowEnd ? 0.25 : 0.50; // RT size factor
+        pipeline.bloomKernel    = isLowEnd ? 32   : 64;
+
+        // ImageProcessing left disabled. Re-enable per-feature later if we
+        // want a specific look — but blanket enabling it stacks tone-mapping
+        // + vignette on top of an already low-dynamic-range scene.
+        pipeline.imageProcessingEnabled = false;
     }
 
     /**
@@ -367,7 +430,7 @@ export class Game {
         return this.scene;
     }
 
-    public getEngine(): Engine {
+    public getEngine(): AbstractEngine {
         return this.engine;
     }
 

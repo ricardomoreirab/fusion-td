@@ -23,6 +23,10 @@ export function makeElite(enemy: Enemy, element: string, scene: Scene): void {
     enemy.isElite = true;
     enemy.eliteDropElement = element;
 
+    // Promote HP bar to elite tier (wider + orange frame). Keeps existing
+    // head-height offset since the enemy class already configured it.
+    enemy.applyHealthBarTier('elite');
+
     const color = ELEMENT_COLORS[element] ?? new Color3(1, 1, 1);
 
     // Scale up mesh

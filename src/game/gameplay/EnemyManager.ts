@@ -186,6 +186,7 @@ export class EnemyManager {
             { cls: HealerEnemy,    key: 'healer_elite', build: () => new HealerEnemy(this.game, farAway, []) },
             { cls: SplittingEnemy, key: 'splitting',    build: () => new SplittingEnemy(this.game, farAway, []) },
             { cls: MiniEnemy,      key: 'mini',         build: () => new MiniEnemy(this.game, farAway, []) },
+            { cls: ShieldEnemy,    key: 'shield',       build: () => new ShieldEnemy(this.game, farAway, []) },
         ];
         for (const { cls, key, build } of glbVariants) {
             const asset = this.enemyAssets[key];
@@ -310,7 +311,8 @@ export class EnemyManager {
                              enemy = new SplittingEnemy(this.game, spawnPos, []); break;
             case 'healer':   HealerEnemy.pendingAsset = assetFor('healer');
                              enemy = new HealerEnemy(this.game, spawnPos, []); break;
-            case 'shield':   enemy = new ShieldEnemy(this.game, spawnPos, []); break;
+            case 'shield':   ShieldEnemy.pendingAsset = assetFor('shield');
+                             enemy = new ShieldEnemy(this.game, spawnPos, []); break;
             default:         enemy = new BasicEnemy(this.game, spawnPos, []); break;
         }
 

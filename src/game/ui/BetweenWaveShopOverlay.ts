@@ -10,6 +10,12 @@ export interface ShopItem {
     costGrowth: number;
     isCapped: (count: number) => boolean;
     apply: () => void;
+    /**
+     * Optional accessor for a "current value → next value" string that gets
+     * appended to the description so the player can see what they own right now
+     * (e.g., "now 120 → 140"). Returning null hides the suffix.
+     */
+    currentValue?: () => string | null;
 }
 
 // ── Per-item visual config ────────────────────────────────────────────────────
@@ -143,15 +149,19 @@ export class BetweenWaveShopOverlay {
         const cfg = ITEM_CONFIG[item.id] ?? DEFAULT_CONFIG;
         const accentColor = capped ? '#555' : cfg.accentColor;
 
-        // 3-column grid layout
+        // 3-column grid layout (compact desktop, fits 1280-wide comfortably)
+        const cardW = 188;
+        const cardH = 74;
+        const colGap = 12;
+        const rowGap = 10;
         const col = i % 3;
         const row = Math.floor(i / 3);
-        const offsetX = (col - 1) * 232;
-        const offsetY = (row - 1) * 96 - 20;
+        const offsetX = (col - 1) * (cardW + colGap);
+        const offsetY = (row - 1) * (cardH + rowGap) - 18;
 
         // ── Outer card ───────────────────────────────────────────────────────
-        const outer = makeFrame({ name: `shopOuter_${item.id}`, sizePx: 220, color: capped ? '#444' : accentColor, cornerRadius: 12 });
-        outer.height = '88px';
+        const outer = makeFrame({ name: `shopOuter_${item.id}`, sizePx: cardW, color: capped ? '#444' : accentColor, cornerRadius: 10 });
+        outer.height = `${cardH}px`;
         if (capped) outer.background = 'rgba(10,10,22,0.40)';
         outer.left = `${offsetX}px`;
         outer.top = `${offsetY}px`;
@@ -159,24 +169,25 @@ export class BetweenWaveShopOverlay {
         this.panel!.addControl(outer);
 
         // ── Header strip (left accent bar + glyph) ───────────────────────────
+        const headerW = 36;
         const headerBar = new Rectangle(`shopHeader_${item.id}`);
-        headerBar.width = '44px';
-        headerBar.height = '88px';
+        headerBar.width = `${headerW}px`;
+        headerBar.height = `${cardH}px`;
         headerBar.thickness = 0;
         headerBar.background = capped ? '#222' : accentColor + '55';
-        headerBar.cornerRadius = 8;
+        headerBar.cornerRadius = 6;
         headerBar.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         outer.addControl(headerBar);
 
         const glyphTxt = new TextBlock(`shopGlyph_${item.id}`, cfg.glyph);
         glyphTxt.color = capped ? '#555' : accentColor;
-        glyphTxt.fontSize = 22;
+        glyphTxt.fontSize = 19;
         headerBar.addControl(glyphTxt);
 
         // ── Inner content ────────────────────────────────────────────────────
         const inner = new Rectangle(`shopInner_${item.id}`);
-        inner.width = '168px';
-        inner.height = '72px';
+        inner.width = `${cardW - headerW - 4}px`;
+        inner.height = `${cardH - 4}px`;
         inner.thickness = 0;
         inner.background = 'transparent';
         inner.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
@@ -187,40 +198,43 @@ export class BetweenWaveShopOverlay {
         if (capped) {
             nameLabel.text = `${item.name}  (MAX)`;
         } else {
-            nameLabel.text = `${item.name}  Lv ${count} → ${count + 1}`;
+            nameLabel.text = `${item.name}  Lv ${count}→${count + 1}`;
         }
         nameLabel.color = capped ? '#555' : '#ffffff';
-        nameLabel.fontSize = 14;
+        nameLabel.fontSize = 12;
         nameLabel.fontWeight = 'bold';
         nameLabel.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        nameLabel.paddingLeft = '10px';
-        nameLabel.top = '-22px';
-        nameLabel.height = '20px';
+        nameLabel.paddingLeft = '8px';
+        nameLabel.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        nameLabel.top = '5px';
+        nameLabel.height = '16px';
         inner.addControl(nameLabel);
 
-        // Description
-        const descLabel = new TextBlock(`shopDesc_${item.id}`, item.description);
+        // Description (with optional current-value suffix, see task #6)
+        const descText = this._describeWithCurrent(item, capped);
+        const descLabel = new TextBlock(`shopDesc_${item.id}`, descText);
         descLabel.color = '#aaa';
-        descLabel.fontSize = 12;
+        descLabel.fontSize = 10;
         descLabel.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         descLabel.textWrapping = true;
-        descLabel.paddingLeft = '10px';
-        descLabel.paddingRight = '8px';
-        descLabel.top = '5px';
-        descLabel.height = '30px';
+        descLabel.paddingLeft = '8px';
+        descLabel.paddingRight = '6px';
+        descLabel.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        descLabel.top = '22px';
+        descLabel.height = '32px';
         inner.addControl(descLabel);
 
         // Cost display
         if (!capped) {
             const costLabel = new TextBlock(`shopCost_${item.id}`, `◯ ${cost}`);
             costLabel.color = canAfford ? '#ffd700' : '#e04040';
-            costLabel.fontSize = 14;
+            costLabel.fontSize = 12;
             costLabel.fontWeight = 'bold';
             costLabel.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-            costLabel.paddingRight = '10px';
+            costLabel.paddingRight = '8px';
             costLabel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-            costLabel.paddingBottom = '8px';
-            costLabel.height = '20px';
+            costLabel.paddingBottom = '5px';
+            costLabel.height = '16px';
             inner.addControl(costLabel);
         }
 
@@ -345,7 +359,7 @@ export class BetweenWaveShopOverlay {
 
             // Description — show only if not narrow
             if (!narrow) {
-                const descLabel = new TextBlock(`shopDesc_${item.id}`, item.description);
+                const descLabel = new TextBlock(`shopDesc_${item.id}`, this._describeWithCurrent(item, capped));
                 descLabel.color = '#999';
                 descLabel.fontSize = 11;
                 descLabel.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
@@ -402,6 +416,18 @@ export class BetweenWaveShopOverlay {
             onStartNextWave();
         });
         this.panel!.addControl(startBtn);
+    }
+
+    /**
+     * Compose the description line with an optional current-value suffix.
+     * Reads `currentValue()` lazily so the shown number reflects the latest
+     * purchase (re-built between buys via `_build()`).
+     */
+    private _describeWithCurrent(item: ShopItem, capped: boolean): string {
+        if (capped) return item.description;
+        const cv = item.currentValue?.();
+        if (!cv) return item.description;
+        return `${item.description}\n${cv}`;
     }
 
     private _removeResizeListener(): void {

@@ -34,6 +34,10 @@ export class BossEnemy extends Enemy {
         this.meleeWindupDuration   = 0.5;
         this.meleeStrikeDuration   = 0.18;
         this.meleeCooldownDuration = 0.85;
+
+        // Boss-tier HP bar: 2.5× wide, segmented, red glowing frame, name label
+        // anchored above the horns.
+        this.applyHealthBarTier('boss', { heightOffset: 3.6, label: 'Abyssal Titan' });
     }
 
     /**

@@ -26,6 +26,8 @@ import { AbilityManager } from '../gameplay/AbilityManager';
 import { DamageNumberManager } from '../gameplay/DamageNumberManager';
 import { RunItems, ItemId } from '../gameplay/RunItems';
 import { ItemDrop } from '../gameplay/ItemDrop';
+import { createProceduralGrass } from '../rendering/ProceduralGrass';
+import { createProceduralGrassTexture } from '../rendering/ProceduralGrassTexture';
 
 /**
  * Module-level cache for champion GLBs. Loaded on demand inside enter() (not at
@@ -51,6 +53,7 @@ const ENEMY_GLB_PATHS: Partial<Record<string, { dir: string; file: string }>> = 
     healer_elite:{ dir: 'assets/blue-super-wizard/source/',            file: 'blue_super_wizard.glb' },
     splitting:   { dir: 'assets/thunder-fenrir/source/',               file: 'thunder_fenrir.glb' },
     mini:        { dir: 'assets/thunder-fenrir-cab/source/',           file: 'thunder_fenrir_cab.glb' },
+    shield:      { dir: 'assets/red-super-melee-minion/source/',       file: 'red_super_melee_minion.glb' },
     // Per-tier milestone-boss GLBs (waves 5/10/15/20). EnemyManager picks the right
     // one from MilestoneBoss.waveTier when staging on MilestoneBoss.pendingAsset.
     boss_tier1:  { dir: 'assets/thamuz-lord-lava-in-game/source/',         file: 'thamuz_lord_lava_in_game.glb' },
@@ -281,6 +284,7 @@ export class SurvivorsGameplayState implements GameState {
             championAsset ?? undefined,
         );
         this.hero.controlMode = 'player';
+        this.hero.enableTorch();
 
         this.heroController = new HeroController(
             this.scene,
@@ -544,24 +548,30 @@ export class SurvivorsGameplayState implements GameState {
         spot.intensity = 3.0;
         spot.diffuse = new Color3(1.0, 0.55, 0.18);
 
-        // ── Grass floor — locally-bundled DDS tiled across the arena ──────────
-        const grassTex = new Texture(
-            'assets/textures/grass.dds',
-            scene,
-            true,                            // noMipmap (DDS often ships its own)
-            false,                           // invertY
-            Texture.TRILINEAR_SAMPLINGMODE,
-        );
-        grassTex.uScale = 8;
-        grassTex.vScale = 8;
-        const grass = MeshBuilder.CreateDisc('ruinsGrassGround', { radius: 22, tessellation: 48 }, scene);
-        grass.rotation.x = Math.PI / 2;
-        grass.position.y = 0.001; // just above the existing arena ground discs
-        const grassMat = new StandardMaterial('ruinsGrassMat', scene);
-        grassMat.diffuseTexture = grassTex;
-        grassMat.specularColor = Color3.Black();
-        grass.material = grassMat;
-        grass.receiveShadows = true;
+        // ── Grass floor ──────────────────────────────────────────────────────
+        // Two-layer setup:
+        //  1) Ground disc with a Hoskins-style procedural grass texture
+        //     (Voronoi + multi-octave noise, baked once at startup → zero
+        //     per-frame cost, works on WebGL and WebGPU identically).
+        //  2) ~8000 hardware-instanced grass blades on top of it, with a
+        //     vertex-shader wind animation for motion.
+        const ground = MeshBuilder.CreateDisc('ruinsGrassGround', { radius: 22, tessellation: 48 }, scene);
+        ground.rotation.x = Math.PI / 2;
+        ground.position.y = 0.001;
+        const groundMat = new StandardMaterial('ruinsGrassMat', scene);
+        // size=2048 + tile=1: the texture is rendered once at 2048² and stretched
+        // across the whole arena disc, so there are no tiling seams. Memory cost
+        // ~16 MiB VRAM, drawn once at startup → free at runtime.
+        groundMat.diffuseTexture = createProceduralGrassTexture(scene, { size: 2048, tile: 1 });
+        groundMat.specularColor = Color3.Black();
+        groundMat.backFaceCulling = false;
+        ground.material = groundMat;
+        ground.receiveShadows = true;
+
+        createProceduralGrass(scene, {
+            arenaRadius: this.map?.getArenaRadius() ?? 20,
+            bladeCount: 8000,
+        });
     }
 
     private spawnItemDrop(position: Vector3, waveTier: number): void {
@@ -811,6 +821,25 @@ export class SurvivorsGameplayState implements GameState {
         const orbDef = getPowerByElementAndClass(element as PowerElement, this.currentChampionType) ?? Object.values(POWER_DEFS)[0];
         const cards: PowerCard[] = [];
 
+        // Helper: build a "Lv X→Y · Dmg A→B · CD A.A s→B.Bs" subtitle for an upgrade.
+        const upgradeSubtitle = (def: typeof orbDef, fromLevel: number): string => {
+            const next = fromLevel + 1;
+            const curState  = { level: fromLevel, cooldownRemaining: 0 };
+            const nextState = { level: next,     cooldownRemaining: 0 };
+            const curDmg  = Math.round(def.damageFor(curState));
+            const nextDmg = Math.round(def.damageFor(nextState));
+            const curCd   = def.cooldownFor(curState).toFixed(1);
+            const nextCd  = def.cooldownFor(nextState).toFixed(1);
+            return `Lv ${fromLevel} → ${next}  ·  Dmg ${curDmg}→${nextDmg}  ·  CD ${curCd}s→${nextCd}s`;
+        };
+        // Helper: subtitle for a freshly-added power (no current values yet).
+        const newPowerSubtitle = (def: typeof orbDef): string => {
+            const state = { level: 1, cooldownRemaining: 0 };
+            const dmg = Math.round(def.damageFor(state));
+            const cd  = def.cooldownFor(state).toFixed(1);
+            return `New  ·  Dmg ${dmg}  ·  CD ${cd}s`;
+        };
+
         // Card A: the orb's power
         const owned     = this.powerSlots.hasPower(orbDef.id);
         const slotData  = this.powerSlots.getSlots().find(s => s?.def.id === orbDef.id);
@@ -820,8 +849,8 @@ export class SurvivorsGameplayState implements GameState {
             kind:     'power',
             title:    orbDef.name,
             subtitle: owned
-                ? `Lv ${slotData!.state.level} → ${slotData!.state.level + 1}`
-                : slotsFull ? 'New (Replace slot)' : 'New',
+                ? upgradeSubtitle(orbDef, slotData!.state.level)
+                : slotsFull ? `${newPowerSubtitle(orbDef)} (replace slot)` : newPowerSubtitle(orbDef),
             onPick: () => {
                 if (owned) {
                     this.powerSlots!.levelUp(orbDef.id);
@@ -844,7 +873,7 @@ export class SurvivorsGameplayState implements GameState {
             cards.push({
                 kind:     'wildcard',
                 title:    target.def.name,
-                subtitle: `Lv ${target.state.level} → ${target.state.level + 1}`,
+                subtitle: upgradeSubtitle(target.def, target.state.level),
                 onPick: () => this.powerSlots!.levelUp(target.def.id),
             });
         } else {
@@ -858,7 +887,7 @@ export class SurvivorsGameplayState implements GameState {
             cards.push({
                 kind:     'wildcard',
                 title:    altDef.name,
-                subtitle: 'New',
+                subtitle: newPowerSubtitle(altDef),
                 onPick: () => this.powerSlots!.addPower(altDef.id),
             });
         }
@@ -952,6 +981,17 @@ export class SurvivorsGameplayState implements GameState {
     }
 
     private buildShopItems(): ShopItem[] {
+        // Format multiplier as a percentage delta vs the 1.0 baseline (e.g., 1.15 -> "+15%").
+        const pctDelta = (mult: number): string => {
+            const pct = (mult - 1) * 100;
+            return `${pct >= 0 ? '+' : ''}${pct.toFixed(0)}%`;
+        };
+        const pctInv = (mult: number): string => {
+            // For multipliers where lower = better (cooldown, damage taken).
+            const pct = (1 - mult) * 100;
+            return `${pct >= 0 ? '-' : '+'}${Math.abs(pct).toFixed(0)}%`;
+        };
+
         return [
             {
                 id:          'vitality',
@@ -960,6 +1000,10 @@ export class SurvivorsGameplayState implements GameState {
                 baseCost:    30,
                 costGrowth:  1.5,
                 isCapped:    () => false,
+                currentValue: () => {
+                    const cur  = this.heroController?.getHealth().max ?? 0;
+                    return `now ${cur} → ${cur + 20} HP`;
+                },
                 apply: () => {
                     this.playerStats!.incrementPurchase('vitality');
                     this.playerStats!.bonusMaxHealth += 20;
@@ -974,6 +1018,10 @@ export class SurvivorsGameplayState implements GameState {
                 baseCost:    40,
                 costGrowth:  1.6,
                 isCapped:    () => false,
+                currentValue: () => {
+                    const cur  = this.playerStats!.moveSpeedMultiplier;
+                    return `now ${pctDelta(cur)} → ${pctDelta(cur * 1.05)}`;
+                },
                 apply: () => {
                     this.playerStats!.incrementPurchase('swiftness');
                     this.playerStats!.moveSpeedMultiplier *= 1.05;
@@ -989,6 +1037,10 @@ export class SurvivorsGameplayState implements GameState {
                 baseCost:    35,
                 costGrowth:  1.55,
                 isCapped:    () => false,
+                currentValue: () => {
+                    const cur  = this.playerStats!.attackRangeMultiplier;
+                    return `now ${pctDelta(cur)} → ${pctDelta(cur * 1.05)}`;
+                },
                 apply: () => {
                     this.playerStats!.incrementPurchase('reach');
                     this.playerStats!.attackRangeMultiplier *= 1.05;
@@ -1004,6 +1056,10 @@ export class SurvivorsGameplayState implements GameState {
                 baseCost:    50,
                 costGrowth:  1.7,
                 isCapped:    () => false,
+                currentValue: () => {
+                    const cur  = this.playerStats!.powerDamageMultiplier;
+                    return `now ${pctDelta(cur)} → ${pctDelta(cur * 1.05)}`;
+                },
                 apply: () => {
                     this.playerStats!.incrementPurchase('power');
                     this.playerStats!.powerDamageMultiplier *= 1.05;
@@ -1015,7 +1071,12 @@ export class SurvivorsGameplayState implements GameState {
                 description: '-5% all power cooldowns',
                 baseCost:    60,
                 costGrowth:  1.7,
-                isCapped:    (count) => this.playerStats!.powerCooldownMultiplier <= 0.5,
+                isCapped:    (_count) => this.playerStats!.powerCooldownMultiplier <= 0.5,
+                currentValue: () => {
+                    const cur  = this.playerStats!.powerCooldownMultiplier;
+                    const nxt  = Math.max(0.5, cur * 0.95);
+                    return `now ${pctInv(cur)} → ${pctInv(nxt)} cooldown`;
+                },
                 apply: () => {
                     this.playerStats!.incrementPurchase('haste');
                     this.playerStats!.powerCooldownMultiplier = Math.max(
@@ -1031,6 +1092,11 @@ export class SurvivorsGameplayState implements GameState {
                 baseCost:    45,
                 costGrowth:  1.5,
                 isCapped:    () => this.playerStats!.damageReductionMultiplier <= 0.2,
+                currentValue: () => {
+                    const cur  = this.playerStats!.damageReductionMultiplier;
+                    const nxt  = Math.max(0.2, cur * 0.95);
+                    return `now ${pctInv(cur)} → ${pctInv(nxt)} damage taken`;
+                },
                 apply: () => {
                     this.playerStats!.incrementPurchase('bulwark');
                     this.playerStats!.damageReductionMultiplier = Math.max(
@@ -1046,6 +1112,10 @@ export class SurvivorsGameplayState implements GameState {
                 baseCost:    45,
                 costGrowth:  1.6,
                 isCapped:    () => false,
+                currentValue: () => {
+                    const cur  = this.playerStats!.basicAttackSpeedMultiplier;
+                    return `now ${pctDelta(cur)} → ${pctDelta(cur * 1.05)}`;
+                },
                 apply: () => {
                     this.playerStats!.incrementPurchase('quickness');
                     this.playerStats!.basicAttackSpeedMultiplier *= 1.05;
@@ -1059,6 +1129,11 @@ export class SurvivorsGameplayState implements GameState {
                 baseCost:    55,
                 costGrowth:  1.65,
                 isCapped:    () => this.playerStats!.critChance >= 1.0,
+                currentValue: () => {
+                    const cur = this.playerStats!.critChance * 100;
+                    const nxt = Math.min(100, cur + 1);
+                    return `now ${cur.toFixed(0)}% → ${nxt.toFixed(0)}% crit`;
+                },
                 apply: () => {
                     this.playerStats!.incrementPurchase('precision');
                     this.playerStats!.critChance = Math.min(1.0, this.playerStats!.critChance + 0.01);
@@ -1071,6 +1146,11 @@ export class SurvivorsGameplayState implements GameState {
                 baseCost:    55,
                 costGrowth:  1.65,
                 isCapped:    () => false,
+                currentValue: () => {
+                    const cur = this.playerStats!.critDamageMultiplier;
+                    const nxt = cur + 0.05;
+                    return `now ${cur.toFixed(2)}× → ${nxt.toFixed(2)}× crit dmg`;
+                },
                 apply: () => {
                     this.playerStats!.incrementPurchase('savagery');
                     this.playerStats!.critDamageMultiplier += 0.05;

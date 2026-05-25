@@ -1,16 +1,31 @@
-import { Vector3, MeshBuilder, StandardMaterial, Color3, Color4, ParticleSystem, Mesh } from '@babylonjs/core';
+import { Vector3, MeshBuilder, StandardMaterial, Color3, Color4, ParticleSystem, Mesh, AssetContainer, AnimationGroup, TransformNode, Quaternion } from '@babylonjs/core';
 import { Game } from '../../Game';
 import { Enemy, getStatusEffectTexture } from './Enemy';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../rendering/LowPolyMaterial';
 import { PALETTE } from '../../rendering/StyleConstants';
 
 export class ShieldEnemy extends Enemy {
+    /** Static slot used by EnemyManager.spawnSurvivorsEnemy to stage a preloaded GLB
+     *  asset before constructing a ShieldEnemy. createMesh() consumes + clears it. */
+    public static pendingAsset: AssetContainer | null = null;
+
     private walkTime: number = 0;
     private head: Mesh | null = null;
     private leftLeg: Mesh | null = null;
     private rightLeg: Mesh | null = null;
     private leftArm: Mesh | null = null;
     private rightArm: Mesh | null = null;
+
+    /** True when this instance renders via the red-super-melee-minion GLB. */
+    private usingGLB: boolean = false;
+    private glbWalkAnim: AnimationGroup | null = null;
+    private glbAttackAnim: AnimationGroup | null = null;
+    private glbIdleAnim: AnimationGroup | null = null;
+    private glbCurrentAnim: AnimationGroup | null = null;
+    private glbAttackHoldTimer: number = 0;
+    private static readonly GLB_ATTACK_RANGE = 3.5;
+    private static readonly GLB_ATTACK_HOLD  = 0.6;
+    private static readonly GLB_SCALE        = 1.25;
 
     // Shield mechanic
     private shield: number = 30;
@@ -37,14 +52,101 @@ export class ShieldEnemy extends Enemy {
         this.meleeWindupDuration   = 0.4;
         this.meleeStrikeDuration   = 0.12;
         this.meleeCooldownDuration = 0.7;
+
+        // Anchor HP bar above the helmet (taller than base enemy).
+        this.applyHealthBarTier('normal', { heightOffset: 1.9 });
+
+        // Spawn the shield dome lazily here — the GLB createMesh path runs
+        // before this constructor body so we attach the dome regardless of
+        // which mesh pipeline rendered the body.
+        this._buildShieldDome();
     }
 
     /**
-     * Create the enemy mesh - low-poly Armored Paladin
+     * Create the enemy mesh. If a GLB asset was staged via ShieldEnemy.pendingAsset
+     * (set by EnemyManager just before construction), instantiate it. Otherwise fall
+     * back to the procedural armored-paladin build below.
+     */
+    protected createMesh(): void {
+        const asset = ShieldEnemy.pendingAsset;
+        ShieldEnemy.pendingAsset = null;
+        if (asset) {
+            this.createMeshFromGLB(asset);
+            return;
+        }
+        this.createMeshProcedural();
+    }
+
+    private createMeshFromGLB(asset: AssetContainer): void {
+        this.usingGLB = true;
+        this.mesh = new Mesh('shieldEnemyGlbRoot', this.scene);
+        this.mesh.position.copyFrom(this.position);
+
+        const inst = asset.instantiateModelsToScene(
+            name => `shield_${name}`,
+            true,
+            { doNotInstantiate: true },
+        );
+        for (const root of inst.rootNodes) {
+            root.parent = this.mesh;
+            if ('scaling' in root && root.scaling) {
+                (root as TransformNode).scaling.scaleInPlace(ShieldEnemy.GLB_SCALE);
+            }
+            // 180° Y flip — same pattern as BasicEnemy GLB so the model faces the hero.
+            const tn = root as TransformNode;
+            const flip = Quaternion.RotationYawPitchRoll(Math.PI, 0, 0);
+            if (tn.rotationQuaternion) {
+                tn.rotationQuaternion = flip.multiply(tn.rotationQuaternion);
+            } else if (tn.rotation) {
+                tn.rotation.y += Math.PI;
+            }
+        }
+
+        // Feet-on-ground offset.
+        this.mesh.computeWorldMatrix(true);
+        const bbox = this.mesh.getHierarchyBoundingVectors(true);
+        const feetOffset = -bbox.min.y;
+        for (const root of inst.rootNodes) {
+            if ('position' in root && root.position) {
+                (root as TransformNode).position.y += feetOffset;
+            }
+        }
+
+        this.glbAnimationGroups = inst.animationGroups;
+        for (const ag of inst.animationGroups) ag.stop();
+        for (const ag of inst.animationGroups) {
+            const n = ag.name.toLowerCase();
+            if (!this.glbWalkAnim && (n.includes('walk') || n.includes('run'))) {
+                this.glbWalkAnim = ag;
+            } else if (!this.glbAttackAnim && (n.includes('attack') || n.includes('hit') || n.includes('punch') || n.includes('strike') || n.includes('swing'))) {
+                this.glbAttackAnim = ag;
+            } else if (!this.glbIdleAnim && (n.includes('idle') || n === 'stand')) {
+                this.glbIdleAnim = ag;
+            }
+        }
+        if (!this.glbWalkAnim && inst.animationGroups.length > 0) this.glbWalkAnim = inst.animationGroups[0];
+        if (!this.glbIdleAnim) this.glbIdleAnim = this.glbWalkAnim;
+        if (!this.glbAttackAnim) this.glbAttackAnim = this.glbWalkAnim;
+        if (this.glbWalkAnim) {
+            this.glbWalkAnim.start(true);
+            this.glbCurrentAnim = this.glbWalkAnim;
+        }
+    }
+
+    private playGlbAnim(slot: AnimationGroup | null, loop: boolean): void {
+        if (!slot) return;
+        if (this.glbCurrentAnim === slot) return;
+        if (this.glbCurrentAnim) this.glbCurrentAnim.stop();
+        slot.start(loop);
+        this.glbCurrentAnim = slot;
+    }
+
+    /**
+     * Create the enemy mesh - low-poly Armored Paladin (procedural fallback)
      * Bulky armored body, helmet with gold visor, tower shield on left arm,
      * short sword on right, armored legs with boots
      */
-    protected createMesh(): void {
+    private createMeshProcedural(): void {
         // --- Torso: wide bulky box (heavy armor) ---
         this.mesh = MeshBuilder.CreateBox('shieldEnemyBody', {
             width: 0.85,
@@ -333,20 +435,27 @@ export class ShieldEnemy extends Enemy {
         rightBoot.position = new Vector3(0, -0.30, 0.04);
         rightBoot.material = createLowPolyMaterial('shieldRightBootMat', PALETTE.ENEMY_SHIELD_PLATE, this.scene);
 
-        // --- Shield dome: translucent blue sphere surrounding the enemy ---
-        // Alpha is proportional to shield fraction; invisible when shield is depleted.
+        // Store original scale (dome is built once in the constructor for both
+        // GLB and procedural pipelines via _buildShieldDome).
+        this.originalScale = 1.0;
+    }
+
+    /**
+     * Build the translucent blue shield dome and parent it to the body mesh.
+     * Called once from the constructor (after createMesh), so it works whether
+     * the GLB or the procedural mesh provides the root.
+     */
+    private _buildShieldDome(): void {
+        if (!this.mesh || this.shieldDome) return;
         this.shieldDome = MeshBuilder.CreateSphere('shieldDome', { diameter: 1.80, segments: 6 }, this.scene);
         this.shieldDome.parent = this.mesh;
-        this.shieldDome.position = new Vector3(0, 0.15, 0);
+        this.shieldDome.position = new Vector3(0, 0.95, 0);
         const domeMat = new StandardMaterial('shieldDomeMat', this.scene);
-        domeMat.diffuseColor = new Color3(0.40, 0.60, 1.0);
+        domeMat.diffuseColor  = new Color3(0.40, 0.60, 1.0);
         domeMat.emissiveColor = new Color3(0.15, 0.30, 0.60);
         domeMat.specularColor = Color3.Black();
         domeMat.alpha = 0.35; // full shield = 0.35
         this.shieldDome.material = domeMat;
-
-        // Store original scale
-        this.originalScale = 1.0;
     }
 
     /**
@@ -420,91 +529,8 @@ export class ShieldEnemy extends Enemy {
         });
     }
 
-    /**
-     * Override the health bar creation for shield enemies (positioned higher due to tall model)
-     */
-    protected createHealthBar(): void {
-        if (!this.mesh) return;
-
-        // Outline
-        this.healthBarOutlineMesh = MeshBuilder.CreateBox('healthBarOutline', {
-            width: 1.08,
-            height: 0.14,
-            depth: 0.04
-        }, this.scene);
-        this.healthBarOutlineMesh.position = new Vector3(this.position.x, this.position.y + 1.9, this.position.z);
-        const outlineMat = new StandardMaterial('healthBarOutlineMat', this.scene);
-        outlineMat.diffuseColor = new Color3(0, 0, 0);
-        outlineMat.specularColor = Color3.Black();
-        this.healthBarOutlineMesh.material = outlineMat;
-
-        // Background bar
-        this.healthBarBackgroundMesh = MeshBuilder.CreateBox('healthBarBg', {
-            width: 1.0,
-            height: 0.08,
-            depth: 0.05
-        }, this.scene);
-        this.healthBarBackgroundMesh.position = new Vector3(this.position.x, this.position.y + 1.9, this.position.z);
-        const bgMat = new StandardMaterial('healthBarBgMat', this.scene);
-        bgMat.diffuseColor = new Color3(0.3, 0.3, 0.3);
-        bgMat.specularColor = Color3.Black();
-        this.healthBarBackgroundMesh.material = bgMat;
-
-        // Health bar
-        this.healthBarMesh = MeshBuilder.CreateBox('healthBar', {
-            width: 1.0,
-            height: 0.08,
-            depth: 0.06
-        }, this.scene);
-        this.healthBarMesh.position = new Vector3(this.position.x, this.position.y + 1.9, this.position.z);
-        const healthMat = new StandardMaterial('healthBarMat', this.scene);
-        healthMat.diffuseColor = new Color3(0.2, 0.8, 0.2);
-        healthMat.specularColor = Color3.Black();
-        this.healthBarMesh.material = healthMat;
-
-        // Billboard mode
-        this.healthBarOutlineMesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
-        this.healthBarBackgroundMesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
-        this.healthBarMesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
-
-        this.updateHealthBar();
-    }
-
-    /**
-     * Override the updateHealthBar method for shield enemies
-     */
-    protected updateHealthBar(): void {
-        if (!this.mesh || !this.healthBarMesh || !this.healthBarBackgroundMesh) return;
-
-        const healthPercent = Math.max(0, this.health / this.maxHealth);
-
-        this.healthBarMesh.scaling.x = healthPercent;
-
-        const offset = (1 - healthPercent) * 0.5;
-        this.healthBarMesh.position.x = this.position.x - offset;
-
-        const material = this.healthBarMesh.material as StandardMaterial;
-        if (healthPercent > 0.6) {
-            material.diffuseColor = new Color3(0.2, 0.8, 0.2);
-        } else if (healthPercent > 0.3) {
-            material.diffuseColor = new Color3(0.8, 0.8, 0.2);
-        } else {
-            material.diffuseColor = new Color3(0.8, 0.2, 0.2);
-        }
-
-        if (this.healthBarOutlineMesh && !this.healthBarOutlineMesh.isDisposed()) {
-            this.healthBarOutlineMesh.position.x = this.position.x;
-            this.healthBarOutlineMesh.position.y = this.position.y + 1.9;
-            this.healthBarOutlineMesh.position.z = this.position.z;
-        }
-
-        this.healthBarBackgroundMesh.position.x = this.position.x;
-        this.healthBarBackgroundMesh.position.y = this.position.y + 1.9;
-        this.healthBarBackgroundMesh.position.z = this.position.z;
-
-        this.healthBarMesh.position.y = this.position.y + 1.9;
-        this.healthBarMesh.position.z = this.position.z;
-    }
+    // HP bar creation/update is inherited from Enemy.ts and anchored by
+    // `barHeightOffset` set in the constructor via applyHealthBarTier.
 
     /**
      * Override takeDamage to implement shield absorption
@@ -564,6 +590,31 @@ export class ShieldEnemy extends Enemy {
 
         // Get the result from the parent update method
         const result = super.update(deltaTime);
+
+        // GLB-driven instances: skip procedural limb animation and use clip switching.
+        if (this.usingGLB) {
+            if (this.glbAttackHoldTimer > 0) {
+                this.glbAttackHoldTimer = Math.max(0, this.glbAttackHoldTimer - deltaTime);
+            }
+            if (this.isFrozen || this.isStunned) {
+                this.playGlbAnim(this.glbIdleAnim, true);
+            } else if (this.seekTarget) {
+                const heroPos = this.seekTarget.getPosition();
+                const dx = heroPos.x - this.position.x;
+                const dz = heroPos.z - this.position.z;
+                const distSq = dx * dx + dz * dz;
+                const inRange = distSq <= ShieldEnemy.GLB_ATTACK_RANGE * ShieldEnemy.GLB_ATTACK_RANGE;
+                if (inRange) this.glbAttackHoldTimer = ShieldEnemy.GLB_ATTACK_HOLD;
+                if (this.glbAttackHoldTimer > 0) {
+                    this.playGlbAnim(this.glbAttackAnim, true);
+                } else {
+                    this.playGlbAnim(this.glbWalkAnim, true);
+                }
+            } else {
+                this.playGlbAnim(this.glbWalkAnim, true);
+            }
+            return result;
+        }
 
         // Update walking animation: heavy stomp/march
         if (!this.isFrozen && !this.isStunned && this.currentPathIndex < this.path.length && this.mesh) {

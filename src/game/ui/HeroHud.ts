@@ -65,7 +65,7 @@ export class HeroHud {
         cdMask: Rectangle;
     }[] = [];
     private abilityManager: AbilityManager | null = null;
-    private ultimateContainers: { bg: Rectangle; label: TextBlock; cdMask: Rectangle }[] = [];
+    private ultimateContainers: { bg: Rectangle; label: TextBlock; cdMask: Rectangle; cdText: TextBlock }[] = [];
     private lowHpVignette!: Rectangle;
     private lowHpPulseTime: number = 0;
 
@@ -272,8 +272,9 @@ export class HeroHud {
         this._buildPauseButton({ sizePx: 25, rightOffset: 10 + 110 + 8 });
 
         // ── 4 power-slot icons — bottom-center row ────────────────────────
-        const slotSize = 56;
-        const slotGap = 8;
+        // Sized to match the items row above (so lifesteal / power slots align visually).
+        const slotSize = 36;
+        const slotGap = 6;
         const slotRowWidth = slotSize * 4 + slotGap * 3;
 
         const slotRow = new Rectangle('slotRow');
@@ -300,7 +301,7 @@ export class HeroHud {
 
             const icon = new TextBlock(`slotIcon_${i}`, '+');
             icon.color = '#666';
-            icon.fontSize = 26;
+            icon.fontSize = 19;
             icon.fontFamily = 'Arial';
             icon.shadowColor = STYLE.textShadowColor;
             icon.shadowBlur = STYLE.textShadowBlur;
@@ -308,15 +309,15 @@ export class HeroHud {
 
             const level = new TextBlock(`slotLvl_${i}`, '');
             level.color = '#fff';
-            level.fontSize = 11;
+            level.fontSize = 10;
             level.fontStyle = 'bold';
             level.fontFamily = 'Arial';
             level.shadowColor = STYLE.textShadowColor;
             level.shadowBlur = STYLE.textShadowBlur;
             level.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
             level.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-            level.paddingRight = '4px';
-            level.paddingBottom = '2px';
+            level.paddingRight = '3px';
+            level.paddingBottom = '1px';
             bg.addControl(level);
 
             const cdMask = new Rectangle(`slotCd_${i}`);
@@ -453,8 +454,9 @@ export class HeroHud {
         this._buildPauseButton({ sizePx: 28, rightOffset: 10 + 90 + 8 });
 
         // ── 4 power-slot icons — bottom-center row ────────────────────────
-        const slotSize = 42;
-        const slotGap = 8;
+        // Sized to match the items row above (so lifesteal / power slots align visually).
+        const slotSize = 28;
+        const slotGap = 4;
         const slotRowWidth = slotSize * 4 + slotGap * 3;
 
         const slotRow = new Rectangle('slotRow');
@@ -481,7 +483,7 @@ export class HeroHud {
 
             const icon = new TextBlock(`slotIcon_${i}`, '+');
             icon.color = '#666';
-            icon.fontSize = 20;
+            icon.fontSize = 15;
             icon.fontFamily = 'Arial';
             icon.shadowColor = STYLE.textShadowColor;
             icon.shadowBlur = STYLE.textShadowBlur;
@@ -489,7 +491,7 @@ export class HeroHud {
 
             const level = new TextBlock(`slotLvl_${i}`, '');
             level.color = '#fff';
-            level.fontSize = 9;
+            level.fontSize = 8;
             level.fontStyle = 'bold';
             level.fontFamily = 'Arial';
             level.shadowColor = STYLE.textShadowColor;
@@ -705,6 +707,18 @@ export class HeroHud {
             cdMask.isPointerBlocker = false;
             bg.addControl(cdMask);
 
+            // Remaining-seconds text on top of the cooldown sweep; hidden when ready.
+            const cdText = new TextBlock(`ultCdTxt_${i}`, '');
+            cdText.color = '#ffffff';
+            cdText.fontSize = Math.max(12, Math.round(opts.btnSize * 0.36));
+            cdText.fontStyle = 'bold';
+            cdText.fontFamily = 'Arial';
+            cdText.shadowColor = '#000000';
+            cdText.shadowBlur = 4;
+            cdText.isVisible = false;
+            cdText.isPointerBlocker = false;
+            bg.addControl(cdText);
+
             const capturedId = def.id;
             addPressFeedback(bg, () => {
                 if (!this.abilityManager) return;
@@ -715,7 +729,7 @@ export class HeroHud {
                 }
             });
 
-            this.ultimateContainers.push({ bg, label, cdMask });
+            this.ultimateContainers.push({ bg, label, cdMask, cdText });
         });
     }
 
@@ -859,7 +873,7 @@ export class HeroHud {
         if (this.abilityManager) {
             const registeredIds = this.abilityManager.getRegisteredAbilityIds();
             for (let i = 0; i < this.ultimateContainers.length; i++) {
-                const { cdMask } = this.ultimateContainers[i];
+                const { cdMask, cdText, label } = this.ultimateContainers[i];
                 const abilityId = registeredIds[i];
                 if (!abilityId) continue;
                 const ability = this.abilityManager.getAbility(abilityId);
@@ -868,6 +882,18 @@ export class HeroHud {
                         ? 0
                         : Math.min(1, ability.currentCooldown / Math.max(0.001, ability.cooldown));
                     cdMask.height = frac;
+
+                    if (ability.isReady) {
+                        cdText.isVisible = false;
+                        label.alpha     = 1;
+                    } else {
+                        const secs = ability.currentCooldown;
+                        cdText.text = secs >= 10
+                            ? `${Math.ceil(secs)}`
+                            : secs.toFixed(1);
+                        cdText.isVisible = true;
+                        label.alpha     = 0.35; // dim the glyph while on cooldown
+                    }
                 }
             }
         }

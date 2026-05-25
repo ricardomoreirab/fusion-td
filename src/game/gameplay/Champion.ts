@@ -1,4 +1,4 @@
-import { Vector3, MeshBuilder, Mesh, Color3, Color4, ParticleSystem, StandardMaterial, AssetContainer, AnimationGroup, TransformNode } from '@babylonjs/core';
+import { Vector3, MeshBuilder, Mesh, Color3, Color4, ParticleSystem, StandardMaterial, AssetContainer, AnimationGroup, TransformNode, PointLight } from '@babylonjs/core';
 import { Game } from '../Game';
 import { Enemy } from './enemies/Enemy';
 import { EnemyManager } from './EnemyManager';
@@ -90,6 +90,11 @@ export class Champion extends Enemy {
 
     // Pooled footstep dust particle system (barbarian only)
     private barbFootDustPs: ParticleSystem | null = null;
+
+    // Torch light — warm point light that follows the hero with a gentle flicker.
+    private torchLight: PointLight | null = null;
+    private torchBaseIntensity: number = 0;
+    private torchFlickerTime: number = 0;
 
     // Per-element weapon decoration meshes, created lazily on first activation
     private elementDecorations: Map<string, Mesh[]> = new Map();
@@ -1040,28 +1045,10 @@ export class Champion extends Enemy {
         this.originalScale = 1.0;
     }
 
-    /**
-     * Override health bar to use blue color (friendly unit)
-     */
-    protected createHealthBar(): void {
-        super.createHealthBar();
-        // Change health bar to blue for friendly units
-        if (this.healthBarMesh) {
-            const mat = this.healthBarMesh.material as StandardMaterial;
-            mat.diffuseColor = new Color3(0.2, 0.5, 1.0);
-        }
-    }
-
-    /**
-     * Override to always show blue health bar regardless of HP %
-     */
-    protected updateHealthBar(): void {
-        super.updateHealthBar();
-        if (this.healthBarMesh) {
-            const mat = this.healthBarMesh.material as StandardMaterial;
-            mat.diffuseColor = new Color3(0.2, 0.5, 1.0);
-        }
-    }
+    // Champion HP is shown via the HUD pill (HeroHud), never a floating in-world bar.
+    // Override both to no-ops so no mesh is ever created.
+    protected createHealthBar(): void { /* intentionally empty — player HP lives in the HUD */ }
+    protected updateHealthBar(): void { /* intentionally empty — player HP lives in the HUD */ }
 
     /**
      * Update the champion — attack, block, and move along reversed path
@@ -1171,6 +1158,8 @@ export class Champion extends Enemy {
             if (this.championType === 'barbarian') {
                 this.tickBarbSpinFx(deltaTime);
             }
+
+            this._tickTorch(deltaTime);
 
             this.updateHealthBar();
             return false; // never "reached end of path"
@@ -1590,6 +1579,48 @@ export class Champion extends Enemy {
     }
 
     /**
+     * Attach a warm, flickering point light to the hero — reads as a torch.
+     * Parented to the mesh so it follows the hero without per-frame position
+     * sync. Idempotent: a second call is a no-op.
+     */
+    public enableTorch(): void {
+        if (this.torchLight || !this.mesh) return;
+
+        const torch = new PointLight('heroTorch', new Vector3(0, 2.4, 0.2), this.scene);
+        torch.diffuse  = new Color3(1.00, 0.62, 0.28); // warm flame
+        torch.specular = new Color3(0, 0, 0);          // low-poly mats have no specular
+        torch.intensity = 2.4;
+        torch.range     = 11;
+        torch.parent    = this.mesh;
+
+        this.torchLight          = torch;
+        this.torchBaseIntensity  = torch.intensity;
+        this.torchFlickerTime    = 0;
+    }
+
+    /** Two-octave noisy flicker around the base intensity. */
+    private _tickTorch(deltaTime: number): void {
+        if (!this.torchLight) return;
+        this.torchFlickerTime += deltaTime;
+        const t = this.torchFlickerTime;
+        const flicker = Math.sin(t * 11.0) * 0.07 + Math.sin(t * 23.7 + 1.3) * 0.04;
+        this.torchLight.intensity = this.torchBaseIntensity * (1 + flicker);
+    }
+
+    private _disposeTorch(): void {
+        if (this.torchLight) {
+            this.torchLight.dispose();
+            this.torchLight = null;
+        }
+    }
+
+    /** Add torch disposal on top of the base Enemy cleanup. */
+    public dispose(): void {
+        this._disposeTorch();
+        super.dispose();
+    }
+
+    /**
      * Override die to skip gold reward and player damage events.
      * Only creates death particle burst and disposes.
      */
@@ -1599,6 +1630,8 @@ export class Champion extends Enemy {
 
         // Death particle burst (gold/blue themed)
         this.createChampionDeathEffect();
+
+        this._disposeTorch();
 
         // Dispose mesh and health bars
         if (this.mesh) {
