@@ -1586,11 +1586,14 @@ export class Champion extends Enemy {
     public enableTorch(): void {
         if (this.torchLight || !this.mesh) return;
 
-        const torch = new PointLight('heroTorch', new Vector3(0, 2.4, 0.2), this.scene);
+        // Position the torch near torso height (~1.4) so its cone reaches the
+        // ground close to the hero. Has to compete with the bright overhead
+        // SpotLight (intensity 3.0) so we bump it to 5.0 to be visible.
+        const torch = new PointLight('heroTorch', new Vector3(0, 1.4, 0.0), this.scene);
         torch.diffuse  = new Color3(1.00, 0.62, 0.28); // warm flame
         torch.specular = new Color3(0, 0, 0);          // low-poly mats have no specular
-        torch.intensity = 2.4;
-        torch.range     = 11;
+        torch.intensity = 5.0;
+        torch.range     = 9;
         torch.parent    = this.mesh;
 
         this.torchLight          = torch;

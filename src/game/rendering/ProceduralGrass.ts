@@ -43,6 +43,7 @@ uniform float uWindStrength;
 
 varying vec2 vUv;
 varying float vColorSeed;
+varying vec3 vWorldPos;
 
 void main(void) {
     vec4 worldPos = world * vec4(position, 1.0);
@@ -63,6 +64,7 @@ void main(void) {
     gl_Position = viewProjection * worldPos;
 
     vUv = uv;
+    vWorldPos = worldPos.xyz;
     // Pseudo-random per-blade seed from world position — used in the fragment
     // shader for color variation without needing a per-instance attribute.
     vColorSeed = fract(sin(dot(worldPos.xz, vec2(12.9898, 78.233))) * 43758.5453);
@@ -74,15 +76,32 @@ precision highp float;
 
 varying vec2 vUv;
 varying float vColorSeed;
+varying vec3 vWorldPos;
 
 uniform vec3 uColorRoot;
 uniform vec3 uColorTip;
 uniform vec3 uColorDry;
 
+// Single point light (the hero torch). uTorchIntensity=0 disables it cheaply
+// without needing a separate shader permutation.
+uniform vec3  uTorchPos;
+uniform vec3  uTorchColor;
+uniform float uTorchIntensity;
+uniform float uTorchRange;
+
 void main(void) {
     // Per-blade variation: most blades fresh green, ~25% leaning toward dry.
     vec3 tip = mix(uColorTip, uColorDry, smoothstep(0.65, 1.0, vColorSeed));
     vec3 color = mix(uColorRoot, tip, vUv.y);
+
+    // Torch contribution — smooth radial falloff (1 - d/r)² clamped to [0,1].
+    // No normal term (blades are flat billboards), just distance-based.
+    if (uTorchIntensity > 0.0) {
+        float d = distance(vWorldPos, uTorchPos);
+        float f = max(0.0, 1.0 - d / uTorchRange);
+        color += uTorchColor * (f * f) * uTorchIntensity;
+    }
+
     gl_FragColor = vec4(color, 1.0);
 }
 `;
@@ -151,6 +170,9 @@ export interface ProceduralGrassOptions {
 
 export interface ProceduralGrass {
     mesh: Mesh;
+    /** Update or disable the per-frame torch contribution.
+     *  Pass `null` (or call with intensity 0) to turn the torch off. */
+    setTorch: (params: { position: Vector3; color: Color3; intensity: number; range: number } | null) => void;
     dispose: () => void;
 }
 
@@ -191,7 +213,12 @@ export function createProceduralGrass(scene: Scene, opts: ProceduralGrassOptions
         { vertex: SHADER_KEY, fragment: SHADER_KEY },
         {
             attributes: ['position', 'uv'],
-            uniforms: ['world', 'viewProjection', 'uTime', 'uWindStrength', 'uColorRoot', 'uColorTip', 'uColorDry'],
+            uniforms: [
+                'world', 'viewProjection',
+                'uTime', 'uWindStrength',
+                'uColorRoot', 'uColorTip', 'uColorDry',
+                'uTorchPos', 'uTorchColor', 'uTorchIntensity', 'uTorchRange',
+            ],
         },
     );
     // Grass is visible from both sides — blades are flat planes and the camera
@@ -201,6 +228,13 @@ export function createProceduralGrass(scene: Scene, opts: ProceduralGrassOptions
     mat.setColor3('uColorRoot', opts.colorRoot ?? new Color3(0.10, 0.14, 0.05));
     mat.setColor3('uColorTip', opts.colorTip ?? new Color3(0.42, 0.62, 0.20));
     mat.setColor3('uColorDry', opts.colorDry ?? new Color3(0.62, 0.55, 0.22));
+
+    // Torch uniforms — start disabled (intensity 0). SurvivorsGameplayState
+    // calls setTorch() each frame once the hero is alive.
+    mat.setVector3('uTorchPos', Vector3.Zero());
+    mat.setColor3('uTorchColor', new Color3(1.0, 0.62, 0.28));
+    mat.setFloat('uTorchIntensity', 0);
+    mat.setFloat('uTorchRange', 11);
 
     blade.material = mat;
     // Frustum culling on a tiny source mesh would skip the whole instance set
@@ -216,6 +250,16 @@ export function createProceduralGrass(scene: Scene, opts: ProceduralGrassOptions
 
     return {
         mesh: blade,
+        setTorch: (params) => {
+            if (!params || params.intensity <= 0) {
+                mat.setFloat('uTorchIntensity', 0);
+                return;
+            }
+            mat.setVector3('uTorchPos', params.position);
+            mat.setColor3('uTorchColor', params.color);
+            mat.setFloat('uTorchIntensity', params.intensity);
+            mat.setFloat('uTorchRange', params.range);
+        },
         dispose: () => {
             if (tickObserver) scene.onBeforeRenderObservable.remove(tickObserver);
             mat.dispose();

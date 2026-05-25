@@ -111,6 +111,13 @@ const ITEM_FLOAT_COLOR: Record<ItemId, string> = {
     attackSpeed: '#fff080',
 };
 
+// Hero-torch parameters shared between Champion's in-mesh PointLight and the
+// procedural-grass shader so the in-world point light and the shader-baked
+// torch halo match each other.
+const TORCH_COLOR     = new Color3(1.0, 0.62, 0.28);
+const TORCH_INTENSITY = 1.8;   // tuned for the grass shader's (1-d/r)² falloff
+const TORCH_RANGE     = 9;
+
 export class SurvivorsGameplayState implements GameState {
     private game: Game;
     private scene: Scene | null = null;
@@ -119,6 +126,7 @@ export class SurvivorsGameplayState implements GameState {
     private hero: Champion | null = null;
     private heroController: HeroController | null = null;
     private joystick: SurvivorsJoystick | null = null;
+    private grass: ReturnType<typeof createProceduralGrass> | null = null;
 
     // Gameplay systems
     private enemyManager: EnemyManager | null = null;
@@ -565,10 +573,14 @@ export class SurvivorsGameplayState implements GameState {
         groundMat.diffuseTexture = createProceduralGrassTexture(scene, { size: 2048, tile: 1 });
         groundMat.specularColor = Color3.Black();
         groundMat.backFaceCulling = false;
+        // Default is 4. Survivors has: game-hemi + survivors-ambient (hemi) +
+        // survivors-key (dir) + ruins-spot + hero-torch = 5 lights, so without
+        // this the torch gets culled from the ground disc and never lights it.
+        groundMat.maxSimultaneousLights = 8;
         ground.material = groundMat;
         ground.receiveShadows = true;
 
-        createProceduralGrass(scene, {
+        this.grass = createProceduralGrass(scene, {
             arenaRadius: this.map?.getArenaRadius() ?? 20,
             bladeCount: 8000,
         });
@@ -702,6 +714,9 @@ export class SurvivorsGameplayState implements GameState {
         this.map?.dispose();
         this.map = null;
 
+        this.grass?.dispose();
+        this.grass = null;
+
         this.scene = null;
         this.timeScale = 1.0;
         this.runPerks = { damageMultiplier: 1.0, moveSpeedMultiplier: 1.0, attackRangeMultiplier: 1.0 };
@@ -729,6 +744,19 @@ export class SurvivorsGameplayState implements GameState {
 
         this.heroController.update(dt);
         if (this.hero) this.hero.update(dt);
+
+        // Keep the procedural-grass shader's torch uniforms in sync with the
+        // hero — the blades read `uTorchPos`/`uTorchIntensity` each frame.
+        if (this.grass && this.hero) {
+            const p = this.hero.getPosition();
+            this.grass.setTorch({
+                position: p,
+                color: TORCH_COLOR,
+                intensity: TORCH_INTENSITY,
+                range: TORCH_RANGE,
+            });
+        }
+
         _measure('hero');
 
         if (this.waveManager) this.waveManager.update(dt);
