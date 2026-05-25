@@ -136,7 +136,7 @@ export class HeroHud {
     private _buildDesktop(): void {
         // ── HP bar — top-left pill ─────────────────────────────────────────
         const hpW = 260;
-        const hpH = 20;
+        const hpH = 34;
         const hpBg = new Rectangle('hpBg');
         hpBg.width = `${hpW}px`;
         hpBg.height = `${hpH}px`;
@@ -298,7 +298,7 @@ export class HeroHud {
     private _buildMobile(): void {
         // ── HP bar — top-left pill ─────────────────────────────────────────
         const hpW = 140;
-        const hpH = 14;
+        const hpH = 28;
         const hpBg = new Rectangle('hpBg');
         hpBg.width = `${hpW}px`;
         hpBg.height = `${hpH}px`;
