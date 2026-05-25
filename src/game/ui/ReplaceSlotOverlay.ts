@@ -1,6 +1,7 @@
-import { AdvancedDynamicTexture, Rectangle, TextBlock, Button, Control } from '@babylonjs/gui';
+import { AdvancedDynamicTexture, Rectangle, TextBlock, Control } from '@babylonjs/gui';
 import { PowerSlot } from '../gameplay/PowerSlotManager';
 import { getLayoutMode, getRenderWidth } from './responsive';
+import { makeFrame, addPressFeedback, STYLE } from './HudStyle';
 
 const ELEMENT_GLYPH: Record<string, string> = {
     fireball:        '🔥',
@@ -72,7 +73,7 @@ export class ReplaceSlotOverlay {
         this.panel = new Rectangle('replaceSlotBg');
         this.panel.width = '100%';
         this.panel.height = '100%';
-        this.panel.background = 'rgba(0,0,0,0.80)';
+        this.panel.background = STYLE.backdropDim;
         this.panel.thickness = 0;
         this.ui.addControl(this.panel);
 
@@ -112,15 +113,9 @@ export class ReplaceSlotOverlay {
             const offsetX = (visualIndex - (total - 1) / 2) * 200;
 
             // ── Outer card frame ─────────────────────────────────────────────
-            const outer = new Rectangle(`replaceOuter_${i}`);
-            outer.width = '175px';
+            const outer = makeFrame({ name: `replaceOuter_${i}`, sizePx: 175, color: elemColor, cornerRadius: 10 });
             outer.height = '160px';
-            outer.cornerRadius = 10;
-            outer.thickness = 2;
-            outer.color = elemColor;
-            outer.background = '#0d0d1a';
             outer.left = `${offsetX}px`;
-            outer.isPointerBlocker = true;
 
             // ── Header strip ─────────────────────────────────────────────────
             const header = new Rectangle(`replaceHeader_${i}`);
@@ -164,17 +159,7 @@ export class ReplaceSlotOverlay {
             lvLabel.top = '14px';
             inner.addControl(lvLabel);
 
-            outer.onPointerEnterObservable.add(() => {
-                outer.scaleX = 1.05;
-                outer.scaleY = 1.05;
-                outer.color = '#ffffff';
-            });
-            outer.onPointerOutObservable.add(() => {
-                outer.scaleX = 1.0;
-                outer.scaleY = 1.0;
-                outer.color = elemColor;
-            });
-            outer.onPointerClickObservable.add(() => {
+            addPressFeedback(outer, () => {
                 this._onPick(i);
                 this.close();
             });
@@ -183,16 +168,15 @@ export class ReplaceSlotOverlay {
         });
 
         // Cancel button
-        const cancelBtn = Button.CreateSimpleButton('replaceCancel', 'Cancel  (+25 gold)');
-        cancelBtn.width = '200px';
+        const cancelBtn = makeFrame({ name: 'replaceCancel', sizePx: 200, color: '#666', cornerRadius: 10 });
         cancelBtn.height = '44px';
-        cancelBtn.color = '#ddd';
-        cancelBtn.background = '#333';
-        cancelBtn.cornerRadius = 8;
-        cancelBtn.thickness = 1;
         cancelBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
         cancelBtn.top = '-40px';
-        cancelBtn.onPointerClickObservable.add(() => {
+        const cancelBtnLabel = new TextBlock('replaceCancelLabel', 'Cancel  (+25 gold)');
+        cancelBtnLabel.color = '#ddd';
+        cancelBtnLabel.fontSize = 14;
+        cancelBtn.addControl(cancelBtnLabel);
+        addPressFeedback(cancelBtn, () => {
             this._onCancel();
             this.close();
         });
@@ -252,16 +236,10 @@ export class ReplaceSlotOverlay {
             visualIndex++;
 
             // ── Outer card ─────────────────────────────────────────────────
-            const outer = new Rectangle(`replaceOuter_${i}`);
-            outer.width = `${cardW}px`;
+            const outer = makeFrame({ name: `replaceOuter_${i}`, sizePx: cardW, color: elemColor, cornerRadius: 10 });
             outer.height = `${cardH}px`;
-            outer.cornerRadius = 8;
-            outer.thickness = 2;
-            outer.color = elemColor;
-            outer.background = '#0d0d1a';
             outer.left = `${offsetX}px`;
             outer.top = `${offsetY}px`;
-            outer.isPointerBlocker = true;
 
             // ── Left glyph strip ───────────────────────────────────────────
             const glyphStrip = new Rectangle(`replaceGlyphStrip_${i}`);
@@ -308,17 +286,7 @@ export class ReplaceSlotOverlay {
             lvLabel.paddingBottom = '6px';
             inner.addControl(lvLabel);
 
-            outer.onPointerEnterObservable.add(() => {
-                outer.scaleX = 1.05;
-                outer.scaleY = 1.05;
-                outer.color = '#ffffff';
-            });
-            outer.onPointerOutObservable.add(() => {
-                outer.scaleX = 1.0;
-                outer.scaleY = 1.0;
-                outer.color = elemColor;
-            });
-            outer.onPointerClickObservable.add(() => {
+            addPressFeedback(outer, () => {
                 this._onPick(i);
                 this.close();
             });
@@ -327,16 +295,15 @@ export class ReplaceSlotOverlay {
         });
 
         // Cancel button
-        const cancelBtn = Button.CreateSimpleButton('replaceCancel', 'Cancel  (+25 gold)');
-        cancelBtn.width = `${Math.min(200, vw - 40)}px`;
+        const cancelBtn = makeFrame({ name: 'replaceCancel', sizePx: Math.min(200, vw - 40), color: '#666', cornerRadius: 10 });
         cancelBtn.height = '44px';
-        cancelBtn.color = '#ddd';
-        cancelBtn.background = '#333';
-        cancelBtn.cornerRadius = 8;
-        cancelBtn.thickness = 1;
         cancelBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
         cancelBtn.top = '-20px';
-        cancelBtn.onPointerClickObservable.add(() => {
+        const cancelBtnLabel = new TextBlock('replaceCancelLabel', 'Cancel  (+25 gold)');
+        cancelBtnLabel.color = '#ddd';
+        cancelBtnLabel.fontSize = 14;
+        cancelBtn.addControl(cancelBtnLabel);
+        addPressFeedback(cancelBtn, () => {
             this._onCancel();
             this.close();
         });
