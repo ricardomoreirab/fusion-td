@@ -136,7 +136,7 @@ export class HeroHud {
     private _buildDesktop(): void {
         // ── HP bar — top-left pill ─────────────────────────────────────────
         const hpW = 260;
-        const hpH = 34;
+        const hpH = 25;
         const hpBg = new Rectangle('hpBg');
         hpBg.width = `${hpW}px`;
         hpBg.height = `${hpH}px`;
@@ -185,8 +185,8 @@ export class HeroHud {
             name: 'wave',
             color: '#ffe040',
             initialText: '',
-            fontSize: 14,
-            height: 34,
+            fontSize: 13,
+            height: 25,
             widthPx: 220,
             textColor: '#ffe040',
         });
@@ -203,8 +203,8 @@ export class HeroHud {
             name: 'gold',
             color: '#ffd700',
             initialText: '◯ 0',
-            fontSize: 14,
-            height: 34,
+            fontSize: 13,
+            height: 25,
             widthPx: 110,
             textColor: '#ffd700',
         });
