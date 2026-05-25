@@ -724,7 +724,7 @@ export class SurvivorsGameplayState implements GameState {
             const distSq = dx * dx + dz * dz;
             const sumR = this.heroRadius + 0.6;
             if (distSq < sumR * sumR) {
-                this.heroController.takeDamage(e.contactDamagePerSecond * deltaTime * reductionMult);
+                this.heroController.takeDamage(e.contactDamagePerSecond * deltaTime * reductionMult, ePos);
             }
         }
     }

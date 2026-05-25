@@ -132,7 +132,7 @@ export class HeroController {
         this.onDeathCallback = fn;
     }
 
-    public takeDamage(amount: number): void {
+    public takeDamage(amount: number, _sourcePos?: Vector3): void {
         if (this.isDead) return;
         this.currentHealth -= amount;
         if (this.currentHealth <= 0) {
