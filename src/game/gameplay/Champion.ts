@@ -429,6 +429,10 @@ export class Champion extends Enemy {
         const dur = (this as any).glbSpecialDurationActual ?? Champion.GLB_SPECIAL_DURATION;
         this.glbSpecialTimer = dur;
         const special = this.championAnims.special;
+        console.log(
+            `[${this.championType}] triggerSpecial fired — dur=${dur.toFixed(2)}s, ` +
+            `special clip=${special?.name ?? '(NONE — anim slot is null)'}`,
+        );
         if (special) {
             if (this.championCurrentAnim) this.championCurrentAnim.stop();
             special.start(false);
