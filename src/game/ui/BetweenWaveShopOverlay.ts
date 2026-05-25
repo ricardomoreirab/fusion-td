@@ -94,7 +94,7 @@ export class BetweenWaveShopOverlay {
         }
     }
 
-    /** Desktop: 2×3 grid (original layout) */
+    /** Desktop: 3×3 grid (fits 7 items) */
     private _buildDesktopLayout(): void {
         const currentGold = this._currentGold!;
         const purchaseCount = this._purchaseCount!;
@@ -141,14 +141,14 @@ export class BetweenWaveShopOverlay {
         const cfg = ITEM_CONFIG[item.id] ?? DEFAULT_CONFIG;
         const accentColor = capped ? '#555' : cfg.accentColor;
 
-        // 2-column grid layout
-        const col = i % 2;
-        const row = Math.floor(i / 2);
-        const offsetX = (col - 0.5) * 340;
-        const offsetY = (row - 1) * 100 - 30;  // shift grid up to free room for Start Next Wave button
+        // 3-column grid layout
+        const col = i % 3;
+        const row = Math.floor(i / 3);
+        const offsetX = (col - 1) * 232;
+        const offsetY = (row - 1) * 96 - 20;
 
         // ── Outer card ───────────────────────────────────────────────────────
-        const outer = makeFrame({ name: `shopOuter_${item.id}`, sizePx: 320, color: capped ? '#444' : accentColor, cornerRadius: 12 });
+        const outer = makeFrame({ name: `shopOuter_${item.id}`, sizePx: 220, color: capped ? '#444' : accentColor, cornerRadius: 12 });
         outer.height = '88px';
         if (capped) outer.background = 'rgba(10,10,22,0.40)';
         outer.left = `${offsetX}px`;
@@ -173,7 +173,7 @@ export class BetweenWaveShopOverlay {
 
         // ── Inner content ────────────────────────────────────────────────────
         const inner = new Rectangle(`shopInner_${item.id}`);
-        inner.width = '268px';
+        inner.width = '168px';
         inner.height = '72px';
         inner.thickness = 0;
         inner.background = 'transparent';
