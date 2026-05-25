@@ -1051,11 +1051,19 @@ export class Champion extends Enemy {
                 this.animateHumanoid();
             }
 
-            // Facing priority: glb-aim-at-target > procedural spin (procedural champs only)
-            // > movement direction > idle. GLB champs skip the spin rotation since their
-            // animation already drives the swing visual.
-            if (this.glbAttackTimer > 0 && this.glbAttackFacingTarget) {
-                // GLB attack mid-fire — turn to face the target.
+            // Facing priority: barbarian whirlwind spin > glb-aim-at-target > procedural
+            // spin (procedural champs only) > movement direction > idle.
+            const glbBarbAttacking = usingChampionGLB
+                && this.championType === 'barbarian'
+                && this.glbAttackTimer > 0;
+            if (glbBarbAttacking) {
+                // Aulus whirlwind: spin 360° around Y over the attack-timer window so
+                // the GLB swing animation reads as a full whirling sweep.
+                const dur = (this as any).glbAttackDurationActual ?? Champion.GLB_ATTACK_DURATION;
+                const progress = 1 - this.glbAttackTimer / dur;
+                this.mesh.rotation.y = progress * Math.PI * 2;
+            } else if (this.glbAttackTimer > 0 && this.glbAttackFacingTarget) {
+                // GLB attack mid-fire — turn to face the target (ranger aim).
                 const dx = this.glbAttackFacingTarget.x - this.position.x;
                 const dz = this.glbAttackFacingTarget.z - this.position.z;
                 if (dx * dx + dz * dz > 0.0001) {
