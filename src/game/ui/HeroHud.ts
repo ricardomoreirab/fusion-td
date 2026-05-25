@@ -2,7 +2,7 @@ import { AdvancedDynamicTexture, Rectangle, TextBlock, Control } from '@babylonj
 import { PowerSlot } from '../gameplay/PowerSlotManager';
 import { AbilityManager } from '../gameplay/AbilityManager';
 import { getLayoutMode } from './responsive';
-import { makePill, makeFrame, STYLE } from './HudStyle';
+import { makePill, makeFrame, addPressFeedback, flashControl, tryHaptic, STYLE } from './HudStyle';
 
 // ─── Element glyph map ─────────────────────────────────────────────────────────
 // These are unicode characters that render reliably in most browsers via Canvas2D.
@@ -259,8 +259,14 @@ export class HeroHud {
             this.slotContainers.push({ bg, icon, level, cdMask });
         }
 
-        // ── Ultimate ability buttons ──────────────────────────────────────────
-        this._buildUltimateButtons(400, 56, 50, 22, 8, 15);
+        // ── Ultimate ability buttons ──────────────────────────────────────
+        this._buildUltimateButtons({
+            btnSize: 60,
+            fontSize: 24,
+            gap: 8,
+            bottomOffset: 10,
+            rightOffset: 10,
+        });
     }
 
     // ─── Mobile layout ─────────────────────────────────────────────────────────
@@ -409,9 +415,14 @@ export class HeroHud {
             this.slotContainers.push({ bg, icon, level, cdMask });
         }
 
-        // ── Ultimate buttons — bottom-right, 44×44 ────────────────────────────
-        // Right-aligned so they don't overlap with left-anchored power slots
-        this._buildMobileUltimateButtons();
+        // ── Ultimate ability buttons — bottom-right ───────────────────────
+        this._buildUltimateButtons({
+            btnSize: 46,
+            fontSize: 18,
+            gap: 8,
+            bottomOffset: 10,
+            rightOffset: 10,
+        });
     }
 
     // ─── Ultimate button display metadata ─────────────────────────────────────
@@ -447,109 +458,65 @@ export class HeroHud {
         });
     }
 
-    /**
-     * Shared helper for building ultimate buttons (desktop).
-     * @param startLeft  left px offset of first button
-     * @param stride     px distance between button centers
-     * @param btnSize    width/height of each button (px)
-     * @param fontSize   glyph font size
-     * @param bottomOffset  how many px from bottom edge
-     * @param cdRadius   corner radius
-     */
-    private _buildUltimateButtons(
-        startLeft: number,
-        stride: number,
-        btnSize: number,
-        fontSize: number,
-        bottomOffset: number,
-        cdRadius: number,
-    ): void {
+    private _buildUltimateButtons(opts: {
+        btnSize: number;
+        fontSize: number;
+        gap: number;
+        bottomOffset: number;
+        rightOffset: number;
+    }): void {
         const ultimateDefs = this._resolveUltimateDefs();
+        const rowWidth = ultimateDefs.length * opts.btnSize + Math.max(0, ultimateDefs.length - 1) * opts.gap;
+
+        const ultRow = new Rectangle('ultRow');
+        ultRow.width = `${rowWidth}px`;
+        ultRow.height = `${opts.btnSize}px`;
+        ultRow.thickness = 0;
+        ultRow.background = '';
+        ultRow.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        ultRow.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        ultRow.top = `-${opts.bottomOffset}px`;
+        ultRow.paddingRight = `${opts.rightOffset}px`;
+        this.ui.addControl(ultRow);
+        this.builtControls.push(ultRow);
 
         ultimateDefs.forEach((def, i) => {
-            const bg = new Rectangle(`ultBg_${i}`);
-            bg.width = `${btnSize}px`;
-            bg.height = `${btnSize}px`;
-            bg.thickness = 2;
-            bg.color = def.color;
-            bg.background = '#1a1a2a';
-            bg.cornerRadius = cdRadius;
-            bg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            bg.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-            bg.left = `${startLeft + i * stride}px`;
-            bg.top = `-${bottomOffset}px`;
-            bg.isPointerBlocker = true;
-            this.ui.addControl(bg);
-            this.builtControls.push(bg);
-
-            const label = new TextBlock(`ultLbl_${i}`, def.label);
-            label.color = '#fff';
-            label.fontSize = fontSize;
-            bg.addControl(label);
-
-            const cdMask = new Rectangle(`ultCd_${i}`);
-            cdMask.width = 1.0;
-            cdMask.height = 0;
-            cdMask.thickness = 0;
-            cdMask.background = 'rgba(0,0,0,0.65)';
-            cdMask.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-            cdMask.cornerRadius = cdRadius;
-            bg.addControl(cdMask);
-
-            // Click → fire ability via AbilityManager.activate()
-            const capturedId = def.id;
-            bg.onPointerClickObservable.add(() => {
-                if (!this.abilityManager) return;
-                this.abilityManager.activate(capturedId);
+            const bg = makeFrame({
+                name: `ultBg_${i}`,
+                sizePx: opts.btnSize,
+                color: def.color,
+                cornerRadius: 12,
             });
-
-            this.ultimateContainers.push({ bg, label, cdMask });
-        });
-    }
-
-    /**
-     * Mobile-specific ultimate buttons: RIGHT-aligned, stacked VERTICALLY so they
-     * occupy only 44px of horizontal space and never conflict with the power slots.
-     */
-    private _buildMobileUltimateButtons(): void {
-        const ultimateDefs = this._resolveUltimateDefs();
-
-        const btnSize = 44;
-        const gap = 8;
-        ultimateDefs.forEach((def, i) => {
-            const bg = new Rectangle(`ultBg_${i}`);
-            bg.width = `${btnSize}px`;
-            bg.height = `${btnSize}px`;
-            bg.thickness = 2;
-            bg.color = def.color;
-            bg.background = '#1a1a2a';
-            bg.cornerRadius = 10;
-            bg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-            bg.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-            bg.paddingRight = '10px';
-            bg.top = `-${10 + i * (btnSize + gap)}px`;
-            bg.isPointerBlocker = true;
-            this.ui.addControl(bg);
-            this.builtControls.push(bg);
+            bg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            bg.left = `${i * (opts.btnSize + opts.gap)}px`;
+            ultRow.addControl(bg);
 
             const label = new TextBlock(`ultLbl_${i}`, def.label);
             label.color = '#fff';
-            label.fontSize = 18;
+            label.fontSize = opts.fontSize;
+            label.fontFamily = 'Arial';
+            label.shadowColor = STYLE.textShadowColor;
+            label.shadowBlur = STYLE.textShadowBlur;
             bg.addControl(label);
 
             const cdMask = new Rectangle(`ultCd_${i}`);
             cdMask.width = 1.0;
             cdMask.height = 0;
             cdMask.thickness = 0;
-            cdMask.background = 'rgba(0,0,0,0.65)';
+            cdMask.background = 'rgba(0, 0, 0, 0.65)';
             cdMask.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-            cdMask.cornerRadius = 10;
+            cdMask.cornerRadius = 12;
+            cdMask.isPointerBlocker = false;
             bg.addControl(cdMask);
 
             const capturedId = def.id;
-            bg.onPointerClickObservable.add(() => {
+            addPressFeedback(bg, () => {
                 if (!this.abilityManager) return;
-                this.abilityManager.activate(capturedId);
+                const fired = this.abilityManager.activate(capturedId);
+                if (fired) {
+                    flashControl(bg, '#ffffff', 200);
+                    tryHaptic(15);
+                }
             });
 
             this.ultimateContainers.push({ bg, label, cdMask });
