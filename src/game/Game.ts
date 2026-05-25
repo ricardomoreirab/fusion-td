@@ -123,7 +123,7 @@ export class Game {
         // ─── Scene-level perf flags ───────────────────────────────────────────
         this.scene.blockMaterialDirtyMechanism = true; // we never restructure materials at runtime
         this.scene.fogEnabled = false;
-        this.scene.shadowsEnabled = false;
+        this.scene.shadowsEnabled = true; // survivors arena casts shadows from a key DirectionalLight
         this.scene.skipPointerMovePicking = true;       // top-down game has no hover-pick UX
         // useGeometryUniqueIdsMap / useMaterialMeshMap / useClonedMeshMap are
         // constructor-only (SceneOptions) — passed above in new Scene(...).
