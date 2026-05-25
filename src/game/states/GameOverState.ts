@@ -3,6 +3,7 @@ import { AdvancedDynamicTexture, Button, Control, TextBlock, Rectangle } from '@
 import { Game } from '../Game';
 import { GameState } from './GameState';
 import { PlayerStats } from '../gameplay/PlayerStats';
+import { makeFrame, addPressFeedback, tryHaptic, STYLE } from '../ui/HudStyle';
 
 export interface SurvivorsRunSummary {
     waveReached: number;
@@ -29,6 +30,7 @@ export class GameOverState implements GameState {
 
     public enter(): void {
         console.log('Entering game over state');
+        tryHaptic(20);
 
         // Check if player won or lost
         const stateManager = this.game.getStateManager();
@@ -83,12 +85,11 @@ export class GameOverState implements GameState {
             this.ui.useSmallestIdeal = true;
         }
 
-        // Dark overlay alpha 0.92
+        // Dark overlay
         const background = new Rectangle();
         background.width = '100%';
         background.height = '100%';
-        background.background = '#000000';
-        background.alpha = 0.92;
+        background.background = STYLE.backdropDim;
         background.thickness = 0;
         background.isPointerBlocker = true;
         this.ui.addControl(background);
@@ -272,14 +273,12 @@ export class GameOverState implements GameState {
         subtitleText.fontFamily = 'Arial';
         this.ui.addControl(subtitleText);
 
-        // Stats panel
-        const statsPanel = new Rectangle('svStatsPanel');
-        statsPanel.width = isLandscape ? '300px' : (isMobile ? '320px' : '440px');
-        statsPanel.height = isLandscape ? '150px' : (isMobile ? '230px' : '270px');
-        statsPanel.background = 'rgba(20, 24, 36, 0.97)';
-        statsPanel.cornerRadius = 14;
-        statsPanel.thickness = 1;
-        statsPanel.color = '#3A3F4B';
+        // Stats panel — neon-glass with red border
+        const panelWidthPx = isLandscape ? 300 : (isMobile ? 320 : 440);
+        const panelHeightPx = isLandscape ? 150 : (isMobile ? 230 : 270);
+        const statsPanel = makeFrame({ name: 'svStatsPanel', sizePx: panelWidthPx, color: '#c33', cornerRadius: 14 });
+        statsPanel.width = `${panelWidthPx}px`;
+        statsPanel.height = `${panelHeightPx}px`;
         statsPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         statsPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
         statsPanel.top = isLandscape ? '-15px' : (isMobile ? '-10px' : '-15px');
@@ -320,39 +319,41 @@ export class GameOverState implements GameState {
         statsText.textWrapping = true;
         statsPanel.addControl(statsText);
 
-        // Buttons
-        const btnWidth = isLandscape ? '180px' : (isMobile ? '240px' : '280px');
-        const btnHeight = isLandscape ? '36px' : (isMobile ? '52px' : '60px');
+        // Buttons — neon-glass frames with press feedback
+        const btnWidthPx = isLandscape ? 180 : (isMobile ? 240 : 280);
+        const btnHeightPx = isLandscape ? 36 : (isMobile ? 52 : 60);
         const btnFontSize = isLandscape ? 14 : (isMobile ? 20 : 24);
 
-        const restartBtn = Button.CreateSimpleButton('svRestart', 'PLAY AGAIN');
-        restartBtn.width = btnWidth;
-        restartBtn.height = btnHeight;
-        restartBtn.color = '#FFFFFF';
-        restartBtn.background = '#4CAF50';
-        restartBtn.cornerRadius = 32;
-        restartBtn.thickness = 0;
-        restartBtn.fontFamily = 'Arial';
-        restartBtn.fontSize = btnFontSize;
-        restartBtn.fontWeight = 'bold';
+        const restartBtn = makeFrame({ name: 'svRestart', sizePx: btnWidthPx, color: '#888', cornerRadius: 10 });
+        restartBtn.width = `${btnWidthPx}px`;
+        restartBtn.height = `${btnHeightPx}px`;
+        restartBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        restartBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
         restartBtn.top = isLandscape ? '80px' : (isMobile ? '120px' : '155px');
-        restartBtn.onPointerUpObservable.add(() => {
+        const restartLabel = new TextBlock('svRestartLabel', 'PLAY AGAIN');
+        restartLabel.color = '#FFFFFF';
+        restartLabel.fontSize = btnFontSize;
+        restartLabel.fontWeight = 'bold';
+        restartLabel.fontFamily = 'Arial';
+        restartBtn.addControl(restartLabel);
+        addPressFeedback(restartBtn, () => {
             this.game.getStateManager().changeState('survivors');
         });
         this.ui.addControl(restartBtn);
 
-        const menuBtn = Button.CreateSimpleButton('svMenu', 'MAIN MENU');
-        menuBtn.width = btnWidth;
-        menuBtn.height = btnHeight;
-        menuBtn.color = '#FFFFFF';
-        menuBtn.background = '#2196F3';
-        menuBtn.cornerRadius = 32;
-        menuBtn.thickness = 0;
-        menuBtn.fontFamily = 'Arial';
-        menuBtn.fontSize = btnFontSize;
-        menuBtn.fontWeight = 'bold';
+        const menuBtn = makeFrame({ name: 'svMenu', sizePx: btnWidthPx, color: '#888', cornerRadius: 10 });
+        menuBtn.width = `${btnWidthPx}px`;
+        menuBtn.height = `${btnHeightPx}px`;
+        menuBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        menuBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
         menuBtn.top = isLandscape ? '125px' : (isMobile ? '185px' : '230px');
-        menuBtn.onPointerUpObservable.add(() => {
+        const menuLabel = new TextBlock('svMenuLabel', 'MAIN MENU');
+        menuLabel.color = '#FFFFFF';
+        menuLabel.fontSize = btnFontSize;
+        menuLabel.fontWeight = 'bold';
+        menuLabel.fontFamily = 'Arial';
+        menuBtn.addControl(menuLabel);
+        addPressFeedback(menuBtn, () => {
             this.game.getStateManager().changeState('menu');
         });
         this.ui.addControl(menuBtn);
