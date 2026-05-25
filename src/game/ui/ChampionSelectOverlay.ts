@@ -112,10 +112,10 @@ export class ChampionSelectOverlay {
 
     private _buildDesktopCard(opt: ChampionOption, i: number, total: number): void {
         const glyph = getClassGlyph(opt.type);
-        const offsetX = (i - (total - 1) / 2) * 310;
+        const offsetX = (i - (total - 1) / 2) * 252;
 
         // ── Outer card (colored border) ─────────────────────────────────────
-        const card = makeFrame({ name: `csCard_${opt.type}`, sizePx: 285, color: opt.color, cornerRadius: 12 });
+        const card = makeFrame({ name: `csCard_${opt.type}`, sizePx: 240, color: opt.color, cornerRadius: 12 });
         card.height = '340px';
         card.left = `${offsetX}px`;
         card.isPointerBlocker = true;
@@ -123,7 +123,7 @@ export class ChampionSelectOverlay {
 
         // ── Header bar with class glyph ─────────────────────────────────────
         const header = new Rectangle(`csHeader_${opt.type}`);
-        header.width = '285px';
+        header.width = '240px';
         header.height = '90px';
         header.thickness = 0;
         header.background = opt.color + '33';
@@ -138,7 +138,7 @@ export class ChampionSelectOverlay {
 
         // ── Inner content panel ─────────────────────────────────────────────
         const inner = new Rectangle(`csInner_${opt.type}`);
-        inner.width = '269px';
+        inner.width = '224px';
         inner.height = '238px';
         inner.thickness = 1;
         inner.color = '#333';
@@ -164,7 +164,7 @@ export class ChampionSelectOverlay {
         summaryLabel.fontSize = 13;
         summaryLabel.fontFamily = 'Arial';
         summaryLabel.textWrapping = true;
-        summaryLabel.width = '250px';
+        summaryLabel.width = '210px';
         summaryLabel.top = '-20px';
         summaryLabel.height = '56px';
         inner.addControl(summaryLabel);
@@ -182,7 +182,7 @@ export class ChampionSelectOverlay {
 
         // "SELECT" button — inside inner panel at bottom
         const btn = Button.CreateSimpleButton(`csBtn_${opt.type}`, 'SELECT');
-        btn.width = '220px';
+        btn.width = '200px';
         btn.height = '40px';
         btn.color = '#fff';
         btn.background = opt.color;
