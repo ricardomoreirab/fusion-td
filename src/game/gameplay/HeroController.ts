@@ -55,6 +55,9 @@ export class HeroController {
     private knockbackVelocity: Vector3 = new Vector3();
     private knockbackTimeRemaining: number = 0;
 
+    // Camera shake — decays to zero over CAMERA_SHAKE_DURATION_S.
+    private cameraShakeTimeRemaining: number = 0;
+
     // Scratch Vector3 fields — reused every frame to eliminate per-frame allocations
     private _scratchVel: Vector3 = new Vector3();
     private _scratchCamTarget: Vector3 = new Vector3();
@@ -159,6 +162,7 @@ export class HeroController {
 
         this.hero.flashHitRed();
         this.spawnHeroBloodBurst();
+        this.cameraShakeTimeRemaining = CAMERA_SHAKE_DURATION_S;
 
         if (sourcePos) {
             const heroPos = this.hero.getPosition();
@@ -306,6 +310,17 @@ export class HeroController {
 
         // Camera follow — position only, rotation is locked at construction.
         this._scratchCamTarget.set(pos.x, this.cameraHeight, pos.z + this.cameraOffsetZ);
+
+        // Additive shake offset that decays to zero. Random direction per frame
+        // while active; magnitude scales with remaining time.
+        if (this.cameraShakeTimeRemaining > 0) {
+            const k = this.cameraShakeTimeRemaining / CAMERA_SHAKE_DURATION_S;
+            const angle = Math.random() * Math.PI * 2;
+            this._scratchCamTarget.x += Math.cos(angle) * CAMERA_SHAKE_MAGNITUDE * k;
+            this._scratchCamTarget.z += Math.sin(angle) * CAMERA_SHAKE_MAGNITUDE * k;
+            this.cameraShakeTimeRemaining -= deltaTime;
+        }
+
         Vector3.LerpToRef(
             this.camera.position,
             this._scratchCamTarget,
