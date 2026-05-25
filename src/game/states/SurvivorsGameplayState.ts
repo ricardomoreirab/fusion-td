@@ -1,4 +1,5 @@
-import { Scene, Vector3, Color3, Color4, HemisphericLight, DirectionalLight } from '@babylonjs/core';
+import { Scene, Vector3, Color3, Color4, HemisphericLight, DirectionalLight, AssetContainer, SceneLoader } from '@babylonjs/core';
+import '@babylonjs/loaders/glTF';
 import { AdvancedDynamicTexture } from '@babylonjs/gui';
 import { Game } from '../Game';
 import { GameState } from './GameState';
@@ -25,6 +26,37 @@ import { AbilityManager } from '../gameplay/AbilityManager';
 import { DamageNumberManager } from '../gameplay/DamageNumberManager';
 import { RunItems, ItemId } from '../gameplay/RunItems';
 import { ItemDrop } from '../gameplay/ItemDrop';
+
+/**
+ * Module-level cache for the ranger GLB. We load it on demand inside enter()
+ * (NOT at boot via AssetsManager) because the cleanupScene that runs between
+ * boot and survivors entry breaks the preloaded container's materials in a
+ * way that I couldn't pin down — instances render invisibly even with
+ * metadata protection. Loading after cleanupScene works reliably.
+ *
+ * The container survives state.exit() because it's not directly tied to
+ * scene-managed arrays after the load (only its instantiated clones are),
+ * so re-entering survivors mode reuses it without re-fetching the 39MB GLB.
+ */
+let _rangerAsset: AssetContainer | null = null;
+let _rangerAssetPromise: Promise<AssetContainer> | null = null;
+
+function loadRangerAsset(scene: Scene): Promise<AssetContainer> {
+    if (_rangerAsset) return Promise.resolve(_rangerAsset);
+    if (_rangerAssetPromise) return _rangerAssetPromise;
+    _rangerAssetPromise = SceneLoader.LoadAssetContainerAsync(
+        'assets/elven-archer-in-the-forest/source/',
+        'model.glb',
+        scene,
+    ).then(container => {
+        _rangerAsset = container;
+        return container;
+    }).catch(err => {
+        _rangerAssetPromise = null;
+        throw err;
+    });
+    return _rangerAssetPromise;
+}
 
 /** Float-text labels and colors for item pickups (mirror the HUD slot colors). */
 const ITEM_DISPLAY_NAMES: Record<ItemId, string> = {
@@ -146,19 +178,27 @@ export class SurvivorsGameplayState implements GameState {
                 color: '#6080C0',
             },
         ];
-        this.championSelect.show(championOptions, (type) => this.startRun(type));
+        // Kick off the ranger GLB load NOW so it's likely ready by the time the user
+        // picks. If they pick ranger before it's done, startRun awaits it.
+        loadRangerAsset(this.scene).catch(err =>
+            console.error('Ranger GLB preload failed (will retry on pick):', err));
+
+        this.championSelect.show(championOptions, (type) => { void this.startRun(type); });
     }
 
     /** Initialize all gameplay systems and begin the run. Called once champion is chosen. */
-    private startRun(championType: string): void {
+    private async startRun(championType: string): Promise<void> {
         if (!this.scene || !this.ui || !this.map) return;
 
-        // The ranger GLB is preloaded at app startup via AssetManager — guaranteed present
-        // by the time we get here (or null if it failed, in which case Champion falls back
-        // to the procedural ranger mesh).
-        const rangerAsset = championType === 'ranger'
-            ? this.game.getAssetManager().getContainer('rangerArcher')
-            : null;
+        // Await the ranger GLB if needed (no-op for barbarian/mage; instant if already loaded).
+        let rangerAsset: AssetContainer | null = null;
+        if (championType === 'ranger') {
+            try {
+                rangerAsset = await loadRangerAsset(this.scene);
+            } catch (err) {
+                console.error('Ranger GLB failed to load — falling back to procedural mesh:', err);
+            }
+        }
 
         this.runStartTime = performance.now();
         this.currentChampionType = (championType as ChampionType) ?? 'mage';

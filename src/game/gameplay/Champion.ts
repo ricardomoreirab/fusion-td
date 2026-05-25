@@ -271,76 +271,22 @@ export class Champion extends Enemy {
         // fast but breaks for skinned/rigged humanoid GLBs where each instance needs its own
         // skeleton clone — instances render collapsed/invisible. Full clones are heavier per
         // mesh but render correctly with their own skeleton.
-        const inst = asset.instantiateModelsToScene(
-            name => `ranger_${name}`,
-            true,
-            { doNotInstantiate: true },
-        );
+        const inst = asset.instantiateModelsToScene(name => `ranger_${name}`, true);
         const RANGER_SCALE = 1.5;
-        console.log(
-            `[Champion] rangerArcher instantiated — ${inst.rootNodes.length} rootNodes, ` +
-            `${inst.animationGroups.length} anim groups, ${inst.skeletons.length} skeletons`,
-        );
         for (const root of inst.rootNodes) {
-            console.log(
-                `[Champion]   root: name="${root.name}" type=${root.constructor.name} ` +
-                `enabled=${root.isEnabled()}`,
-            );
             root.parent = this.mesh;
-            // doNotInstantiate uses mesh.clone() which copies the source's enabled state.
-            // AssetManager hides source meshes via setEnabled(false), so the clones come
-            // out disabled too — force them back on.
-            root.setEnabled(true);
             if ('scaling' in root && root.scaling) {
                 (root as TransformNode).scaling.scaleInPlace(RANGER_SCALE);
             }
         }
-        // Walk every descendant and re-enable. Clones of skinned meshes may have nested
-        // children that also inherited the source's disabled state.
-        for (const d of this.mesh.getChildMeshes(false)) {
-            d.setEnabled(true);
-        }
-
-        // BabylonJS GLB loader adds a __root__ node with scale (1,1,-1) to convert from
-        // GLB's right-handed space to Babylon's left-handed space. Multiplying that by our
-        // 1.5 scale gives a final scale with a negative-determinant — which flips triangle
-        // winding so backface culling hides the front faces. Disable backface culling on
-        // every cloned material so both sides render.
-        const descendants = this.mesh.getChildMeshes(false);
-        for (const d of descendants) {
-            if (d.material) {
-                d.material.backFaceCulling = false;
-            }
-        }
-        console.log(`[Champion] descendant meshes after parenting: ${descendants.length}`);
-
-        // Diagnostic: bright red cube at the ranger root position so we can confirm
-        // the hero spawn location is on-camera. If you see the cube but no ranger,
-        // the model is loading but not rendering. If neither, the position/camera is off.
-        const beacon = MeshBuilder.CreateBox('rangerBeacon', { size: 0.5 }, scene);
-        beacon.parent = this.mesh;
-        beacon.position = new Vector3(0, 3, 0); // 3u above the ranger origin
-        const beaconMat = new StandardMaterial('rangerBeaconMat', scene);
-        beaconMat.emissiveColor = new Color3(1, 0, 0);
-        beacon.material = beaconMat;
-
-        // Log the world-space bounding box of the instantiated hierarchy so we can see
-        // if the model is rendering somewhere off-screen or at the wrong scale.
-        this.mesh.computeWorldMatrix(true);
-        const bbox = this.mesh.getHierarchyBoundingVectors(true);
-        console.log(
-            `[Champion] ranger bbox after scale ${RANGER_SCALE}: ` +
-            `min=(${bbox.min.x.toFixed(2)}, ${bbox.min.y.toFixed(2)}, ${bbox.min.z.toFixed(2)}) ` +
-            `max=(${bbox.max.x.toFixed(2)}, ${bbox.max.y.toFixed(2)}, ${bbox.max.z.toFixed(2)})`,
-        );
 
         // Play the first animation group on loop — most rigged GLBs ship at least one
         // (idle/walk). If none exist, the mesh just translates with no limb motion.
         if (inst.animationGroups.length > 0) {
-            const ag = inst.animationGroups[0] as AnimationGroup;
-            ag.start(true);
-            console.log(`[Champion] playing animation: ${ag.name}`);
+            inst.animationGroups[0].start(true);
         }
+        // Silence unused-var warning while scene reference is held for future debug needs.
+        void scene;
     }
 
     private createRangerMeshProcedural(): void {

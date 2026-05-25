@@ -81,41 +81,12 @@ export class AssetManager {
             }
         };
 
-        // Champion 3D models — loaded as AssetContainer so Champion can call
-        // instantiateModelsToScene() to spawn a fresh copy each run without
-        // touching the original (and so the original survives state.exit()).
-        const rangerTask = this.assetsManager.addContainerTask(
-            "rangerArcher", "", "assets/elven-archer-in-the-forest/source/", "model.glb",
-        );
-        rangerTask.onSuccess = (task) => {
-            // The container loads its meshes/materials/textures INTO the active scene.
-            // Game.cleanupScene() wipes everything on each state transition, so without
-            // protection the preloaded GLB would get disposed on the first survivors enter()
-            // and subsequent instantiate calls would clone disposed objects (invisible).
-            // Tag each piece with metadata.protectedFromCleanup; cleanupScene skips those.
-            // Also hide source meshes — only the instantiated copies should be visible.
-            const c = task.loadedContainer;
-            const protect = (item: { metadata?: any }) => {
-                item.metadata = { ...(item.metadata ?? {}), protectedFromCleanup: true };
-            };
-            for (const m of c.meshes)          { protect(m); m.setEnabled(false); }
-            for (const m of c.transformNodes)  { protect(m); m.setEnabled(false); }
-            for (const m of c.materials)       { protect(m); }
-            for (const m of c.multiMaterials)  { protect(m); }
-            for (const t of c.textures)        { protect(t); }
-            for (const a of c.animationGroups) { protect(a); a.stop(); }
-            // Skeleton + Geometry don't have a `metadata` field in @babylonjs/core 6.x typings,
-            // and cleanupScene() doesn't iterate scene.skeletons / scene.geometries anyway,
-            // so they survive automatically.
-            this.containers.set("rangerArcher", c);
-            console.log(
-                `[AssetManager] rangerArcher loaded — ${c.meshes.length} meshes, ` +
-                `${c.animationGroups.length} anim groups, ${c.skeletons.length} skeletons`,
-            );
-        };
-        rangerTask.onError = (_task, message, exception) => {
-            console.error("Failed to load ranger GLB:", message, exception);
-        };
+        // NOTE: 3D character GLBs (ranger, etc.) are NOT loaded here. They get loaded
+        // on-demand by the state that needs them (e.g. SurvivorsGameplayState.enter())
+        // via SceneLoader.LoadAssetContainerAsync, because loading at boot and then
+        // using the container after Game.cleanupScene() runs causes the materials to
+        // render invisibly (PBR/texture references don't survive the scene cleanup
+        // even with metadata.protectedFromCleanup, for reasons I couldn't pin down).
     }
 
     /**
