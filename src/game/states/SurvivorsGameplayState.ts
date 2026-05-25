@@ -153,6 +153,13 @@ export class SurvivorsGameplayState implements GameState {
     private startRun(championType: string): void {
         if (!this.scene || !this.ui || !this.map) return;
 
+        // The ranger GLB is preloaded at app startup via AssetManager — guaranteed present
+        // by the time we get here (or null if it failed, in which case Champion falls back
+        // to the procedural ranger mesh).
+        const rangerAsset = championType === 'ranger'
+            ? this.game.getAssetManager().getContainer('rangerArcher')
+            : null;
+
         this.runStartTime = performance.now();
         this.currentChampionType = (championType as ChampionType) ?? 'mage';
 
@@ -164,8 +171,16 @@ export class SurvivorsGameplayState implements GameState {
         };
         const variant = variants[championType] ?? variants['barbarian'];
 
-        // Spawn hero — Champion in player-controlled mode
-        this.hero = new Champion(this.game, [], null, championType as 'barbarian' | 'ranger' | 'mage');
+        // Spawn hero — Champion in player-controlled mode. Pass the preloaded ranger
+        // asset container so the ranger uses the elven-archer GLB instead of the
+        // procedural box-and-cylinder mesh.
+        this.hero = new Champion(
+            this.game,
+            [],
+            null,
+            championType as 'barbarian' | 'ranger' | 'mage',
+            rangerAsset ?? undefined,
+        );
         this.hero.controlMode = 'player';
 
         this.heroController = new HeroController(

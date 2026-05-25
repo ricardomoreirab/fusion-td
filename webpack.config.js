@@ -28,7 +28,10 @@ module.exports = {
     }),
     new CopyWebpackPlugin({
       patterns: [
-        { from: 'src/assets', to: 'assets', noErrorOnMissing: true }
+        { from: 'src/assets', to: 'assets', noErrorOnMissing: true },
+        // Root-level 3D model folders (e.g. assets/elven-archer-in-the-forest/) — ship them
+        // straight to dist/assets/ so SceneLoader can fetch by absolute URL at runtime.
+        { from: 'assets', to: 'assets', noErrorOnMissing: true },
       ],
     }),
   ],

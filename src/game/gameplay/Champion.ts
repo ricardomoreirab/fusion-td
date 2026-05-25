@@ -1,4 +1,4 @@
-import { Vector3, MeshBuilder, Mesh, Color3, Color4, ParticleSystem, StandardMaterial } from '@babylonjs/core';
+import { Vector3, MeshBuilder, Mesh, Color3, Color4, ParticleSystem, StandardMaterial, AssetContainer, AnimationGroup, TransformNode } from '@babylonjs/core';
 import { Game } from '../Game';
 import { Enemy } from './enemies/Enemy';
 import { EnemyManager } from './EnemyManager';
@@ -94,11 +94,16 @@ export class Champion extends Enemy {
     // Per-element weapon decoration meshes, created lazily on first activation
     private elementDecorations: Map<string, Mesh[]> = new Map();
 
+    /** Optional preloaded ranger GLB asset; when present, createRangerMesh uses it
+     *  instead of the procedural box-and-cylinder build. */
+    private rangerAsset: AssetContainer | null = null;
+
     constructor(
         game: Game,
         reversedPath: Vector3[],
         enemyManager: EnemyManager | null = null,
         championType: 'barbarian' | 'ranger' | 'mage' = 'barbarian',
+        rangerAsset?: AssetContainer,
     ) {
         // HP 800, Speed 1.5, Damage 0 (doesn't damage player), Reward 0
         const startPos = reversedPath.length > 0 ? reversedPath[0] : new Vector3(0, 0, 0);
@@ -108,6 +113,7 @@ export class Champion extends Enemy {
         // so it always built the default knight. If we need a different class,
         // dispose the placeholder mesh and rebuild correctly.
         this.championType = championType;
+        this.rangerAsset = rangerAsset ?? null;
         if (championType !== 'barbarian') {
             this.rebuildForType();
         }
@@ -238,9 +244,52 @@ export class Champion extends Enemy {
     }
 
     // =========================================================================
-    // RANGER — lean, agile archer with bow, quiver, hooded cowl
+    // RANGER — uses a GLB model if provided (preloaded "elven-archer-in-the-forest"),
+    // otherwise falls back to the procedural lean-archer build below.
     // =========================================================================
     private createRangerMesh(): void {
+        if (this.rangerAsset) {
+            this.createRangerMeshFromGLB(this.rangerAsset);
+            return;
+        }
+        this.createRangerMeshProcedural();
+    }
+
+    /** Instantiate the preloaded GLB and parent it under an empty transform root
+     *  that the existing Champion movement code drives via this.mesh.position. */
+    private createRangerMeshFromGLB(asset: AssetContainer): void {
+        const scene = this.scene;
+
+        // Empty root mesh — invisible, just a transform host that Champion's existing
+        // position/rotation pipeline drives. Parenting the GLB instance to it lets us
+        // keep all the controller wiring untouched.
+        this.mesh = new Mesh('rangerRoot', scene);
+        this.mesh.position = this.position.clone();
+        this.mesh.position.y += 0; // GLB has its own ground offset
+
+        const inst = asset.instantiateModelsToScene(name => name, true);
+        const RANGER_SCALE = 1.5;
+        for (const root of inst.rootNodes) {
+            root.parent = this.mesh;
+            // Apply the chosen size. GLB roots are TransformNodes; .scaling exists on both.
+            if ('scaling' in root && root.scaling) {
+                (root as TransformNode).scaling.scaleInPlace(RANGER_SCALE);
+            }
+        }
+
+        // Play the first animation group on loop — most rigged GLBs ship at least one
+        // (idle/walk). If none exist, the mesh just translates with no limb motion.
+        if (inst.animationGroups.length > 0) {
+            const ag = inst.animationGroups[0] as AnimationGroup;
+            ag.start(true);
+        }
+
+        // Body-part hooks (swordArm/shieldArm/head/legs/rangerBow/rangerQuiver) remain
+        // null — the existing animateWalk / triggerHitReaction code already null-checks
+        // each one before driving it, so it degrades to "no procedural limb motion".
+    }
+
+    private createRangerMeshProcedural(): void {
         const scene = this.scene;
 
         // Earthy palette

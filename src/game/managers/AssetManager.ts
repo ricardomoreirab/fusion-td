@@ -1,4 +1,5 @@
-import { Scene, AssetsManager, AbstractMesh, Texture, Sound } from '@babylonjs/core';
+import { Scene, AssetsManager, AbstractMesh, Texture, Sound, AssetContainer } from '@babylonjs/core';
+import '@babylonjs/loaders/glTF'; // registers .glb / .gltf loaders for SceneLoader + AssetsManager
 
 export class AssetManager {
     private scene: Scene;
@@ -6,6 +7,7 @@ export class AssetManager {
     private meshes: Map<string, AbstractMesh>;
     private textures: Map<string, Texture>;
     private sounds: Map<string, Sound>;
+    private containers: Map<string, AssetContainer>;
 
     constructor(scene: Scene) {
         this.scene = scene;
@@ -13,6 +15,7 @@ export class AssetManager {
         this.meshes = new Map<string, AbstractMesh>();
         this.textures = new Map<string, Texture>();
         this.sounds = new Map<string, Sound>();
+        this.containers = new Map<string, AssetContainer>();
         
         // Configure asset manager
         this.assetsManager.useDefaultLoadingScreen = false;
@@ -77,6 +80,19 @@ export class AssetManager {
                 task.loadedMeshes[0].setEnabled(false); // Hide until needed
             }
         };
+
+        // Champion 3D models — loaded as AssetContainer so Champion can call
+        // instantiateModelsToScene() to spawn a fresh copy each run without
+        // touching the original (and so the original survives state.exit()).
+        const rangerTask = this.assetsManager.addContainerTask(
+            "rangerArcher", "", "assets/elven-archer-in-the-forest/source/", "model.glb",
+        );
+        rangerTask.onSuccess = (task) => {
+            this.containers.set("rangerArcher", task.loadedContainer);
+        };
+        rangerTask.onError = (_task, message, exception) => {
+            console.error("Failed to load ranger GLB:", message, exception);
+        };
     }
 
     /**
@@ -135,6 +151,20 @@ export class AssetManager {
             volume: 0.8
         });
         this.sounds.set("explosion", explosion);
+    }
+
+    /**
+     * Get a preloaded AssetContainer by name. Returns null if the asset failed
+     * to load or wasn't registered. Caller is responsible for calling
+     * `container.instantiateModelsToScene(...)` to spawn instances.
+     */
+    public getContainer(name: string): AssetContainer | null {
+        const c = this.containers.get(name);
+        if (!c) {
+            console.warn(`AssetContainer '${name}' not found`);
+            return null;
+        }
+        return c;
     }
 
     /**
