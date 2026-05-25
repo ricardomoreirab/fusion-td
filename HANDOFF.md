@@ -27,6 +27,19 @@ git diff main..overnight/lighting-and-cleanup -- 'src/**/*.ts'
 
 ---
 
+## Commits (in order)
+
+```
+9e92f8e  feat(lighting): grass shader receives torch point light + ground material allows >4 lights
+d493b47  fix(lighting):  pre-register torch + rebalance survivors lights
+65aedf8  feat(shadows):  single PCF shadow pass for hero + bosses + elites
+6a6c9d6  test:           introduce Vitest with PlayerStats + RunItems coverage
+```
+
+11 files touched (+1855 / −41 lines).
+
+---
+
 ## TL;DR — what changed
 
 1. **Lighting actually works now.** Root cause of the "full bright" feel: `scene.blockMaterialDirtyMechanism = true` means any light added after a material's first compile is invisible to that material. The torch (added at runtime when hero spawned) never reached anything. I pre-registered it in `Game.setupScene`. Also dropped the duplicate hemispheric light, cut the overhead SpotLight from 3.0 to 1.2, dropped `environmentIntensity` from 0.6 to 0.25, and bumped the directional key light from 0.5 to 0.9. Net effect: real directional shading instead of a uniform fill.
