@@ -306,30 +306,23 @@ export class Champion extends Enemy {
             }
         }
 
-        // Categorize the GLB animation groups by their name. Sketchfab/Mixamo/etc. use
-        // varying conventions, so we accept a few aliases per slot.
+        // GLB has no animation clips for this asset (skeleton present but unanimated).
+        // Log what's available so we can verify, and probe the cloned skeleton's bones
+        // so we can hand-roll walk + shoot bone rotations.
         this.rangerAnims = { idle: null, walk: null, shoot: null, all: [...inst.animationGroups] };
         console.log(`[ranger] available animation groups (${inst.animationGroups.length}):`);
         for (const ag of inst.animationGroups) {
             console.log(`  - "${ag.name}"`);
-            const n = ag.name.toLowerCase();
-            if (this.rangerAnims.idle == null && (n.includes('idle') || n === 'stand')) {
-                this.rangerAnims.idle = ag;
-            } else if (this.rangerAnims.walk == null && (n.includes('walk') || n.includes('run'))) {
-                this.rangerAnims.walk = ag;
-            } else if (this.rangerAnims.shoot == null && (n.includes('shoot') || n.includes('attack') || n.includes('fire') || n.includes('bow'))) {
-                this.rangerAnims.shoot = ag;
-            }
-            ag.stop(); // GLB anims often auto-play; pause so playRangerAnim controls them.
+            ag.stop();
         }
-        // Fallbacks: if a specific clip wasn't detected, reuse what we have.
-        const a = this.rangerAnims;
-        if (!a.idle  && a.all.length > 0) a.idle  = a.all[0];
-        if (!a.walk  && a.all.length > 0) a.walk  = a.all[Math.min(1, a.all.length - 1)];
-        if (!a.shoot && a.all.length > 0) a.shoot = a.all[a.all.length - 1];
 
-        // Start in idle — update() will switch to walk/shoot as input changes.
-        this.playRangerAnim('idle');
+        console.log(`[ranger] cloned skeletons (${inst.skeletons.length}):`);
+        for (const sk of inst.skeletons) {
+            console.log(`  skeleton "${sk.name}" — ${sk.bones.length} bones:`);
+            for (const b of sk.bones) {
+                console.log(`    - "${b.name}"`);
+            }
+        }
 
         void scene;
     }
