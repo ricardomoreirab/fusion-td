@@ -18,7 +18,7 @@ interface Wave {
 }
 
 // Type for the spawn function injected by survivors mode
-type SpawnFn = (type: string, eliteElement?: string) => void;
+type SpawnFn = (type: string, eliteElement?: string, bossStrengthMultiplier?: number) => void;
 
 // Wave metadata for UI display
 export interface WaveInfo {
@@ -33,7 +33,7 @@ export interface WaveInfo {
 class ParallelWave {
     private enemyManager: EnemyManager;
     private spawnFn: SpawnFn;
-    private enemiesLeftToSpawn: { type: string, delay: number, eliteElement?: string }[] = [];
+    private enemiesLeftToSpawn: { type: string, delay: number, eliteElement?: string, bossStrengthMultiplier?: number }[] = [];
     private timeSinceLastSpawn: number = 0;
     private completed: boolean = false;
     private waveNumber: number;
@@ -42,7 +42,7 @@ class ParallelWave {
 
     constructor(
         enemyManager: EnemyManager,
-        enemies: { type: string, delay: number, eliteElement?: string }[],
+        enemies: { type: string, delay: number, eliteElement?: string, bossStrengthMultiplier?: number }[],
         waveNumber: number,
         reward: number,
         difficultyMultiplier: number,
@@ -160,7 +160,7 @@ export class WaveManager {
     private enemyCountMultiplier: number = 1.0;
 
     // Spawn queue type includes optional elite element (for survivors mode)
-    private enemiesLeftToSpawn: { type: string, delay: number, eliteElement?: string }[] = [];
+    private enemiesLeftToSpawn: { type: string, delay: number, eliteElement?: string, bossStrengthMultiplier?: number }[] = [];
     // Speed-based difficulty system
     private waveStartTime: number = 0;
     private baseClearTime: number = 60;
@@ -776,8 +776,8 @@ export class WaveManager {
         const effectiveDelay = this.enemiesLeftToSpawn[0].delay / effectiveSpawnRate;
         if (this.timeSinceLastSpawn >= effectiveDelay) {
             // Spawn the enemy via the injectable spawn function
-            const { type: enemyType, eliteElement } = this.enemiesLeftToSpawn[0];
-            this.spawnFn(enemyType, eliteElement);
+            const { type: enemyType, eliteElement, bossStrengthMultiplier } = this.enemiesLeftToSpawn[0];
+            this.spawnFn(enemyType, eliteElement, bossStrengthMultiplier);
 
             // Remove from queue
             this.enemiesLeftToSpawn.shift();
@@ -881,7 +881,7 @@ export class WaveManager {
      * @param reward The reward for completing this wave
      * @returns The created parallel wave
      */
-    private _createParallelWave(enemies: { type: string, delay: number, eliteElement?: string }[], waveNumber: number, reward: number): ParallelWave | null {
+    private _createParallelWave(enemies: { type: string, delay: number, eliteElement?: string, bossStrengthMultiplier?: number }[], waveNumber: number, reward: number): ParallelWave | null {
         // In survivors mode, skip the parallel wave system entirely (prevents double spawns)
         if (this.disableParallelWaves) {
             return null;
@@ -984,16 +984,26 @@ export class WaveManager {
         this.enemiesLeftToSpawn = [];
 
         // Convert the wave format to a flat list of enemies with delays
-        // (survivors mode multiplies count per group, with per-wave ramp on top)
+        // (survivors mode multiplies count per group, with per-wave ramp on top).
+        // Special-case 'boss': always spawn 1 boss, but pass the scaled count as a
+        // strength multiplier so it scales HP/damage instead of cloning the boss.
         const waveRamp = 1 + Math.max(0, this.currentWave - 1) * 0.08;
         const effectiveCountMult = this.enemyCountMultiplier * waveRamp;
         for (const enemyGroup of wave.enemies) {
             const scaledCount = Math.max(1, Math.round(enemyGroup.count * effectiveCountMult));
-            for (let i = 0; i < scaledCount; i++) {
+            if (enemyGroup.type === 'boss') {
                 this.enemiesLeftToSpawn.push({
                     type: enemyGroup.type,
                     delay: enemyGroup.delay,
+                    bossStrengthMultiplier: scaledCount,
                 });
+            } else {
+                for (let i = 0; i < scaledCount; i++) {
+                    this.enemiesLeftToSpawn.push({
+                        type: enemyGroup.type,
+                        delay: enemyGroup.delay,
+                    });
+                }
             }
         }
         // First enemy of every wave spawns immediately — no opening dead time

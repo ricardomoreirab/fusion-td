@@ -1,4 +1,4 @@
-import { Vector3, MeshBuilder, StandardMaterial, Color3, Mesh } from '@babylonjs/core';
+import { Vector3, MeshBuilder, StandardMaterial, Color3, Mesh, AssetContainer, AnimationGroup, TransformNode, Quaternion } from '@babylonjs/core';
 import { Game } from '../../Game';
 import { BossEnemy } from './BossEnemy';
 
@@ -47,6 +47,10 @@ const ENRAGE_SPEED_BUMP  = 1.4;  // one-shot speed multiplier on enrage
 const ENRAGE_LUNGE_FACTOR= 0.5;  // halves the lunge cooldown on enrage
 
 export class MilestoneBoss extends BossEnemy {
+    /** Static slot used by EnemyManager.spawnSurvivorsEnemy to stage a preloaded GLB
+     *  asset (per-tier boss model) before constructing. createMesh consumes + clears. */
+    public static pendingAsset: AssetContainer | null = null;
+
     /** Public so EnemyManager can check it on death without instanceof. */
     public readonly isMilestone: boolean = true;
     /** Public so the item-drop handler can pick the right item for this kill. */
@@ -68,14 +72,30 @@ export class MilestoneBoss extends BossEnemy {
     // Telegraph visual — disposed when state leaves 'telegraph'
     private telegraphRing: Mesh | null = null;
 
-    constructor(game: Game, position: Vector3, path: Vector3[], waveTier: number) {
+    // GLB animation state (mirrors the minion pattern).
+    private usingGLB: boolean = false;
+    private glbWalkAnim: AnimationGroup | null = null;
+    private glbAttackAnim: AnimationGroup | null = null;
+    private glbIdleAnim: AnimationGroup | null = null;
+    private glbCurrentAnim: AnimationGroup | null = null;
+    private static readonly GLB_ATTACK_RANGE = 3.5;
+
+    constructor(
+        game: Game,
+        position: Vector3,
+        path: Vector3[],
+        waveTier: number,
+        strengthMultiplier: number = 1,
+    ) {
         super(game, position, path);
         this.waveTier = waveTier;
         this.lungeTimer = lungeCooldown(waveTier);
 
         // Apply tier-scaled stat multipliers on top of the base BossEnemy stats.
-        const hpMult    = tierHpMult(waveTier);
-        const dpsMult   = tierDpsMult(waveTier);
+        // strengthMultiplier comes from WaveManager when a wave config asked for
+        // multiple bosses — we collapse those into 1 boss with stronger stats.
+        const hpMult    = tierHpMult(waveTier) * strengthMultiplier;
+        const dpsMult   = tierDpsMult(waveTier) * strengthMultiplier;
         const baseSpeed = tierBaseSpeed(waveTier);
 
         // BossEnemy constructor already set maxHealth=500 and contactDamagePerSecond=30.
@@ -89,6 +109,88 @@ export class MilestoneBoss extends BossEnemy {
         this.updateHealthBar();
     }
 
+    /** Override BossEnemy's Abyssal Titan mesh with the staged tier GLB, if any. */
+    protected createMesh(): void {
+        const asset = MilestoneBoss.pendingAsset;
+        MilestoneBoss.pendingAsset = null;
+        if (asset) {
+            this.createMeshFromGLB(asset);
+            return;
+        }
+        super.createMesh();
+    }
+
+    private createMeshFromGLB(asset: AssetContainer): void {
+        this.usingGLB = true;
+        this.mesh = new Mesh('milestoneBossGlbRoot', this.scene);
+        this.mesh.position.copyFrom(this.position);
+
+        const inst = asset.instantiateModelsToScene(
+            name => `boss_${name}`,
+            true,
+            { doNotInstantiate: true },
+        );
+        const BOSS_SCALE = 2.2; // visibly larger than minions / hero
+        for (const root of inst.rootNodes) {
+            root.parent = this.mesh;
+            if ('scaling' in root && root.scaling) {
+                (root as TransformNode).scaling.scaleInPlace(BOSS_SCALE);
+            }
+            const tn = root as TransformNode;
+            const flip = Quaternion.RotationYawPitchRoll(Math.PI, 0, 0);
+            if (tn.rotationQuaternion) {
+                tn.rotationQuaternion = flip.multiply(tn.rotationQuaternion);
+            } else if (tn.rotation) {
+                tn.rotation.y += Math.PI;
+            }
+        }
+
+        // Feet-on-ground offset.
+        this.mesh.computeWorldMatrix(true);
+        const bbox = this.mesh.getHierarchyBoundingVectors(true);
+        const feetOffset = -bbox.min.y;
+        for (const root of inst.rootNodes) {
+            if ('position' in root && root.position) {
+                (root as TransformNode).position.y += feetOffset;
+            }
+        }
+
+        for (const ag of inst.animationGroups) ag.stop();
+        console.log(`[boss-tier${this.waveTier}] available animations (${inst.animationGroups.length}):`);
+        for (const ag of inst.animationGroups) {
+            console.log(`  - "${ag.name}"`);
+            const n = ag.name.toLowerCase();
+            if (n.includes('run3')) {
+                this.glbWalkAnim = ag;
+            } else if (!this.glbWalkAnim && (n.includes('walk') || n.includes('run') || n.includes('move'))) {
+                this.glbWalkAnim = ag;
+            } else if (!this.glbAttackAnim && (n.includes('attack') || n.includes('hit') || n.includes('strike') || n.includes('swing') || n.includes('skill'))) {
+                this.glbAttackAnim = ag;
+            } else if (!this.glbIdleAnim && (n.includes('idle') || n === 'stand')) {
+                this.glbIdleAnim = ag;
+            }
+        }
+        if (!this.glbWalkAnim && inst.animationGroups.length > 0) this.glbWalkAnim = inst.animationGroups[0];
+        if (!this.glbIdleAnim) this.glbIdleAnim = this.glbWalkAnim;
+        if (!this.glbAttackAnim) this.glbAttackAnim = this.glbWalkAnim;
+        if (this.glbWalkAnim) {
+            this.glbWalkAnim.start(true);
+            this.glbCurrentAnim = this.glbWalkAnim;
+        }
+        console.log(
+            `[boss-tier${this.waveTier}] mapped: walk="${this.glbWalkAnim?.name ?? '(none)'}", ` +
+            `attack="${this.glbAttackAnim?.name ?? '(none)'}", idle="${this.glbIdleAnim?.name ?? '(none)'}"`,
+        );
+    }
+
+    private playGlbAnim(slot: AnimationGroup | null, loop: boolean): void {
+        if (!slot) return;
+        if (this.glbCurrentAnim === slot) return;
+        if (this.glbCurrentAnim) this.glbCurrentAnim.stop();
+        slot.start(loop);
+        this.glbCurrentAnim = slot;
+    }
+
     public update(deltaTime: number): boolean {
         if (!this.alive || !this.mesh) return false;
 
@@ -96,6 +198,7 @@ export class MilestoneBoss extends BossEnemy {
         this.tickLungeStateMachine(deltaTime);
         this.maybeEnrage();
 
+        let result: boolean;
         // While dashing, the boss travels in the locked direction (not toward the hero).
         // We zero out `speed` so the parent's seek branch doesn't add hero-ward motion,
         // then apply the dash velocity in advanceDash after the parent has run animation
@@ -105,22 +208,46 @@ export class MilestoneBoss extends BossEnemy {
         if (this.lungeState === 'dashing') {
             const savedSpeed = this.speed;
             this.speed = 0;
-            const result = super.update(deltaTime);
+            result = super.update(deltaTime);
             this.speed = savedSpeed;
             this.advanceDash(deltaTime);
-            return result;
-        }
-
-        if (this.lungeState === 'telegraph' || this.lungeState === 'recover') {
+        } else if (this.lungeState === 'telegraph' || this.lungeState === 'recover') {
             // Rooted: zero speed for this frame. Parent still ticks animation/status.
             const savedSpeed = this.speed;
             this.speed = 0;
-            const result = super.update(deltaTime);
+            result = super.update(deltaTime);
             this.speed = savedSpeed;
-            return result;
+        } else {
+            result = super.update(deltaTime);
         }
 
-        return super.update(deltaTime);
+        // When using a GLB model, undo BossEnemy.animateParts's mesh transforms (it
+        // animates this.head/leftArm/etc. which are null for GLB — but it also adds
+        // +1.2 to mesh.position.y and pitches/rolls the body, which floats and tilts
+        // the GLB. Reset to keep the model upright and grounded.) Then drive the GLB
+        // animation slot based on distance to the hero.
+        if (this.usingGLB && this.mesh) {
+            this.mesh.position.y = this.position.y;
+            this.mesh.rotation.x = 0;
+            this.mesh.rotation.z = 0;
+            if (this.isFrozen || this.isStunned) {
+                this.playGlbAnim(this.glbIdleAnim, true);
+            } else if (this.seekTarget) {
+                const heroPos = this.seekTarget.getPosition();
+                const dx = heroPos.x - this.position.x;
+                const dz = heroPos.z - this.position.z;
+                const distSq = dx * dx + dz * dz;
+                if (distSq <= MilestoneBoss.GLB_ATTACK_RANGE * MilestoneBoss.GLB_ATTACK_RANGE) {
+                    this.playGlbAnim(this.glbAttackAnim, true);
+                } else {
+                    this.playGlbAnim(this.glbWalkAnim, true);
+                }
+            } else {
+                this.playGlbAnim(this.glbWalkAnim, true);
+            }
+        }
+
+        return result;
     }
 
     private updateHeroVelocity(deltaTime: number): void {

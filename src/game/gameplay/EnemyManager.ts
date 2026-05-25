@@ -160,9 +160,11 @@ export class EnemyManager {
 
     /**
      * Spawn a single enemy in survivors mode at a random point on the arena perimeter.
-     * Pass eliteElement to make it an elite.
+     * Pass eliteElement to make it an elite. For type='boss', bossStrengthMultiplier
+     * scales HP/damage in place of spawning multiple bosses (set by WaveManager when
+     * the wave config asks for more than one boss).
      */
-    public spawnSurvivorsEnemy(type: string, eliteElement?: string): Enemy | null {
+    public spawnSurvivorsEnemy(type: string, eliteElement?: string, bossStrengthMultiplier: number = 1): Enemy | null {
         if (!this.heroProvider) return null;
 
         const heroPos = this.heroProvider.getPosition();
@@ -195,7 +197,10 @@ export class EnemyManager {
                 const currentWave = this.waveManager?.getCurrentWave() ?? 0;
                 if (currentWave > 0 && currentWave % 5 === 0) {
                     const tier = currentWave / 5;
-                    enemy = new MilestoneBoss(this.game, spawnPos, [], tier);
+                    // Stage tier-specific GLB (cap at tier4 asset for tier 5+).
+                    const assetTier = Math.min(4, Math.max(1, tier));
+                    MilestoneBoss.pendingAsset = this.enemyAssets[`boss_tier${assetTier}`] ?? null;
+                    enemy = new MilestoneBoss(this.game, spawnPos, [], tier, bossStrengthMultiplier);
                 } else {
                     enemy = new BossEnemy(this.game, spawnPos, []);
                 }
