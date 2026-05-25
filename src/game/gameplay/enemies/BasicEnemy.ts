@@ -21,8 +21,10 @@ export class BasicEnemy extends Enemy {
     private glbAttackAnim: AnimationGroup | null = null;
     private glbIdleAnim: AnimationGroup | null = null;
     private glbCurrentAnim: AnimationGroup | null = null;
-    /** Distance at which the minion switches from walk to attack animation. */
-    private static readonly GLB_ATTACK_RANGE = 1.6;
+    /** Distance at which the minion switches from walk to attack animation.
+     *  Generous so the attack clip plays whenever the minion is close enough to
+     *  be dealing contact damage to the hero (not just literally touching). */
+    private static readonly GLB_ATTACK_RANGE = 2.5;
 
     constructor(game: Game, position: Vector3, path: Vector3[]) {
         // Basic enemy has medium speed, medium health, medium damage, and low reward
