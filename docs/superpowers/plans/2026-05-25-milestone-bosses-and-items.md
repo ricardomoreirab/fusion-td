@@ -18,7 +18,7 @@
 
 **New files:**
 - `src/game/gameplay/enemies/MilestoneBoss.ts` — extends `BossEnemy`. Adds tier-scaled HP/speed/damage, the lunge/dash state machine, telegraph + dash-trail visuals, the enrage trigger, and overrides `applyKnockback` to reduce incoming knockback to 30 %. Exposes `public readonly isMilestone = true`.
-- `src/game/gameplay/RunItems.ts` — owns the per-item stack counts, exposes `hasItem`, `getStacks`, `grant`. `grant(id)` increments the stack and writes the updated effect value into `PlayerStats`. Holds references to `PlayerStats`, `championType`, and the `HeroController` (so the attack-speed item can re-publish `basicAttackSpeedMultiplier` via the existing `heroController.updateAttackSpeed(...)` pipe, which is the same path the shop uses).
+- `src/game/gameplay/RunItems.ts` — owns the per-item stack counts, exposes `hasItem`, `getStacks`, `grant`. `grant(id)` increments the stack and writes the updated effect value into `PlayerStats`. Holds references to `PlayerStats`, `championType`, and the `HeroController` (so the attack-speed item can re-publish `basicAttackSpeedMultiplier` via the existing `heroController.updateBasicAttackSpeed(...)` pipe, which is the same path the shop uses).
 - `src/game/gameplay/ItemDrop.ts` — gem pickup entity styled on `PowerDrop` (faceted icosahedron with an emissive pillar of light). Hovers, magnetises toward the hero, fires `onPickup(itemId)` on contact.
 
 **Modified files:**
@@ -400,7 +400,7 @@ Replace it with:
 
 - [ ] **Step 5: Add `setPlayerStats` delegator on HeroController**
 
-The `HeroBasicAttack` is a private field of `HeroController`. External code wires player stats by going through the controller. In `src/game/gameplay/HeroController.ts`, find the existing `updateAttackSpeed(multiplier)` method (around line 254). Just before or after it, add:
+The `HeroBasicAttack` is a private field of `HeroController`. External code wires player stats by going through the controller. In `src/game/gameplay/HeroController.ts`, find the existing `updateBasicAttackSpeed(multiplier)` method (around line 253). Just before or after it, add:
 
 ```ts
     /** Push player-stats reference into the inner basic-attack instance (used by RunItems wiring). */
