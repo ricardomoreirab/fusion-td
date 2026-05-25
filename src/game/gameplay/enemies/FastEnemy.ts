@@ -1,10 +1,14 @@
-import { Vector3, MeshBuilder, StandardMaterial, Color3, Mesh } from '@babylonjs/core';
+import { Vector3, MeshBuilder, StandardMaterial, Color3, Mesh, AssetContainer, AnimationGroup, TransformNode, Quaternion } from '@babylonjs/core';
 import { Game } from '../../Game';
 import { Enemy } from './Enemy';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../rendering/LowPolyMaterial';
 import { PALETTE } from '../../rendering/StyleConstants';
 
 export class FastEnemy extends Enemy {
+    /** Static slot used by EnemyManager.spawnSurvivorsEnemy to stage a preloaded GLB
+     *  asset before constructing a FastEnemy. createMesh() consumes + clears it. */
+    public static pendingAsset: AssetContainer | null = null;
+
     private flyTime: number = 0;
     private leftWing: Mesh | null = null;
     private rightWing: Mesh | null = null;
@@ -18,6 +22,14 @@ export class FastEnemy extends Enemy {
     // Previous positions ring buffer for smooth trailing
     private trailPositions: Array<{ x: number; y: number; z: number }> = [];
 
+    /** True when this instance renders via the artillery-carriage GLB. */
+    private usingGLB: boolean = false;
+    private glbWalkAnim: AnimationGroup | null = null;
+    private glbAttackAnim: AnimationGroup | null = null;
+    private glbIdleAnim: AnimationGroup | null = null;
+    private glbCurrentAnim: AnimationGroup | null = null;
+    private static readonly GLB_ATTACK_RANGE = 2.5;
+
     constructor(game: Game, position: Vector3, path: Vector3[]) {
         // Fast enemy has 2x speed, low health, low damage, and medium reward
         super(game, position, path, 6, 20, 5, 15);
@@ -28,11 +40,98 @@ export class FastEnemy extends Enemy {
     }
 
     /**
-     * Create the enemy mesh - low-poly Spectral Wraith
+     * Create the enemy mesh. If a GLB asset was staged via FastEnemy.pendingAsset
+     * (set by EnemyManager just before construction), instantiate it. Otherwise
+     * fall back to the procedural spectral-wraith build below.
+     */
+    protected createMesh(): void {
+        const asset = FastEnemy.pendingAsset;
+        FastEnemy.pendingAsset = null;
+        if (asset) {
+            this.createMeshFromGLB(asset);
+            return;
+        }
+        this.createMeshProcedural();
+    }
+
+    private createMeshFromGLB(asset: AssetContainer): void {
+        this.usingGLB = true;
+        this.mesh = new Mesh('fastEnemyGlbRoot', this.scene);
+        this.mesh.position.copyFrom(this.position);
+
+        const inst = asset.instantiateModelsToScene(
+            name => `fast_${name}`,
+            true,
+            { doNotInstantiate: true },
+        );
+        const FAST_SCALE = 1.0;
+        for (const root of inst.rootNodes) {
+            root.parent = this.mesh;
+            if ('scaling' in root && root.scaling) {
+                (root as TransformNode).scaling.scaleInPlace(FAST_SCALE);
+            }
+            // 180° Y flip — same pattern as BasicEnemy GLB. Quaternion-aware.
+            const tn = root as TransformNode;
+            const flip = Quaternion.RotationYawPitchRoll(Math.PI, 0, 0);
+            if (tn.rotationQuaternion) {
+                tn.rotationQuaternion = flip.multiply(tn.rotationQuaternion);
+            } else if (tn.rotation) {
+                tn.rotation.y += Math.PI;
+            }
+        }
+
+        // Feet-on-ground offset.
+        this.mesh.computeWorldMatrix(true);
+        const bbox = this.mesh.getHierarchyBoundingVectors(true);
+        const feetOffset = -bbox.min.y;
+        for (const root of inst.rootNodes) {
+            if ('position' in root && root.position) {
+                (root as TransformNode).position.y += feetOffset;
+            }
+        }
+
+        for (const ag of inst.animationGroups) ag.stop();
+        console.log(`[fast-minion] available animations (${inst.animationGroups.length}):`);
+        for (const ag of inst.animationGroups) {
+            console.log(`  - "${ag.name}"`);
+            const n = ag.name.toLowerCase();
+            if (n.includes('run3')) {
+                this.glbWalkAnim = ag;
+            } else if (!this.glbWalkAnim && (n.includes('walk') || n.includes('run') || n.includes('roll') || n.includes('move'))) {
+                this.glbWalkAnim = ag;
+            } else if (!this.glbAttackAnim && (n.includes('attack') || n.includes('shoot') || n.includes('fire') || n.includes('hit') || n.includes('cannon'))) {
+                this.glbAttackAnim = ag;
+            } else if (!this.glbIdleAnim && (n.includes('idle') || n === 'stand')) {
+                this.glbIdleAnim = ag;
+            }
+        }
+        if (!this.glbWalkAnim && inst.animationGroups.length > 0) this.glbWalkAnim = inst.animationGroups[0];
+        if (!this.glbIdleAnim) this.glbIdleAnim = this.glbWalkAnim;
+        if (!this.glbAttackAnim) this.glbAttackAnim = this.glbWalkAnim;
+        if (this.glbWalkAnim) {
+            this.glbWalkAnim.start(true);
+            this.glbCurrentAnim = this.glbWalkAnim;
+        }
+        console.log(
+            `[fast-minion] mapped: walk="${this.glbWalkAnim?.name ?? '(none)'}", ` +
+            `attack="${this.glbAttackAnim?.name ?? '(none)'}", idle="${this.glbIdleAnim?.name ?? '(none)'}"`,
+        );
+    }
+
+    private playGlbAnim(slot: AnimationGroup | null, loop: boolean): void {
+        if (!slot) return;
+        if (this.glbCurrentAnim === slot) return;
+        if (this.glbCurrentAnim) this.glbCurrentAnim.stop();
+        slot.start(loop);
+        this.glbCurrentAnim = slot;
+    }
+
+    /**
+     * Create the enemy mesh - low-poly Spectral Wraith (procedural fallback)
      * Ethereal floating figure: hooded head, no legs (cloak trails away),
      * bony arms reaching forward, ghostly wisp trails, eerie glowing eyes
      */
-    protected createMesh(): void {
+    private createMeshProcedural(): void {
         // --- Core body: tall narrow cone tapering downward (spectral cloak shape) ---
         this.mesh = MeshBuilder.CreateCylinder('fastEnemyBody', {
             height: 1.1,
@@ -319,6 +418,26 @@ export class FastEnemy extends Enemy {
 
         // Get the result from the parent update method
         const result = super.update(deltaTime);
+
+        // GLB carriage skips the procedural ghost-trail anim — its own clips drive it.
+        if (this.usingGLB) {
+            if (this.isFrozen || this.isStunned) {
+                this.playGlbAnim(this.glbIdleAnim, true);
+            } else if (this.seekTarget) {
+                const heroPos = this.seekTarget.getPosition();
+                const dx = heroPos.x - this.position.x;
+                const dz = heroPos.z - this.position.z;
+                const distSq = dx * dx + dz * dz;
+                if (distSq <= FastEnemy.GLB_ATTACK_RANGE * FastEnemy.GLB_ATTACK_RANGE) {
+                    this.playGlbAnim(this.glbAttackAnim, true);
+                } else {
+                    this.playGlbAnim(this.glbWalkAnim, true);
+                }
+            } else {
+                this.playGlbAnim(this.glbWalkAnim, true);
+            }
+            return result;
+        }
 
         // Update spectral floating animation
         if (!this.isFrozen && !this.isStunned && this.currentPathIndex < this.path.length) {

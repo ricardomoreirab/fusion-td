@@ -188,7 +188,8 @@ export class EnemyManager {
         switch (type) {
             case 'basic':    BasicEnemy.pendingAsset = assetFor('basic');
                              enemy = new BasicEnemy(this.game, spawnPos, []); break;
-            case 'fast':     enemy = new FastEnemy(this.game, spawnPos, []); break;
+            case 'fast':     FastEnemy.pendingAsset = assetFor('fast');
+                             enemy = new FastEnemy(this.game, spawnPos, []); break;
             case 'tank':     enemy = new TankEnemy(this.game, spawnPos, []); break;
             case 'boss': {
                 const currentWave = this.waveManager?.getCurrentWave() ?? 0;
