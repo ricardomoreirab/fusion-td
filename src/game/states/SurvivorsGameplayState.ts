@@ -560,10 +560,16 @@ export class SurvivorsGameplayState implements GameState {
         this.shadowGen = shadowGen;
 
         // Mark every ground mesh as a shadow receiver (both the colored arena
-        // discs from Map.buildSurvivorsArena AND our grass overlay).
+        // discs from Map.buildSurvivorsArena AND our grass overlay). Also unfreeze
+        // their materials so the shader recompiles with shadow-sampling code — the
+        // LowPoly factory freezes by default for perf, which silently blocks shadows.
         for (const m of scene.meshes) {
             if (m.name.startsWith('arenaGround') || m.name.startsWith('ruinsGrassGround')) {
                 m.receiveShadows = true;
+                if (m.material && m.material.isFrozen) {
+                    m.material.unfreeze();
+                    m.material.markDirty();
+                }
             }
         }
         // The grass disc is built below — handled at receiver pass too in the
