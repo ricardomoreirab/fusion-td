@@ -184,23 +184,30 @@ export class Game {
      * This should be called when transitioning between states to ensure a clean slate
      */
     public cleanupScene(): void {
+        // Helper: skip anything tagged as "protected from cleanup" — used by
+        // AssetManager to keep preloaded GLBs alive across state transitions.
+        const isProtected = (item: { metadata?: any }) =>
+            !!(item.metadata && item.metadata.protectedFromCleanup);
+
         // Dispose all meshes in the scene
         const meshes = this.scene.meshes.slice(); // Create a copy to avoid modification during iteration
         for (const mesh of meshes) {
-            if (!mesh.name.includes('camera')) { // Don't dispose camera
-                mesh.dispose(false, true); // dispose mesh and its children
-            }
+            if (mesh.name.includes('camera')) continue; // Don't dispose camera
+            if (isProtected(mesh)) continue;
+            mesh.dispose(false, true); // dispose mesh and its children
         }
-        
+
         // Dispose all materials
         const materials = this.scene.materials.slice();
         for (const material of materials) {
+            if (isProtected(material)) continue;
             material.dispose();
         }
-        
+
         // Dispose all textures
         const textures = this.scene.textures.slice();
         for (const texture of textures) {
+            if (isProtected(texture)) continue;
             texture.dispose();
         }
         

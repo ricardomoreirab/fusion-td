@@ -88,17 +88,29 @@ export class AssetManager {
             "rangerArcher", "", "assets/elven-archer-in-the-forest/source/", "model.glb",
         );
         rangerTask.onSuccess = (task) => {
-            // Detach from the active scene immediately. Game.cleanupScene() (called on
-            // every state transition) iterates scene.meshes/materials/textures and
-            // disposes ALL of them — without this, our preloaded source meshes get
-            // wiped on the first survivors enter() and subsequent instantiateModelsToScene
-            // calls clone disposed objects, producing invisible instances.
-            task.loadedContainer.removeAllFromScene();
-            this.containers.set("rangerArcher", task.loadedContainer);
+            // The container loads its meshes/materials/textures INTO the active scene.
+            // Game.cleanupScene() wipes everything on each state transition, so without
+            // protection the preloaded GLB would get disposed on the first survivors enter()
+            // and subsequent instantiate calls would clone disposed objects (invisible).
+            // Tag each piece with metadata.protectedFromCleanup; cleanupScene skips those.
+            // Also hide source meshes — only the instantiated copies should be visible.
+            const c = task.loadedContainer;
+            const protect = (item: { metadata?: any }) => {
+                item.metadata = { ...(item.metadata ?? {}), protectedFromCleanup: true };
+            };
+            for (const m of c.meshes)          { protect(m); m.setEnabled(false); }
+            for (const m of c.transformNodes)  { protect(m); m.setEnabled(false); }
+            for (const m of c.materials)       { protect(m); }
+            for (const m of c.multiMaterials)  { protect(m); }
+            for (const t of c.textures)        { protect(t); }
+            for (const a of c.animationGroups) { protect(a); a.stop(); }
+            // Skeleton + Geometry don't have a `metadata` field in @babylonjs/core 6.x typings,
+            // and cleanupScene() doesn't iterate scene.skeletons / scene.geometries anyway,
+            // so they survive automatically.
+            this.containers.set("rangerArcher", c);
             console.log(
-                `[AssetManager] rangerArcher loaded — ${task.loadedContainer.meshes.length} meshes, ` +
-                `${task.loadedContainer.animationGroups.length} anim groups, ` +
-                `${task.loadedContainer.skeletons.length} skeletons`,
+                `[AssetManager] rangerArcher loaded — ${c.meshes.length} meshes, ` +
+                `${c.animationGroups.length} anim groups, ${c.skeletons.length} skeletons`,
             );
         };
         rangerTask.onError = (_task, message, exception) => {
