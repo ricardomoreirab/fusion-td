@@ -40,10 +40,9 @@ the enemy that touched the hero). When provided, knockback direction is
 hits with no clear source), the other three effects still play but
 knockback is skipped.
 
-`HeroBasicAttack.ts` line 15 declares the `takeDamage` interface and
-must be updated to match the new signature. Other tests/callsites: none
-— the only call into hero `takeDamage` is from `applyContactDamage()`
-in `SurvivorsGameplayState`.
+The only callsite for hero `takeDamage()` is `applyContactDamage()` in
+`SurvivorsGameplayState` (the `BasicAttackTarget.takeDamage` interface
+in `HeroBasicAttack.ts` is for *enemies the hero attacks*, unrelated).
 
 ## The four effects
 
@@ -113,7 +112,6 @@ offset added to camera target each frame.
 | `src/game/gameplay/HeroController.ts` | New `takeDamage` signature, rate limiter, knockback velocity integration, camera shake offset, particle spawn, call into `Champion.flashHitRed()`. |
 | `src/game/gameplay/Champion.ts` | Add `flashHitRed()` method, handle in-flight flash refresh. |
 | `src/game/states/SurvivorsGameplayState.ts` | Pass `ePos` as second arg to `heroController.takeDamage` in `applyContactDamage()`. |
-| `src/game/gameplay/HeroBasicAttack.ts` | Update line 15 `takeDamage` interface signature. |
 
 ## Out of scope
 
