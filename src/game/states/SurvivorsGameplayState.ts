@@ -409,7 +409,7 @@ export class SurvivorsGameplayState implements GameState {
         const ABILITY_CLIPS: Partial<Record<string, { suffix: string; duration?: number; speed?: number }>> = {
             // Barbarian (Aulus)
             whirlwind: { suffix: 'aulus_warrior_of_ferocity_in_game_skill3',   duration: 5.0, speed: 1.5 },
-            smash:     { suffix: 'aulus_warrior_of_ferocity_in_game_skill2_1' }, // one-shot, natural length
+            smash:     { suffix: 'aulus_warrior_of_ferocity_in_game_skill2_3' }, // one-shot, natural length
         };
         this.abilityManager.setOnActivate((abilityId) => {
             const clip = ABILITY_CLIPS[abilityId];
