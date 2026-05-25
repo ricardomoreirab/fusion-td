@@ -1058,10 +1058,11 @@ export class Champion extends Enemy {
                 && this.glbAttackTimer > 0;
             if (glbBarbAttacking) {
                 // Aulus whirlwind: spin 360° around Y over the attack-timer window so
-                // the GLB swing animation reads as a full whirling sweep.
+                // the GLB swing animation reads as a full whirling sweep. Negative
+                // sign = clockwise (viewed from above), matching the swing arc.
                 const dur = (this as any).glbAttackDurationActual ?? Champion.GLB_ATTACK_DURATION;
                 const progress = 1 - this.glbAttackTimer / dur;
-                this.mesh.rotation.y = progress * Math.PI * 2;
+                this.mesh.rotation.y = -progress * Math.PI * 2;
             } else if (this.glbAttackTimer > 0 && this.glbAttackFacingTarget) {
                 // GLB attack mid-fire — turn to face the target (ranger aim).
                 const dx = this.glbAttackFacingTarget.x - this.position.x;
