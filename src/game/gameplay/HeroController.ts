@@ -1,4 +1,4 @@
-import { Scene, Vector3, FreeCamera, KeyboardEventTypes } from '@babylonjs/core';
+import { Scene, Vector3, FreeCamera, KeyboardEventTypes, ParticleSystem, Color4 } from '@babylonjs/core';
 import { Champion } from './Champion';
 import { HeroBasicAttack, BasicAttackTarget, BasicAttackMode, ProjectileShape } from './HeroBasicAttack';
 import { PowerSlotManager } from './PowerSlotManager';
@@ -158,6 +158,7 @@ export class HeroController {
         this.lastHitReactionTime = this.elapsedTime;
 
         this.hero.flashHitRed();
+        this.spawnHeroBloodBurst();
 
         if (sourcePos) {
             const heroPos = this.hero.getPosition();
@@ -173,6 +174,35 @@ export class HeroController {
                 this.knockbackTimeRemaining = KNOCKBACK_DURATION_S;
             }
         }
+    }
+
+    /** One-shot red particle burst at the hero's torso to signal damage taken. */
+    private spawnHeroBloodBurst(): void {
+        const heroPos = this.hero.getPosition();
+        const burstPos = new Vector3(heroPos.x, heroPos.y + 0.8, heroPos.z);
+
+        const ps = new ParticleSystem('heroBloodBurst', BLOOD_BURST_COUNT, this.scene);
+        ps.emitter = burstPos;
+        ps.minEmitBox = new Vector3(-0.10, 0, -0.10);
+        ps.maxEmitBox = new Vector3(0.10, 0, 0.10);
+        ps.color1 = new Color4(0.80, 0.05, 0.05, 1);
+        ps.color2 = new Color4(0.50, 0.02, 0.02, 1);
+        ps.colorDead = new Color4(0.10, 0, 0, 0);
+        ps.minSize = 0.10;
+        ps.maxSize = 0.20;
+        ps.minLifeTime = 0.25;
+        ps.maxLifeTime = 0.40;
+        ps.emitRate = 80;
+        ps.manualEmitCount = BLOOD_BURST_COUNT; // one-shot
+        ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
+        ps.direction1 = new Vector3(-1, 0.4, -1);
+        ps.direction2 = new Vector3(1, 1.2, 1);
+        ps.minEmitPower = 1.5;
+        ps.maxEmitPower = 3.0;
+        ps.gravity = new Vector3(0, -15, 0);
+        ps.start();
+        // Stop emission shortly after, then dispose once particles finish their lifetime.
+        setTimeout(() => { ps.stop(); setTimeout(() => ps.dispose(), 500); }, 80);
     }
 
     public takeDamage(amount: number, sourcePos?: Vector3): void {
