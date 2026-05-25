@@ -467,7 +467,9 @@ export class SurvivorsGameplayState implements GameState {
      *  All assets fetched from raw.githubusercontent.com (same as the playground)
      *  so we don't need to bundle them. */
     /** Walk scene.meshes and ensure every eligible mesh is registered as a shadow
-     *  caster. Idempotent — addShadowCaster on an already-added mesh is a no-op. */
+     *  caster. Idempotent — addShadowCaster on an already-added mesh is a no-op.
+     *  Uses includeDescendants=true so adding an empty transform root also picks up
+     *  its visible children (our GLB hero/enemy roots are empty Mesh transforms). */
     private rescanShadowCasters(): void {
         if (!this.shadowGen || !this.scene) return;
         const renderList = this.shadowGen.getShadowMap()?.renderList;
@@ -477,9 +479,12 @@ export class SurvivorsGameplayState implements GameState {
             const n = m.name;
             if (n.startsWith('ruinsSky')) continue;
             if (n.startsWith('arenaGround') || n.startsWith('ruinsStoneGround') || n.startsWith('ruinsGrassGround')) continue;
-            if (m.getTotalVertices() === 0) continue;
+            // Skip meshes that are already direct casters — but we can't easily
+            // detect indirect (descendant) coverage, so the empty roots still get
+            // re-added each scan. addShadowCaster's internal dedupe handles it.
+            if (m.getTotalVertices() === 0 && m.getChildMeshes().length === 0) continue;
             if (renderList.indexOf(m) !== -1) continue;
-            this.shadowGen.addShadowCaster(m);
+            this.shadowGen.addShadowCaster(m, /*includeDescendants*/ true);
             added++;
         }
         if (added > 0) {
@@ -520,56 +525,41 @@ export class SurvivorsGameplayState implements GameState {
         spot.intensity = 3.0;
         spot.diffuse = new Color3(1.0, 0.55, 0.18);
 
-        // ── Shadows from a dedicated directional light ────────────────────────
-        // A DirectionalLight gives more reliable shadow coverage over the whole
-        // 25u arena than the wide-angle spot. Angled from upper-front so shadows
-        // fall behind characters rather than directly under them.
-        const shadowLight = new DirectionalLight('arenaShadowLight', new Vector3(-0.4, -1, -0.6), scene);
-        shadowLight.position = new Vector3(15, 25, 15);
-        shadowLight.intensity = 0.0; // illumination handled by other lights; this is shadow-only
-        shadowLight.autoUpdateExtends = true;
-        shadowLight.autoCalcShadowZBounds = true;
+        // ── Shadows ───────────────────────────────────────────────────────────
+        // Following the canonical BabylonJS recipe:
+        //   1) DirectionalLight angled from upper-front, explicit position (the
+        //      light position IS the shadow camera origin for directional lights).
+        //   2) Explicit shadow frustum size + min/max Z — auto-update was leaving
+        //      the frustum at default values that didn't cover the arena.
+        //   3) ShadowGenerator with usePoissonSampling (no float-texture requirement
+        //      like the exponential variants).
+        //   4) addShadowCaster(mesh, true) — second arg includeDescendants. Critical
+        //      because our hero/enemy GLBs are parented to an empty Mesh root; the
+        //      visible meshes are children that wouldn't be picked up otherwise.
+        //   5) receiveShadows on every ground mesh.
+        const shadowLight = new DirectionalLight('arenaShadowLight', new Vector3(-0.5, -1.4, -0.5), scene);
+        shadowLight.position = new Vector3(20, 35, 20);
+        shadowLight.intensity = 0; // shadow-only — illumination already handled by the warm spot + ambient
+        shadowLight.shadowMinZ = 1;
+        shadowLight.shadowMaxZ = 80;
+        shadowLight.shadowFrustumSize = 55; // covers the 25u arena with margin
 
         const shadowGen = new ShadowGenerator(1024, shadowLight);
-        shadowGen.useExponentialShadowMap = true;
-        shadowGen.darkness = 0.4;
+        shadowGen.usePoissonSampling = true;
+        shadowGen.bias = 0.001;
+        shadowGen.normalBias = 0.02;
+        shadowGen.setDarkness(0.4);
         this.shadowGen = shadowGen;
 
-        // Mark every existing ground mesh as a shadow receiver — covers both the
-        // colored arena discs AND the grass overlay so the shadow doesn't fall
-        // through to nothing.
+        // Mark every ground mesh as a shadow receiver (both the colored arena
+        // discs from Map.buildSurvivorsArena AND our grass overlay).
         for (const m of scene.meshes) {
             if (m.name.startsWith('arenaGround') || m.name.startsWith('ruinsGrassGround')) {
                 m.receiveShadows = true;
             }
         }
-
-        // Add every existing eligible mesh as a caster, then keep adding new ones
-        // as they spawn (enemies, item drops, projectiles). Skip sky / grounds /
-        // empty transform roots.
-        const isShadowCaster = (m: AbstractMesh): boolean => {
-            const n = m.name;
-            if (n.startsWith('ruinsSky')) return false;
-            if (n.startsWith('arenaGround') || n.startsWith('ruinsStoneGround') || n.startsWith('ruinsGrassGround')) return false;
-            if (m.getTotalVertices() === 0) return false;
-            return true;
-        };
-        let casterCount = 0;
-        for (const m of scene.meshes) {
-            if (isShadowCaster(m)) { shadowGen.addShadowCaster(m); casterCount++; }
-        }
-        let dynamicCasters = 0;
-        scene.onNewMeshAddedObservable.add((m) => {
-            if (isShadowCaster(m)) {
-                shadowGen.addShadowCaster(m);
-                dynamicCasters++;
-                // Throttle log — first 10 then every 50th.
-                if (dynamicCasters <= 10 || dynamicCasters % 50 === 0) {
-                    console.log(`[shadows] added dynamic caster #${dynamicCasters}: "${m.name}"`);
-                }
-            }
-        });
-        console.log(`[shadows] generator wired; initial caster count = ${casterCount}`);
+        // The grass disc is built below — handled at receiver pass too in the
+        // rescan loop. Set explicitly when we create it.
 
         // ── Grass floor — locally-bundled DDS tiled across the arena ──────────
         const grassTex = new Texture(
