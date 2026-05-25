@@ -1,4 +1,4 @@
-import { Scene, Vector3, Color3, Color4, HemisphericLight, DirectionalLight, AssetContainer, SceneLoader } from '@babylonjs/core';
+import { Scene, Vector3, Color3, Color4, HemisphericLight, DirectionalLight, SpotLight, AssetContainer, SceneLoader, CubeTexture, Texture, MeshBuilder, StandardMaterial, Mesh, BackgroundMaterial } from '@babylonjs/core';
 import '@babylonjs/loaders/glTF';
 import { AdvancedDynamicTexture } from '@babylonjs/gui';
 import { Game } from '../Game';
@@ -162,22 +162,26 @@ export class SurvivorsGameplayState implements GameState {
     public enter(): void {
         this.game.cleanupScene();
         this.scene = this.game.getScene();
-        this.scene.clearColor = new Color4(0.03, 0.04, 0.07, 1);
+        this.scene.clearColor = new Color4(0.04, 0.03, 0.05, 1); // near-black warm
 
-        // Ambient fill — keep low so the directional light gives form
+        // Ambient fill — keep low so the directional light gives form. Tuned warm
+        // to match the ancient-ruins env palette.
         const ambientLight = new HemisphericLight('survivorsAmbient', new Vector3(0, 1, 0), this.scene);
-        ambientLight.intensity = 0.3;
-        ambientLight.diffuse = new Color3(0.55, 0.65, 0.85);   // cool blue fill from above
-        ambientLight.groundColor = new Color3(0.15, 0.12, 0.10); // dim warm bounce from below
+        ambientLight.intensity = 0.25;
+        ambientLight.diffuse = new Color3(0.75, 0.55, 0.45);     // dim warm fill from above
+        ambientLight.groundColor = new Color3(0.10, 0.06, 0.04); // very dim warm bounce
 
         // Key light — warm directional from upper-left-front for form/shadow falloff
         const keyLight = new DirectionalLight('survivorsKey', new Vector3(-0.4, -1, -0.6), this.scene);
-        keyLight.intensity = 0.7;
-        keyLight.diffuse = new Color3(1.0, 0.85, 0.7);
+        keyLight.intensity = 0.5;
+        keyLight.diffuse = new Color3(1.0, 0.78, 0.55);
 
         // Build base scene resources first
         this.map = new Map(this.game);
         this.map.buildSurvivorsArena(25);
+
+        // Layer on the ancient-ruins ambience: skybox, warm spot, env IBL, stone ground texture
+        this.applyRuinsAmbience();
 
         // Create UI layer
         this.ui = AdvancedDynamicTexture.CreateFullscreenUI('survivorsUI', true, this.scene);
@@ -451,6 +455,67 @@ export class SurvivorsGameplayState implements GameState {
             this.heroController.getCamera(),
             () => this.enemyManager?.getEnemies() ?? [],
         );
+    }
+
+    /** Ported from the BabylonJS playground ancient-ruins scene — drops in a warm
+     *  dusk skybox, an env IBL cube map for PBR reflections, an overhead orange
+     *  spot light, and a tileable stone texture over the arena's central ground.
+     *  All assets fetched from raw.githubusercontent.com (same as the playground)
+     *  so we don't need to bundle them. */
+    private applyRuinsAmbience(): void {
+        if (!this.scene) return;
+        const scene = this.scene;
+        const envBase = 'https://raw.githubusercontent.com/CedricGuillemet/dump/master/starryassets/env/';
+        const envFiles = ['px.png', 'py.png', 'pz.png', 'nx.png', 'ny.png', 'nz.png'].map(f => envBase + f);
+
+        // ── Env cube + skybox ─────────────────────────────────────────────────
+        const envTexture = CubeTexture.CreateFromImages(envFiles, scene);
+        // Use the env as scene IBL so the rigged GLB heroes pick up nice reflections.
+        scene.environmentTexture = envTexture;
+        scene.environmentIntensity = 0.6;
+
+        const skydome = MeshBuilder.CreateBox('ruinsSky', { size: 1000, sideOrientation: Mesh.BACKSIDE }, scene);
+        skydome.rotation.y = Math.PI;
+        skydome.isPickable = false;
+        const skyMat = new BackgroundMaterial('ruinsSkyMat', scene);
+        const skyTex = envTexture.clone();
+        skyTex.coordinatesMode = Texture.SKYBOX_MODE;
+        skyMat.reflectionTexture = skyTex;
+        skydome.material = skyMat;
+
+        // ── Warm spot light from above ────────────────────────────────────────
+        const spot = new SpotLight(
+            'ruinsSpot',
+            new Vector3(0, 18, 0),         // high overhead — survivors arena center
+            new Vector3(0, -1, 0),         // straight down
+            Math.PI * 0.55,                 // wide cone covers most of the arena
+            12,                             // gentle falloff
+            scene,
+        );
+        spot.intensity = 3.0;
+        spot.diffuse = new Color3(1.0, 0.55, 0.18);
+
+        // ── Stone-tile texture on the central arena ground ────────────────────
+        // Tileable stone wall image from Babylon's CDN — close to ancient-ruins tone.
+        const groundTex = new Texture(
+            'https://assets.babylonjs.com/textures/stone.jpg',
+            scene,
+            true,                            // noMipmap
+            false,                           // invertY
+            Texture.TRILINEAR_SAMPLINGMODE,
+        );
+        groundTex.uScale = 6;
+        groundTex.vScale = 6;
+        const stoneGround = MeshBuilder.CreateDisc('ruinsStoneGround', { radius: 22, tessellation: 48 }, scene);
+        stoneGround.rotation.x = Math.PI / 2;
+        stoneGround.position.y = 0.001; // just above the existing arena discs
+        const stoneMat = new StandardMaterial('ruinsStoneMat', scene);
+        stoneMat.diffuseTexture = groundTex;
+        stoneMat.diffuseColor = new Color3(1, 1, 1);
+        stoneMat.specularColor = Color3.Black();
+        stoneMat.emissiveColor = new Color3(0.08, 0.05, 0.03); // very faint warm self-illum
+        stoneGround.material = stoneMat;
+        stoneGround.receiveShadows = true;
     }
 
     private spawnItemDrop(position: Vector3, waveTier: number): void {
