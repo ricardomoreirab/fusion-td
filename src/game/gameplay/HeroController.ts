@@ -51,6 +51,10 @@ export class HeroController {
     private lastHitReactionTime: number = -Infinity;
     private elapsedTime: number = 0;
 
+    // Knockback impulse — decays over KNOCKBACK_DURATION_S, added to player velocity.
+    private knockbackVelocity: Vector3 = new Vector3();
+    private knockbackTimeRemaining: number = 0;
+
     // Scratch Vector3 fields — reused every frame to eliminate per-frame allocations
     private _scratchVel: Vector3 = new Vector3();
     private _scratchCamTarget: Vector3 = new Vector3();
@@ -149,11 +153,26 @@ export class HeroController {
      * shake added in later tasks). Rate-limited to once per HIT_REACTION_COOLDOWN_S
      * so per-frame contact damage doesn't produce a permanent strobe.
      */
-    private triggerHitReaction(_sourcePos: Vector3 | undefined): void {
+    private triggerHitReaction(sourcePos: Vector3 | undefined): void {
         if (this.elapsedTime - this.lastHitReactionTime < HIT_REACTION_COOLDOWN_S) return;
         this.lastHitReactionTime = this.elapsedTime;
 
         this.hero.flashHitRed();
+
+        if (sourcePos) {
+            const heroPos = this.hero.getPosition();
+            const dx = heroPos.x - sourcePos.x;
+            const dz = heroPos.z - sourcePos.z;
+            const len = Math.hypot(dx, dz);
+            if (len > 0.0001) {
+                this.knockbackVelocity.set(
+                    (dx / len) * KNOCKBACK_SPEED,
+                    0,
+                    (dz / len) * KNOCKBACK_SPEED,
+                );
+                this.knockbackTimeRemaining = KNOCKBACK_DURATION_S;
+            }
+        }
     }
 
     public takeDamage(amount: number, sourcePos?: Vector3): void {
@@ -229,6 +248,15 @@ export class HeroController {
             0,
             dz * this.moveSpeed * this.moveSpeedMultiplier,
         );
+
+        // Decay knockback impulse, add it on top of player input.
+        if (this.knockbackTimeRemaining > 0) {
+            const decay = Math.max(0, this.knockbackTimeRemaining / KNOCKBACK_DURATION_S);
+            this._scratchVel.x += this.knockbackVelocity.x * decay;
+            this._scratchVel.z += this.knockbackVelocity.z * decay;
+            this.knockbackTimeRemaining -= deltaTime;
+        }
+
         this.hero.setPlayerVelocity(this._scratchVel);
 
         // Clamp hero position inside arena after Champion.update applies velocity
