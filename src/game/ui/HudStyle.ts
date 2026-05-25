@@ -31,7 +31,11 @@ export interface PillResult {
 
 /**
  * Build a capsule (radius=999) labeled pill — used for HP, Wave, Gold.
- * The rect auto-fits its child width (resizeToFit on the TextBlock).
+ *
+ * Caller must pass an explicit `widthPx`. BabylonJS GUI's
+ * `adaptWidthToChildren = true` ignores parent padding, so a pill that
+ * "auto-fits" winds up exactly as wide as its text — borders touch
+ * letters. Fixed width avoids that.
  */
 export function makePill(opts: {
     name: string;
@@ -39,24 +43,22 @@ export function makePill(opts: {
     initialText: string;
     fontSize: number;
     height: number;
+    widthPx: number;
     textColor?: string;
 }): PillResult {
     const bg = new Rectangle(opts.name + 'Bg');
-    bg.adaptWidthToChildren = true;
+    bg.width = `${opts.widthPx}px`;
     bg.height = `${opts.height}px`;
     bg.thickness = STYLE.borderThickness;
     bg.color = opts.color;
     bg.background = STYLE.panelBg;
     bg.cornerRadius = STYLE.pillRadius;
-    bg.paddingLeft = '20px';
-    bg.paddingRight = '20px';
 
     const text = new TextBlock(opts.name + 'Text', opts.initialText);
     text.color = opts.textColor ?? '#fff';
     text.fontSize = opts.fontSize;
     text.fontStyle = 'bold';
     text.fontFamily = 'Arial';
-    text.resizeToFit = true;
     text.shadowColor = STYLE.textShadowColor;
     text.shadowBlur = STYLE.textShadowBlur;
     bg.addControl(text);

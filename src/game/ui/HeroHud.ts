@@ -187,6 +187,7 @@ export class HeroHud {
             initialText: '',
             fontSize: 14,
             height: 34,
+            widthPx: 220,
             textColor: '#ffe040',
         });
         wavePill.bg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
@@ -204,6 +205,7 @@ export class HeroHud {
             initialText: '◯ 0',
             fontSize: 14,
             height: 34,
+            widthPx: 110,
             textColor: '#ffd700',
         });
         goldPill.bg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
@@ -346,6 +348,7 @@ export class HeroHud {
             initialText: '',
             fontSize: 11,
             height: 28,
+            widthPx: 170,
             textColor: '#ffe040',
         });
         wavePill.bg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
@@ -363,6 +366,7 @@ export class HeroHud {
             initialText: '◯ 0',
             fontSize: 11,
             height: 28,
+            widthPx: 90,
             textColor: '#ffd700',
         });
         goldPill.bg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
