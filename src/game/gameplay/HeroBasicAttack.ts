@@ -108,6 +108,18 @@ export class HeroBasicAttack {
     }
 
     public update(deltaTime: number): void {
+        // While a GLB special animation (e.g. Aulus whirlwind) is mid-channel,
+        // suspend basic attacks entirely — no swing, no projectile, no damage,
+        // no swing-arc visual. The special owns the hero's attack visuals for
+        // its duration. Cooldown still ticks so basic attacks resume promptly
+        // after the special ends.
+        const hero = this.hero as { isSpecialActive?: () => boolean };
+        const inSpecial = typeof hero.isSpecialActive === 'function' && hero.isSpecialActive();
+        if (inSpecial) {
+            this.cooldown -= deltaTime;
+            return;
+        }
+
         // Queued follow-up swings (barbarian extraAttacks) bypass the normal cooldown gate
         // so they fire at the chosen cadence regardless of the base attack interval.
         if (this.queuedSwings > 0) {

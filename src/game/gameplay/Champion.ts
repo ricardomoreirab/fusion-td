@@ -384,6 +384,12 @@ export class Champion extends Enemy {
         if (aa.idle) this.playChampionAnim('idle');
     }
 
+    /** True while a GLB-driven special animation is still playing (whirlwind, etc.).
+     *  HeroBasicAttack checks this to suspend basic attacks for the duration. */
+    public isSpecialActive(): boolean {
+        return this.glbSpecialTimer > 0;
+    }
+
     /** Switch the ranger to the named animation slot (no-op if already playing it). */
     private playChampionAnim(slot: 'idle' | 'walk' | 'attack' | 'special'): void {
         const target = this.championAnims[slot];
