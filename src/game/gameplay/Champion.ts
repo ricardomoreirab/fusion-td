@@ -369,12 +369,23 @@ export class Champion extends Enemy {
         this.rangerCurrentAnim = target;
     }
 
-    /** Called by HeroBasicAttack when the ranger fires a projectile. Plays the shoot
-     *  animation for the actual clip duration before returning to walk/idle. */
+    /** Called by HeroBasicAttack each time the ranger fires a projectile. Restarts the
+     *  shoot animation from frame 0 even if a previous one is still playing — so every
+     *  arrow gets a visible draw-back. If the attack cadence is faster than the clip
+     *  length the clip just gets re-triggered mid-flight, which looks "snappy" rather
+     *  than skipping animations entirely. */
     public triggerShoot(): void {
         if (this.championType !== 'ranger' || !this.rangerAsset) return;
         const dur = (this as any).rangerShootDurationActual ?? Champion.RANGER_SHOOT_DURATION;
         this.rangerShootTimer = dur;
+        const shoot = this.rangerAnims.shoot;
+        if (shoot) {
+            // Stop whatever is currently playing (could be the same shoot clip mid-play,
+            // or the walk/idle clip) and restart shoot from frame 0.
+            if (this.rangerCurrentAnim) this.rangerCurrentAnim.stop();
+            shoot.start(false);
+            this.rangerCurrentAnim = shoot;
+        }
     }
 
     private createRangerMeshProcedural(): void {
