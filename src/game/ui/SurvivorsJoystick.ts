@@ -25,6 +25,7 @@ export class SurvivorsJoystick {
     private dx: number = 0;
     private dz: number = 0;
     private activePointerId: number | null = null;
+    private phantomDownCount: number = 0;
     private originX: number = 0;
     private originY: number = 0;
 
@@ -71,7 +72,10 @@ export class SurvivorsJoystick {
 
     private wireEvents(): void {
         this.catcher.onPointerDownObservable.add((coords: Vector2WithInfo) => {
-            if (this.activePointerId !== null) return;
+            if (this.activePointerId !== null) {
+                this.phantomDownCount++; // secondary finger — track so its up doesn't kill the session
+                return;
+            }
             this.activePointerId = coords.buttonIndex;
             this.originX = coords.x;
             this.originY = coords.y;
@@ -116,7 +120,13 @@ export class SurvivorsJoystick {
             }
         };
 
-        this.catcher.onPointerUpObservable.add(reset);
+        this.catcher.onPointerUpObservable.add(() => {
+            if (this.phantomDownCount > 0) {
+                this.phantomDownCount--; // phantom finger lifting — don't end session
+                return;
+            }
+            reset();
+        });
         this.catcher.onPointerOutObservable.add(() => {
             // off-screen: keep input alive; pointer-up handles end
         });
