@@ -7,6 +7,7 @@ import { FastEnemy } from './enemies/FastEnemy';
 import { TankEnemy } from './enemies/TankEnemy';
 import { BossEnemy } from './enemies/BossEnemy';
 import { MilestoneBoss } from './enemies/MilestoneBoss';
+import { AssetContainer } from '@babylonjs/core';
 import { SplittingEnemy } from './enemies/SplittingEnemy';
 import type { WaveManager } from './WaveManager';
 import { HealerEnemy } from './enemies/HealerEnemy';
@@ -30,6 +31,10 @@ export class EnemyManager {
     private onEliteDeathCallback: (position: Vector3, element: string) => void = () => {};
     private onMilestoneBossDeathCallback: (position: Vector3, waveTier: number) => void = () => {};
     private waveManager: WaveManager | null = null;
+    /** Preloaded GLB asset containers per enemy type. Passed in by SurvivorsGameplayState
+     *  after load completes. spawnSurvivorsEnemy stages the asset on the matching enemy
+     *  class's static pendingAsset slot before constructing the instance. */
+    private enemyAssets: Record<string, AssetContainer> = {};
 
     constructor(game: Game, map: Map) {
         this.game = game;
@@ -120,6 +125,12 @@ export class EnemyManager {
         this.onMilestoneBossDeathCallback = fn;
     }
 
+    /** Register a preloaded GLB asset for the given enemy type. spawnSurvivorsEnemy
+     *  stages it on the matching enemy class's static pendingAsset slot. */
+    public setEnemyAsset(type: string, container: AssetContainer): void {
+        this.enemyAssets[type] = container;
+    }
+
     /**
      * Pre-warm enemy meshes/materials/shaders by instantiating one of every type
      * at a far-off position and forcing a render. Eliminates the first-spawn
@@ -163,10 +174,13 @@ export class EnemyManager {
             heroPos.z + Math.sin(theta) * r,
         );
 
-        // Create enemy at spawn position with empty path
+        // Create enemy at spawn position with empty path. Before each construction, stage
+        // any preloaded GLB asset on the per-class static pendingAsset slot so createMesh
+        // can pick it up. Cleared inside the subclass after consumption.
         let enemy: Enemy;
         switch (type) {
-            case 'basic':    enemy = new BasicEnemy(this.game, spawnPos, []); break;
+            case 'basic':    BasicEnemy.pendingAsset = this.enemyAssets['basic'] ?? null;
+                             enemy = new BasicEnemy(this.game, spawnPos, []); break;
             case 'fast':     enemy = new FastEnemy(this.game, spawnPos, []); break;
             case 'tank':     enemy = new TankEnemy(this.game, spawnPos, []); break;
             case 'boss': {

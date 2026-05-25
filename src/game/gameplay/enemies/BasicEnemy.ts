@@ -1,16 +1,23 @@
-import { Vector3, MeshBuilder, StandardMaterial, Color3, Color4, ParticleSystem, Mesh } from '@babylonjs/core';
+import { Vector3, MeshBuilder, StandardMaterial, Color3, Color4, ParticleSystem, Mesh, AssetContainer, AnimationGroup, TransformNode } from '@babylonjs/core';
 import { Game } from '../../Game';
 import { Enemy, getStatusEffectTexture } from './Enemy';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../rendering/LowPolyMaterial';
 import { PALETTE } from '../../rendering/StyleConstants';
 
 export class BasicEnemy extends Enemy {
+    /** Static slot used by EnemyManager.spawnSurvivorsEnemy to stage a preloaded GLB
+     *  asset before constructing a BasicEnemy. createMesh() consumes + clears it. */
+    public static pendingAsset: AssetContainer | null = null;
+
     private walkTime: number = 0;
     private head: Mesh | null = null;
     private leftLeg: Mesh | null = null;
     private rightLeg: Mesh | null = null;
     private leftArm: Mesh | null = null;
     private rightArm: Mesh | null = null;
+    /** True when this instance is rendered via the blue-melee-minion GLB. */
+    private usingGLB: boolean = false;
+    private glbWalkAnim: AnimationGroup | null = null;
 
     constructor(game: Game, position: Vector3, path: Vector3[]) {
         // Basic enemy has medium speed, medium health, medium damage, and low reward
@@ -19,11 +26,69 @@ export class BasicEnemy extends Enemy {
     }
 
     /**
-     * Create the enemy mesh - low-poly Goblin Warrior
+     * Create the enemy mesh. If a GLB asset was staged via BasicEnemy.pendingAsset
+     * (set by EnemyManager just before construction), instantiate it. Otherwise fall
+     * back to the procedural goblin warrior build below.
+     */
+    protected createMesh(): void {
+        const asset = BasicEnemy.pendingAsset;
+        BasicEnemy.pendingAsset = null;
+        if (asset) {
+            this.createMeshFromGLB(asset);
+            return;
+        }
+        this.createMeshProcedural();
+    }
+
+    private createMeshFromGLB(asset: AssetContainer): void {
+        this.usingGLB = true;
+        // Empty root mesh — invisible transform host. Enemy.update sets its position
+        // each frame from this.position via mesh.position.copyFrom.
+        this.mesh = new Mesh('basicEnemyGlbRoot', this.scene);
+        this.mesh.position.copyFrom(this.position);
+
+        const inst = asset.instantiateModelsToScene(
+            name => `basic_${name}`,
+            true,
+            { doNotInstantiate: true },
+        );
+        const MINION_SCALE = 1.0;
+        for (const root of inst.rootNodes) {
+            root.parent = this.mesh;
+            if ('scaling' in root && root.scaling) {
+                (root as TransformNode).scaling.scaleInPlace(MINION_SCALE);
+            }
+        }
+
+        // Shift the GLB so its feet sit at y=0 (most rigged humanoids center on torso).
+        this.mesh.computeWorldMatrix(true);
+        const bbox = this.mesh.getHierarchyBoundingVectors(true);
+        const feetOffset = -bbox.min.y;
+        for (const root of inst.rootNodes) {
+            if ('position' in root && root.position) {
+                (root as TransformNode).position.y += feetOffset;
+            }
+        }
+
+        // Pick the first animation group as the walk loop (minions are always seeking).
+        // If the asset has multiple clips and one matches "walk"/"run", prefer that.
+        for (const ag of inst.animationGroups) ag.stop();
+        const walk = inst.animationGroups.find(ag => {
+            const n = ag.name.toLowerCase();
+            return n.includes('walk') || n.includes('run') || n.includes('idle');
+        }) ?? inst.animationGroups[0] ?? null;
+        if (walk) {
+            walk.start(true);
+            this.glbWalkAnim = walk;
+        }
+    }
+
+    /**
+     * Create the enemy mesh - low-poly Goblin Warrior (procedural fallback)
      * Stocky proportions, pointy ears, crude shield on left arm, jagged sword on right,
      * big nose, underbite jaw, leather chest armor
      */
-    protected createMesh(): void {
+    private createMeshProcedural(): void {
         // --- Torso: wide, squat box (goblins are stocky) ---
         this.mesh = MeshBuilder.CreateBox('basicEnemyBody', {
             width: 0.75,
@@ -383,6 +448,9 @@ export class BasicEnemy extends Enemy {
 
         // Get the result from the parent update method
         const result = super.update(deltaTime);
+
+        // GLB minions skip the procedural limb animation — the asset's walk anim runs.
+        if (this.usingGLB) return result;
 
         // Update walking animation
         if (!this.isFrozen && !this.isStunned && this.currentPathIndex < this.path.length && this.mesh) {

@@ -40,25 +40,41 @@ const CHAMPION_GLB_PATHS: Partial<Record<string, { dir: string; file: string }>>
     barbarian: { dir: 'assets/aulus-warrior-of-ferocity-in-game/source/', file: 'aulus_warrior_of_ferocity_in_game.glb' },
     mage:      { dir: 'assets/framis-soul-binder-in-game/source/',        file: 'framis_soul_binder_in_game.glb' },
 };
-// Plain-object caches — the local `Map` import (../gameplay/Map) shadows the global Map class.
-const _championAssets: Record<string, AssetContainer> = {};
-const _championAssetPromises: Record<string, Promise<AssetContainer>> = {};
 
+const ENEMY_GLB_PATHS: Partial<Record<string, { dir: string; file: string }>> = {
+    basic: { dir: 'assets/blue-melee-minion/source/', file: 'blue_melee_minion.glb' },
+};
 function loadChampionAsset(championType: string, scene: Scene): Promise<AssetContainer> | null {
-    const path = CHAMPION_GLB_PATHS[championType];
+    return loadAsset(CHAMPION_GLB_PATHS, championType, scene);
+}
+
+function loadEnemyAsset(enemyType: string, scene: Scene): Promise<AssetContainer> | null {
+    return loadAsset(ENEMY_GLB_PATHS, enemyType, scene);
+}
+
+const _glbAssets: Record<string, AssetContainer> = {};
+const _glbAssetPromises: Record<string, Promise<AssetContainer>> = {};
+
+function loadAsset(
+    registry: Partial<Record<string, { dir: string; file: string }>>,
+    key: string,
+    scene: Scene,
+): Promise<AssetContainer> | null {
+    const path = registry[key];
     if (!path) return null;
-    if (championType in _championAssets) return Promise.resolve(_championAssets[championType]);
-    if (championType in _championAssetPromises) return _championAssetPromises[championType];
+    const cacheKey = `${path.dir}${path.file}`;
+    if (cacheKey in _glbAssets) return Promise.resolve(_glbAssets[cacheKey]);
+    if (cacheKey in _glbAssetPromises) return _glbAssetPromises[cacheKey];
     const p = SceneLoader.LoadAssetContainerAsync(path.dir, path.file, scene)
         .then(container => {
-            _championAssets[championType] = container;
+            _glbAssets[cacheKey] = container;
             return container;
         })
         .catch(err => {
-            delete _championAssetPromises[championType];
+            delete _glbAssetPromises[cacheKey];
             throw err;
         });
-    _championAssetPromises[championType] = p;
+    _glbAssetPromises[cacheKey] = p;
     return p;
 }
 
@@ -182,11 +198,15 @@ export class SurvivorsGameplayState implements GameState {
                 color: '#6080C0',
             },
         ];
-        // Preload every known champion GLB in parallel so whichever the user picks is
-        // likely already loaded by the time startRun fires.
+        // Preload every known champion + enemy GLB in parallel so whichever the user
+        // picks is likely already loaded by the time startRun fires.
         for (const type of Object.keys(CHAMPION_GLB_PATHS)) {
             const p = loadChampionAsset(type, this.scene);
             if (p) p.catch(err => console.error(`Champion GLB preload failed (${type}):`, err));
+        }
+        for (const type of Object.keys(ENEMY_GLB_PATHS)) {
+            const p = loadEnemyAsset(type, this.scene);
+            if (p) p.catch(err => console.error(`Enemy GLB preload failed (${type}):`, err));
         }
 
         this.championSelect.show(championOptions, (type) => { void this.startRun(type); });
@@ -255,6 +275,20 @@ export class SurvivorsGameplayState implements GameState {
             { getPosition: () => this.hero!.getPosition() },
             this.map.getArenaRadius(),
         );
+
+        // Hand over enemy GLB assets so EnemyManager.spawnSurvivorsEnemy can stage them
+        // on the per-class pendingAsset slots before construction. Loaded lazily (await
+        // here) — the preload kick-off in enter() means this is usually a cache hit.
+        for (const enemyType of Object.keys(ENEMY_GLB_PATHS)) {
+            const p = loadEnemyAsset(enemyType, this.scene);
+            if (!p) continue;
+            try {
+                const container = await p;
+                this.enemyManager.setEnemyAsset(enemyType, container);
+            } catch (err) {
+                console.error(`Enemy GLB failed to load (${enemyType}):`, err);
+            }
+        }
 
         // Pre-warm all enemy types so the first spawn of each doesn't hitch
         // the frame with shader compilation and GPU buffer uploads.
