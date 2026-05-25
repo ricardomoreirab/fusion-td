@@ -1,5 +1,6 @@
-import { AdvancedDynamicTexture, Rectangle, TextBlock, Button, Control } from '@babylonjs/gui';
+import { AdvancedDynamicTexture, Rectangle, TextBlock, Control } from '@babylonjs/gui';
 import { getLayoutMode, getRenderWidth, isNarrowHeight } from './responsive';
+import { makeFrame, addPressFeedback, STYLE } from './HudStyle';
 
 export interface ShopItem {
     id: string;
@@ -82,7 +83,7 @@ export class BetweenWaveShopOverlay {
         this.panel = new Rectangle('shopBg');
         this.panel.width = '100%';
         this.panel.height = '100%';
-        this.panel.background = 'rgba(0,0,0,0.90)';
+        this.panel.background = STYLE.backdropDim;
         this.panel.thickness = 0;
         this.ui.addControl(this.panel);
 
@@ -124,18 +125,16 @@ export class BetweenWaveShopOverlay {
         });
 
         // ── Start next wave button ────────────────────────────────────────────
-        const startBtn = Button.CreateSimpleButton('shopStart', 'Start Next Wave  →');
-        startBtn.width = '260px';
+        const startBtn = makeFrame({ name: 'skipBtn', sizePx: 260, color: '#888', cornerRadius: 10 });
         startBtn.height = '52px';
-        startBtn.background = '#3a7a3a';
-        startBtn.color = '#fff';
-        startBtn.cornerRadius = 10;
-        startBtn.thickness = 2;
-        startBtn.fontWeight = 'bold';
-        startBtn.fontSize = 17;
         startBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
         startBtn.top = '-28px';
-        startBtn.onPointerClickObservable.add(() => {
+        const startBtnLabel = new TextBlock('skipBtnLabel', 'Start Next Wave  →');
+        startBtnLabel.color = '#fff';
+        startBtnLabel.fontSize = 17;
+        startBtnLabel.fontWeight = 'bold';
+        startBtn.addControl(startBtnLabel);
+        addPressFeedback(startBtn, () => {
             this.close();
             onStartNextWave();
         });
@@ -166,13 +165,9 @@ export class BetweenWaveShopOverlay {
         const offsetY = (row - 1) * 110;
 
         // ── Outer card ───────────────────────────────────────────────────────
-        const outer = new Rectangle(`shopOuter_${item.id}`);
-        outer.width = '320px';
+        const outer = makeFrame({ name: `shopOuter_${item.id}`, sizePx: 320, color: capped ? '#444' : accentColor, cornerRadius: 12 });
         outer.height = '100px';
-        outer.cornerRadius = 10;
-        outer.thickness = 2;
-        outer.color = capped ? '#444' : accentColor;
-        outer.background = capped ? '#111' : '#0d1020';
+        if (capped) outer.background = 'rgba(10,10,22,0.40)';
         outer.left = `${offsetX}px`;
         outer.top = `${offsetY}px`;
         outer.isPointerBlocker = true;
@@ -247,16 +242,12 @@ export class BetweenWaveShopOverlay {
         // ── Hover / click feedback ────────────────────────────────────────────
         if (!capped) {
             outer.onPointerEnterObservable.add(() => {
-                outer.scaleX = 1.03;
-                outer.scaleY = 1.03;
                 outer.color = canAfford ? '#ffffff' : '#e04040';
             });
             outer.onPointerOutObservable.add(() => {
-                outer.scaleX = 1.0;
-                outer.scaleY = 1.0;
                 outer.color = accentColor;
             });
-            outer.onPointerClickObservable.add(() => {
+            addPressFeedback(outer, () => {
                 if (capped) return;
                 if (!spendGold(cost)) return;
                 item.apply();
@@ -319,13 +310,9 @@ export class BetweenWaveShopOverlay {
             const topY = stackTop + i * (cardH + gap);
 
             // ── Outer card ─────────────────────────────────────────────────
-            const outer = new Rectangle(`shopOuter_${item.id}`);
-            outer.width = `${cardW}px`;
+            const outer = makeFrame({ name: `shopOuter_${item.id}`, sizePx: cardW, color: capped ? '#444' : accentColor, cornerRadius: 12 });
             outer.height = `${cardH}px`;
-            outer.cornerRadius = 8;
-            outer.thickness = 2;
-            outer.color = capped ? '#444' : accentColor;
-            outer.background = capped ? '#111' : '#0d1020';
+            if (capped) outer.background = 'rgba(10,10,22,0.40)';
             outer.top = `${topY}px`;
             outer.isPointerBlocker = true;
             this.panel!.addControl(outer);
@@ -401,16 +388,12 @@ export class BetweenWaveShopOverlay {
             // ── Hover / click ──────────────────────────────────────────────
             if (!capped) {
                 outer.onPointerEnterObservable.add(() => {
-                    outer.scaleX = 1.02;
-                    outer.scaleY = 1.02;
                     outer.color = canAfford ? '#ffffff' : '#e04040';
                 });
                 outer.onPointerOutObservable.add(() => {
-                    outer.scaleX = 1.0;
-                    outer.scaleY = 1.0;
                     outer.color = accentColor;
                 });
-                outer.onPointerClickObservable.add(() => {
+                addPressFeedback(outer, () => {
                     if (capped) return;
                     if (!spendGold(cost)) return;
                     item.apply();
@@ -420,18 +403,16 @@ export class BetweenWaveShopOverlay {
         });
 
         // Start next wave button — pinned to bottom
-        const startBtn = Button.CreateSimpleButton('shopStart', 'Start Next Wave  →');
-        startBtn.width = `${Math.min(260, cardW)}px`;
+        const startBtn = makeFrame({ name: 'skipBtn', sizePx: Math.min(260, cardW), color: '#888', cornerRadius: 10 });
         startBtn.height = '48px';
-        startBtn.background = '#3a7a3a';
-        startBtn.color = '#fff';
-        startBtn.cornerRadius = 10;
-        startBtn.thickness = 2;
-        startBtn.fontWeight = 'bold';
-        startBtn.fontSize = 15;
         startBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
         startBtn.top = '-16px';
-        startBtn.onPointerClickObservable.add(() => {
+        const startBtnLabel = new TextBlock('skipBtnLabel', 'Start Next Wave  →');
+        startBtnLabel.color = '#fff';
+        startBtnLabel.fontSize = 15;
+        startBtnLabel.fontWeight = 'bold';
+        startBtn.addControl(startBtnLabel);
+        addPressFeedback(startBtn, () => {
             this.close();
             onStartNextWave();
         });
