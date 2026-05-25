@@ -8,7 +8,7 @@ import { Enemy } from './enemies/Enemy';
 const HIT_REACTION_COOLDOWN_S = 0.5;
 const KNOCKBACK_SPEED         = 7.0;   // units / sec
 const KNOCKBACK_DURATION_S    = 0.15;
-const CAMERA_SHAKE_MAGNITUDE  = 0.15;  // world units on camera target XZ
+const CAMERA_SHAKE_MAGNITUDE  = 0.6;   // world units added to camera position XZ per shake frame
 const CAMERA_SHAKE_DURATION_S = 0.10;
 const BLOOD_BURST_COUNT       = 12;
 
@@ -310,23 +310,23 @@ export class HeroController {
 
         // Camera follow — position only, rotation is locked at construction.
         this._scratchCamTarget.set(pos.x, this.cameraHeight, pos.z + this.cameraOffsetZ);
-
-        // Additive shake offset that decays to zero. Random direction per frame
-        // while active; magnitude scales with remaining time.
-        if (this.cameraShakeTimeRemaining > 0) {
-            const k = this.cameraShakeTimeRemaining / CAMERA_SHAKE_DURATION_S;
-            const angle = Math.random() * Math.PI * 2;
-            this._scratchCamTarget.x += Math.cos(angle) * CAMERA_SHAKE_MAGNITUDE * k;
-            this._scratchCamTarget.z += Math.sin(angle) * CAMERA_SHAKE_MAGNITUDE * k;
-            this.cameraShakeTimeRemaining -= deltaTime;
-        }
-
         Vector3.LerpToRef(
             this.camera.position,
             this._scratchCamTarget,
             Math.min(1, deltaTime * 6),
             this.camera.position,
         );
+
+        // Shake is applied *after* the lerp — otherwise the lerp's smoothing
+        // eats the per-frame jitter and the shake reads as ~1 pixel of motion.
+        // The next few frames' lerp then naturally decays the offset back to neutral.
+        if (this.cameraShakeTimeRemaining > 0) {
+            const k = this.cameraShakeTimeRemaining / CAMERA_SHAKE_DURATION_S;
+            const angle = Math.random() * Math.PI * 2;
+            this.camera.position.x += Math.cos(angle) * CAMERA_SHAKE_MAGNITUDE * k;
+            this.camera.position.z += Math.sin(angle) * CAMERA_SHAKE_MAGNITUDE * k;
+            this.cameraShakeTimeRemaining -= deltaTime;
+        }
 
         // Basic auto-attack
         if (this.basicAttack) this.basicAttack.update(deltaTime);
