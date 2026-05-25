@@ -1,5 +1,6 @@
 import { AdvancedDynamicTexture, Rectangle, TextBlock, Button, Control } from '@babylonjs/gui';
 import { getLayoutMode, getRenderWidth } from './responsive';
+import { makeFrame, addPressFeedback, STYLE } from './HudStyle';
 
 export interface ChampionOption {
     type: string;
@@ -71,7 +72,7 @@ export class ChampionSelectOverlay {
         this.panel = new Rectangle('championSelectBg');
         this.panel.width = '100%';
         this.panel.height = '100%';
-        this.panel.background = 'rgba(0,0,0,0.95)';
+        this.panel.background = STYLE.backdropDim;
         this.panel.thickness = 0;
         this.panel.isPointerBlocker = true;
         this.ui.addControl(this.panel);
@@ -114,13 +115,8 @@ export class ChampionSelectOverlay {
         const offsetX = (i - (total - 1) / 2) * 310;
 
         // ── Outer card (colored border) ─────────────────────────────────────
-        const card = new Rectangle(`csCard_${opt.type}`);
-        card.width = '285px';
+        const card = makeFrame({ name: `csCard_${opt.type}`, sizePx: 285, color: opt.color, cornerRadius: 12 });
         card.height = '340px';
-        card.background = '#0d0d1a';
-        card.color = opt.color;
-        card.thickness = 2;
-        card.cornerRadius = 14;
         card.left = `${offsetX}px`;
         card.isPointerBlocker = true;
         this.panel!.addControl(card);
@@ -197,7 +193,7 @@ export class ChampionSelectOverlay {
         btn.fontWeight = 'bold';
         btn.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
         btn.paddingBottom = '12px';
-        btn.onPointerClickObservable.add(() => {
+        addPressFeedback(btn, () => {
             this.close();
             this._onPick(opt.type);
         });
@@ -205,16 +201,12 @@ export class ChampionSelectOverlay {
 
         // ── Hover / tap-card-to-confirm ─────────────────────────────────────
         card.onPointerEnterObservable.add(() => {
-            card.scaleX = 1.04;
-            card.scaleY = 1.04;
             card.color = '#ffffff';
         });
         card.onPointerOutObservable.add(() => {
-            card.scaleX = 1.0;
-            card.scaleY = 1.0;
             card.color = opt.color;
         });
-        card.onPointerClickObservable.add(() => {
+        addPressFeedback(card, () => {
             this.close();
             this._onPick(opt.type);
         });
@@ -251,13 +243,8 @@ export class ChampionSelectOverlay {
             const topY = stackTop + i * (cardH + gap);
 
             // ── Outer card ─────────────────────────────────────────────────
-            const card = new Rectangle(`csCard_${opt.type}`);
-            card.width = `${cardW}px`;
+            const card = makeFrame({ name: `csCard_${opt.type}`, sizePx: cardW, color: opt.color, cornerRadius: 12 });
             card.height = `${cardH}px`;
-            card.background = '#0d0d1a';
-            card.color = opt.color;
-            card.thickness = 2;
-            card.cornerRadius = 10;
             card.top = `${topY}px`;
             card.isPointerBlocker = true;
             this.panel!.addControl(card);
@@ -342,16 +329,12 @@ export class ChampionSelectOverlay {
 
             // Entire card is tappable — no separate SELECT button on mobile
             card.onPointerEnterObservable.add(() => {
-                card.scaleX = 1.03;
-                card.scaleY = 1.03;
                 card.color = '#ffffff';
             });
             card.onPointerOutObservable.add(() => {
-                card.scaleX = 1.0;
-                card.scaleY = 1.0;
                 card.color = opt.color;
             });
-            card.onPointerClickObservable.add(() => {
+            addPressFeedback(card, () => {
                 this.close();
                 this._onPick(opt.type);
             });
