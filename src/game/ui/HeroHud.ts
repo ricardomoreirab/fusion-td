@@ -1,7 +1,8 @@
 import { AdvancedDynamicTexture, Rectangle, TextBlock, Control } from '@babylonjs/gui';
 import { PowerSlot } from '../gameplay/PowerSlotManager';
 import { AbilityManager } from '../gameplay/AbilityManager';
-import { getLayoutMode, getRenderWidth } from './responsive';
+import { getLayoutMode } from './responsive';
+import { makePill, STYLE } from './HudStyle';
 
 // ─── Element glyph map ─────────────────────────────────────────────────────────
 // These are unicode characters that render reliably in most browsers via Canvas2D.
@@ -119,18 +120,20 @@ export class HeroHud {
     // ─── Desktop layout (original) ─────────────────────────────────────────────
 
     private _buildDesktop(): void {
-        // ── HP bar ────────────────────────────────────────────────────────────
+        // ── HP bar — top-left pill ─────────────────────────────────────────
+        const hpW = 260;
+        const hpH = 20;
         const hpBg = new Rectangle('hpBg');
-        hpBg.width = '240px';
-        hpBg.height = '22px';
-        hpBg.thickness = 2;
-        hpBg.color = '#444';
-        hpBg.background = '#111';
-        hpBg.cornerRadius = 4;
+        hpBg.width = `${hpW}px`;
+        hpBg.height = `${hpH}px`;
+        hpBg.thickness = STYLE.borderThickness;
+        hpBg.color = '#c0c0d0';
+        hpBg.background = STYLE.panelBg;
+        hpBg.cornerRadius = STYLE.pillRadius;
         hpBg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        hpBg.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        hpBg.left = '150px';
-        hpBg.top = '-80px';
+        hpBg.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        hpBg.left = '10px';
+        hpBg.top = '10px';
         this.ui.addControl(hpBg);
         this.builtControls.push(hpBg);
 
@@ -139,7 +142,7 @@ export class HeroHud {
         this.hpFill.height = 1.0;
         this.hpFill.thickness = 0;
         this.hpFill.background = '#c33';
-        this.hpFill.cornerRadius = 3;
+        this.hpFill.cornerRadius = STYLE.pillRadius;
         this.hpFill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         hpBg.addControl(this.hpFill);
 
@@ -150,45 +153,50 @@ export class HeroHud {
         this.hpDangerZone.thickness = 0;
         this.hpDangerZone.background = '#ffe040';
         this.hpDangerZone.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        this.hpDangerZone.left = '179px'; // 240 * 0.75 - 1
+        this.hpDangerZone.left = `${Math.round(hpW * 0.25) - 1}px`;
         hpBg.addControl(this.hpDangerZone);
 
         this.hpText = new TextBlock('hpText', '');
         this.hpText.color = '#fff';
         this.hpText.fontSize = 13;
+        this.hpText.fontStyle = 'bold';
+        this.hpText.fontFamily = 'Arial';
+        this.hpText.shadowColor = STYLE.textShadowColor;
+        this.hpText.shadowBlur = STYLE.textShadowBlur;
         hpBg.addControl(this.hpText);
 
-        // Gold text — right of HP bar
-        this.goldText = new TextBlock('goldText', '');
-        this.goldText.color = '#ffd700';
-        this.goldText.fontSize = 17;
-        this.goldText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        this.goldText.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        this.goldText.left = '400px';
-        this.goldText.top = '-80px';
-        this.goldText.width = '130px';
-        this.goldText.height = '22px';
-        this.goldText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        this.ui.addControl(this.goldText);
-        this.builtControls.push(this.goldText);
+        // ── Wave pill — top-center ─────────────────────────────────────────
+        const wavePill = makePill({
+            name: 'wave',
+            color: '#ffe040',
+            initialText: '',
+            fontSize: 16,
+            height: 28,
+            textColor: '#ffe040',
+        });
+        wavePill.bg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        wavePill.bg.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        wavePill.bg.top = '10px';
+        this.ui.addControl(wavePill.bg);
+        this.builtControls.push(wavePill.bg);
+        this.waveText = wavePill.text;
 
-        // Wave indicator — top-center text "WAVE X · N enemies"
-        this.waveText = new TextBlock('waveText');
-        this.waveText.text = '';
-        this.waveText.color = '#ffe040';
-        this.waveText.fontSize = 22;
-        this.waveText.fontStyle = 'bold';
-        this.waveText.fontFamily = 'Arial';
-        this.waveText.shadowBlur = 4;
-        this.waveText.shadowColor = '#000';
-        this.waveText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        this.waveText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        this.waveText.top = '20px';
-        this.waveText.height = '32px';
-        this.waveText.width = '320px';
-        this.waveText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        this.ui.addControl(this.waveText);
-        this.builtControls.push(this.waveText);
+        // ── Gold pill — top-right ──────────────────────────────────────────
+        const goldPill = makePill({
+            name: 'gold',
+            color: '#ffd700',
+            initialText: '◯ 0',
+            fontSize: 16,
+            height: 28,
+            textColor: '#ffd700',
+        });
+        goldPill.bg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        goldPill.bg.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        goldPill.bg.top = '10px';
+        goldPill.bg.paddingRight = '10px';
+        this.ui.addControl(goldPill.bg);
+        this.builtControls.push(goldPill.bg);
+        this.goldText = goldPill.text;
 
         // ── 4 power-slot icons — bottom row ──────────────────────────────────
         for (let i = 0; i < 4; i++) {
@@ -244,23 +252,24 @@ export class HeroHud {
     // Ultimates: bottom-right, 44×44
 
     private _buildMobile(): void {
-        const vw = getRenderWidth(this.ui);
-        const hpBarW = Math.min(320, Math.round(vw * 0.80));
         const slotSize = 40;
         const slotSpacing = 46; // slotSize + 6px gap
         // Joystick (mobile): left=20, radius=45, width=90 → right edge=110px. Slots start with 8px gap.
         const slotStartLeft = 118;
 
-        // ── HP bar — top-center ───────────────────────────────────────────────
+        // ── HP bar — top-left pill ─────────────────────────────────────────
+        const hpW = 140;
+        const hpH = 14;
         const hpBg = new Rectangle('hpBg');
-        hpBg.width = `${hpBarW}px`;
-        hpBg.height = '20px';
-        hpBg.thickness = 2;
-        hpBg.color = '#444';
-        hpBg.background = '#111';
-        hpBg.cornerRadius = 4;
-        hpBg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        hpBg.width = `${hpW}px`;
+        hpBg.height = `${hpH}px`;
+        hpBg.thickness = STYLE.borderThickness;
+        hpBg.color = '#c0c0d0';
+        hpBg.background = STYLE.panelBg;
+        hpBg.cornerRadius = STYLE.pillRadius;
+        hpBg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         hpBg.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        hpBg.left = '10px';
         hpBg.top = '10px';
         this.ui.addControl(hpBg);
         this.builtControls.push(hpBg);
@@ -270,7 +279,7 @@ export class HeroHud {
         this.hpFill.height = 1.0;
         this.hpFill.thickness = 0;
         this.hpFill.background = '#c33';
-        this.hpFill.cornerRadius = 3;
+        this.hpFill.cornerRadius = STYLE.pillRadius;
         this.hpFill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         hpBg.addControl(this.hpFill);
 
@@ -280,45 +289,50 @@ export class HeroHud {
         this.hpDangerZone.thickness = 0;
         this.hpDangerZone.background = '#ffe040';
         this.hpDangerZone.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        this.hpDangerZone.left = `${Math.round(hpBarW * 0.75) - 1}px`;
+        this.hpDangerZone.left = `${Math.round(hpW * 0.25) - 1}px`;
         hpBg.addControl(this.hpDangerZone);
 
         this.hpText = new TextBlock('hpText', '');
         this.hpText.color = '#fff';
-        this.hpText.fontSize = 11;
+        this.hpText.fontSize = 10;
+        this.hpText.fontStyle = 'bold';
+        this.hpText.fontFamily = 'Arial';
+        this.hpText.shadowColor = STYLE.textShadowColor;
+        this.hpText.shadowBlur = STYLE.textShadowBlur;
         hpBg.addControl(this.hpText);
 
-        // ── Gold — top-right ──────────────────────────────────────────────────
-        this.goldText = new TextBlock('goldText', '');
-        this.goldText.color = '#ffd700';
-        this.goldText.fontSize = 14;
-        this.goldText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        this.goldText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        this.goldText.top = '10px';
-        this.goldText.paddingRight = '10px';
-        this.goldText.width = '100px';
-        this.goldText.height = '20px';
-        this.goldText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        this.ui.addControl(this.goldText);
-        this.builtControls.push(this.goldText);
+        // ── Wave pill — top-center ─────────────────────────────────────────
+        const wavePill = makePill({
+            name: 'wave',
+            color: '#ffe040',
+            initialText: '',
+            fontSize: 12,
+            height: 22,
+            textColor: '#ffe040',
+        });
+        wavePill.bg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        wavePill.bg.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        wavePill.bg.top = '10px';
+        this.ui.addControl(wavePill.bg);
+        this.builtControls.push(wavePill.bg);
+        this.waveText = wavePill.text;
 
-        // Wave indicator — top-center text "WAVE X · N enemies"
-        this.waveText = new TextBlock('waveText');
-        this.waveText.text = '';
-        this.waveText.color = '#ffe040';
-        this.waveText.fontSize = 18;
-        this.waveText.fontStyle = 'bold';
-        this.waveText.fontFamily = 'Arial';
-        this.waveText.shadowBlur = 4;
-        this.waveText.shadowColor = '#000';
-        this.waveText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        this.waveText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        this.waveText.top = '14px';
-        this.waveText.height = '32px';
-        this.waveText.width = '320px';
-        this.waveText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        this.ui.addControl(this.waveText);
-        this.builtControls.push(this.waveText);
+        // ── Gold pill — top-right ──────────────────────────────────────────
+        const goldPill = makePill({
+            name: 'gold',
+            color: '#ffd700',
+            initialText: '◯ 0',
+            fontSize: 12,
+            height: 22,
+            textColor: '#ffd700',
+        });
+        goldPill.bg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        goldPill.bg.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        goldPill.bg.top = '10px';
+        goldPill.bg.paddingRight = '10px';
+        this.ui.addControl(goldPill.bg);
+        this.builtControls.push(goldPill.bg);
+        this.goldText = goldPill.text;
 
         // ── 4 power slots — bottom-left, 40×40 ───────────────────────────────
         for (let i = 0; i < 4; i++) {
@@ -629,9 +643,9 @@ export class HeroHud {
         // ── Wave indicator ──────────────────────────────────────────────────
         if (waveInfo) {
             if (waveInfo.inProgress) {
-                this.waveText.text = `WAVE ${waveInfo.wave}  ·  ${waveInfo.enemiesAlive} enemies`;
+                this.waveText.text = `WAVE ${waveInfo.wave} · ${waveInfo.enemiesAlive} LEFT`;
             } else if (waveInfo.wave === 0) {
-                this.waveText.text = `WAVE 1 STARTING...`;
+                this.waveText.text = `WAVE 1 STARTING`;
             } else {
                 this.waveText.text = `WAVE ${waveInfo.wave} CLEARED`;
             }
