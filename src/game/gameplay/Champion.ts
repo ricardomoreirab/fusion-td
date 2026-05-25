@@ -98,6 +98,20 @@ export class Champion extends Enemy {
      *  instead of the procedural box-and-cylinder build. */
     private rangerAsset: AssetContainer | null = null;
 
+    /** Animation groups loaded from the ranger GLB, categorized by detected name.
+     *  Falls back to first/last available when a specific clip isn't present. */
+    private rangerAnims: {
+        idle: AnimationGroup | null;
+        walk: AnimationGroup | null;
+        shoot: AnimationGroup | null;
+        all: AnimationGroup[];
+    } = { idle: null, walk: null, shoot: null, all: [] };
+    private rangerCurrentAnim: AnimationGroup | null = null;
+    /** Seconds remaining of forced-shoot animation. Higher-priority than walk/idle while > 0. */
+    private rangerShootTimer: number = 0;
+    /** Default duration the shoot anim plays for after a trigger. */
+    private static readonly RANGER_SHOOT_DURATION = 0.45;
+
     constructor(
         game: Game,
         reversedPath: Vector3[],
@@ -280,13 +294,61 @@ export class Champion extends Enemy {
             }
         }
 
-        // Play the first animation group on loop — most rigged GLBs ship at least one
-        // (idle/walk). If none exist, the mesh just translates with no limb motion.
-        if (inst.animationGroups.length > 0) {
-            inst.animationGroups[0].start(true);
+        // Shift the GLB so its feet sit on the ground. Most rigged humanoid GLBs are
+        // centered on torso/origin so half the model lands below y=0. Compute the
+        // post-parent bounding box and push the GLB roots up by -min.y.
+        this.mesh.computeWorldMatrix(true);
+        const bbox = this.mesh.getHierarchyBoundingVectors(true);
+        const feetOffset = -bbox.min.y;
+        for (const root of inst.rootNodes) {
+            if ('position' in root && root.position) {
+                (root as TransformNode).position.y += feetOffset;
+            }
         }
-        // Silence unused-var warning while scene reference is held for future debug needs.
+
+        // Categorize the GLB animation groups by their name. Sketchfab/Mixamo/etc. use
+        // varying conventions, so we accept a few aliases per slot.
+        this.rangerAnims = { idle: null, walk: null, shoot: null, all: [...inst.animationGroups] };
+        console.log(`[ranger] available animation groups (${inst.animationGroups.length}):`);
+        for (const ag of inst.animationGroups) {
+            console.log(`  - "${ag.name}"`);
+            const n = ag.name.toLowerCase();
+            if (this.rangerAnims.idle == null && (n.includes('idle') || n === 'stand')) {
+                this.rangerAnims.idle = ag;
+            } else if (this.rangerAnims.walk == null && (n.includes('walk') || n.includes('run'))) {
+                this.rangerAnims.walk = ag;
+            } else if (this.rangerAnims.shoot == null && (n.includes('shoot') || n.includes('attack') || n.includes('fire') || n.includes('bow'))) {
+                this.rangerAnims.shoot = ag;
+            }
+            ag.stop(); // GLB anims often auto-play; pause so playRangerAnim controls them.
+        }
+        // Fallbacks: if a specific clip wasn't detected, reuse what we have.
+        const a = this.rangerAnims;
+        if (!a.idle  && a.all.length > 0) a.idle  = a.all[0];
+        if (!a.walk  && a.all.length > 0) a.walk  = a.all[Math.min(1, a.all.length - 1)];
+        if (!a.shoot && a.all.length > 0) a.shoot = a.all[a.all.length - 1];
+
+        // Start in idle — update() will switch to walk/shoot as input changes.
+        this.playRangerAnim('idle');
+
         void scene;
+    }
+
+    /** Switch the ranger to the named animation slot (no-op if already playing it). */
+    private playRangerAnim(slot: 'idle' | 'walk' | 'shoot'): void {
+        const target = this.rangerAnims[slot];
+        if (!target) return;
+        if (this.rangerCurrentAnim === target) return;
+        if (this.rangerCurrentAnim) this.rangerCurrentAnim.stop();
+        target.start(slot !== 'shoot'); // loop walk/idle, play shoot once
+        this.rangerCurrentAnim = target;
+    }
+
+    /** Called by HeroBasicAttack when the ranger fires a projectile. Plays the shoot
+     *  animation for RANGER_SHOOT_DURATION before returning to walk/idle. */
+    public triggerShoot(): void {
+        if (this.championType !== 'ranger' || !this.rangerAsset) return;
+        this.rangerShootTimer = Champion.RANGER_SHOOT_DURATION;
     }
 
     private createRangerMeshProcedural(): void {
@@ -874,7 +936,10 @@ export class Champion extends Enemy {
             this.position.addInPlace(this.playerVelocity.scale(deltaTime));
             this.mesh.position.x = this.position.x;
             this.mesh.position.z = this.position.z;
-            this.mesh.position.y = this.position.y + 2.0;
+            // GLB ranger sits on its own (feetOffset applied in createRangerMeshFromGLB);
+            // procedural meshes need +2.0 to keep box-bodies above the ground plane.
+            const usingRangerGLB = this.championType === 'ranger' && !!this.rangerAsset;
+            this.mesh.position.y = this.position.y + (usingRangerGLB ? 0 : 2.0);
 
             // Decrement spin-attack timer
             if (this.spinAttackTimer > 0) {
@@ -886,7 +951,19 @@ export class Champion extends Enemy {
             if (isMoving) {
                 this.walkTime += deltaTime * 5; // stride pace for player-controlled
             }
-            if (this.championType === 'mage') {
+
+            // GLB ranger: drive Walk / Idle / Shoot via the GLB's animation groups.
+            // (Skip the procedural animateHumanoid path — its limb hooks are null anyway.)
+            if (usingRangerGLB) {
+                if (this.rangerShootTimer > 0) {
+                    this.rangerShootTimer = Math.max(0, this.rangerShootTimer - deltaTime);
+                    this.playRangerAnim('shoot');
+                } else if (isMoving) {
+                    this.playRangerAnim('walk');
+                } else {
+                    this.playRangerAnim('idle');
+                }
+            } else if (this.championType === 'mage') {
                 this.animateMage(deltaTime);
             } else if (this.championType === 'ranger' || isMoving || this.spinAttackTimer > 0) {
                 this.animateHumanoid();

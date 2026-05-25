@@ -152,6 +152,11 @@ export class HeroBasicAttack {
                     this.spawnProjectileAtAngle(heroPos.clone(), target, angle);
                 }
             }
+            // Trigger the ranger GLB's Shoot animation (no-op for non-ranger champions).
+            const hero = this.hero as { triggerShoot?: () => void };
+            if (typeof hero.triggerShoot === 'function') {
+                hero.triggerShoot();
+            }
             this.cooldown = this.effectiveInterval;
         }
     }
