@@ -1,4 +1,4 @@
-import { Vector3, MeshBuilder, StandardMaterial, Color3, Color4, ParticleSystem, Mesh, AssetContainer, AnimationGroup, TransformNode } from '@babylonjs/core';
+import { Vector3, MeshBuilder, StandardMaterial, Color3, Color4, ParticleSystem, Mesh, AssetContainer, AnimationGroup, TransformNode, Quaternion } from '@babylonjs/core';
 import { Game } from '../../Game';
 import { Enemy, getStatusEffectTexture } from './Enemy';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../rendering/LowPolyMaterial';
@@ -63,10 +63,18 @@ export class BasicEnemy extends Enemy {
             if ('scaling' in root && root.scaling) {
                 (root as TransformNode).scaling.scaleInPlace(MINION_SCALE);
             }
+            // Pre-rotate the GLB 180° around Y so it aligns with Enemy.update's
+            // seek-rotation formula (which faces +z away from the hero, expecting the
+            // model to be authored facing -z). Quaternion-aware so it works whether
+            // the loader set rotationQuaternion or Euler rotation.
+            const tn = root as TransformNode;
+            const flip = Quaternion.RotationYawPitchRoll(Math.PI, 0, 0);
+            if (tn.rotationQuaternion) {
+                tn.rotationQuaternion = flip.multiply(tn.rotationQuaternion);
+            } else if (tn.rotation) {
+                tn.rotation.y += Math.PI;
+            }
         }
-        // Note: facing is post-corrected in update() with an un-negated atan2 — the
-        // GLB loader's __root__ flip + this asset's authored direction made the
-        // procedural Enemy.update formula (which negates dirX/dirZ) face backwards.
 
         // Shift the GLB so its feet sit at y=0 (most rigged humanoids center on torso).
         this.mesh.computeWorldMatrix(true);
@@ -84,7 +92,12 @@ export class BasicEnemy extends Enemy {
         for (const ag of inst.animationGroups) {
             console.log(`  - "${ag.name}"`);
             const n = ag.name.toLowerCase();
-            if (!this.glbWalkAnim && (n.includes('walk') || n.includes('run'))) {
+            // Hard-prefer "run3" for walk — this specific minion asset has multiple
+            // run clips and run3 is the one we want. Falls back to walk/run aliases
+            // for other assets.
+            if (n.includes('run3')) {
+                this.glbWalkAnim = ag;
+            } else if (!this.glbWalkAnim && (n.includes('walk') || n.includes('run'))) {
                 this.glbWalkAnim = ag;
             } else if (!this.glbAttackAnim && (n.includes('attack') || n.includes('hit') || n.includes('punch') || n.includes('strike') || n.includes('swing'))) {
                 this.glbAttackAnim = ag;
@@ -482,22 +495,17 @@ export class BasicEnemy extends Enemy {
         const result = super.update(deltaTime);
 
         // GLB minions skip the procedural limb animation — the asset's clips drive it.
+        // Facing is handled by Enemy.update's seek-rotation; the GLB roots are
+        // pre-rotated 180° in createMeshFromGLB so the model ends up facing the hero.
         if (this.usingGLB) {
-            // Override Enemy.update's seek-rotation (which negates dirX/dirZ for the
-            // procedural goblin's authored direction). For this GLB the un-negated
-            // formula makes the model's face point toward the hero.
-            if (this.seekTarget && this.mesh) {
+            if (this.isFrozen || this.isStunned) {
+                this.playGlbAnim(this.glbIdleAnim, true);
+            } else if (this.seekTarget) {
                 const heroPos = this.seekTarget.getPosition();
                 const dx = heroPos.x - this.position.x;
                 const dz = heroPos.z - this.position.z;
                 const distSq = dx * dx + dz * dz;
-                if (distSq > 0.0001) {
-                    this.mesh.rotation.y = Math.atan2(dx, dz);
-                }
-                // Within attack range → attack clip; otherwise → walk.
-                if (this.isFrozen || this.isStunned) {
-                    this.playGlbAnim(this.glbIdleAnim, true);
-                } else if (distSq <= BasicEnemy.GLB_ATTACK_RANGE * BasicEnemy.GLB_ATTACK_RANGE) {
+                if (distSq <= BasicEnemy.GLB_ATTACK_RANGE * BasicEnemy.GLB_ATTACK_RANGE) {
                     this.playGlbAnim(this.glbAttackAnim, true);
                 } else {
                     this.playGlbAnim(this.glbWalkAnim, true);
