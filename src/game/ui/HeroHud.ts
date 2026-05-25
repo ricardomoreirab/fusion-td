@@ -4,6 +4,7 @@ import { PowerSlot } from '../gameplay/PowerSlotManager';
 import { AbilityManager } from '../gameplay/AbilityManager';
 import { getLayoutMode } from './responsive';
 import { makePill, makeFrame, addPressFeedback, flashControl, pulseScale, tryHaptic, STYLE } from './HudStyle';
+import { RunItems, ItemId } from '../gameplay/RunItems';
 
 // ─── Element glyph map ─────────────────────────────────────────────────────────
 // These are unicode characters that render reliably in most browsers via Canvas2D.
@@ -31,6 +32,20 @@ const ELEMENT_COLOR: Record<string, string> = {
     arcane:   '#b050ff',
     physical: '#e0e0e0',
     storm:    '#ffe040',
+};
+
+/** Per-item glyph and color for the items HUD row. */
+const ITEM_GLYPH: Record<ItemId, string> = {
+    lifesteal: '♥',
+    multishotCleave: '✦',
+    knockback: '➤',
+    attackSpeed: '⚡',
+};
+const ITEM_COLOR: Record<ItemId, string> = {
+    lifesteal: '#ff2a40',
+    multishotCleave: '#ffd84a',
+    knockback: '#4ea7ff',
+    attackSpeed: '#fff080',
 };
 
 export class HeroHud {
@@ -78,6 +93,24 @@ export class HeroHud {
     // Track layout for rebuild
     private isMobile: boolean = false;
 
+    private runItems: RunItems | null = null;
+
+    /** Item-row slot containers, keyed by item id. */
+    private itemSlots: Record<ItemId, { bg: Rectangle; icon: TextBlock; badge: TextBlock } | null> = {
+        lifesteal: null,
+        multishotCleave: null,
+        knockback: null,
+        attackSpeed: null,
+    };
+
+    /** Pulse animation state, per slot. */
+    private itemPulseTime: Record<ItemId, number> = {
+        lifesteal: 0, multishotCleave: 0, knockback: 0, attackSpeed: 0,
+    };
+    private itemPulseActive: Record<ItemId, boolean> = {
+        lifesteal: false, multishotCleave: false, knockback: false, attackSpeed: false,
+    };
+
     constructor(ui: AdvancedDynamicTexture, abilityManager?: AbilityManager, game?: Game) {
         this.ui = ui;
         this.abilityManager = abilityManager ?? null;
@@ -93,6 +126,17 @@ export class HeroHud {
             engine.onResizeObservable.add(handler);
             this.resizeObserver = () => engine.onResizeObservable.removeCallback(handler);
         }
+    }
+
+    /** Wire the RunItems source so the item row reflects live stack counts. */
+    public setRunItems(runItems: RunItems): void {
+        this.runItems = runItems;
+    }
+
+    /** Trigger the 1s pickup pulse animation on the slot for `id`. */
+    public pulseItem(id: ItemId): void {
+        this.itemPulseActive[id] = true;
+        this.itemPulseTime[id] = 0;
     }
 
     private build(): void {
@@ -288,6 +332,23 @@ export class HeroHud {
             this.slotContainers.push({ bg, icon, level, cdMask });
         }
 
+        // ── Items row — 4 small slots sitting above the power-slot row ──────
+        const itemSize = 36;
+        const itemGap  = 6;
+        const itemRowWidth = itemSize * 4 + itemGap * 3;
+        const itemRow = new Rectangle('itemRow');
+        itemRow.width = `${itemRowWidth}px`;
+        itemRow.height = `${itemSize}px`;
+        itemRow.thickness = 0;
+        itemRow.background = '';
+        itemRow.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        itemRow.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        itemRow.top = `-${slotSize + 18}px`; // sits just above the power-slot row
+        this.ui.addControl(itemRow);
+        this.builtControls.push(itemRow);
+
+        this._buildItemSlots(itemRow, itemSize, itemGap);
+
         // ── Ultimate ability buttons ──────────────────────────────────────
         this._buildUltimateButtons({
             btnSize: 60,
@@ -452,6 +513,23 @@ export class HeroHud {
             this.slotContainers.push({ bg, icon, level, cdMask });
         }
 
+        // ── Items row — mobile variant, smaller slots ──────────────────────
+        const itemSizeM = 28;
+        const itemGapM  = 4;
+        const itemRowWidthM = itemSizeM * 4 + itemGapM * 3;
+        const itemRowM = new Rectangle('itemRow');
+        itemRowM.width = `${itemRowWidthM}px`;
+        itemRowM.height = `${itemSizeM}px`;
+        itemRowM.thickness = 0;
+        itemRowM.background = '';
+        itemRowM.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        itemRowM.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        itemRowM.top = `-${slotSize + 14}px`;
+        this.ui.addControl(itemRowM);
+        this.builtControls.push(itemRowM);
+
+        this._buildItemSlots(itemRowM, itemSizeM, itemGapM);
+
         // ── Ultimate ability buttons — bottom-right ───────────────────────
         this._buildUltimateButtons({
             btnSize: 46,
@@ -460,6 +538,54 @@ export class HeroHud {
             bottomOffset: 10,
             rightOffset: 10,
         });
+    }
+
+    private _buildItemSlots(parent: Rectangle, sizePx: number, gapPx: number): void {
+        const ids: ItemId[] = ['lifesteal', 'multishotCleave', 'knockback', 'attackSpeed'];
+
+        // Reset slot table so resize-rebuilds don't keep stale references.
+        this.itemSlots = {
+            lifesteal: null,
+            multishotCleave: null,
+            knockback: null,
+            attackSpeed: null,
+        };
+
+        for (let i = 0; i < ids.length; i++) {
+            const id = ids[i];
+
+            const bg = makeFrame({
+                name: `itemBg_${id}`,
+                sizePx,
+                color: '#3a3a46',
+                isEmpty: false,
+            });
+            bg.background = '#1a1a22';
+            bg.color = '#3a3a46';
+            bg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            bg.verticalAlignment   = Control.VERTICAL_ALIGNMENT_TOP;
+            bg.left = `${i * (sizePx + gapPx)}px`;
+            parent.addControl(bg);
+
+            const icon = new TextBlock(`itemIcon_${id}`, ITEM_GLYPH[id]);
+            icon.color = '#3a3a46';   // dim grey = locked
+            icon.fontSize = Math.round(sizePx * 0.55);
+            icon.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            icon.verticalAlignment   = Control.VERTICAL_ALIGNMENT_CENTER;
+            bg.addControl(icon);
+
+            const badge = new TextBlock(`itemBadge_${id}`, '');
+            badge.color = '#ffffff';
+            badge.fontSize = Math.round(sizePx * 0.32);
+            badge.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+            badge.verticalAlignment   = Control.VERTICAL_ALIGNMENT_BOTTOM;
+            badge.paddingRight = '3px';
+            badge.paddingBottom = '1px';
+            badge.isVisible = false;
+            bg.addControl(badge);
+
+            this.itemSlots[id] = { bg, icon, badge };
+        }
     }
 
     // ─── Ultimate button display metadata ─────────────────────────────────────
@@ -600,6 +726,8 @@ export class HeroHud {
         deltaTime: number = 0,
         waveInfo?: { wave: number; enemiesAlive: number; inProgress: boolean },
     ): void {
+        this._updateItemRow(deltaTime);
+
         const ratio = Math.max(0, hp.current / hp.max);
 
         // ── Pause button glyph sync ─────────────────────────────────────────
@@ -755,6 +883,42 @@ export class HeroHud {
             }
         } else {
             this.waveText.text = '';
+        }
+    }
+
+    private _updateItemRow(deltaTime: number): void {
+        const ids: ItemId[] = ['lifesteal', 'multishotCleave', 'knockback', 'attackSpeed'];
+        for (const id of ids) {
+            const slot = this.itemSlots[id];
+            if (!slot) continue;
+
+            const stacks = this.runItems?.getStacks(id) ?? 0;
+            const owned = stacks > 0;
+
+            // Icon color: dim grey when locked, bright item color when owned.
+            slot.icon.color = owned ? ITEM_COLOR[id] : '#3a3a46';
+            slot.bg.color   = owned ? ITEM_COLOR[id] : '#3a3a46';
+
+            // Stack badge: shown only when stacks > 1.
+            slot.badge.isVisible = stacks > 1;
+            if (stacks > 1) slot.badge.text = `×${stacks}`;
+
+            // Pulse animation (1s total). Scale 1 → 1.4 → 1.0 via simple triangle wave.
+            if (this.itemPulseActive[id]) {
+                this.itemPulseTime[id] += deltaTime;
+                const t = this.itemPulseTime[id] / 1.0;
+                if (t >= 1) {
+                    this.itemPulseActive[id] = false;
+                    slot.bg.scaleX = 1;
+                    slot.bg.scaleY = 1;
+                } else {
+                    // Triangle wave peaking at t=0.5
+                    const k = t < 0.5 ? (t * 2) : (1 - (t - 0.5) * 2);
+                    const s = 1 + 0.4 * k;
+                    slot.bg.scaleX = s;
+                    slot.bg.scaleY = s;
+                }
+            }
         }
     }
 

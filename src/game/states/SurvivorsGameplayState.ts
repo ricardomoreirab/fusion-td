@@ -283,6 +283,10 @@ export class SurvivorsGameplayState implements GameState {
         // Built AFTER configureForClass so HUD reads the correct ability IDs.
         this.hud = new HeroHud(this.ui, this.abilityManager, this.game);
 
+        if (this.runItems) {
+            this.hud.setRunItems(this.runItems);
+        }
+
         // Overlays
         this.powerChoice     = new PowerChoiceOverlay(this.ui);
         this.replaceSlotOverlay = new ReplaceSlotOverlay(this.ui);
@@ -324,7 +328,7 @@ export class SurvivorsGameplayState implements GameState {
     private onItemPickup(id: ItemId): void {
         if (!this.runItems) return;
         this.runItems.grant(id);
-        // HUD pulse is wired in Task 10.
+        this.hud?.pulseItem(id);
     }
 
     /** Gather end-of-run stats and transition to game-over. */
