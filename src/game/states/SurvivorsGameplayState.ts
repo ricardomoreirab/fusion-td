@@ -168,12 +168,11 @@ export class SurvivorsGameplayState implements GameState {
         this.scene = this.game.getScene();
         this.scene.clearColor = new Color4(0.04, 0.03, 0.05, 1); // near-black warm
 
-        // Ambient fill — keep low so the directional light gives form. Tuned warm
-        // to match the ancient-ruins env palette.
+        // Ambient fill — kept very low so shadowed regions stay dark and read clearly.
         const ambientLight = new HemisphericLight('survivorsAmbient', new Vector3(0, 1, 0), this.scene);
-        ambientLight.intensity = 0.25;
-        ambientLight.diffuse = new Color3(0.75, 0.55, 0.45);     // dim warm fill from above
-        ambientLight.groundColor = new Color3(0.10, 0.06, 0.04); // very dim warm bounce
+        ambientLight.intensity = 0.1;
+        ambientLight.diffuse = new Color3(0.65, 0.50, 0.40);
+        ambientLight.groundColor = new Color3(0.05, 0.03, 0.02);
 
         // Key light — dimmed to a fill role since the shadow-casting DirectionalLight
         // added in applyRuinsAmbience is now the dominant key. Too much extra light
@@ -524,7 +523,7 @@ export class SurvivorsGameplayState implements GameState {
             12,                             // gentle falloff
             scene,
         );
-        spot.intensity = 1.4; // dropped from 3.0 — too bright was washing out cast shadows
+        spot.intensity = 0.4; // ambient warmth only — shadow light is the dominant directional
         spot.diffuse = new Color3(1.0, 0.55, 0.18);
 
         // ── Shadows ───────────────────────────────────────────────────────────
@@ -546,7 +545,7 @@ export class SurvivorsGameplayState implements GameState {
         // term. If intensity is 0, blocking 0 illumination = no visible shadow.
         const shadowLight = new DirectionalLight('arenaShadowLight', new Vector3(-1, -1, -1), scene);
         shadowLight.position = new Vector3(25, 25, 25);
-        shadowLight.intensity = 0.9;                              // real key — provides the light shadows can block
+        shadowLight.intensity = 1.6;                              // dominant key — its absence under shadows is what we'll see
         shadowLight.diffuse = new Color3(1.0, 0.85, 0.6);         // warm dusk
         shadowLight.shadowMinZ = 1;
         shadowLight.shadowMaxZ = 100;
