@@ -3,6 +3,7 @@ import { Champion } from './Champion';
 import { HeroBasicAttack, BasicAttackTarget, BasicAttackMode, ProjectileShape } from './HeroBasicAttack';
 import { PowerSlotManager } from './PowerSlotManager';
 import { Enemy } from './enemies/Enemy';
+import { PlayerStats } from './PlayerStats';
 
 /** Hero damage-feedback tuning — adjust here, not deep in the update loop. */
 const HIT_REACTION_COOLDOWN_S = 0.5;
@@ -252,6 +253,11 @@ export class HeroController {
      */
     public updateBasicAttackSpeed(multiplier: number): void {
         this.basicAttack?.updateAttackSpeed(multiplier);
+    }
+
+    /** Push player-stats reference into the inner basic-attack instance (used by RunItems wiring). */
+    public setPlayerStats(stats: PlayerStats): void {
+        this.basicAttack?.setPlayerStats(stats);
     }
 
     /**

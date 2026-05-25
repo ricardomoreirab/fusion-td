@@ -3,6 +3,7 @@ import { Champion } from './Champion';
 import { PowerSlotManager } from './PowerSlotManager';
 import { EnchantmentHitContext } from './powers/PowerDefinitions';
 import { Enemy } from './enemies/Enemy';
+import { PlayerStats } from './PlayerStats';
 import { getCachedMaterial } from '../rendering/MaterialCache';
 import { acquireProjectile, releaseProjectile } from '../rendering/ProjectilePool';
 
@@ -32,6 +33,7 @@ export class HeroBasicAttack {
     private mode: BasicAttackMode;
     private targetProvider: () => BasicAttackTarget | null;
     private powerSlots: PowerSlotManager | null = null;
+    private playerStats: PlayerStats | null = null;
     private projectileShape: ProjectileShape;
 
     // For melee: reference to full enemy list for AOE
@@ -64,6 +66,11 @@ export class HeroBasicAttack {
     /** Wire up the power slot manager so enchantments apply on each hit. */
     public setPowerSlots(slots: PowerSlotManager): void {
         this.powerSlots = slots;
+    }
+
+    /** Wire up player stats so run-item effects (lifesteal, knockback, multishot, multi-spin) apply. */
+    public setPlayerStats(stats: PlayerStats): void {
+        this.playerStats = stats;
     }
 
     /** Update the effective attack speed. multiplier > 1 = faster. */
@@ -116,12 +123,22 @@ export class HeroBasicAttack {
         const enemies = this.enemyProvider ? this.enemyProvider() : [];
         const hitEnemies: Enemy[] = [];
 
+        const lifestealPct = this.playerStats?.lifestealPct ?? 0;
+        const knockback    = this.playerStats?.knockbackOnHit ?? 0;
         for (const e of enemies) {
             if (!e.isAlive()) continue;
             const dx = e.getPosition().x - heroPos.x;
             const dz = e.getPosition().z - heroPos.z;
-            if (Math.hypot(dx, dz) <= range) {
+            const horizDist = Math.hypot(dx, dz);
+            if (horizDist <= range) {
                 e.takeDamage(this.damage);
+                if (lifestealPct > 0 && this.playerStats) {
+                    this.playerStats.heal(this.damage * lifestealPct);
+                }
+                if (knockback > 0 && horizDist > 0.001) {
+                    // Direction: from hero outward toward the enemy.
+                    e.applyKnockback(dx / horizDist, dz / horizDist, knockback);
+                }
                 hitEnemies.push(e);
                 this.applyEnchantments(e, heroPos, enemies);
             }
@@ -286,15 +303,31 @@ export class HeroBasicAttack {
 
             if (dist < 0.4) {
                 target.takeDamage(capturedDamage);
-                // Apply enchantments on projectile hit
-                if (this.powerSlots) {
-                    const enemyHit = allEnemies.find(e => {
-                        const ep = e.getPosition();
-                        const dx = ep.x - target.position.x;
-                        const dz = ep.z - target.position.z;
-                        return Math.hypot(dx, dz) < 0.5 && e.isAlive();
-                    });
-                    if (enemyHit) {
+                if (this.playerStats) {
+                    if (this.playerStats.lifestealPct > 0) {
+                        this.playerStats.heal(capturedDamage * this.playerStats.lifestealPct);
+                    }
+                }
+                // Apply enchantments AND knockback on projectile hit — look up the actual
+                // Enemy instance behind the BasicAttackTarget so we have applyKnockback.
+                const enemyHit = allEnemies.find(e => {
+                    const ep = e.getPosition();
+                    const dx = ep.x - target.position.x;
+                    const dz = ep.z - target.position.z;
+                    return Math.hypot(dx, dz) < 0.5 && e.isAlive();
+                });
+                if (enemyHit) {
+                    const knockback = this.playerStats?.knockbackOnHit ?? 0;
+                    if (knockback > 0) {
+                        // Direction: hero → impact point (matches projectile travel direction).
+                        const tx = target.position.x - heroPos.x;
+                        const tz = target.position.z - heroPos.z;
+                        const tlen = Math.hypot(tx, tz);
+                        if (tlen > 0.001) {
+                            enemyHit.applyKnockback(tx / tlen, tz / tlen, knockback);
+                        }
+                    }
+                    if (this.powerSlots) {
                         this.applyEnchantments(enemyHit, heroPos, allEnemies);
                     }
                 }
