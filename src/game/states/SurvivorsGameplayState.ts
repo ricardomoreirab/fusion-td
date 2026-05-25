@@ -28,37 +28,29 @@ import { RunItems, ItemId } from '../gameplay/RunItems';
 import { ItemDrop } from '../gameplay/ItemDrop';
 
 /**
- * Module-level cache for the ranger GLBs. We load them on demand inside enter()
- * (NOT at boot via AssetsManager) because the cleanupScene that runs between
- * boot and survivors entry breaks the preloaded container's materials. Loading
- * after cleanupScene works reliably.
- *
- * Two assets for the same character — one with the shoot animation, one with
- * the walk animation. Champion uses both: parents both to a shared transform
- * root and toggles which is visible based on movement state.
+ * Module-level cache for the ranger GLB. Loaded on demand inside enter() (not at
+ * boot via AssetsManager — preloaded containers were getting wiped by cleanupScene
+ * in ways I couldn't pin down). Cached across runs so re-entering survivors mode
+ * doesn't re-fetch the asset.
  */
-export interface RangerAssets {
-    shoot: AssetContainer;
-    walk: AssetContainer;
-}
+let _rangerAsset: AssetContainer | null = null;
+let _rangerAssetPromise: Promise<AssetContainer> | null = null;
 
-let _rangerAssets: RangerAssets | null = null;
-let _rangerAssetsPromise: Promise<RangerAssets> | null = null;
-
-function loadRangerAssets(scene: Scene): Promise<RangerAssets> {
-    if (_rangerAssets) return Promise.resolve(_rangerAssets);
-    if (_rangerAssetsPromise) return _rangerAssetsPromise;
-    _rangerAssetsPromise = Promise.all([
-        SceneLoader.LoadAssetContainerAsync('assets/', 'archer_shooting_arrow_from_bow_in_battle.glb', scene),
-        SceneLoader.LoadAssetContainerAsync('assets/', '624230050_erika_archer_catwalk.glb', scene),
-    ]).then(([shoot, walk]) => {
-        _rangerAssets = { shoot, walk };
-        return _rangerAssets;
+function loadRangerAsset(scene: Scene): Promise<AssetContainer> {
+    if (_rangerAsset) return Promise.resolve(_rangerAsset);
+    if (_rangerAssetPromise) return _rangerAssetPromise;
+    _rangerAssetPromise = SceneLoader.LoadAssetContainerAsync(
+        'assets/miya-moonlight-archer-in-game/source/',
+        'miya_moonlight_archer_in_game.glb',
+        scene,
+    ).then(container => {
+        _rangerAsset = container;
+        return container;
     }).catch(err => {
-        _rangerAssetsPromise = null;
+        _rangerAssetPromise = null;
         throw err;
     });
-    return _rangerAssetsPromise;
+    return _rangerAssetPromise;
 }
 
 /** Float-text labels and colors for item pickups (mirror the HUD slot colors). */
@@ -183,8 +175,8 @@ export class SurvivorsGameplayState implements GameState {
         ];
         // Kick off the ranger GLB load NOW so it's likely ready by the time the user
         // picks. If they pick ranger before it's done, startRun awaits it.
-        loadRangerAssets(this.scene).catch(err =>
-            console.error('Ranger GLBs preload failed (will retry on pick):', err));
+        loadRangerAsset(this.scene).catch(err =>
+            console.error('Ranger GLB preload failed (will retry on pick):', err));
 
         this.championSelect.show(championOptions, (type) => { void this.startRun(type); });
     }
@@ -193,13 +185,13 @@ export class SurvivorsGameplayState implements GameState {
     private async startRun(championType: string): Promise<void> {
         if (!this.scene || !this.ui || !this.map) return;
 
-        // Await the ranger GLBs if needed (no-op for barbarian/mage; instant if already loaded).
-        let rangerAssets: RangerAssets | null = null;
+        // Await the ranger GLB if needed (no-op for barbarian/mage; instant if already loaded).
+        let rangerAsset: AssetContainer | null = null;
         if (championType === 'ranger') {
             try {
-                rangerAssets = await loadRangerAssets(this.scene);
+                rangerAsset = await loadRangerAsset(this.scene);
             } catch (err) {
-                console.error('Ranger GLBs failed to load — falling back to procedural mesh:', err);
+                console.error('Ranger GLB failed to load — falling back to procedural mesh:', err);
             }
         }
 
@@ -222,7 +214,7 @@ export class SurvivorsGameplayState implements GameState {
             [],
             null,
             championType as 'barbarian' | 'ranger' | 'mage',
-            rangerAssets ?? undefined,
+            rangerAsset ?? undefined,
         );
         this.hero.controlMode = 'player';
 
