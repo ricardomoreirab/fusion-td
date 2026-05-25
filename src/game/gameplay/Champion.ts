@@ -98,18 +98,9 @@ export class Champion extends Enemy {
      *  instead of the procedural box-and-cylinder build. */
     private rangerAsset: AssetContainer | null = null;
 
-    /** Animation groups loaded from the ranger GLB, categorized by detected name.
-     *  Falls back to first/last available when a specific clip isn't present. */
-    private rangerAnims: {
-        idle: AnimationGroup | null;
-        walk: AnimationGroup | null;
-        shoot: AnimationGroup | null;
-        all: AnimationGroup[];
-    } = { idle: null, walk: null, shoot: null, all: [] };
-    private rangerCurrentAnim: AnimationGroup | null = null;
-    /** Seconds remaining of forced-shoot animation. Higher-priority than walk/idle while > 0. */
+    /** Seconds remaining of forced-shoot mesh pitch. Higher-priority than walk/idle while > 0. */
     private rangerShootTimer: number = 0;
-    /** Default duration the shoot anim plays for after a trigger. */
+    /** Duration the shoot pitch-back animation plays after each triggerShoot(). */
     private static readonly RANGER_SHOOT_DURATION = 0.45;
 
     constructor(
@@ -285,21 +276,8 @@ export class Champion extends Enemy {
         // fast but breaks for skinned/rigged humanoid GLBs where each instance needs its own
         // skeleton clone — instances render collapsed/invisible. Full clones are heavier per
         // mesh but render correctly with their own skeleton.
-        // Probe source asset first — instantiate sometimes loses skeletons depending
-        // on options. If asset.skeletons.length > 0 but inst.skeletons.length === 0,
-        // we need doNotInstantiate: true to force proper skeleton cloning.
-        console.log(
-            `[ranger] source asset — meshes=${asset.meshes.length}, ` +
-            `skeletons=${asset.skeletons.length}, ` +
-            `animationGroups=${asset.animationGroups.length}`,
-        );
-        for (const sk of asset.skeletons) {
-            console.log(`  source skeleton "${sk.name}" — ${sk.bones.length} bones`);
-        }
-
-        // doNotInstantiate: true does full Mesh.clone() which copies skeleton + bone refs.
-        // The default (false) returns lightweight InstancedMesh entries that often don't
-        // populate inst.skeletons even when the source has them.
+        // doNotInstantiate: true does full Mesh.clone() so the geometry is independent of
+        // the source. Skeleton/anim cloning don't matter for this asset (it has neither).
         const inst = asset.instantiateModelsToScene(
             name => `ranger_${name}`,
             true,
@@ -325,35 +303,11 @@ export class Champion extends Enemy {
             }
         }
 
-        // GLB has no animation clips for this asset (skeleton present but unanimated).
-        // Log what's available so we can verify, and probe the cloned skeleton's bones
-        // so we can hand-roll walk + shoot bone rotations.
-        this.rangerAnims = { idle: null, walk: null, shoot: null, all: [...inst.animationGroups] };
-        console.log(`[ranger] available animation groups (${inst.animationGroups.length}):`);
-        for (const ag of inst.animationGroups) {
-            console.log(`  - "${ag.name}"`);
-            ag.stop();
-        }
-
-        console.log(`[ranger] cloned skeletons (${inst.skeletons.length}):`);
-        for (const sk of inst.skeletons) {
-            console.log(`  skeleton "${sk.name}" — ${sk.bones.length} bones:`);
-            for (const b of sk.bones) {
-                console.log(`    - "${b.name}"`);
-            }
-        }
+        // Asset is unrigged + has no animation clips. Stop any auto-started clips just
+        // in case (defensive), but all real motion is driven at the mesh level in update().
+        for (const ag of inst.animationGroups) ag.stop();
 
         void scene;
-    }
-
-    /** Switch the ranger to the named animation slot (no-op if already playing it). */
-    private playRangerAnim(slot: 'idle' | 'walk' | 'shoot'): void {
-        const target = this.rangerAnims[slot];
-        if (!target) return;
-        if (this.rangerCurrentAnim === target) return;
-        if (this.rangerCurrentAnim) this.rangerCurrentAnim.stop();
-        target.start(slot !== 'shoot'); // loop walk/idle, play shoot once
-        this.rangerCurrentAnim = target;
     }
 
     /** Called by HeroBasicAttack when the ranger fires a projectile. Plays the shoot
@@ -964,16 +918,28 @@ export class Champion extends Enemy {
                 this.walkTime += deltaTime * 5; // stride pace for player-controlled
             }
 
-            // GLB ranger: drive Walk / Idle / Shoot via the GLB's animation groups.
-            // (Skip the procedural animateHumanoid path — its limb hooks are null anyway.)
+            // GLB ranger: the asset is an unrigged static blob, so we fake motion at the
+            // whole-mesh level — vertical bob while running, subtle breathing while idle,
+            // and a brief back-then-upright pitch when a shoot is triggered.
             if (usingRangerGLB) {
+                const baseY = this.position.y;
+                let bob = 0;
+                if (isMoving) {
+                    // Walk hop: |sin| keeps the bob above ground, frequency tuned to walkTime
+                    bob = Math.abs(Math.sin(this.walkTime * 2)) * 0.18;
+                } else {
+                    // Idle breathing — uses absolute time so it animates even when walkTime is paused
+                    bob = Math.sin(performance.now() / 700) * 0.04;
+                }
+                this.mesh.position.y = baseY + bob;
+
                 if (this.rangerShootTimer > 0) {
                     this.rangerShootTimer = Math.max(0, this.rangerShootTimer - deltaTime);
-                    this.playRangerAnim('shoot');
-                } else if (isMoving) {
-                    this.playRangerAnim('walk');
+                    // Pitch peaks tilted back at mid-shot, returns to upright by the end
+                    const progress = 1 - this.rangerShootTimer / Champion.RANGER_SHOOT_DURATION;
+                    this.mesh.rotation.x = -Math.sin(progress * Math.PI) * 0.28;
                 } else {
-                    this.playRangerAnim('idle');
+                    this.mesh.rotation.x = 0;
                 }
             } else if (this.championType === 'mage') {
                 this.animateMage(deltaTime);
