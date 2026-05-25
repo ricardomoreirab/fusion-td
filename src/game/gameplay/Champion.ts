@@ -265,28 +265,57 @@ export class Champion extends Enemy {
         // keep all the controller wiring untouched.
         this.mesh = new Mesh('rangerRoot', scene);
         this.mesh.position = this.position.clone();
-        this.mesh.position.y += 0; // GLB has its own ground offset
 
-        const inst = asset.instantiateModelsToScene(name => name, true);
+        const inst = asset.instantiateModelsToScene(name => `ranger_${name}`, true);
         const RANGER_SCALE = 1.5;
+        console.log(
+            `[Champion] rangerArcher instantiated — ${inst.rootNodes.length} rootNodes, ` +
+            `${inst.animationGroups.length} anim groups`,
+        );
         for (const root of inst.rootNodes) {
+            console.log(
+                `[Champion]   root: name="${root.name}" type=${root.constructor.name} ` +
+                `enabled=${root.isEnabled()} ` +
+                `pos=(${(root as TransformNode).position?.x?.toFixed(2)}, ` +
+                `${(root as TransformNode).position?.y?.toFixed(2)}, ` +
+                `${(root as TransformNode).position?.z?.toFixed(2)}) ` +
+                `scale=(${(root as TransformNode).scaling?.x?.toFixed(2)}, ` +
+                `${(root as TransformNode).scaling?.y?.toFixed(2)}, ` +
+                `${(root as TransformNode).scaling?.z?.toFixed(2)})`,
+            );
             root.parent = this.mesh;
-            // Apply the chosen size. GLB roots are TransformNodes; .scaling exists on both.
             if ('scaling' in root && root.scaling) {
                 (root as TransformNode).scaling.scaleInPlace(RANGER_SCALE);
             }
         }
+
+        // Diagnostic: bright red cube at the ranger root position so we can confirm
+        // the hero spawn location is on-camera. If you see the cube but no ranger,
+        // the model is loading but not rendering. If neither, the position/camera is off.
+        const beacon = MeshBuilder.CreateBox('rangerBeacon', { size: 0.5 }, scene);
+        beacon.parent = this.mesh;
+        beacon.position = new Vector3(0, 3, 0); // 3u above the ranger origin
+        const beaconMat = new StandardMaterial('rangerBeaconMat', scene);
+        beaconMat.emissiveColor = new Color3(1, 0, 0);
+        beacon.material = beaconMat;
+
+        // Log the world-space bounding box of the instantiated hierarchy so we can see
+        // if the model is rendering somewhere off-screen or at the wrong scale.
+        this.mesh.computeWorldMatrix(true);
+        const bbox = this.mesh.getHierarchyBoundingVectors(true);
+        console.log(
+            `[Champion] ranger bbox after scale ${RANGER_SCALE}: ` +
+            `min=(${bbox.min.x.toFixed(2)}, ${bbox.min.y.toFixed(2)}, ${bbox.min.z.toFixed(2)}) ` +
+            `max=(${bbox.max.x.toFixed(2)}, ${bbox.max.y.toFixed(2)}, ${bbox.max.z.toFixed(2)})`,
+        );
 
         // Play the first animation group on loop — most rigged GLBs ship at least one
         // (idle/walk). If none exist, the mesh just translates with no limb motion.
         if (inst.animationGroups.length > 0) {
             const ag = inst.animationGroups[0] as AnimationGroup;
             ag.start(true);
+            console.log(`[Champion] playing animation: ${ag.name}`);
         }
-
-        // Body-part hooks (swordArm/shieldArm/head/legs/rangerBow/rangerQuiver) remain
-        // null — the existing animateWalk / triggerHitReaction code already null-checks
-        // each one before driving it, so it degrades to "no procedural limb motion".
     }
 
     private createRangerMeshProcedural(): void {
