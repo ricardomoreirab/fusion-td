@@ -142,7 +142,10 @@ export class Champion extends Enemy {
         // dispose the placeholder mesh and rebuild correctly.
         this.championType = championType;
         this.championAsset = championAsset ?? null;
-        if (championType !== 'barbarian') {
+        // Rebuild if the class isn't the default knight built by super() — OR if we have
+        // a GLB to swap in (barbarian's default already matches, but with Aulus GLB we
+        // still need to throw away the procedural mesh and build the GLB instead).
+        if (championType !== 'barbarian' || this.championAsset) {
             this.rebuildForType();
         }
     }
