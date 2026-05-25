@@ -460,13 +460,24 @@ export class Champion extends Enemy {
             console.warn(`[${this.championType}] playAbilityClip: no clip ends with "${clipSuffix}"`);
             return;
         }
+        // Stop AND reset every other anim group on this rig — cloned GLB animation
+        // groups can share underlying target tracks, so a previously-played clip
+        // continues to drive bone state until explicitly stopped. Without this both
+        // ability clips end up looking like whichever ran first.
+        for (const ag of this.championAnims.all) {
+            if (ag !== match) {
+                ag.stop();
+                ag.reset();
+            }
+        }
+        match.stop();
+        match.reset();
         match.speedRatio = speed;
         const frames = match.to - match.from;
         const naturalDur = frames / 60 / speed;
         const dur = durationSec ?? Math.min(3.0, naturalDur);
         const loop = durationSec !== undefined && durationSec > naturalDur;
         this.glbSpecialTimer = dur > 0.1 ? dur : Champion.GLB_SPECIAL_DURATION;
-        if (this.championCurrentAnim) this.championCurrentAnim.stop();
         match.start(loop);
         this.championCurrentAnim = match;
         console.log(
