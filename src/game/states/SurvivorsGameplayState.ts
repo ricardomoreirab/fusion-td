@@ -1,4 +1,4 @@
-import { Scene, Vector3, Color3, Color4, HemisphericLight, DirectionalLight, SpotLight, AssetContainer, SceneLoader, CubeTexture, Texture, MeshBuilder, StandardMaterial, Mesh, BackgroundMaterial } from '@babylonjs/core';
+import { Scene, Vector3, Color3, Color4, HemisphericLight, DirectionalLight, SpotLight, AssetContainer, LoadAssetContainerAsync, CubeTexture, Texture, MeshBuilder, StandardMaterial, Mesh, BackgroundMaterial } from '@babylonjs/core';
 import '@babylonjs/loaders/glTF';
 import { AdvancedDynamicTexture } from '@babylonjs/gui';
 import { Game } from '../Game';
@@ -79,7 +79,9 @@ function loadAsset(
     const cacheKey = `${path.dir}${path.file}`;
     if (cacheKey in _glbAssets) return Promise.resolve(_glbAssets[cacheKey]);
     if (cacheKey in _glbAssetPromises) return _glbAssetPromises[cacheKey];
-    const p = SceneLoader.LoadAssetContainerAsync(path.dir, path.file, scene)
+    // Babylon 9 module-level loader (replaces deprecated SceneLoader.LoadAssetContainerAsync).
+    // Better tree-shaking and cleaner async signature. Pass the full URL as one string.
+    const p = LoadAssetContainerAsync(`${path.dir}${path.file}`, scene)
         .then(container => {
             _glbAssets[cacheKey] = container;
             return container;

@@ -8,7 +8,7 @@
     "build": "webpack --mode production",
     "vercel-build": "webpack --mode production",
     "dev": "webpack serve --open",
-    "deploy": "wrangler deploy",
+    "deploy": "npm run build && wrangler deploy",
     "preview": "wrangler dev"
   },
   "keywords": [
@@ -21,10 +21,10 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@babylonjs/core": "^6.30.0",
-    "@babylonjs/gui": "^6.30.0",
-    "@babylonjs/loaders": "^6.30.0",
-    "@babylonjs/materials": "^6.30.0"
+    "@babylonjs/core": "^9.9.1",
+    "@babylonjs/gui": "^9.9.1",
+    "@babylonjs/loaders": "^9.9.1",
+    "@babylonjs/materials": "^9.9.1"
   },
   "devDependencies": {
     "copy-webpack-plugin": "^11.0.0",

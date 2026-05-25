@@ -1,4 +1,4 @@
-import { Engine, Scene, Vector3, HemisphericLight, ArcRotateCamera, Camera, Color3, Color4, SceneLoader, Animation, AbstractMesh, GlowLayer } from '@babylonjs/core';
+import { Engine, Scene, Vector3, HemisphericLight, ArcRotateCamera, Camera, Color3, Color4, Animation, AbstractMesh, GlowLayer } from '@babylonjs/core';
 import { GameState } from './states/GameState';
 import { MenuState } from './states/MenuState';
 import { SurvivorsGameplayState } from './states/SurvivorsGameplayState';
@@ -246,12 +246,6 @@ export class Game {
             texture.name && texture.name.indexOf("AdvancedDynamicTexture") !== -1);
         for (const texture of guiTextures) {
             texture.dispose();
-        }
-        
-        // Stop any active sounds
-        if (this.scene.audioEnabled) {
-            this.scene.audioEnabled = false;
-            this.scene.audioEnabled = true; // Reset audio
         }
         
         console.log("Scene thoroughly cleaned for state transition");
