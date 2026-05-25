@@ -253,7 +253,8 @@ export class MilestoneBoss extends BossEnemy {
 
     private disposeTelegraphRing(): void {
         if (this.telegraphRing && !this.telegraphRing.isDisposed()) {
-            this.telegraphRing.dispose();
+            // Pass disposeMaterialAndTextures=true so the per-lunge StandardMaterial doesn't leak.
+            this.telegraphRing.dispose(false, true);
         }
         this.telegraphRing = null;
     }
