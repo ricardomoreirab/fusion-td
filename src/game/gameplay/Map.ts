@@ -2039,71 +2039,11 @@ export class Map {
 
         // (Perimeter stone-tile border removed — keep only the central circle.)
 
-        // ── Subtle center accent: dim stone tile with faint compass mark ──
-        const centerStone = MeshBuilder.CreateDisc('arenaCenterStone', { radius: 1.4, tessellation: 24 }, scene);
-        centerStone.rotation.x = Math.PI / 2;
-        centerStone.position.y = 0.005;
-        centerStone.material = createLowPolyMaterial('arenaCenterStoneMat', new Color3(0.16, 0.16, 0.13), scene);
-        this.arenaDecorations.push(centerStone);
-
-        // Four dim compass arms — barely visible, just a hint of structure
-        const compassMat = createLowPolyMaterial('arenaCompassMat', new Color3(0.20, 0.20, 0.16), scene);
-        for (let i = 0; i < 4; i++) {
-            const angle = (i / 4) * Math.PI * 2;
-            const arm = MeshBuilder.CreateBox(`arenaCompass${i}`, {
-                width: 0.12, height: 0.005, depth: 1.3,
-            }, scene);
-            arm.position.set(Math.sin(angle) * 0.65, 0.008, Math.cos(angle) * 0.65);
-            arm.rotation.y = angle;
-            arm.material = compassMat;
-            this.arenaDecorations.push(arm);
-        }
-
+        // (Center compass stone + arms removed — clean grass floor.)
         // (Perimeter rocks removed — keep only the central circle.)
+        // (Interior grass tufts / dirt patches removed — clean grass floor.)
 
-        // ── Grass tufts scattered inside the arena (8 small upright cones) ──
-        const grassMat = createLowPolyMaterial('arenaGrassMat', new Color3(0.22, 0.34, 0.16), scene);
-        for (let i = 0; i < 8; i++) {
-            const angle = Math.random() * Math.PI * 2;
-            const dist = 4 + Math.random() * (radius - 7); // keep clear of center & edge
-            const tuft = MeshBuilder.CreateCylinder(`arenaGrass${i}`, {
-                height: 0.45, diameterTop: 0, diameterBottom: 0.28, tessellation: 6,
-            }, scene);
-            tuft.position.set(Math.sin(angle) * dist, 0.22, Math.cos(angle) * dist);
-            tuft.material = grassMat;
-            makeFlatShaded(tuft);
-            this.arenaDecorations.push(tuft);
-        }
-
-        // ── Dirt patches: small darker flat discs for ground texture variation ──
-        const dirtMat = createLowPolyMaterial('arenaDirtMat', new Color3(0.15, 0.12, 0.09), scene);
-        dirtMat.alpha = 0.55;
-        for (let i = 0; i < 6; i++) {
-            const angle = Math.random() * Math.PI * 2;
-            const dist = 3 + Math.random() * (radius - 5);
-            const patch = MeshBuilder.CreateDisc(`arenaDirt${i}`, {
-                radius: 0.5 + Math.random() * 0.7, tessellation: 12,
-            }, scene);
-            patch.rotation.x = Math.PI / 2;
-            patch.position.set(Math.sin(angle) * dist, 0.005, Math.cos(angle) * dist);
-            patch.material = dirtMat;
-            this.arenaDecorations.push(patch);
-        }
-
-        // ── Battlefield detritus: a few small bone-suggesting white polyhedra ──
-        const boneMat = createLowPolyMaterial('arenaBoneMat', new Color3(0.75, 0.72, 0.62), scene);
-        for (let i = 0; i < 5; i++) {
-            const angle = Math.random() * Math.PI * 2;
-            const dist = 5 + Math.random() * (radius - 8);
-            const bone = MeshBuilder.CreatePolyhedron(`arenaBone${i}`, { type: 1, size: 0.18 }, scene);
-            bone.position.set(Math.sin(angle) * dist, 0.10, Math.cos(angle) * dist);
-            bone.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
-            bone.scaling = new Vector3(1, 0.4, 1.6);
-            bone.material = boneMat;
-            makeFlatShaded(bone);
-            this.arenaDecorations.push(bone);
-        }
-
+        // (Battlefield bone detritus removed — clean grass floor.)
         // (Cardinal torches removed — keep only the central circle.)
 
         // Top-down camera always sees the whole arena — skip per-mesh frustum culling.
