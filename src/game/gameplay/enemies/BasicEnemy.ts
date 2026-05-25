@@ -128,7 +128,9 @@ export class BasicEnemy extends Enemy {
         if (this.glbCurrentAnim === slot) return;
         if (this.glbCurrentAnim) this.glbCurrentAnim.stop();
         slot.start(loop);
+        const prev = this.glbCurrentAnim?.name ?? '(none)';
         this.glbCurrentAnim = slot;
+        console.log(`[basic-minion] anim switch: ${prev} → ${slot.name}`);
     }
 
     /**
