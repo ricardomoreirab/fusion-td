@@ -95,15 +95,39 @@ export class PowerSlotManager {
         this.onCastCallback = fn;
     }
 
+    /** Generous "is any enemy near enough for a power to matter" radius. Powers all
+     *  have different ranges (some global, some AOE around hero) — using one big
+     *  number avoids per-power range bookkeeping and just answers the question
+     *  "is there anything worth shooting at right now?". */
+    private static readonly ANY_TARGET_RADIUS = 20;
+
+    private hasAnyTargetInRange(): boolean {
+        const heroPos = this.heroProvider();
+        const r = PowerSlotManager.ANY_TARGET_RADIUS;
+        const rSq = r * r;
+        for (const e of this.enemyProvider()) {
+            if (!e.isAlive()) continue;
+            const ePos = e.getPosition();
+            const dx = ePos.x - heroPos.x;
+            const dz = ePos.z - heroPos.z;
+            if (dx * dx + dz * dz <= rSq) return true;
+        }
+        return false;
+    }
+
     public update(deltaTime: number): void {
         const ctx = this.buildContext();
         const cooldownMult = this.cooldownMultiplierProvider();
+        // Cache the target check — if nothing's in range, every autocast skips and
+        // holds its cooldown so it's ready to fire the moment a mob walks in.
+        const hasTarget = this.hasAnyTargetInRange();
         for (const slot of this.slots) {
             if (!slot) continue;
             // Skip passive enchantments — they have no cast loop
             if (slot.def.mode === 'passive') continue;
             slot.state.cooldownRemaining -= deltaTime;
             if (slot.state.cooldownRemaining <= 0) {
+                if (!hasTarget) continue; // hold the cooldown, don't fire into empty arena
                 if (slot.def.cast) {
                     slot.def.cast(slot.state, ctx);
                 }

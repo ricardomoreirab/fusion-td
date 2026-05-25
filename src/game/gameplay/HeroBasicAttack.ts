@@ -123,11 +123,13 @@ export class HeroBasicAttack {
         }
 
         // Queued follow-up swings (barbarian extraAttacks) bypass the normal cooldown gate
-        // so they fire at the chosen cadence regardless of the base attack interval.
+        // so they fire at the chosen cadence regardless of the base attack interval. Skip
+        // the swing if no enemy is in range (still drain the queue counter so we don't
+        // pile up a backlog).
         if (this.queuedSwings > 0) {
             this.queuedSpinTimer -= deltaTime;
             if (this.queuedSpinTimer <= 0) {
-                this.performMeleeSwing();
+                if (this.hasMeleeTarget()) this.performMeleeSwing();
                 this.queuedSwings--;
                 this.queuedSpinTimer = EXTRA_SPIN_DELAY;
             }
@@ -137,6 +139,9 @@ export class HeroBasicAttack {
         if (this.cooldown > 0) return;
 
         if (this.mode === 'melee') {
+            // Only swing if at least one enemy is within range — otherwise the
+            // cooldown holds and the next swing fires as soon as a mob walks in.
+            if (!this.hasMeleeTarget()) return;
             this.performMeleeSwing();
             // After the main swing, queue any extra spins from RunItems.
             const extras = this.playerStats?.extraAttacks ?? 0;
@@ -179,6 +184,22 @@ export class HeroBasicAttack {
     // ─────────────────────────────────────────────────────────────────────────
     // Melee — 360° AOE swing
     // ─────────────────────────────────────────────────────────────────────────
+
+    /** True when at least one alive enemy is within the effective melee range. */
+    private hasMeleeTarget(): boolean {
+        if (!this.enemyProvider) return false;
+        const heroPos = this.getHeroPosition();
+        const range = this.effectiveRange;
+        const rangeSq = range * range;
+        for (const e of this.enemyProvider()) {
+            if (!e.isAlive()) continue;
+            const dx = e.getPosition().x - heroPos.x;
+            const dz = e.getPosition().z - heroPos.z;
+            if (dx * dx + dz * dz <= rangeSq) return true;
+        }
+        return false;
+    }
+
     private performMeleeSwing(): void {
         const heroPos = this.getHeroPosition();
         const range = this.effectiveRange;
