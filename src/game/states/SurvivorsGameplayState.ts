@@ -1,4 +1,4 @@
-import { Scene, Vector3, Color3, Color4, HemisphericLight, DirectionalLight, SpotLight, AssetContainer, SceneLoader, CubeTexture, Texture, MeshBuilder, StandardMaterial, Mesh, BackgroundMaterial, ShadowGenerator, AbstractMesh } from '@babylonjs/core';
+import { Scene, Vector3, Color3, Color4, HemisphericLight, DirectionalLight, SpotLight, AssetContainer, SceneLoader, CubeTexture, Texture, MeshBuilder, StandardMaterial, Mesh, BackgroundMaterial } from '@babylonjs/core';
 import '@babylonjs/loaders/glTF';
 import { AdvancedDynamicTexture } from '@babylonjs/gui';
 import { Game } from '../Game';
@@ -146,10 +146,6 @@ export class SurvivorsGameplayState implements GameState {
     private damageHandler: ((e: Event) => void) | null = null;
     private rewardHandler: ((e: Event) => void) | null = null;
 
-    // Shadow generator (set in applyRuinsAmbience, used by registerShadowCasters)
-    private shadowGen: ShadowGenerator | null = null;
-    private shadowRescanCooldown: number = 0;
-
     // UI modules
     private hud: HeroHud | null = null;
     private powerChoice: PowerChoiceOverlay | null = null;
@@ -168,17 +164,16 @@ export class SurvivorsGameplayState implements GameState {
         this.scene = this.game.getScene();
         this.scene.clearColor = new Color4(0.04, 0.03, 0.05, 1); // near-black warm
 
-        // Ambient fill — kept very low so shadowed regions stay dark and read clearly.
+        // Ambient fill — keep low so the directional light gives form. Tuned warm
+        // to match the ancient-ruins env palette.
         const ambientLight = new HemisphericLight('survivorsAmbient', new Vector3(0, 1, 0), this.scene);
-        ambientLight.intensity = 0.1;
-        ambientLight.diffuse = new Color3(0.65, 0.50, 0.40);
-        ambientLight.groundColor = new Color3(0.05, 0.03, 0.02);
+        ambientLight.intensity = 0.25;
+        ambientLight.diffuse = new Color3(0.75, 0.55, 0.45);
+        ambientLight.groundColor = new Color3(0.10, 0.06, 0.04);
 
-        // Key light — dimmed to a fill role since the shadow-casting DirectionalLight
-        // added in applyRuinsAmbience is now the dominant key. Too much extra light
-        // here would wash out the cast shadows.
+        // Key light — warm directional from upper-left-front for form / falloff.
         const keyLight = new DirectionalLight('survivorsKey', new Vector3(-0.4, -1, -0.6), this.scene);
-        keyLight.intensity = 0.15;
+        keyLight.intensity = 0.5;
         keyLight.diffuse = new Color3(1.0, 0.78, 0.55);
 
         // Build base scene resources first
@@ -467,32 +462,6 @@ export class SurvivorsGameplayState implements GameState {
      *  spot light, and a tileable stone texture over the arena's central ground.
      *  All assets fetched from raw.githubusercontent.com (same as the playground)
      *  so we don't need to bundle them. */
-    /** Walk scene.meshes and ensure every eligible mesh is registered as a shadow
-     *  caster. Idempotent — addShadowCaster on an already-added mesh is a no-op.
-     *  Uses includeDescendants=true so adding an empty transform root also picks up
-     *  its visible children (our GLB hero/enemy roots are empty Mesh transforms). */
-    private rescanShadowCasters(): void {
-        if (!this.shadowGen || !this.scene) return;
-        const renderList = this.shadowGen.getShadowMap()?.renderList;
-        if (!renderList) return;
-        let added = 0;
-        for (const m of this.scene.meshes) {
-            const n = m.name;
-            if (n.startsWith('ruinsSky')) continue;
-            if (n.startsWith('arenaGround') || n.startsWith('ruinsStoneGround') || n.startsWith('ruinsGrassGround')) continue;
-            // Skip meshes that are already direct casters — but we can't easily
-            // detect indirect (descendant) coverage, so the empty roots still get
-            // re-added each scan. addShadowCaster's internal dedupe handles it.
-            if (m.getTotalVertices() === 0 && m.getChildMeshes().length === 0) continue;
-            if (renderList.indexOf(m) !== -1) continue;
-            this.shadowGen.addShadowCaster(m, /*includeDescendants*/ true);
-            added++;
-        }
-        if (added > 0) {
-            console.log(`[shadows] rescan added ${added} casters; total = ${renderList.length}`);
-        }
-    }
-
     private applyRuinsAmbience(): void {
         if (!this.scene) return;
         const scene = this.scene;
@@ -523,57 +492,8 @@ export class SurvivorsGameplayState implements GameState {
             12,                             // gentle falloff
             scene,
         );
-        spot.intensity = 0.4; // ambient warmth only — shadow light is the dominant directional
+        spot.intensity = 3.0;
         spot.diffuse = new Color3(1.0, 0.55, 0.18);
-
-        // ── Shadows ───────────────────────────────────────────────────────────
-        // Following the canonical BabylonJS recipe:
-        //   1) DirectionalLight angled from upper-front, explicit position (the
-        //      light position IS the shadow camera origin for directional lights).
-        //   2) Explicit shadow frustum size + min/max Z — auto-update was leaving
-        //      the frustum at default values that didn't cover the arena.
-        //   3) ShadowGenerator with usePoissonSampling (no float-texture requirement
-        //      like the exponential variants).
-        //   4) addShadowCaster(mesh, true) — second arg includeDescendants. Critical
-        //      because our hero/enemy GLBs are parented to an empty Mesh root; the
-        //      visible meshes are children that wouldn't be picked up otherwise.
-        //   5) receiveShadows on every ground mesh.
-        // Direction raked ~45° so shadows stretch sideways across the ground —
-        // straight-down shadows would be hidden under casters from this camera.
-        // CRITICAL: the shadow light must actually CONTRIBUTE illumination, because
-        // BabylonJS shadows work by blocking the shadow-generating light's diffuse
-        // term. If intensity is 0, blocking 0 illumination = no visible shadow.
-        const shadowLight = new DirectionalLight('arenaShadowLight', new Vector3(-1, -1, -1), scene);
-        shadowLight.position = new Vector3(25, 25, 25);
-        shadowLight.intensity = 1.6;                              // dominant key — its absence under shadows is what we'll see
-        shadowLight.diffuse = new Color3(1.0, 0.85, 0.6);         // warm dusk
-        shadowLight.shadowMinZ = 1;
-        shadowLight.shadowMaxZ = 100;
-        shadowLight.shadowFrustumSize = 70;
-
-        // Diagnostic config: hard shadows, no bias, max darkness — if THIS doesn't
-        // render visible shadows, the issue is in the receiver setup (not sampling).
-        const shadowGen = new ShadowGenerator(2048, shadowLight);
-        shadowGen.bias = 0;
-        shadowGen.normalBias = 0;
-        shadowGen.setDarkness(0.0); // 0 = fully opaque shadow (counter-intuitive: 1=no shadow)
-        this.shadowGen = shadowGen;
-
-        // Mark every ground mesh as a shadow receiver (both the colored arena
-        // discs from Map.buildSurvivorsArena AND our grass overlay). Also unfreeze
-        // their materials so the shader recompiles with shadow-sampling code — the
-        // LowPoly factory freezes by default for perf, which silently blocks shadows.
-        for (const m of scene.meshes) {
-            if (m.name.startsWith('arenaGround') || m.name.startsWith('ruinsGrassGround')) {
-                m.receiveShadows = true;
-                if (m.material && m.material.isFrozen) {
-                    m.material.unfreeze();
-                    m.material.markDirty();
-                }
-            }
-        }
-        // The grass disc is built below — handled at receiver pass too in the
-        // rescan loop. Set explicitly when we create it.
 
         // ── Grass floor — locally-bundled DDS tiled across the arena ──────────
         const grassTex = new Texture(
@@ -733,15 +653,6 @@ export class SurvivorsGameplayState implements GameState {
         if (this.isPausedForOverlay()) return;
 
         const dt = deltaTime * this.timeScale;
-
-        // Re-scan scene for any shadow casters that slipped past the observable hook
-        // (some GLB clones add to scene.meshes outside the observable). Throttle to
-        // once every 0.5s — cheap O(n) loop over a small scene.
-        this.shadowRescanCooldown -= dt;
-        if (this.shadowRescanCooldown <= 0 && this.shadowGen && this.scene) {
-            this.shadowRescanCooldown = 0.5;
-            this.rescanShadowCasters();
-        }
 
         this.heroController.update(dt);
         if (this.hero) this.hero.update(dt);

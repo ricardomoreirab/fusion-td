@@ -121,13 +121,9 @@ export class Game {
 
     private setupScene(): void {
         // ─── Scene-level perf flags ───────────────────────────────────────────
-        // blockMaterialDirtyMechanism = false: we DO restructure materials at runtime
-        // (specifically, toggling receiveShadows on existing materials needs to dirty
-        // them so the shader recompiles with shadow-sampling code). Was true before
-        // shadows were added.
-        this.scene.blockMaterialDirtyMechanism = false;
+        this.scene.blockMaterialDirtyMechanism = true; // we never restructure materials at runtime
         this.scene.fogEnabled = false;
-        this.scene.shadowsEnabled = true; // survivors arena casts shadows from a key DirectionalLight
+        this.scene.shadowsEnabled = false;
         this.scene.skipPointerMovePicking = true;       // top-down game has no hover-pick UX
         // useGeometryUniqueIdsMap / useMaterialMeshMap / useClonedMeshMap are
         // constructor-only (SceneOptions) — passed above in new Scene(...).
