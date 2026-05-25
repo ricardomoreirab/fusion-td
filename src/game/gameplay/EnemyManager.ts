@@ -6,7 +6,9 @@ import { BasicEnemy } from './enemies/BasicEnemy';
 import { FastEnemy } from './enemies/FastEnemy';
 import { TankEnemy } from './enemies/TankEnemy';
 import { BossEnemy } from './enemies/BossEnemy';
+import { MilestoneBoss } from './enemies/MilestoneBoss';
 import { SplittingEnemy } from './enemies/SplittingEnemy';
+import type { WaveManager } from './WaveManager';
 import { HealerEnemy } from './enemies/HealerEnemy';
 import { ShieldEnemy } from './enemies/ShieldEnemy';
 import { MiniEnemy } from './enemies/MiniEnemy';
@@ -26,6 +28,8 @@ export class EnemyManager {
     private heroProvider: { getPosition: () => Vector3 } | null = null;
     private arenaRadius: number = 25;
     private onEliteDeathCallback: (position: Vector3, element: string) => void = () => {};
+    private onMilestoneBossDeathCallback: (position: Vector3, waveTier: number) => void = () => {};
+    private waveManager: WaveManager | null = null;
 
     constructor(game: Game, map: Map) {
         this.game = game;
@@ -101,6 +105,22 @@ export class EnemyManager {
     }
 
     /**
+     * Provide the WaveManager so spawnSurvivorsEnemy can route milestone-wave bosses
+     * to MilestoneBoss. Optional — without it, bosses fall back to the standard BossEnemy.
+     */
+    public setWaveManager(wm: WaveManager): void {
+        this.waveManager = wm;
+    }
+
+    /**
+     * Register a callback fired exactly once when a MilestoneBoss dies, before
+     * the standard cleanup. `waveTier` = waveNumber / 5 (1 at wave 5, 2 at wave 10, …).
+     */
+    public setOnMilestoneBossDeath(fn: (position: Vector3, waveTier: number) => void): void {
+        this.onMilestoneBossDeathCallback = fn;
+    }
+
+    /**
      * Pre-warm enemy meshes/materials/shaders by instantiating one of every type
      * at a far-off position and forcing a render. Eliminates the first-spawn
      * freeze that hits the moment a never-before-seen enemy type appears in a
@@ -149,7 +169,16 @@ export class EnemyManager {
             case 'basic':    enemy = new BasicEnemy(this.game, spawnPos, []); break;
             case 'fast':     enemy = new FastEnemy(this.game, spawnPos, []); break;
             case 'tank':     enemy = new TankEnemy(this.game, spawnPos, []); break;
-            case 'boss':     enemy = new BossEnemy(this.game, spawnPos, []); break;
+            case 'boss': {
+                const currentWave = this.waveManager?.getCurrentWave() ?? 0;
+                if (currentWave > 0 && currentWave % 5 === 0) {
+                    const tier = currentWave / 5;
+                    enemy = new MilestoneBoss(this.game, spawnPos, [], tier);
+                } else {
+                    enemy = new BossEnemy(this.game, spawnPos, []);
+                }
+                break;
+            }
             case 'splitting':enemy = new SplittingEnemy(this.game, spawnPos, []); break;
             case 'healer':   enemy = new HealerEnemy(this.game, spawnPos, []); break;
             case 'shield':   enemy = new ShieldEnemy(this.game, spawnPos, []); break;
@@ -215,6 +244,12 @@ export class EnemyManager {
                 // Survivors mode: fire elite-death callback so a PowerDrop can be spawned
                 if (enemy.isElite && enemy.eliteDropElement) {
                     this.onEliteDeathCallback(enemy.getPosition().clone(), enemy.eliteDropElement);
+                }
+
+                // Survivors mode: fire milestone-boss death callback so an ItemDrop can be spawned
+                if ((enemy as MilestoneBoss).isMilestone) {
+                    const mb = enemy as MilestoneBoss;
+                    this.onMilestoneBossDeathCallback(mb.getPosition().clone(), mb.waveTier);
                 }
 
                 // Remove from enemies list
