@@ -2,7 +2,7 @@ import { AdvancedDynamicTexture, Rectangle, TextBlock, Control } from '@babylonj
 import { PowerSlot } from '../gameplay/PowerSlotManager';
 import { AbilityManager } from '../gameplay/AbilityManager';
 import { getLayoutMode } from './responsive';
-import { makePill, makeFrame, addPressFeedback, flashControl, tryHaptic, STYLE } from './HudStyle';
+import { makePill, makeFrame, addPressFeedback, flashControl, pulseScale, tryHaptic, STYLE } from './HudStyle';
 
 // ─── Element glyph map ─────────────────────────────────────────────────────────
 // These are unicode characters that render reliably in most browsers via Canvas2D.
@@ -49,6 +49,14 @@ export class HeroHud {
     private ultimateContainers: { bg: Rectangle; label: TextBlock; cdMask: Rectangle }[] = [];
     private lowHpVignette!: Rectangle;
     private lowHpPulseTime: number = 0;
+
+    // Diff-based feedback tracking
+    private prevHp: number = -1;
+    private prevGold: number = -1;
+    private prevWaveInProgress: boolean = false;
+    private hpBg: Rectangle | null = null;
+    private goldPillBg: Rectangle | null = null;
+    private wavePillBg: Rectangle | null = null;
 
     // Fire-pulse animation tracking
     private slotPulseTime: number[] = [0, 0, 0, 0];
@@ -114,6 +122,12 @@ export class HeroHud {
         for (const ctrl of this.builtControls) {
             ctrl.dispose();
         }
+        this.prevHp = -1;
+        this.prevGold = -1;
+        this.prevWaveInProgress = false;
+        this.hpBg = null;
+        this.goldPillBg = null;
+        this.wavePillBg = null;
         this.build();
     }
 
@@ -136,6 +150,7 @@ export class HeroHud {
         hpBg.top = '10px';
         this.ui.addControl(hpBg);
         this.builtControls.push(hpBg);
+        this.hpBg = hpBg;
 
         this.hpFill = new Rectangle('hpFill');
         this.hpFill.width = 1.0;
@@ -180,6 +195,7 @@ export class HeroHud {
         this.ui.addControl(wavePill.bg);
         this.builtControls.push(wavePill.bg);
         this.waveText = wavePill.text;
+        this.wavePillBg = wavePill.bg;
 
         // ── Gold pill — top-right ──────────────────────────────────────────
         const goldPill = makePill({
@@ -197,6 +213,7 @@ export class HeroHud {
         this.ui.addControl(goldPill.bg);
         this.builtControls.push(goldPill.bg);
         this.goldText = goldPill.text;
+        this.goldPillBg = goldPill.bg;
 
         // ── 4 power-slot icons — bottom-center row ────────────────────────
         const slotSize = 56;
@@ -293,6 +310,7 @@ export class HeroHud {
         hpBg.top = '10px';
         this.ui.addControl(hpBg);
         this.builtControls.push(hpBg);
+        this.hpBg = hpBg;
 
         this.hpFill = new Rectangle('hpFill');
         this.hpFill.width = 1.0;
@@ -336,6 +354,7 @@ export class HeroHud {
         this.ui.addControl(wavePill.bg);
         this.builtControls.push(wavePill.bg);
         this.waveText = wavePill.text;
+        this.wavePillBg = wavePill.bg;
 
         // ── Gold pill — top-right ──────────────────────────────────────────
         const goldPill = makePill({
@@ -353,6 +372,7 @@ export class HeroHud {
         this.ui.addControl(goldPill.bg);
         this.builtControls.push(goldPill.bg);
         this.goldText = goldPill.text;
+        this.goldPillBg = goldPill.bg;
 
         // ── 4 power-slot icons — bottom-center row ────────────────────────
         const slotSize = 42;
@@ -531,6 +551,29 @@ export class HeroHud {
         waveInfo?: { wave: number; enemiesAlive: number; inProgress: boolean },
     ): void {
         const ratio = Math.max(0, hp.current / hp.max);
+
+        // ── Diff-based tactile feedback ─────────────────────────────────────
+        const currentHp = hp.current;
+        if (this.prevHp >= 0 && currentHp < this.prevHp - 0.01 && this.hpBg) {
+            // Hero took damage — flash the HP bar white briefly
+            flashControl(this.hpBg, '#ffffff', 80, 0.40);
+        }
+        this.prevHp = currentHp;
+
+        if (this.prevGold >= 0 && gold > this.prevGold && this.goldPillBg) {
+            // Gold went up — pulse the gold pill
+            pulseScale(this.goldPillBg, 1.10, 180);
+        }
+        this.prevGold = gold;
+
+        if (waveInfo && this.prevWaveInProgress && !waveInfo.inProgress && this.wavePillBg) {
+            // Wave just cleared — flash the wave pill green
+            flashControl(this.wavePillBg, '#00ff80', 300, 0.45);
+        }
+        if (waveInfo) {
+            this.prevWaveInProgress = waveInfo.inProgress;
+        }
+
         const inDanger = ratio < 0.25;
 
         // ── Low-HP danger pulse ─────────────────────────────────────────────
