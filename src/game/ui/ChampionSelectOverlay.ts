@@ -86,24 +86,6 @@ export class ChampionSelectOverlay {
 
     /** Desktop: horizontal row of 3 large cards (original layout) */
     private _buildDesktopLayout(): void {
-        // Title
-        const title = new TextBlock('csTitle', 'CHOOSE YOUR CHAMPION');
-        title.color = '#F5A623';
-        title.fontSize = 38;
-        title.fontWeight = 'bold';
-        title.fontFamily = 'Arial';
-        title.top = '-240px';
-        title.height = '54px';
-        this.panel!.addControl(title);
-
-        const subtitle = new TextBlock('csSubtitle', 'Select a hero for this run');
-        subtitle.color = '#888';
-        subtitle.fontSize = 16;
-        subtitle.fontFamily = 'Arial';
-        subtitle.top = '-188px';
-        subtitle.height = '24px';
-        this.panel!.addControl(subtitle);
-
         const total = this._options.length;
         this._options.forEach((opt, i) => {
             this._buildDesktopCard(opt, i, total);
