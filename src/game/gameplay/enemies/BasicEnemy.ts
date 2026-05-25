@@ -63,13 +63,10 @@ export class BasicEnemy extends Enemy {
             if ('scaling' in root && root.scaling) {
                 (root as TransformNode).scaling.scaleInPlace(MINION_SCALE);
             }
-            // Flip 180° around Y so the model's face points the same direction as
-            // Enemy.update's atan2(-dirX, -dirZ) seek-rotation (which was tuned for
-            // the procedural goblin whose body was authored facing -z).
-            if ('rotation' in root && root.rotation) {
-                (root as TransformNode).rotation.y += Math.PI;
-            }
         }
+        // Note: facing is post-corrected in update() with an un-negated atan2 — the
+        // GLB loader's __root__ flip + this asset's authored direction made the
+        // procedural Enemy.update formula (which negates dirX/dirZ) face backwards.
 
         // Shift the GLB so its feet sit at y=0 (most rigged humanoids center on torso).
         this.mesh.computeWorldMatrix(true);
@@ -486,16 +483,21 @@ export class BasicEnemy extends Enemy {
 
         // GLB minions skip the procedural limb animation — the asset's clips drive it.
         if (this.usingGLB) {
-            // Within attack range of the hero (seek target) → play attack clip on loop.
-            // Otherwise → walk clip. Frozen/stunned → idle (stop walking).
-            if (this.isFrozen || this.isStunned) {
-                this.playGlbAnim(this.glbIdleAnim, true);
-            } else if (this.seekTarget) {
+            // Override Enemy.update's seek-rotation (which negates dirX/dirZ for the
+            // procedural goblin's authored direction). For this GLB the un-negated
+            // formula makes the model's face point toward the hero.
+            if (this.seekTarget && this.mesh) {
                 const heroPos = this.seekTarget.getPosition();
                 const dx = heroPos.x - this.position.x;
                 const dz = heroPos.z - this.position.z;
                 const distSq = dx * dx + dz * dz;
-                if (distSq <= BasicEnemy.GLB_ATTACK_RANGE * BasicEnemy.GLB_ATTACK_RANGE) {
+                if (distSq > 0.0001) {
+                    this.mesh.rotation.y = Math.atan2(dx, dz);
+                }
+                // Within attack range → attack clip; otherwise → walk.
+                if (this.isFrozen || this.isStunned) {
+                    this.playGlbAnim(this.glbIdleAnim, true);
+                } else if (distSq <= BasicEnemy.GLB_ATTACK_RANGE * BasicEnemy.GLB_ATTACK_RANGE) {
                     this.playGlbAnim(this.glbAttackAnim, true);
                 } else {
                     this.playGlbAnim(this.glbWalkAnim, true);
