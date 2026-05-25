@@ -175,9 +175,11 @@ export class SurvivorsGameplayState implements GameState {
         ambientLight.diffuse = new Color3(0.75, 0.55, 0.45);     // dim warm fill from above
         ambientLight.groundColor = new Color3(0.10, 0.06, 0.04); // very dim warm bounce
 
-        // Key light — warm directional from upper-left-front for form/shadow falloff
+        // Key light — dimmed to a fill role since the shadow-casting DirectionalLight
+        // added in applyRuinsAmbience is now the dominant key. Too much extra light
+        // here would wash out the cast shadows.
         const keyLight = new DirectionalLight('survivorsKey', new Vector3(-0.4, -1, -0.6), this.scene);
-        keyLight.intensity = 0.5;
+        keyLight.intensity = 0.15;
         keyLight.diffuse = new Color3(1.0, 0.78, 0.55);
 
         // Build base scene resources first
@@ -522,7 +524,7 @@ export class SurvivorsGameplayState implements GameState {
             12,                             // gentle falloff
             scene,
         );
-        spot.intensity = 3.0;
+        spot.intensity = 1.4; // dropped from 3.0 — too bright was washing out cast shadows
         spot.diffuse = new Color3(1.0, 0.55, 0.18);
 
         // ── Shadows ───────────────────────────────────────────────────────────
@@ -537,12 +539,15 @@ export class SurvivorsGameplayState implements GameState {
         //      because our hero/enemy GLBs are parented to an empty Mesh root; the
         //      visible meshes are children that wouldn't be picked up otherwise.
         //   5) receiveShadows on every ground mesh.
-        // Direction is intentionally raked low (~45° pitch) so shadows stretch
-        // sideways across the ground — straight-down shadows are invisible from
-        // a top-down camera angle.
+        // Direction raked ~45° so shadows stretch sideways across the ground —
+        // straight-down shadows would be hidden under casters from this camera.
+        // CRITICAL: the shadow light must actually CONTRIBUTE illumination, because
+        // BabylonJS shadows work by blocking the shadow-generating light's diffuse
+        // term. If intensity is 0, blocking 0 illumination = no visible shadow.
         const shadowLight = new DirectionalLight('arenaShadowLight', new Vector3(-1, -1, -1), scene);
         shadowLight.position = new Vector3(25, 25, 25);
-        shadowLight.intensity = 0; // shadow-only — illumination handled by other lights
+        shadowLight.intensity = 0.9;                              // real key — provides the light shadows can block
+        shadowLight.diffuse = new Color3(1.0, 0.85, 0.6);         // warm dusk
         shadowLight.shadowMinZ = 1;
         shadowLight.shadowMaxZ = 100;
         shadowLight.shadowFrustumSize = 70;
