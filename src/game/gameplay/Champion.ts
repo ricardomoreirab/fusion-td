@@ -378,8 +378,8 @@ export class Champion extends Enemy {
             (this as any).glbSpecialDurationActual = estDur > 0.1 ? estDur : Champion.GLB_SPECIAL_DURATION;
         }
         console.log(
-            `[ranger] mapped: idle="${aa.idle?.name ?? '(none)'}", ` +
-            `walk="${aa.walk?.name ?? '(none)'}", shoot="${aa.attack?.name ?? '(none)'}", ` +
+            `[${this.championType}] mapped: idle="${aa.idle?.name ?? '(none)'}", ` +
+            `walk="${aa.walk?.name ?? '(none)'}", attack="${aa.attack?.name ?? '(none)'}", ` +
             `special="${aa.special?.name ?? '(none)'}"`,
         );
 
@@ -1096,7 +1096,11 @@ export class Champion extends Enemy {
                 this.mesh.position.y = baseY;
                 if (this.glbSpecialTimer > 0) {
                     this.glbSpecialTimer = Math.max(0, this.glbSpecialTimer - deltaTime);
-                    this.playChampionAnim('special');
+                    // DON'T re-call playChampionAnim('special') here — triggerSpecial /
+                    // playAbilityClip already started the right clip (possibly a custom
+                    // ability clip that isn't championAnims.special). Re-asserting the
+                    // slot every frame would override the ability clip back to the
+                    // auto-matched special, making Whirlwind/Smash look like attack1.
                 } else if (this.glbAttackTimer > 0) {
                     this.glbAttackTimer = Math.max(0, this.glbAttackTimer - deltaTime);
                     this.playChampionAnim('attack');
