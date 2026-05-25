@@ -146,6 +146,10 @@ export class SurvivorsGameplayState implements GameState {
     private damageHandler: ((e: Event) => void) | null = null;
     private rewardHandler: ((e: Event) => void) | null = null;
 
+    // Shadow generator (set in applyRuinsAmbience, used by registerShadowCasters)
+    private shadowGen: ShadowGenerator | null = null;
+    private shadowRescanCooldown: number = 0;
+
     // UI modules
     private hud: HeroHud | null = null;
     private powerChoice: PowerChoiceOverlay | null = null;
@@ -462,6 +466,27 @@ export class SurvivorsGameplayState implements GameState {
      *  spot light, and a tileable stone texture over the arena's central ground.
      *  All assets fetched from raw.githubusercontent.com (same as the playground)
      *  so we don't need to bundle them. */
+    /** Walk scene.meshes and ensure every eligible mesh is registered as a shadow
+     *  caster. Idempotent — addShadowCaster on an already-added mesh is a no-op. */
+    private rescanShadowCasters(): void {
+        if (!this.shadowGen || !this.scene) return;
+        const renderList = this.shadowGen.getShadowMap()?.renderList;
+        if (!renderList) return;
+        let added = 0;
+        for (const m of this.scene.meshes) {
+            const n = m.name;
+            if (n.startsWith('ruinsSky')) continue;
+            if (n.startsWith('arenaGround') || n.startsWith('ruinsStoneGround') || n.startsWith('ruinsGrassGround')) continue;
+            if (m.getTotalVertices() === 0) continue;
+            if (renderList.indexOf(m) !== -1) continue;
+            this.shadowGen.addShadowCaster(m);
+            added++;
+        }
+        if (added > 0) {
+            console.log(`[shadows] rescan added ${added} casters; total = ${renderList.length}`);
+        }
+    }
+
     private applyRuinsAmbience(): void {
         if (!this.scene) return;
         const scene = this.scene;
@@ -506,9 +531,9 @@ export class SurvivorsGameplayState implements GameState {
         shadowLight.autoCalcShadowZBounds = true;
 
         const shadowGen = new ShadowGenerator(1024, shadowLight);
-        shadowGen.useBlurExponentialShadowMap = true;
-        shadowGen.blurKernel = 32;
+        shadowGen.useExponentialShadowMap = true;
         shadowGen.darkness = 0.4;
+        this.shadowGen = shadowGen;
 
         // Mark every existing ground mesh as a shadow receiver — covers both the
         // colored arena discs AND the grass overlay so the shadow doesn't fall
@@ -704,6 +729,15 @@ export class SurvivorsGameplayState implements GameState {
         if (this.isPausedForOverlay()) return;
 
         const dt = deltaTime * this.timeScale;
+
+        // Re-scan scene for any shadow casters that slipped past the observable hook
+        // (some GLB clones add to scene.meshes outside the observable). Throttle to
+        // once every 0.5s — cheap O(n) loop over a small scene.
+        this.shadowRescanCooldown -= dt;
+        if (this.shadowRescanCooldown <= 0 && this.shadowGen && this.scene) {
+            this.shadowRescanCooldown = 0.5;
+            this.rescanShadowCasters();
+        }
 
         this.heroController.update(dt);
         if (this.hero) this.hero.update(dt);
