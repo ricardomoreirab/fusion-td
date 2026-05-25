@@ -447,9 +447,13 @@ export class Champion extends Enemy {
 
     /** Play a specific GLB animation clip (looked up by suffix match) as a forced
      *  "special" channel. Used by AbilityManager when a class-specific ultimate
-     *  fires (Aulus Whirlwind, Aulus Smash, etc.) — basic attacks suspend for
-     *  the clip's duration via isSpecialActive(). */
-    public playAbilityClip(clipSuffix: string, speed: number = 1.0): void {
+     *  fires (Aulus Whirlwind, Aulus Smash, etc.) — basic attacks suspend for the
+     *  duration via isSpecialActive().
+     *
+     *  When `durationSec` is provided AND longer than the clip's natural length,
+     *  the clip is looped to fill the duration (used by Whirlwind which ticks
+     *  damage over 5 seconds — the slash animation needs to keep going). */
+    public playAbilityClip(clipSuffix: string, durationSec?: number, speed: number = 1.0): void {
         if (!this.championAsset) return;
         const match = this.championAnims.all.find(ag => ag.name.endsWith(clipSuffix));
         if (!match) {
@@ -458,12 +462,17 @@ export class Champion extends Enemy {
         }
         match.speedRatio = speed;
         const frames = match.to - match.from;
-        const dur = Math.min(3.0, frames / 60 / speed);
+        const naturalDur = frames / 60 / speed;
+        const dur = durationSec ?? Math.min(3.0, naturalDur);
+        const loop = durationSec !== undefined && durationSec > naturalDur;
         this.glbSpecialTimer = dur > 0.1 ? dur : Champion.GLB_SPECIAL_DURATION;
         if (this.championCurrentAnim) this.championCurrentAnim.stop();
-        match.start(false);
+        match.start(loop);
         this.championCurrentAnim = match;
-        console.log(`[${this.championType}] ability clip "${match.name}" playing (${this.glbSpecialTimer.toFixed(2)}s)`);
+        console.log(
+            `[${this.championType}] ability clip "${match.name}" playing for ` +
+            `${this.glbSpecialTimer.toFixed(2)}s (loop=${loop})`,
+        );
     }
 
     private createRangerMeshProcedural(): void {

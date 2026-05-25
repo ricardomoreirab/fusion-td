@@ -401,21 +401,22 @@ export class SurvivorsGameplayState implements GameState {
         this.abilityManager.setHero(this.hero);
         this.abilityManager.prewarmAbilityEffects();
 
-        // Map class-specific ultimate IDs → GLB clip suffix so the hero plays the
-        // right animation when the player presses an ultimate button. The clip plays
-        // as a forced "special" channel — basic attacks suspend for its duration.
-        const ABILITY_CLIPS: Partial<Record<string, { suffix: string; speed?: number }>> = {
+        // Map class-specific ultimate IDs → GLB clip + duration so the hero plays
+        // the right animation when the player presses an ultimate button. The clip
+        // plays as a forced "special" channel — basic attacks suspend for the
+        // whole duration. When `duration` exceeds the clip's natural length the
+        // clip loops (Whirlwind ticks for 5s so the slash should keep going).
+        const ABILITY_CLIPS: Partial<Record<string, { suffix: string; duration?: number; speed?: number }>> = {
             // Barbarian (Aulus)
-            whirlwind: { suffix: 'aulus_warrior_of_ferocity_in_game_skill3' },
-            smash:     { suffix: 'aulus_warrior_of_ferocity_in_game_skill1' },
-            // Ranger / Mage clips can be added here later as needed.
+            whirlwind: { suffix: 'aulus_warrior_of_ferocity_in_game_skill3',   duration: 5.0, speed: 1.5 },
+            smash:     { suffix: 'aulus_warrior_of_ferocity_in_game_skill2_1' }, // one-shot, natural length
         };
         this.abilityManager.setOnActivate((abilityId) => {
             const clip = ABILITY_CLIPS[abilityId];
             if (!clip || !this.hero) return;
-            const hero = this.hero as { playAbilityClip?: (s: string, sp?: number) => void };
+            const hero = this.hero as { playAbilityClip?: (s: string, d?: number, sp?: number) => void };
             if (typeof hero.playAbilityClip === 'function') {
-                hero.playAbilityClip(clip.suffix, clip.speed ?? 1.0);
+                hero.playAbilityClip(clip.suffix, clip.duration, clip.speed ?? 1.0);
             }
         });
 
