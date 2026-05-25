@@ -88,7 +88,18 @@ export class AssetManager {
             "rangerArcher", "", "assets/elven-archer-in-the-forest/source/", "model.glb",
         );
         rangerTask.onSuccess = (task) => {
+            // Detach from the active scene immediately. Game.cleanupScene() (called on
+            // every state transition) iterates scene.meshes/materials/textures and
+            // disposes ALL of them — without this, our preloaded source meshes get
+            // wiped on the first survivors enter() and subsequent instantiateModelsToScene
+            // calls clone disposed objects, producing invisible instances.
+            task.loadedContainer.removeAllFromScene();
             this.containers.set("rangerArcher", task.loadedContainer);
+            console.log(
+                `[AssetManager] rangerArcher loaded — ${task.loadedContainer.meshes.length} meshes, ` +
+                `${task.loadedContainer.animationGroups.length} anim groups, ` +
+                `${task.loadedContainer.skeletons.length} skeletons`,
+            );
         };
         rangerTask.onError = (_task, message, exception) => {
             console.error("Failed to load ranger GLB:", message, exception);
