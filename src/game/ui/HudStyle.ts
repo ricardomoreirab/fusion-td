@@ -94,16 +94,24 @@ export function makeFrame(opts: FrameOpts): Rectangle {
 export function addPressFeedback(control: Control, onTap?: () => void): void {
     control.isPointerBlocker = true;
 
+    // Token bumped whenever a new tween starts; in-flight tweens self-cancel
+    // when they see a newer token. Prevents drift if the user re-presses
+    // before the release tween finishes.
+    let tweenToken = 0;
+
     control.onPointerDownObservable.add(() => {
+        tweenToken++; // invalidate any in-flight release tween
         control.scaleX = 0.92;
         control.scaleY = 0.92;
     });
 
     const release = () => {
+        const myToken = ++tweenToken;
         const start = performance.now();
         const duration = 120;
         const startScale = control.scaleX;
         const tick = () => {
+            if (myToken !== tweenToken) return; // superseded — abort
             const t = Math.min(1, (performance.now() - start) / duration);
             const s = startScale + (1.0 - startScale) * t;
             control.scaleX = s;
