@@ -253,8 +253,9 @@ export class HeroBasicAttack {
             ring.scaling.set(ringScale, ringScale, ringScale);
             ringMat.alpha = 0.9 * (1 - t);
 
-            // Arc: sweep a full 360° (the half-disc rotates twice to look like a continuous sweep)
-            arc.rotation.y = t * Math.PI * 2;
+            // Arc: sweep a full 360° (the half-disc rotates twice to look like a continuous sweep).
+            // Negative sign = clockwise (viewed from above), matching the Aulus whirlwind spin.
+            arc.rotation.y = -t * Math.PI * 2;
             arcMat.alpha = 0.5 * (1 - t);
 
             if (t >= 1) {
