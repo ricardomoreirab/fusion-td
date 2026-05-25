@@ -537,18 +537,21 @@ export class SurvivorsGameplayState implements GameState {
         //      because our hero/enemy GLBs are parented to an empty Mesh root; the
         //      visible meshes are children that wouldn't be picked up otherwise.
         //   5) receiveShadows on every ground mesh.
-        const shadowLight = new DirectionalLight('arenaShadowLight', new Vector3(-0.5, -1.4, -0.5), scene);
-        shadowLight.position = new Vector3(20, 35, 20);
-        shadowLight.intensity = 0; // shadow-only — illumination already handled by the warm spot + ambient
+        // Direction is intentionally raked low (~45° pitch) so shadows stretch
+        // sideways across the ground — straight-down shadows are invisible from
+        // a top-down camera angle.
+        const shadowLight = new DirectionalLight('arenaShadowLight', new Vector3(-1, -1, -1), scene);
+        shadowLight.position = new Vector3(25, 25, 25);
+        shadowLight.intensity = 0; // shadow-only — illumination handled by other lights
         shadowLight.shadowMinZ = 1;
-        shadowLight.shadowMaxZ = 80;
-        shadowLight.shadowFrustumSize = 55; // covers the 25u arena with margin
+        shadowLight.shadowMaxZ = 100;
+        shadowLight.shadowFrustumSize = 70;
 
         const shadowGen = new ShadowGenerator(1024, shadowLight);
         shadowGen.usePoissonSampling = true;
         shadowGen.bias = 0.001;
         shadowGen.normalBias = 0.02;
-        shadowGen.setDarkness(0.4);
+        shadowGen.setDarkness(0.55); // noticeable but not jet black
         this.shadowGen = shadowGen;
 
         // Mark every ground mesh as a shadow receiver (both the colored arena
