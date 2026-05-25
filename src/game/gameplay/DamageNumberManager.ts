@@ -107,6 +107,21 @@ export class DamageNumberManager {
         slot.mesh.setEnabled(true);
     }
 
+    /** Show arbitrary float text at a world position (used by item pickups). */
+    public showText(position: Vector3, text: string, color: string = '#FFFFFF', fontSize: number = 44): void {
+        const slot = this.acquireSlot();
+        this.drawText(slot, text, color, fontSize);
+        slot.mesh.position.x = position.x;
+        slot.mesh.position.y = position.y + 1.8;
+        slot.mesh.position.z = position.z;
+        slot.material.alpha = 1;
+        slot.inUse = true;
+        slot.lifetime = 0;
+        slot.maxLifetime = 1.2;
+        slot.startY = slot.mesh.position.y;
+        slot.mesh.setEnabled(true);
+    }
+
     public showReward(position: Vector3, reward: number): void {
         const slot = this.acquireSlot();
         this.drawText(slot, `+$${reward}`, '#FFD700', 48);

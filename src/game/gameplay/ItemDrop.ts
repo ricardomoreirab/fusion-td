@@ -99,6 +99,10 @@ export class ItemDrop {
     }
 
     private playPickupFlash(): void {
+        // Dispose the original gem material before swapping, otherwise it leaks
+        // (mesh.dispose(false, true) at the end only disposes the *current* material).
+        const prev = this.mesh.material;
+        if (prev) prev.dispose();
         const flashMat = new StandardMaterial(`itemFlash_${Math.random()}`, this.scene);
         flashMat.emissiveColor = this.color.scale(2.5);
         flashMat.specularColor = Color3.Black();

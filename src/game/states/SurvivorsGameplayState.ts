@@ -26,6 +26,20 @@ import { DamageNumberManager } from '../gameplay/DamageNumberManager';
 import { RunItems, ItemId } from '../gameplay/RunItems';
 import { ItemDrop } from '../gameplay/ItemDrop';
 
+/** Float-text labels and colors for item pickups (mirror the HUD slot colors). */
+const ITEM_DISPLAY_NAMES: Record<ItemId, string> = {
+    lifesteal: 'Lifesteal',
+    multishotCleave: 'Multishot',
+    knockback: 'Knockback',
+    attackSpeed: 'Attack Speed',
+};
+const ITEM_FLOAT_COLOR: Record<ItemId, string> = {
+    lifesteal: '#ff2a40',
+    multishotCleave: '#ffd84a',
+    knockback: '#4ea7ff',
+    attackSpeed: '#fff080',
+};
+
 export class SurvivorsGameplayState implements GameState {
     private game: Game;
     private scene: Scene | null = null;
@@ -329,6 +343,15 @@ export class SurvivorsGameplayState implements GameState {
         if (!this.runItems) return;
         this.runItems.grant(id);
         this.hud?.pulseItem(id);
+
+        // Pickup float text at the hero's position (spec: "+ <Item Name>").
+        if (this.damageNumbers && this.hero) {
+            this.damageNumbers.showText(this.hero.getPosition(), `+ ${ITEM_DISPLAY_NAMES[id]}`, ITEM_FLOAT_COLOR[id]);
+        }
+
+        // 300ms slow-mo pickup punch.
+        this.timeScale = 0.6;
+        setTimeout(() => { this.timeScale = 1.0; }, 300);
     }
 
     /** Gather end-of-run stats and transition to game-over. */
