@@ -337,6 +337,21 @@ export class Champion extends Enemy {
             }
             ag.stop(); // Stop any auto-started clips; playChampionAnim controls them.
         }
+        // Per-champion explicit clip overrides — when the generic alias matcher
+        // picks a clip that doesn't look right, hard-pick the one we want. The
+        // substring is matched against the (prefixed) clip name.
+        const PREFERRED: Partial<Record<string, { attack?: string; special?: string; walk?: string; idle?: string }>> = {
+            barbarian: { special: 'aulus_warrior_of_ferocity_in_game_skill3_5' },
+        };
+        const overrides = PREFERRED[this.championType];
+        if (overrides) {
+            for (const slot of ['attack', 'special', 'walk', 'idle'] as const) {
+                const needle = overrides[slot];
+                if (!needle) continue;
+                const match = this.championAnims.all.find(ag => ag.name.includes(needle));
+                if (match) this.championAnims[slot] = match;
+            }
+        }
         // Final fallbacks for clips that didn't match any alias.
         const aa = this.championAnims;
         if (aa.all.length === 1 && !aa.attack) {
