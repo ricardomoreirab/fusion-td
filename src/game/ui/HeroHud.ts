@@ -2,7 +2,7 @@ import { AdvancedDynamicTexture, Rectangle, TextBlock, Control } from '@babylonj
 import { PowerSlot } from '../gameplay/PowerSlotManager';
 import { AbilityManager } from '../gameplay/AbilityManager';
 import { getLayoutMode } from './responsive';
-import { makePill, STYLE } from './HudStyle';
+import { makePill, makeFrame, STYLE } from './HudStyle';
 
 // ─── Element glyph map ─────────────────────────────────────────────────────────
 // These are unicode characters that render reliably in most browsers via Canvas2D.
@@ -198,33 +198,51 @@ export class HeroHud {
         this.builtControls.push(goldPill.bg);
         this.goldText = goldPill.text;
 
-        // ── 4 power-slot icons — bottom row ──────────────────────────────────
-        for (let i = 0; i < 4; i++) {
-            const bg = new Rectangle(`slotBg_${i}`);
-            bg.width = '54px';
-            bg.height = '54px';
-            bg.thickness = 2;
-            bg.color = '#555';
-            bg.background = '#1a1a2a';
-            bg.cornerRadius = 6;
-            bg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            bg.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-            bg.left = `${150 + i * 60}px`;
-            bg.top = '-15px';
-            this.ui.addControl(bg);
-            this.builtControls.push(bg);
+        // ── 4 power-slot icons — bottom-center row ────────────────────────
+        const slotSize = 56;
+        const slotGap = 8;
+        const slotRowWidth = slotSize * 4 + slotGap * 3;
 
-            const icon = new TextBlock(`slotIcon_${i}`, '?');
-            icon.color = '#888';
-            icon.fontSize = 24;
+        const slotRow = new Rectangle('slotRow');
+        slotRow.width = `${slotRowWidth}px`;
+        slotRow.height = `${slotSize}px`;
+        slotRow.thickness = 0;
+        slotRow.background = '';
+        slotRow.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        slotRow.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        slotRow.top = '-10px';
+        this.ui.addControl(slotRow);
+        this.builtControls.push(slotRow);
+
+        for (let i = 0; i < 4; i++) {
+            const bg = makeFrame({
+                name: `slotBg_${i}`,
+                sizePx: slotSize,
+                color: STYLE.panelBorderEmpty,
+                isEmpty: true,
+            });
+            bg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            bg.left = `${i * (slotSize + slotGap)}px`;
+            slotRow.addControl(bg);
+
+            const icon = new TextBlock(`slotIcon_${i}`, '+');
+            icon.color = '#666';
+            icon.fontSize = 26;
+            icon.fontFamily = 'Arial';
+            icon.shadowColor = STYLE.textShadowColor;
+            icon.shadowBlur = STYLE.textShadowBlur;
             bg.addControl(icon);
 
             const level = new TextBlock(`slotLvl_${i}`, '');
             level.color = '#fff';
             level.fontSize = 11;
+            level.fontStyle = 'bold';
+            level.fontFamily = 'Arial';
+            level.shadowColor = STYLE.textShadowColor;
+            level.shadowBlur = STYLE.textShadowBlur;
             level.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
             level.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-            level.paddingRight = '3px';
+            level.paddingRight = '4px';
             level.paddingBottom = '2px';
             bg.addControl(level);
 
@@ -232,9 +250,10 @@ export class HeroHud {
             cdMask.width = 1.0;
             cdMask.height = 0;
             cdMask.thickness = 0;
-            cdMask.background = 'rgba(0,0,0,0.6)';
+            cdMask.background = 'rgba(0, 0, 0, 0.55)';
             cdMask.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-            cdMask.cornerRadius = 6;
+            cdMask.cornerRadius = STYLE.frameRadius;
+            cdMask.isPointerBlocker = false;
             bg.addControl(cdMask);
 
             this.slotContainers.push({ bg, icon, level, cdMask });
@@ -252,11 +271,6 @@ export class HeroHud {
     // Ultimates: bottom-right, 44×44
 
     private _buildMobile(): void {
-        const slotSize = 40;
-        const slotSpacing = 46; // slotSize + 6px gap
-        // Joystick (mobile): left=20, radius=45, width=90 → right edge=110px. Slots start with 8px gap.
-        const slotStartLeft = 118;
-
         // ── HP bar — top-left pill ─────────────────────────────────────────
         const hpW = 140;
         const hpH = 14;
@@ -334,33 +348,51 @@ export class HeroHud {
         this.builtControls.push(goldPill.bg);
         this.goldText = goldPill.text;
 
-        // ── 4 power slots — bottom-left, 40×40 ───────────────────────────────
-        for (let i = 0; i < 4; i++) {
-            const bg = new Rectangle(`slotBg_${i}`);
-            bg.width = `${slotSize}px`;
-            bg.height = `${slotSize}px`;
-            bg.thickness = 2;
-            bg.color = '#555';
-            bg.background = '#1a1a2a';
-            bg.cornerRadius = 6;
-            bg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            bg.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-            bg.left = `${slotStartLeft + i * slotSpacing}px`;
-            bg.top = '-10px';
-            this.ui.addControl(bg);
-            this.builtControls.push(bg);
+        // ── 4 power-slot icons — bottom-center row ────────────────────────
+        const slotSize = 42;
+        const slotGap = 8;
+        const slotRowWidth = slotSize * 4 + slotGap * 3;
 
-            const icon = new TextBlock(`slotIcon_${i}`, '?');
-            icon.color = '#888';
-            icon.fontSize = 18;
+        const slotRow = new Rectangle('slotRow');
+        slotRow.width = `${slotRowWidth}px`;
+        slotRow.height = `${slotSize}px`;
+        slotRow.thickness = 0;
+        slotRow.background = '';
+        slotRow.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        slotRow.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        slotRow.top = '-10px';
+        this.ui.addControl(slotRow);
+        this.builtControls.push(slotRow);
+
+        for (let i = 0; i < 4; i++) {
+            const bg = makeFrame({
+                name: `slotBg_${i}`,
+                sizePx: slotSize,
+                color: STYLE.panelBorderEmpty,
+                isEmpty: true,
+            });
+            bg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            bg.left = `${i * (slotSize + slotGap)}px`;
+            slotRow.addControl(bg);
+
+            const icon = new TextBlock(`slotIcon_${i}`, '+');
+            icon.color = '#666';
+            icon.fontSize = 20;
+            icon.fontFamily = 'Arial';
+            icon.shadowColor = STYLE.textShadowColor;
+            icon.shadowBlur = STYLE.textShadowBlur;
             bg.addControl(icon);
 
             const level = new TextBlock(`slotLvl_${i}`, '');
             level.color = '#fff';
             level.fontSize = 9;
+            level.fontStyle = 'bold';
+            level.fontFamily = 'Arial';
+            level.shadowColor = STYLE.textShadowColor;
+            level.shadowBlur = STYLE.textShadowBlur;
             level.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
             level.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-            level.paddingRight = '2px';
+            level.paddingRight = '3px';
             level.paddingBottom = '2px';
             bg.addControl(level);
 
@@ -368,9 +400,10 @@ export class HeroHud {
             cdMask.width = 1.0;
             cdMask.height = 0;
             cdMask.thickness = 0;
-            cdMask.background = 'rgba(0,0,0,0.6)';
+            cdMask.background = 'rgba(0, 0, 0, 0.55)';
             cdMask.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-            cdMask.cornerRadius = 6;
+            cdMask.cornerRadius = STYLE.frameRadius;
+            cdMask.isPointerBlocker = false;
             bg.addControl(cdMask);
 
             this.slotContainers.push({ bg, icon, level, cdMask });
@@ -574,11 +607,12 @@ export class HeroHud {
             const { bg, icon, level, cdMask } = this.slotContainers[i];
 
             if (!slot) {
-                icon.text = '?';
-                icon.color = '#555';
+                icon.text = '+';
+                icon.color = '#666';
                 level.text = '';
                 cdMask.height = 0;
-                bg.color = '#555';
+                bg.color = STYLE.panelBorderEmpty;
+                bg.background = STYLE.panelBgEmpty;
                 bg.scaleX = 1;
                 bg.scaleY = 1;
                 this.prevCooldownRemaining[i] = -1;
@@ -590,6 +624,7 @@ export class HeroHud {
                 icon.color = elemColor;
                 level.text = `L${slot.state.level}`;
                 bg.color = elemColor;
+                bg.background = STYLE.panelBg;
 
                 const total = slot.def.cooldownFor(slot.state);
                 const remaining = Math.max(0, slot.state.cooldownRemaining);
