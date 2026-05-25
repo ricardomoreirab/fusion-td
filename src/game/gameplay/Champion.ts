@@ -111,6 +111,8 @@ export class Champion extends Enemy {
     private rangerShootTimer: number = 0;
     /** Duration the shoot animation plays after each triggerShoot(). */
     private static readonly RANGER_SHOOT_DURATION = 0.6;
+    /** Playback speed multiplier for the GLB shoot clip. 2.0 = twice as fast. Adjust here. */
+    private static readonly RANGER_SHOOT_SPEED = 2.5;
 
     constructor(
         game: Game,
@@ -340,12 +342,12 @@ export class Champion extends Enemy {
             if (!aa.walk)  aa.walk  = aa.all[1];
             if (!aa.shoot) aa.shoot = aa.all[aa.all.length - 1];
         }
-        // Match the shoot-state timer to the actual clip length so we don't cut it short.
+        // Speed up the shoot clip + compute its effective duration (clip length / speed).
         if (aa.shoot) {
+            aa.shoot.speedRatio = Champion.RANGER_SHOOT_SPEED;
             const frameCount = aa.shoot.to - aa.shoot.from;
-            // BabylonJS GLB anims usually run at ~60fps; getLength() doesn't always exist,
-            // so derive from frames + a sane fps assumption. Cap at 2.5s to avoid lockup.
-            const estDurationSec = Math.min(2.5, frameCount / 60);
+            // GLB anims usually run at ~60fps; divide by speedRatio for effective duration.
+            const estDurationSec = Math.min(2.5, frameCount / 60 / Champion.RANGER_SHOOT_SPEED);
             (this as any).rangerShootDurationActual = estDurationSec > 0.1 ? estDurationSec : Champion.RANGER_SHOOT_DURATION;
         }
         console.log(
