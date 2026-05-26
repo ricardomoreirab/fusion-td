@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PlayerStats } from '../src/game/gameplay/PlayerStats';
+import { PlayerStats } from '../src/survivors/PlayerStats';
 
 describe('PlayerStats — economy', () => {
     it('starts with the constructor-provided money', () => {

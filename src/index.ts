@@ -1,4 +1,4 @@
-import { Game } from './game/Game';
+import { Game } from './engine/Game';
 
 // Wait for the DOM to be ready
 window.addEventListener('DOMContentLoaded', () => {

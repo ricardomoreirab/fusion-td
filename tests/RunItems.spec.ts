@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { RunItems, type ItemId } from '../src/game/gameplay/RunItems';
-import { PlayerStats } from '../src/game/gameplay/PlayerStats';
+import { RunItems, type ItemId } from '../src/survivors/RunItems';
+import { PlayerStats } from '../src/survivors/PlayerStats';
 
 /**
  * RunItems is the cleanest unit-testable thing in the codebase — it only

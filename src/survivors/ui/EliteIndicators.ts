@@ -1,0 +1,112 @@
+import { AdvancedDynamicTexture, Rectangle } from '@babylonjs/gui';
+import { Scene, Vector3, Matrix, Camera } from '@babylonjs/core';
+import { Enemy } from '../enemies/Enemy';
+
+const ELEMENT_HEX: Record<string, string> = {
+    fire:     '#ff5500',
+    ice:      '#33aaff',
+    arcane:   '#cc55ff',
+    physical: '#cccccc',
+    storm:    '#bbbbff',
+};
+
+export class EliteIndicators {
+    private ui: AdvancedDynamicTexture;
+    private scene: Scene;
+    private camera: Camera;
+    private getEnemies: () => Enemy[];
+    /** Map from enemy → its screen-edge indicator dot */
+    private active: Map<Enemy, Rectangle> = new Map();
+    /** Reused per-frame set to avoid allocating a new Set every update */
+    private _seen: Set<Enemy> = new Set<Enemy>();
+
+    constructor(
+        ui: AdvancedDynamicTexture,
+        scene: Scene,
+        camera: Camera,
+        getEnemies: () => Enemy[],
+    ) {
+        this.ui = ui;
+        this.scene = scene;
+        this.camera = camera;
+        this.getEnemies = getEnemies;
+    }
+
+    public update(): void {
+        const enemies = this.getEnemies();
+        const engine  = this.scene.getEngine();
+        const sw      = engine.getRenderWidth();
+        const sh      = engine.getRenderHeight();
+        this._seen.clear();
+        const seen    = this._seen;
+
+        const identityMat  = Matrix.Identity();
+        const transformMat = this.scene.getTransformMatrix();
+        const vp           = this.camera.viewport.toGlobal(sw, sh);
+
+        for (const e of enemies) {
+            if (!e.isAlive() || !e.isElite || !e.eliteDropElement) continue;
+            seen.add(e);
+
+            // Project world → screen
+            const sp = Vector3.Project(e.getPosition(), identityMat, transformMat, vp);
+
+            // sp.z < 0 means the point is behind the camera
+            const onScreen =
+                sp.z > 0 &&
+                sp.x >= 0 && sp.x <= sw &&
+                sp.y >= 0 && sp.y <= sh;
+
+            if (onScreen) {
+                // Remove the indicator if the elite came back on screen
+                if (this.active.has(e)) {
+                    this.active.get(e)!.dispose();
+                    this.active.delete(e);
+                }
+                continue;
+            }
+
+            // Compute the clamped screen-edge position
+            // ADT uses center-origin; convert from top-left screen space.
+            const cx = sw / 2;
+            const cy = sh / 2;
+            const dx = sp.z > 0 ? sp.x - cx : cx - sp.x;  // flip when behind camera
+            const dy = sp.z > 0 ? sp.y - cy : cy - sp.y;
+            const ang = Math.atan2(dy, dx);
+            const margin = 28;
+            const ex = cx + Math.cos(ang) * (cx - margin);
+            const ey = cy + Math.sin(ang) * (cy - margin);
+
+            let dot = this.active.get(e);
+            if (!dot) {
+                dot = new Rectangle(`eliteIndDot_${Math.random()}`);
+                dot.width = '18px';
+                dot.height = '18px';
+                dot.thickness = 2;
+                dot.color = '#fff';
+                dot.background = ELEMENT_HEX[e.eliteDropElement] ?? '#fff';
+                dot.cornerRadius = 9;
+                this.ui.addControl(dot);
+                this.active.set(e, dot);
+            }
+            // Position in ADT space (center-origin)
+            dot.left = `${ex - cx}px`;
+            dot.top  = `${ey - cy}px`;
+        }
+
+        // Clean up stale entries (dead or non-elite)
+        for (const [e, dot] of this.active) {
+            if (!seen.has(e)) {
+                dot.dispose();
+                this.active.delete(e);
+            }
+        }
+    }
+
+    public dispose(): void {
+        for (const dot of this.active.values()) {
+            dot.dispose();
+        }
+        this.active.clear();
+    }
+}
