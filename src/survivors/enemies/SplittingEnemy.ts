@@ -26,7 +26,7 @@ export class SplittingEnemy extends Enemy {
     private glbAttackHoldTimer: number = 0;
     private static readonly GLB_ATTACK_RANGE = 3.5;
     private static readonly GLB_ATTACK_HOLD = 0.6;
-    private static readonly GLB_SCALE = 1.4;
+    private static readonly GLB_SCALE = 1.1;
 
     constructor(game: Game, position: Vector3, path: Vector3[]) {
         // Splitting enemy: moderate speed, medium HP, medium damage, decent reward

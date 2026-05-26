@@ -26,7 +26,8 @@
     "@babylonjs/core": "^9.9.1",
     "@babylonjs/gui": "^9.9.1",
     "@babylonjs/loaders": "^9.9.1",
-    "@babylonjs/materials": "^9.9.1"
+    "@babylonjs/materials": "^9.9.1",
+    "@babylonjs/procedural-textures": "^9.9.1"
   },
   "devDependencies": {
     "copy-webpack-plugin": "^11.0.0",

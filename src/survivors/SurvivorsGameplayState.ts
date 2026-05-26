@@ -1,9 +1,9 @@
-import { Scene, Vector3, Color3, Color4, DirectionalLight, SpotLight, AssetContainer, LoadAssetContainerAsync, CubeTexture, Texture, MeshBuilder, StandardMaterial, Mesh, BackgroundMaterial, ShadowGenerator } from '@babylonjs/core';
+import { Scene, Vector3, Color3, Color4, DirectionalLight, AssetContainer, LoadAssetContainerAsync, CubeTexture, Texture, MeshBuilder, Mesh, BackgroundMaterial, ShadowGenerator } from '@babylonjs/core';
 import '@babylonjs/loaders/glTF';
 import { AdvancedDynamicTexture } from '@babylonjs/gui';
 import { Game } from '../engine/Game';
 import { GameState } from '../engine/GameState';
-import { Map } from './Map';
+import { SurvivorsArena } from './SurvivorsArena';
 import { Champion } from './champions/Champion';
 import { HeroController } from './HeroController';
 import { SurvivorsJoystick } from './ui/SurvivorsJoystick';
@@ -27,7 +27,7 @@ import { DamageNumberManager } from './DamageNumberManager';
 import { RunItems, ItemId } from './RunItems';
 import { ItemDrop } from './ItemDrop';
 import { createProceduralGrass } from '../engine/rendering/ProceduralGrass';
-import { createProceduralGrassTexture } from '../engine/rendering/ProceduralGrassTexture';
+import { GameSettings, bladeCountForQuality } from '../shared/GameSettings';
 
 /**
  * Module-level cache for champion GLBs. Loaded on demand inside enter() (not at
@@ -114,7 +114,7 @@ const ITEM_FLOAT_COLOR: Record<ItemId, string> = {
 // Hero-torch parameters shared between Champion's in-mesh PointLight and the
 // procedural-grass shader so the in-world point light and the shader-baked
 // torch halo match each other.
-const TORCH_COLOR     = new Color3(1.0, 0.62, 0.28);
+// Torch color now read live from the heroTorch PointLight at update time.
 const TORCH_INTENSITY = 1.8;   // tuned for the grass shader's (1-d/r)² falloff
 const TORCH_RANGE     = 9;
 
@@ -122,7 +122,7 @@ export class SurvivorsGameplayState implements GameState {
     private game: Game;
     private scene: Scene | null = null;
     private ui: AdvancedDynamicTexture | null = null;
-    private map: Map | null = null;
+    private map: SurvivorsArena | null = null;
     private hero: Champion | null = null;
     private heroController: HeroController | null = null;
     private joystick: SurvivorsJoystick | null = null;
@@ -208,8 +208,7 @@ export class SurvivorsGameplayState implements GameState {
         this.shadowSourceLight = keyLight;
 
         // Build base scene resources first
-        this.map = new Map(this.game);
-        this.map.buildSurvivorsArena(25);
+        this.map = new SurvivorsArena(this.scene, 25);
 
         // Layer on the ancient-ruins ambience: skybox, warm spot, env IBL, stone ground texture
         this.applyRuinsAmbience();
@@ -297,7 +296,10 @@ export class SurvivorsGameplayState implements GameState {
             championAsset ?? undefined,
         );
         this.hero.controlMode = 'player';
-        this.hero.enableTorch();
+        // Torch left off — it's a strong warm point light that masks shadows
+        // around the hero. The grass shader's torch glow auto-syncs with this,
+        // so leaving torch.intensity at 0 keeps both quiet. Toggle on by
+        // calling `this.hero.enableTorch()` for a moodier night-arena look.
 
         // Register the hero as a shadow caster.
         // GLB heroes are skinned, so all child meshes get added.
@@ -305,6 +307,25 @@ export class SurvivorsGameplayState implements GameState {
         if (heroMesh && this.shadowGenerator) {
             this.shadowGenerator.addShadowCaster(heroMesh, true);
         }
+        // DEBUG: log shadow state once after a short delay to verify casters
+        // are in the shadow map's render list and the map is being rendered.
+        setTimeout(() => {
+            if (!this.shadowGenerator) {
+                console.log('[shadow-debug] no shadowGenerator');
+                return;
+            }
+            const sm = this.shadowGenerator.getShadowMap();
+            const rl = sm?.renderList ?? null;
+            console.log('[shadow-debug]', {
+                scene_shadowsEnabled: this.scene?.shadowsEnabled,
+                light_intensity: this.shadowSourceLight?.intensity,
+                shadowMap_renderListSize: rl?.length ?? 'null',
+                shadowMap_renderListNames: rl?.map(m => m.name).slice(0, 10) ?? null,
+                shadowMap_isReady: sm?.isReady() ?? false,
+                ESM_depthScale: (this.shadowGenerator as unknown as { depthScale: number }).depthScale,
+                useESM: (this.shadowGenerator as unknown as { useExponentialShadowMap: boolean }).useExponentialShadowMap,
+            });
+        }, 1500);
 
         this.heroController = new HeroController(
             this.scene,
@@ -330,7 +351,7 @@ export class SurvivorsGameplayState implements GameState {
             damageMult: this.playerStats?.critDamageMultiplier ?? 1.5,
         });
 
-        this.enemyManager = new EnemyManager(this.game, this.map);
+        this.enemyManager = new EnemyManager(this.game);
         this.enemyManager.setPlayerStats(this.playerStats);
         // Wire the shadow generator so bosses + elites auto-register as casters.
         this.enemyManager.setShadowGenerators([this.shadowGenerator, this.torchShadowGenerator]);
@@ -375,6 +396,19 @@ export class SurvivorsGameplayState implements GameState {
         // because forceCompilationAsync resolves only once each shader has
         // actually finished compiling on the GPU driver thread.
         await this.enemyManager.prewarmEnemyTypes();
+
+        // BossEnemy.createMesh creates 3 magenta "bossOrbit" wisp spheres at
+        // world (0,0,0) (not parented to the boss mesh — positioned in
+        // animateParts via world coords). They survive the prewarm dispose
+        // cycle for reasons I haven't tracked down, and sit at origin looking
+        // like a pink sphere. Sweep them after the prewarm completes.
+        if (this.scene) {
+            for (const m of [...this.scene.meshes]) {
+                if (m.name.startsWith('bossOrbit') && !m.isDisposed()) {
+                    m.dispose();
+                }
+            }
+        }
 
         // Damage / reward floating text manager
         this.damageNumbers = new DamageNumberManager(this.game);
@@ -561,87 +595,84 @@ export class SurvivorsGameplayState implements GameState {
         skyMat.reflectionTexture = skyTex;
         skydome.material = skyMat;
 
-        // ── Warm spot light from above ────────────────────────────────────────
-        // Intensity 3.0 → 1.2 — top-down spot was the main contributor to the
-        // washed-out "full bright" look. At 1.2 it still gives the arena a
-        // warm orange overhead glow without crushing the directional shading.
-        const spot = new SpotLight(
-            'ruinsSpot',
-            new Vector3(0, 18, 0),         // high overhead — survivors arena center
-            new Vector3(0, -1, 0),         // straight down
-            Math.PI * 0.55,                 // wide cone covers most of the arena
-            12,                             // gentle falloff
-            scene,
-        );
-        spot.intensity = 1.2;
-        spot.diffuse = new Color3(1.0, 0.55, 0.18);
-        spot.specular = new Color3(0, 0, 0);
-
-        // ── Grass floor ──────────────────────────────────────────────────────
-        // Two-layer setup:
-        //  1) Ground disc with a Hoskins-style procedural grass texture
-        //     (Voronoi + multi-octave noise, baked once at startup → zero
-        //     per-frame cost, works on WebGL and WebGPU identically).
-        //  2) ~8000 hardware-instanced grass blades on top of it, with a
-        //     vertex-shader wind animation for motion.
-        const ground = MeshBuilder.CreateDisc('ruinsGrassGround', { radius: 22, tessellation: 48 }, scene);
-        ground.rotation.x = Math.PI / 2;
-        ground.position.y = 0.001;
-        const groundMat = new StandardMaterial('ruinsGrassMat', scene);
-        // size=2048 + tile=1: the texture is rendered once at 2048² and stretched
-        // across the whole arena disc, so there are no tiling seams. Memory cost
-        // ~16 MiB VRAM, drawn once at startup → free at runtime.
-        groundMat.diffuseTexture = createProceduralGrassTexture(scene, { size: 2048, tile: 1 });
-        groundMat.specularColor = Color3.Black();
-        groundMat.backFaceCulling = false;
-        // Default is 4. Survivors has: game-hemi + survivors-key (dir) +
-        // ruins-spot + hero-torch = 4. We allow more so future additions don't
-        // silently cull the torch.
-        groundMat.maxSimultaneousLights = 8;
-        ground.material = groundMat;
-        ground.receiveShadows = true;
-
-        this.grass = createProceduralGrass(scene, {
-            arenaRadius: this.map?.getArenaRadius() ?? 20,
-            bladeCount: 8000,
-        });
+        // (Removed ruinsSpot SpotLight — it didn't cast shadows and was
+        // washing out the directional's shadows at world origin where the
+        // hero spawns. The hemispheric + directional combo gives the arena
+        // enough ambient by itself.)
 
         // ── Shadow generator ──────────────────────────────────────────────────
-        // Single shadow pass attached to survivorsKey (the dominant directional).
-        // Hero + bosses + elites are added as casters from EnemyManager / startRun.
-        // 1024 PCF gives soft edges without paying for blur-exponential cost.
-        // Frustum size matches the arena radius (~25u) with headroom.
+        // ESM (ExponentialShadowMap) so the procedural-grass custom shader
+        // can sample the map as a plain sampler2D — Babylon's PCF maps use a
+        // sampler2DShadow which can't be sampled this way. ESM also gives
+        // softer edges for free.
         if (this.shadowSourceLight) {
-            this.shadowSourceLight.position = new Vector3(20, 30, 30);
+            // Position the light high above the arena center so the orthographic
+            // shadow frustum covers the whole disc symmetrically. Offset a bit
+            // on +X/+Z so shadows have a visible angle (not straight-down).
+            // Ortho extents tightened to ~arena radius (25) so the 1024² shadow
+            // map gives ~0.05 world units per texel — sharper shadow edges.
+            this.shadowSourceLight.position = new Vector3(8, 40, 8);
             this.shadowSourceLight.shadowMinZ = 1;
-            this.shadowSourceLight.shadowMaxZ = 80;
-            this.shadowSourceLight.orthoLeft   = -32;
-            this.shadowSourceLight.orthoRight  =  32;
-            this.shadowSourceLight.orthoTop    =  32;
-            this.shadowSourceLight.orthoBottom = -32;
+            this.shadowSourceLight.shadowMaxZ = 100;
+            this.shadowSourceLight.orthoLeft   = -30;
+            this.shadowSourceLight.orthoRight  =  30;
+            this.shadowSourceLight.orthoTop    =  30;
+            this.shadowSourceLight.orthoBottom = -30;
             this.shadowSourceLight.autoCalcShadowZBounds = false;
 
+            // Re-enable scene-wide shadow rendering — Game.setupScene() sets
+            // `scene.shadowsEnabled = false` as a perf default (no shadows in
+            // the menu state). Survivors needs them on Medium/High; Low turns
+            // shadow rendering off entirely (set from the main-menu graphics
+            // preset).
+            scene.shadowsEnabled = GameSettings.getGraphicsQuality() !== 'low';
+
+            // Default PCF shadow map — Babylon's most tested path. Grass
+            // can't sample this kind of texture from a custom shader, so the
+            // grass shadow integration is disabled (shadowGenerator: undefined
+            // below) — just trying to get the StandardMaterial ground to show
+            // hero shadows first as a sanity check.
             const shadow = new ShadowGenerator(1024, this.shadowSourceLight);
             shadow.usePercentageCloserFiltering = true;
-            shadow.filteringQuality = ShadowGenerator.QUALITY_LOW; // softer + faster
-            shadow.bias = 0.0008;            // avoid acne on flat ground
+            shadow.filteringQuality = ShadowGenerator.QUALITY_LOW;
+            shadow.bias = 0.0008;
             shadow.normalBias = 0.02;
-            shadow.darkness = 0.4;            // 0 = pitch black, 1 = no shadow
+            shadow.darkness = 0.4;
             shadow.transparencyShadow = false;
-            shadow.frustumEdgeFalloff = 0.05; // fade at frustum edges instead of hard cutoff
+            // No frustum edge falloff — gives a hard outer edge but avoids
+            // unintended "fading" mid-arena that some receivers can show.
+            shadow.frustumEdgeFalloff = 0;
+            const shadowMap = shadow.getShadowMap();
+            if (shadowMap) shadowMap.refreshRate = 1;
             this.shadowGenerator = shadow;
 
-            // Receivers
-            ground.receiveShadows = true;
-            // The 5 stacked dark ground discs from Map.buildSurvivorsArena —
-            // include them too so the shadow reads consistent across the arena.
-            const sceneMeshes = scene.meshes;
-            for (const m of sceneMeshes) {
+            for (const m of scene.meshes) {
                 if (m.name.startsWith('arenaGround')) {
                     m.receiveShadows = true;
                 }
             }
         }
+
+        // ── Grass blades ──────────────────────────────────────────────────────
+        // Texture-free, sampler-free shader → identical pipeline state on
+        // WebGL and WebGPU. 8000 hardware-instanced blades with vertex
+        // lighting and a sin-based wind sway.
+        this.grass = createProceduralGrass(scene, {
+            arenaRadius: this.map?.getArenaRadius() ?? 20,
+            bladeCount: bladeCountForQuality(GameSettings.getGraphicsQuality()),
+            bladeWidth: 0.06,
+            bladeHeight: 0.45,
+            directionalLight: this.shadowSourceLight ?? undefined,
+            // shadowGenerator: this.shadowGenerator ?? undefined, // disabled while debugging
+            ambientColor: new Color3(0.42, 0.50, 0.32),
+            colorRoot: new Color3(0.18, 0.26, 0.10),
+            colorTip:  new Color3(0.55, 0.78, 0.30),
+            colorDry:  new Color3(0.72, 0.65, 0.32),
+            influencerRadius: 0.9,
+            influencerStrength: 0.55,
+        });
+
+
 
         // ── Torch (point-light) shadow generator ──────────────────────────────
         // Cube shadow map on the hero's torch so bosses + heavies cast a
@@ -830,15 +861,35 @@ export class SurvivorsGameplayState implements GameState {
         if (this.hero) this.hero.update(dt);
 
         // Keep the procedural-grass shader's torch uniforms in sync with the
-        // hero — the blades read `uTorchPos`/`uTorchIntensity` each frame.
+        // real heroTorch PointLight. When the torch is off (intensity 0), the
+        // grass glow goes off too — previously it was always on regardless.
         if (this.grass && this.hero) {
-            const p = this.hero.getPosition();
-            this.grass.setTorch({
-                position: p,
-                color: TORCH_COLOR,
-                intensity: TORCH_INTENSITY,
+            const torch = this.game.getHeroTorch();
+            this.grass.setTorch(torch.intensity > 0 ? {
+                position: this.hero.getPosition(),
+                color: torch.diffuse,
+                intensity: TORCH_INTENSITY * (torch.intensity / 5.0),
                 range: TORCH_RANGE,
-            });
+            } : null);
+
+            // Character grass displacement: hero + nearest 15 enemies push
+            // surrounding blades outward as they move. Shader caps at 16,
+            // so we trim if more are alive nearby.
+            const influencers: Vector3[] = [this.hero.getPosition()];
+            if (this.enemyManager) {
+                const enemies = this.enemyManager.getEnemies();
+                // Take the first 15 — full ranking by distance every frame
+                // is overkill; the visible enemies are usually swarming the
+                // hero anyway, and the shader's distance falloff dies off
+                // past ~1.6u so far enemies wouldn't contribute even if
+                // included.
+                for (let i = 0; i < enemies.length && influencers.length < 16; i++) {
+                    const ep = (enemies[i] as unknown as { position?: Vector3; getPosition?: () => Vector3 });
+                    const pos = ep.getPosition?.() ?? ep.position;
+                    if (pos) influencers.push(pos);
+                }
+            }
+            this.grass.setInfluencers(influencers);
         }
 
         _measure('hero');

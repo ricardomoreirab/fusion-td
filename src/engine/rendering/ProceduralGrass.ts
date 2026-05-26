@@ -5,136 +5,290 @@ import {
     ShaderMaterial,
     Effect,
     Matrix,
+    Vector2,
     Vector3,
     Quaternion,
     Color3,
     Observer,
+    DirectionalLight,
+    ShadowGenerator,
 } from '@babylonjs/core';
 
 /**
- * Lite procedural grass — N hardware-instanced curved blades with a vertex-
- * shader wind animation and a root→tip color gradient. Unlit (avoids Babylon's
- * lighting pipeline so the shader stays trivial and runs on both WebGL and
- * WebGPU identically). One draw call.
+ * Procedural grass — N hardware-instanced multi-segment curved blades with a
+ * vertex-shader sin-based wind animation, per-vertex normals for directional
+ * lighting (diffuse + cheap spec + ambient occlusion), a root→tip color
+ * gradient, and a per-frame point-light contribution for the hero torch.
  *
- * Inspired by penev.tech/labs/grass but stripped of the trail-texture
- * displacement, SSS, fresnel, and fiber-noise passes — those would add
- * significant GPU cost on top of an already-busy survivors scene.
+ * Blade geometry technique ported from spacejack's "Terra" demo (MIT).
+ *
+ * No textures, no samplers, no shader defines — keeps the pipeline trivial
+ * and identical across WebGL and WebGPU. One draw call.
  */
 
 const SHADER_KEY = 'ktgGrass';
 
+// Blade geometry constants. 4 segments → 5 height levels per side, 2 edges,
+// 2 faces (front + back). 5 × 2 × 2 = 20 verts, 16 triangles per blade.
+const BLADE_SEGS = 4;
+const BLADE_DIVS = BLADE_SEGS + 1;
+const BLADE_VERTS_PER_SIDE = BLADE_DIVS * 2;
+
+/** Max simultaneous character displacement sources passed to the shader.
+ *  Mirrors the const MAX_INFLUENCERS in the vertex shader. */
+const MAX_INFLUENCERS = 16;
+
 // ──────────────────────────────────────────────────────────────────────────────
-// Shaders
+// Shaders — kept deliberately texture-free and define-free so the pipeline
+// state is the same on WebGL and WebGPU.
 // ──────────────────────────────────────────────────────────────────────────────
 
+// Per-instance world matrix attributes (world0..world3) are referenced by the
+// shader source but NOT listed in the material's `attributes` array — Babylon
+// parses the source and auto-assigns locations. Listing them explicitly
+// causes pipeline-rebuild collisions on WebGPU post-process passes.
 const VERT = `
 precision highp float;
 
-attribute vec3 position;
-attribute vec2 uv;
+attribute vec3 position;     // x in [-0.5, 0.5], y in [0, 1], z = face sign (+1/-1)
+attribute vec2 uv;           // x = edge (0/1), y = hpct (0..1)
+attribute vec4 world0;
+attribute vec4 world1;
+attribute vec4 world2;
+attribute vec4 world3;
 
-// world is the per-instance matrix (thinInstance sets it). viewProjection is
-// Babylon's built-in combined camera matrix.
-uniform mat4 world;
 uniform mat4 viewProjection;
 uniform float uTime;
 uniform float uWindStrength;
 
-varying vec2 vUv;
-varying float vColorSeed;
+// Character displacement: up to 16 "influencer" world-XZ positions (Y unused).
+// Unused slots are set to a far-away point so the distance-based falloff
+// naturally zeros them out without branching. Array size hardcoded to 16
+// (matches MAX_INFLUENCERS const on the JS side) — WGSL's array-size
+// constexpr handling differs from GLSL, hardcoding is safest.
+uniform vec3 uInfluencers[16];
+uniform float uInfluencerRadius;
+uniform float uInfluencerStrength;
+
+#ifdef RECEIVE_SHADOWS
+uniform mat4 uShadowVP;
+#endif
+
 varying vec3 vWorldPos;
+varying vec3 vWorldNormal;
+varying float vHPct;
+varying float vColorSeed;
+#ifdef RECEIVE_SHADOWS
+varying vec4 vShadowCoord;
+#endif
+
+float hash11(float p) {
+    return fract(sin(p * 127.1) * 43758.5453);
+}
+
+vec2 rotYZ(vec2 yz, float c, float s) {
+    return vec2(yz.x * c - yz.y * s, yz.x * s + yz.y * c);
+}
 
 void main(void) {
-    vec4 worldPos = world * vec4(position, 1.0);
+    mat4 finalWorld = mat4(world0, world1, world2, world3);
 
-    // Cheap multi-frequency sin wind in world space — each blade picks up a
-    // phase from its world XZ position, so neighbours sway together but
-    // distant blades sway out of phase, producing the rolling-wave look.
+    float hpct = uv.y;
+    float aSide = sign(position.z);
+
+    // Local blade-space position. Taper edges toward the tip (terra trick).
+    vec3 lpos = vec3(
+        position.x * (1.0 - pow(hpct, 3.0)),
+        position.y,
+        0.0
+    );
+    vec3 lnorm = vec3(0.0, 0.0, aSide);
+
+    // Per-blade lean + curve from a hash of the blade origin (world matrix
+    // translation column) — gives organic variety with no per-instance attrs.
+    float bladeSeed = world3.x * 12.9898 + world3.z * 78.233;
+    float lean = (hash11(bladeSeed) - 0.5) * 0.4;
+    float curveBase = 0.05 + hash11(bladeSeed + 1.7) * 0.35;
+    float curve = curveBase + 0.125 * sin(uTime * 4.0 + bladeSeed);
+    float rot = lean + curve * hpct;
+    float cR = cos(rot), sR = sin(rot);
+    vec2 yz = rotYZ(vec2(lpos.y, lpos.z), cR, sR);
+    lpos.y = yz.x; lpos.z = yz.y;
+    vec2 nyz = rotYZ(vec2(lnorm.y, lnorm.z), cR, sR);
+    lnorm.y = nyz.x; lnorm.z = nyz.y;
+
+    // To world space. Matrix carries position + Y-rotation + non-uniform
+    // scale (sx, sy, 1); the Z-scale stays 1 so the flat blade normal is
+    // preserved when we transform it by mat3(finalWorld).
+    vec4 wp4 = finalWorld * vec4(lpos, 1.0);
+    vec3 worldPos = wp4.xyz;
+    vec3 worldNorm = normalize(mat3(finalWorld) * lnorm);
+
+    // Character displacement — each influencer pushes nearby blades outward
+    // along the XZ vector from influencer to blade. Falloff is (1 - d/r)²,
+    // so the effect dies off smoothly past the radius. Tips bend more than
+    // roots via hpct². No branching — far-away unused slots just contribute 0.
+    vec2 push = vec2(0.0);
+    for (int i = 0; i < 16; i++) {
+        vec2 to = worldPos.xz - uInfluencers[i].xz;
+        float d = length(to);
+        float falloff = max(0.0, 1.0 - d / uInfluencerRadius);
+        falloff = falloff * falloff;
+        // Normalised direction; +1e-5 in denom guards against d=0.
+        push += to / (d + 1e-5) * falloff;
+    }
+    // Per-blade randomness so the patch under a character doesn't bend
+    // uniformly — blades push between 0.35× and 1.0× the baseline. Adds a
+    // small per-blade time wobble (~10% amplitude) so pushed blades feel
+    // alive instead of statically pinned over.
+    float pushJitter = 0.35 + hash11(bladeSeed + 5.0) * 0.65;
+    float pushWobble = 1.0 + sin(uTime * 6.0 + bladeSeed * 12.0) * 0.10;
+    push *= uInfluencerStrength * pushJitter * pushWobble * hpct * hpct;
+    worldPos.x += push.x;
+    worldPos.z += push.y;
+
+    // Subtle ambient sway so blades aren't completely still when no one's
+    // nearby — much smaller amplitude than before since the headline motion
+    // now comes from characters walking through.
     float phase = worldPos.x * 0.55 + worldPos.z * 0.45;
-    float wind1 = sin(uTime * 1.6 + phase);
-    float wind2 = sin(uTime * 0.9 + phase * 1.7) * 0.4;
-    float wind = (wind1 + wind2) * uWindStrength;
+    float ambientSway = sin(uTime * 0.9 + phase) * uWindStrength * 0.15 * hpct * hpct;
+    worldPos.x += ambientSway;
 
-    // Bend weight = uv.y² → root stays anchored at uv.y=0, tip bends most.
-    float bend = wind * uv.y * uv.y;
-    worldPos.x += bend;
-    worldPos.z += bend * 0.4;
+    gl_Position = viewProjection * vec4(worldPos, 1.0);
 
-    gl_Position = viewProjection * worldPos;
-
-    vUv = uv;
-    vWorldPos = worldPos.xyz;
-    // Pseudo-random per-blade seed from world position — used in the fragment
-    // shader for color variation without needing a per-instance attribute.
+    vWorldPos = worldPos;
+    vWorldNormal = worldNorm;
+    vHPct = hpct;
     vColorSeed = fract(sin(dot(worldPos.xz, vec2(12.9898, 78.233))) * 43758.5453);
+
+    #ifdef RECEIVE_SHADOWS
+    vShadowCoord = uShadowVP * vec4(worldPos, 1.0);
+    #endif
 }
 `;
 
 const FRAG = `
 precision highp float;
 
-varying vec2 vUv;
-varying float vColorSeed;
 varying vec3 vWorldPos;
+varying vec3 vWorldNormal;
+varying float vHPct;
+varying float vColorSeed;
+#ifdef RECEIVE_SHADOWS
+varying vec4 vShadowCoord;
+#endif
 
 uniform vec3 uColorRoot;
 uniform vec3 uColorTip;
 uniform vec3 uColorDry;
 
-// Single point light (the hero torch). uTorchIntensity=0 disables it cheaply
-// without needing a separate shader permutation.
+// Directional sun light (the survivorsKey directional).
+uniform vec3 uLightDir;
+uniform vec3 uLightColor;
+uniform vec3 uAmbient;
+
+// Hero torch (point light). uTorchIntensity = 0 disables it cheaply.
 uniform vec3  uTorchPos;
 uniform vec3  uTorchColor;
 uniform float uTorchIntensity;
 uniform float uTorchRange;
 
-void main(void) {
-    // Per-blade variation: most blades fresh green, ~25% leaning toward dry.
-    vec3 tip = mix(uColorTip, uColorDry, smoothstep(0.65, 1.0, vColorSeed));
-    vec3 color = mix(uColorRoot, tip, vUv.y);
+#ifdef RECEIVE_SHADOWS
+// ESM shadow map: stores exp(depthScale * normalisedDepth) in the red channel.
+uniform sampler2D uShadowMap;
+uniform float uShadowDarkness;
+uniform float uShadowDepthScale;
+uniform vec2  uShadowDepthValues;
 
-    // Torch contribution — smooth radial falloff (1 - d/r)² clamped to [0,1].
-    // No normal term (blades are flat billboards), just distance-based.
+float sampleShadow() {
+    // Sample unconditionally — WGSL requires texture sampling in uniform
+    // control flow. Mix away the result for out-of-frustum coords.
+    vec3 ndc = vShadowCoord.xyz / vShadowCoord.w;
+    vec2 uvs = ndc.xy * 0.5 + 0.5;
+    // WebGPU render-target Y is flipped relative to texture sampling Y.
+    vec2 sampleUv = clamp(vec2(uvs.x, 1.0 - uvs.y), vec2(0.001), vec2(0.999));
+    float storedExp = texture2D(uShadowMap, sampleUv).r;
+    float depth = (ndc.z + uShadowDepthValues.x) / uShadowDepthValues.y;
+    float visibility = clamp(storedExp * exp(-uShadowDepthScale * depth), 0.0, 1.0);
+    float shadowFactor = mix(uShadowDarkness, 1.0, visibility);
+
+    float inFrustum = step(0.001, uvs.x) * step(uvs.x, 0.999)
+                    * step(0.001, uvs.y) * step(uvs.y, 0.999);
+    return mix(1.0, shadowFactor, inFrustum);
+}
+#endif
+
+void main(void) {
+    // Base blade color — root→tip gradient with ~25% of blades shifted dry.
+    // Per-blade brightness jitter (±10%) breaks up the uniform look so
+    // dense fields don't read as a solid green carpet.
+    vec3 tip = mix(uColorTip, uColorDry, smoothstep(0.65, 1.0, vColorSeed));
+    vec3 base = mix(uColorRoot, tip, vHPct);
+    float bladeBrightness = 0.9 + vColorSeed * 0.2;
+    base *= bladeBrightness;
+
+    // Directional diffuse using abs(N.L) so the back of a blade is lit too
+    // — grass leaves are translucent, this is terra's translucency trick.
+    vec3 N = normalize(vWorldNormal);
+    vec3 L = normalize(-uLightDir);
+    float diffuse = abs(dot(N, L));
+
+    // Gentle AO — root subtly darker than tip but not crushed.
+    float ao = 1.0 - vHPct;
+    ao = 1.0 - ao * ao * 0.25;
+
+    #ifdef RECEIVE_SHADOWS
+    float shadow = sampleShadow();
+    #else
+    float shadow = 1.0;
+    #endif
+
+    vec3 lit = base * (uAmbient + uLightColor * diffuse * shadow) * ao;
+
     if (uTorchIntensity > 0.0) {
         float d = distance(vWorldPos, uTorchPos);
         float f = max(0.0, 1.0 - d / uTorchRange);
-        color += uTorchColor * (f * f) * uTorchIntensity;
+        lit += uTorchColor * (f * f) * uTorchIntensity * 0.6;
     }
 
-    gl_FragColor = vec4(color, 1.0);
+    gl_FragColor = vec4(lit, 1.0);
 }
 `;
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Build one blade mesh (5 vertices, 3 triangles) — the source for thin instancing.
+// Blade mesh — 5 height levels × 2 edges × 2 faces = 20 vertices, 16 triangles.
+// Face sign (+1 front / -1 back) is encoded in position.z so we don't need
+// any custom vertex attributes.
 // ──────────────────────────────────────────────────────────────────────────────
 
 function buildBladeMesh(scene: Scene, width: number, height: number): Mesh {
-    const segments = 2;
     const positions: number[] = [];
     const uvs: number[] = [];
     const indices: number[] = [];
 
-    for (let i = 0; i <= segments; i++) {
-        const t = i / segments;
-        const halfWidth = width * 0.5 * (1.0 - t);
-        if (i === segments) {
-            // Tip: single vertex
-            positions.push(0, height * t, 0);
-            uvs.push(0.5, t);
-        } else {
-            positions.push(-halfWidth, height * t, 0);
+    for (let face = 0; face < 2; face++) {
+        const side = face === 0 ? 1 : -1;
+        for (let i = 0; i < BLADE_DIVS; i++) {
+            const t = i / BLADE_SEGS;
+            positions.push(-0.5 * width, t * height, side);
             uvs.push(0, t);
-            positions.push(halfWidth, height * t, 0);
+            positions.push(0.5 * width, t * height, side);
             uvs.push(1, t);
         }
     }
 
-    // Vertex layout (segments=2): [0]=base-L, [1]=base-R, [2]=mid-L, [3]=mid-R, [4]=tip
-    // Two quads (4 tris) — but tip section is a single triangle (mid → tip).
-    indices.push(0, 2, 1, 1, 2, 3); // base→mid quad
-    indices.push(2, 4, 3);           // mid→tip triangle
+    // Front face winding.
+    let vc = 0;
+    for (let seg = 0; seg < BLADE_SEGS; seg++) {
+        indices.push(vc + 0, vc + 1, vc + 2, vc + 2, vc + 1, vc + 3);
+        vc += 2;
+    }
+    // Back face — reversed winding so the back triangles face the opposite way.
+    vc = BLADE_VERTS_PER_SIDE;
+    for (let seg = 0; seg < BLADE_SEGS; seg++) {
+        indices.push(vc + 2, vc + 1, vc + 0, vc + 3, vc + 1, vc + 2);
+        vc += 2;
+    }
 
     const blade = new Mesh('proceduralGrassBlade', scene);
     const vd = new VertexData();
@@ -150,34 +304,41 @@ function buildBladeMesh(scene: Scene, width: number, height: number): Mesh {
 // ──────────────────────────────────────────────────────────────────────────────
 
 export interface ProceduralGrassOptions {
-    /** Arena radius (blades are scattered inside a disc of this radius). */
     arenaRadius: number;
-    /** Number of blade instances. ~8000 is a good lite default. */
     bladeCount: number;
-    /** Y position of the blade roots. Slightly above ground to avoid z-fighting. */
     rootY?: number;
-    /** Per-blade dimensions. */
     bladeWidth?: number;
     bladeHeight?: number;
-    /** Wind animation strength in world units of tip displacement. */
     windStrength?: number;
-    /** Root color (dark) and tip color (bright). */
     colorRoot?: Color3;
     colorTip?: Color3;
-    /** Color blades shift toward for ~25% of instances (dry/yellowed). */
     colorDry?: Color3;
+    /** Directional light used for diffuse lighting. If omitted, a default
+     *  sun direction + colour are used. */
+    directionalLight?: DirectionalLight;
+    lightDirection?: Vector3;
+    ambientColor?: Color3;
+    /** Optional ShadowGenerator (MUST be in ExponentialShadowMap mode — we
+     *  sample the map manually as sampler2D). If omitted, the shader is
+     *  compiled without shadow receive code at all. */
+    shadowGenerator?: ShadowGenerator;
+    /** Radius (world units) around each character within which blades bend. */
+    influencerRadius?: number;
+    /** Max tip displacement (world units) at the centre of an influencer. */
+    influencerStrength?: number;
 }
 
 export interface ProceduralGrass {
     mesh: Mesh;
-    /** Update or disable the per-frame torch contribution.
-     *  Pass `null` (or call with intensity 0) to turn the torch off. */
     setTorch: (params: { position: Vector3; color: Color3; intensity: number; range: number } | null) => void;
+    /** Set the world-XZ positions of characters that should bend the grass
+     *  as they pass through. Up to 16 positions; extras are dropped. Call
+     *  every frame with current positions of hero + visible enemies. */
+    setInfluencers: (positions: Vector3[]) => void;
     dispose: () => void;
 }
 
 export function createProceduralGrass(scene: Scene, opts: ProceduralGrassOptions): ProceduralGrass {
-    // Register shaders into Babylon's shader store (once per page lifetime).
     if (!Effect.ShadersStore[`${SHADER_KEY}VertexShader`]) {
         Effect.ShadersStore[`${SHADER_KEY}VertexShader`] = VERT;
         Effect.ShadersStore[`${SHADER_KEY}FragmentShader`] = FRAG;
@@ -188,18 +349,19 @@ export function createProceduralGrass(scene: Scene, opts: ProceduralGrassOptions
     const rootY = opts.rootY ?? 0.003;
     const blade = buildBladeMesh(scene, width, height);
 
-    // ── Per-instance world matrices ───────────────────────────────────────────
-    // Scatter inside the arena disc. sqrt(rand) gives uniform area distribution.
+    // Per-instance world matrices — position + Y-rotation + non-uniform scale.
     const matrices = new Float32Array(opts.bladeCount * 16);
     const tmp = Matrix.Identity();
     const tmpPos = new Vector3();
-    const tmpScale = new Vector3();
+    const tmpScale = new Vector3(1, 1, 1);
     for (let i = 0; i < opts.bladeCount; i++) {
         const r = Math.sqrt(Math.random()) * opts.arenaRadius * 0.96;
         const theta = Math.random() * Math.PI * 2;
         const yRot = Math.random() * Math.PI * 2;
-        const s = 0.75 + Math.random() * 0.55; // size variation
-        tmpScale.set(s, s, s);
+        const widthMult = 0.85 + Math.random() * 0.5;
+        const tallSkew = Math.pow(Math.random(), 3.0);
+        const heightMult = 0.7 + tallSkew * 1.8;
+        tmpScale.set(widthMult, heightMult, 1);
         tmpPos.set(Math.cos(theta) * r, rootY, Math.sin(theta) * r);
         Matrix.ComposeToRef(tmpScale, Quaternion.RotationAxis(Vector3.UpReadOnly, yRot), tmpPos, tmp);
         tmp.copyToArray(matrices, i * 16);
@@ -207,46 +369,113 @@ export function createProceduralGrass(scene: Scene, opts: ProceduralGrassOptions
     blade.thinInstanceSetBuffer('matrix', matrices, 16, true);
 
     // ── Material ──────────────────────────────────────────────────────────────
+    // Note: world0..world3 are referenced by the shader source but NOT listed
+    // in `attributes`. Babylon analyses the source and auto-assigns locations
+    // for per-instance attributes — listing them explicitly causes location
+    // collisions in WebGPU post-process / shadow re-render pipelines.
+    const usingShadows = !!opts.shadowGenerator;
+    const uniformsList = [
+        'viewProjection',
+        'uTime', 'uWindStrength',
+        'uColorRoot', 'uColorTip', 'uColorDry',
+        'uLightDir', 'uLightColor', 'uAmbient',
+        'uTorchPos', 'uTorchColor', 'uTorchIntensity', 'uTorchRange',
+        'uInfluencers', 'uInfluencerRadius', 'uInfluencerStrength',
+    ];
+    const samplersList: string[] = [];
+    const defines: string[] = [];
+    if (usingShadows) {
+        uniformsList.push('uShadowVP', 'uShadowDarkness', 'uShadowDepthScale', 'uShadowDepthValues');
+        samplersList.push('uShadowMap');
+        defines.push('#define RECEIVE_SHADOWS');
+    }
+
     const mat = new ShaderMaterial(
         'proceduralGrassMat',
         scene,
         { vertex: SHADER_KEY, fragment: SHADER_KEY },
         {
             attributes: ['position', 'uv'],
-            uniforms: [
-                'world', 'viewProjection',
-                'uTime', 'uWindStrength',
-                'uColorRoot', 'uColorTip', 'uColorDry',
-                'uTorchPos', 'uTorchColor', 'uTorchIntensity', 'uTorchRange',
-            ],
+            uniforms: uniformsList,
+            samplers: samplersList,
+            defines,
         },
     );
-    // Grass is visible from both sides — blades are flat planes and the camera
-    // looks down-and-out, so half the blades face away from the camera.
     mat.backFaceCulling = false;
-    mat.setFloat('uWindStrength', opts.windStrength ?? 0.12);
-    mat.setColor3('uColorRoot', opts.colorRoot ?? new Color3(0.10, 0.14, 0.05));
-    mat.setColor3('uColorTip', opts.colorTip ?? new Color3(0.42, 0.62, 0.20));
-    mat.setColor3('uColorDry', opts.colorDry ?? new Color3(0.62, 0.55, 0.22));
 
-    // Torch uniforms — start disabled (intensity 0). SurvivorsGameplayState
-    // calls setTorch() each frame once the hero is alive.
+    mat.setFloat('uWindStrength', opts.windStrength ?? 0.18);
+    mat.setColor3('uColorRoot', opts.colorRoot ?? new Color3(0.10, 0.14, 0.05));
+    mat.setColor3('uColorTip', opts.colorTip ?? new Color3(0.45, 0.65, 0.22));
+    mat.setColor3('uColorDry', opts.colorDry ?? new Color3(0.62, 0.55, 0.22));
+    mat.setColor3('uAmbient', opts.ambientColor ?? new Color3(0.25, 0.27, 0.22));
+
+    const dir = (opts.lightDirection ?? opts.directionalLight?.direction ?? new Vector3(-0.4, -1, -0.6)).clone().normalize();
+    const sunColor = opts.directionalLight?.diffuse?.clone() ?? new Color3(1.0, 0.98, 0.90);
+    mat.setVector3('uLightDir', dir);
+    mat.setColor3('uLightColor', sunColor);
+
     mat.setVector3('uTorchPos', Vector3.Zero());
     mat.setColor3('uTorchColor', new Color3(1.0, 0.62, 0.28));
     mat.setFloat('uTorchIntensity', 0);
     mat.setFloat('uTorchRange', 11);
 
+    // Initialise influencer slots to a far-away point so they contribute 0.
+    // Updated per frame from outside via the returned setInfluencers() helper.
+    const INFLUENCER_FAR = 1e6;
+    const initialInfluencers = new Float32Array(MAX_INFLUENCERS * 3);
+    for (let i = 0; i < MAX_INFLUENCERS; i++) {
+        initialInfluencers[i * 3 + 0] = INFLUENCER_FAR;
+        initialInfluencers[i * 3 + 1] = 0;
+        initialInfluencers[i * 3 + 2] = INFLUENCER_FAR;
+    }
+    mat.setArray3('uInfluencers', Array.from(initialInfluencers));
+    mat.setFloat('uInfluencerRadius', opts.influencerRadius ?? 1.6);
+    mat.setFloat('uInfluencerStrength', opts.influencerStrength ?? 0.7);
+
+    if (usingShadows && opts.shadowGenerator) {
+        const gen = opts.shadowGenerator;
+        const shadowMap = gen.getShadowMap();
+        if (shadowMap) mat.setTexture('uShadowMap', shadowMap);
+        mat.setFloat('uShadowDarkness', gen.darkness);
+        mat.setFloat('uShadowDepthScale', (gen as unknown as { depthScale: number }).depthScale ?? 50);
+        mat.setVector2('uShadowDepthValues', new Vector2(1, 2));
+        mat.setMatrix('uShadowVP', Matrix.Identity());
+    }
+
     blade.material = mat;
-    // Frustum culling on a tiny source mesh would skip the whole instance set
-    // if the source-mesh bounding box (around the origin) is offscreen.
     blade.alwaysSelectAsActiveMesh = true;
 
-    // ── Animate uTime ─────────────────────────────────────────────────────────
     let elapsed = 0;
     const tickObserver: Observer<Scene> | null = scene.onBeforeRenderObservable.add(() => {
         elapsed += scene.getEngine().getDeltaTime() / 1000;
         mat.setFloat('uTime', elapsed);
+
+        // Keep the sun uniforms in sync with the live light each frame —
+        // cheap and means we react to runtime intensity/colour tweaks.
+        if (opts.directionalLight) {
+            const d = opts.directionalLight.direction.clone().normalize();
+            mat.setVector3('uLightDir', d);
+            mat.setColor3('uLightColor', opts.directionalLight.diffuse.scale(opts.directionalLight.intensity));
+        }
+
+        // Per-frame shadow VP + depth values. The depth values depend on the
+        // backend (WebGL non-reverse: (1, 2); WebGPU: (0, 1)) — read from the
+        // light so we don't hardcode.
+        if (usingShadows && opts.shadowGenerator && opts.directionalLight) {
+            const vp = opts.shadowGenerator.getTransformMatrix();
+            if (vp) mat.setMatrix('uShadowVP', vp);
+            const cam = scene.activeCamera;
+            if (cam) {
+                const minZ = opts.directionalLight.getDepthMinZ(cam);
+                const maxZ = opts.directionalLight.getDepthMaxZ(cam);
+                mat.setVector2('uShadowDepthValues', new Vector2(minZ, minZ + maxZ));
+            }
+        }
     });
+
+    // Re-used scratch buffer for per-frame influencer uploads.
+    const influencerBuf = new Float32Array(MAX_INFLUENCERS * 3);
+    const influencerArr = new Array<number>(MAX_INFLUENCERS * 3);
 
     return {
         mesh: blade,
@@ -259,6 +488,24 @@ export function createProceduralGrass(scene: Scene, opts: ProceduralGrassOptions
             mat.setColor3('uTorchColor', params.color);
             mat.setFloat('uTorchIntensity', params.intensity);
             mat.setFloat('uTorchRange', params.range);
+        },
+        setInfluencers: (positions: Vector3[]) => {
+            const n = Math.min(positions.length, MAX_INFLUENCERS);
+            for (let i = 0; i < n; i++) {
+                const p = positions[i];
+                influencerBuf[i * 3 + 0] = p.x;
+                influencerBuf[i * 3 + 1] = p.y;
+                influencerBuf[i * 3 + 2] = p.z;
+            }
+            for (let i = n; i < MAX_INFLUENCERS; i++) {
+                influencerBuf[i * 3 + 0] = 1e6;
+                influencerBuf[i * 3 + 1] = 0;
+                influencerBuf[i * 3 + 2] = 1e6;
+            }
+            // ShaderMaterial.setArray3 takes a plain number[] — copy via for
+            // loop instead of Array.from for less per-frame GC pressure.
+            for (let i = 0; i < influencerBuf.length; i++) influencerArr[i] = influencerBuf[i];
+            mat.setArray3('uInfluencers', influencerArr);
         },
         dispose: () => {
             if (tickObserver) scene.onBeforeRenderObservable.remove(tickObserver);

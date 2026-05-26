@@ -1,6 +1,5 @@
 import { Vector3, Scene, ShadowGenerator } from '@babylonjs/core';
 import { Game } from '../../engine/Game';
-import { Map } from '../Map';
 import { Enemy } from './Enemy';
 import { BasicEnemy } from './BasicEnemy';
 import { FastEnemy } from './FastEnemy';
@@ -15,10 +14,10 @@ import { ShieldEnemy } from './ShieldEnemy';
 import { MiniEnemy } from './MiniEnemy';
 import { PlayerStats } from '../PlayerStats';
 import { makeElite } from './EliteSpawner';
+import { GameSettings } from '../../shared/GameSettings';
 
 export class EnemyManager {
     private game: Game;
-    private map: Map;
     private enemies: Enemy[] = [];
     private playerStats: PlayerStats | null = null;
     private compositePath: Vector3[] | null = null;
@@ -35,11 +34,12 @@ export class EnemyManager {
     private onEliteDeathCallback: (position: Vector3, element: string) => void = () => {};
     private onMilestoneBossDeathCallback: (position: Vector3, waveTier: number) => void = () => {};
     private waveManager: WaveManager | null = null;
-    /** Optional: when set, large enemies (bosses, elites) are registered as
-     *  shadow casters at spawn so the directional key light projects them
-     *  onto the arena floor. Basic enemies are excluded — 60 casters would
-     *  blow the per-frame shadow render budget. Multiple generators are
-     *  supported so an enemy can cast into both the directional AND the
+    /** Optional: when set, every spawned enemy is registered as a shadow
+     *  caster at spawn so the directional key light projects them onto the
+     *  arena floor. Master enable lives in scene.shadowsEnabled (toggled by
+     *  the settings UI) — when false, Babylon skips the shadow render pass
+     *  entirely, so registering casters here is cheap. Multiple generators
+     *  are supported so an enemy can cast into both the directional AND the
      *  hero-torch shadow passes from a single registration call. */
     private shadowGenerators: ShadowGenerator[] = [];
     /** Preloaded GLB asset containers per enemy type. Passed in by SurvivorsGameplayState
@@ -47,9 +47,8 @@ export class EnemyManager {
      *  class's static pendingAsset slot before constructing the instance. */
     private enemyAssets: Record<string, AssetContainer> = {};
 
-    constructor(game: Game, map: Map) {
+    constructor(game: Game) {
         this.game = game;
-        this.map = map;
 
         // Listen for enemy split events (from SplittingEnemy)
         this.splitHandler = (e: Event) => {
@@ -60,7 +59,8 @@ export class EnemyManager {
                 const spawnPos = position.add(offset);
                 MiniEnemy.pendingAsset = this.enemyAssets['mini'] ?? null;
                 const mini = new MiniEnemy(this.game, spawnPos, [...path]);
-                        this.enemies.push(mini);
+                this._registerAsShadowCaster(mini);
+                this.enemies.push(mini);
             }
         };
         document.addEventListener('enemySplit', this.splitHandler);
@@ -113,9 +113,10 @@ export class EnemyManager {
                 const spawnPos = position.add(offset);
                 MiniEnemy.pendingAsset = this.enemyAssets['mini'] ?? null;
                 const mini = new MiniEnemy(this.game, spawnPos, this.heroProvider ? [] : [...path]);
-                        if (this.heroProvider) {
+                if (this.heroProvider) {
                     mini.seekTarget = this.heroProvider;
                 }
+                this._registerAsShadowCaster(mini);
                 this.enemies.push(mini);
             }
         };
@@ -351,17 +352,15 @@ export class EnemyManager {
             makeElite(enemy, eliteElement, this.game.getScene());
         }
 
-        // Register large/visually-important enemies as shadow casters. Cheap
-        // when no generator is wired (early-out). Skip swarm enemies (basic,
-        // fast, mini) — too many active at once to be worth the shadow-pass
-        // draw calls.
-        const castsShadow = type === 'boss'
-            || type === 'tank'
-            || type === 'shield'
-            || type === 'splitting'
-            || type === 'healer'
-            || !!eliteElement;
-        if (castsShadow) this._registerAsShadowCaster(enemy);
+        // Quality gating:
+        //   low    → scene.shadowsEnabled is off, registration is a no-op anyway.
+        //   medium → swarm basics (type='basic') skip registration; everything else casts.
+        //   high   → everything casts.
+        // The scene-level flag (set in SurvivorsGameplayState) handles low; this
+        // gate only matters for medium.
+        const quality = GameSettings.getGraphicsQuality();
+        const skipShadow = quality === 'medium' && type === 'basic';
+        if (!skipShadow) this._registerAsShadowCaster(enemy);
 
         this.enemies.push(enemy);
         const spawnMs = performance.now() - spawnStart;

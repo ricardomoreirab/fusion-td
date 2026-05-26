@@ -2,6 +2,7 @@ import { Color4, ParticleSystem, Mesh } from '@babylonjs/core';
 import { AdvancedDynamicTexture, Button, TextBlock, Rectangle } from '@babylonjs/gui';
 import { Game } from '../engine/Game';
 import { GameState } from '../engine/GameState';
+import { GameSettings, GraphicsQuality } from '../shared/GameSettings';
 
 export class MenuState implements GameState {
     private game: Game;
@@ -179,6 +180,64 @@ export class MenuState implements GameState {
         });
         touchBlocker.addControl(startButton);
 
+        // ─── Graphics preset selector ────────────────────────────────────
+        // Three buttons (LOW / MEDIUM / HIGH); the active one renders brighter.
+        // Click persists the choice — applied at next run start.
+        const gfxLabel = new TextBlock('gfxLabel', 'GRAPHICS');
+        gfxLabel.color = '#88A070';
+        gfxLabel.fontSize = isLandscape ? 11 : (isMobile ? 13 : 15);
+        gfxLabel.fontFamily = 'Georgia';
+        gfxLabel.fontWeight = 'bold';
+        gfxLabel.top = isLandscape ? '40px' : (isMobile ? '40px' : '50px');
+        gfxLabel.height = '20px';
+        gfxLabel.outlineWidth = 1;
+        gfxLabel.outlineColor = '#000000';
+        touchBlocker.addControl(gfxLabel);
+
+        const levels: GraphicsQuality[] = ['low', 'medium', 'high'];
+        const labels = ['LOW', 'MEDIUM', 'HIGH'];
+        const gfxBtnW = isLandscape ? 72 : (isMobile ? 78 : 88);
+        const gfxBtnH = isLandscape ? 26 : (isMobile ? 32 : 36);
+        const gfxGap = isLandscape ? 4 : 6;
+        const gfxTop = isLandscape ? '70px' : (isMobile ? '72px' : '85px');
+        const gfxButtons: Button[] = [];
+
+        const refreshGfx = () => {
+            const current = GameSettings.getGraphicsQuality();
+            for (let i = 0; i < levels.length; i++) {
+                const active = levels[i] === current;
+                gfxButtons[i].color = active ? '#ffe040' : '#5a5a66';
+                gfxButtons[i].background = active ? '#4a3a18' : '#1a1822';
+                gfxButtons[i].thickness = active ? 3 : 2;
+                if (gfxButtons[i].textBlock) {
+                    gfxButtons[i].textBlock!.color = active ? '#ffe040' : '#9a9aae';
+                }
+            }
+        };
+
+        for (let i = 0; i < levels.length; i++) {
+            const btn = Button.CreateSimpleButton(`gfxBtn_${levels[i]}`, labels[i]);
+            btn.width = `${gfxBtnW}px`;
+            btn.height = `${gfxBtnH}px`;
+            btn.cornerRadius = 6;
+            btn.top = gfxTop;
+            btn.left = `${(i - 1) * (gfxBtnW + gfxGap)}px`;
+            btn.thickness = 2;
+            btn.fontSize = isLandscape ? 12 : (isMobile ? 14 : 15);
+            btn.fontWeight = 'bold';
+            btn.fontFamily = 'Arial';
+
+            const idx = i;
+            btn.onPointerUpObservable.add(() => {
+                GameSettings.setGraphicsQuality(levels[idx]);
+                refreshGfx();
+            });
+
+            gfxButtons.push(btn);
+            touchBlocker.addControl(btn);
+        }
+
+        refreshGfx();
     }
 
 }

@@ -1,5 +1,4 @@
 import { Color3, Color4 } from '@babylonjs/core';
-import { MapTheme } from '../../survivors/LevelConfig';
 
 /**
  * Warm, saturated color palette for the low-poly stylized aesthetic.
@@ -165,6 +164,8 @@ export const PALETTE = {
 } as const;
 
 // ==================== MAP THEME PALETTES ====================
+// (Retained as a type for any future themed-area work — survivors mode has no
+// themes; the old TD-era Map + LevelConfig that consumed MAP_THEMES is gone.)
 
 export interface MapThemePalette {
     sky: Color4;
@@ -192,8 +193,8 @@ export interface MapThemePalette {
     riversideOverlay: Color3;
 }
 
-export const MAP_THEMES: Record<MapTheme, MapThemePalette> = {
-    [MapTheme.NEUTRAL]: {
+export const MAP_THEMES: Record<string, MapThemePalette> = {
+    NEUTRAL: {
         sky: new Color4(0.55, 0.78, 0.95, 1),
         fog: new Color3(0.55, 0.78, 0.95),
         ground: new Color3(0.42, 0.65, 0.32),
@@ -221,7 +222,7 @@ export const MAP_THEMES: Record<MapTheme, MapThemePalette> = {
         crystalOverlay: new Color3(0.45, 0.35, 0.55),
         riversideOverlay: new Color3(0.30, 0.55, 0.28)
     },
-    [MapTheme.FIRE]: {
+    FIRE: {
         sky: new Color4(0.35, 0.15, 0.10, 1),
         fog: new Color3(0.40, 0.18, 0.12),
         ground: new Color3(0.28, 0.18, 0.12),
@@ -249,7 +250,7 @@ export const MAP_THEMES: Record<MapTheme, MapThemePalette> = {
         crystalOverlay: new Color3(0.45, 0.20, 0.10),
         riversideOverlay: new Color3(0.35, 0.18, 0.10)
     },
-    [MapTheme.WATER]: {
+    WATER: {
         sky: new Color4(0.40, 0.65, 0.85, 1),
         fog: new Color3(0.45, 0.68, 0.88),
         ground: new Color3(0.28, 0.52, 0.38),           // Lush blue-green
@@ -277,7 +278,7 @@ export const MAP_THEMES: Record<MapTheme, MapThemePalette> = {
         crystalOverlay: new Color3(0.30, 0.45, 0.58),
         riversideOverlay: new Color3(0.22, 0.48, 0.35)
     },
-    [MapTheme.WIND]: {
+    WIND: {
         sky: new Color4(0.72, 0.85, 0.92, 1),
         fog: new Color3(0.75, 0.88, 0.92),
         ground: new Color3(0.52, 0.68, 0.42),           // Pale green highlands
@@ -305,7 +306,7 @@ export const MAP_THEMES: Record<MapTheme, MapThemePalette> = {
         crystalOverlay: new Color3(0.50, 0.60, 0.52),
         riversideOverlay: new Color3(0.40, 0.62, 0.35)
     },
-    [MapTheme.EARTH]: {
+    EARTH: {
         sky: new Color4(0.62, 0.55, 0.42, 1),
         fog: new Color3(0.65, 0.58, 0.45),
         ground: new Color3(0.48, 0.38, 0.25),           // Rocky brown
