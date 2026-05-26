@@ -38,8 +38,10 @@ export class EnemyManager {
     /** Optional: when set, large enemies (bosses, elites) are registered as
      *  shadow casters at spawn so the directional key light projects them
      *  onto the arena floor. Basic enemies are excluded — 60 casters would
-     *  blow the per-frame shadow render budget. */
-    private shadowGenerator: ShadowGenerator | null = null;
+     *  blow the per-frame shadow render budget. Multiple generators are
+     *  supported so an enemy can cast into both the directional AND the
+     *  hero-torch shadow passes from a single registration call. */
+    private shadowGenerators: ShadowGenerator[] = [];
     /** Preloaded GLB asset containers per enemy type. Passed in by SurvivorsGameplayState
      *  after load completes. spawnSurvivorsEnemy stages the asset on the matching enemy
      *  class's static pendingAsset slot before constructing the instance. */
@@ -151,17 +153,21 @@ export class EnemyManager {
 
     /** Optional: route shadow caster registration through us — bosses + elites
      *  spawned via spawnSurvivorsEnemy will be added automatically. */
-    public setShadowGenerator(generator: ShadowGenerator | null): void {
-        this.shadowGenerator = generator;
+    /** Replace the shadow-generator set. Pass an empty array (or omit) to
+     *  disable. Non-null entries register casters; nulls are filtered out so
+     *  callers can pass `[directional, torch]` even before both are ready. */
+    public setShadowGenerators(generators: (ShadowGenerator | null)[]): void {
+        this.shadowGenerators = generators.filter((g): g is ShadowGenerator => g !== null);
     }
 
     /** Internal helper — registers the enemy's root mesh (and children) as
-     *  shadow casters. No-op when no generator is wired. */
+     *  shadow casters for every wired generator. No-op when none are wired. */
     private _registerAsShadowCaster(enemy: Enemy): void {
-        if (!this.shadowGenerator) return;
+        if (this.shadowGenerators.length === 0) return;
         const mesh = (enemy as unknown as { mesh: { name: string } | null }).mesh;
-        if (mesh) {
-            this.shadowGenerator.addShadowCaster(mesh as never, true);
+        if (!mesh) return;
+        for (const g of this.shadowGenerators) {
+            g.addShadowCaster(mesh as never, true);
         }
     }
 

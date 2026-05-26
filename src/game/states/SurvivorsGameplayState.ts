@@ -129,6 +129,7 @@ export class SurvivorsGameplayState implements GameState {
     private grass: ReturnType<typeof createProceduralGrass> | null = null;
     private shadowSourceLight: DirectionalLight | null = null;
     private shadowGenerator: ShadowGenerator | null = null;
+    private torchShadowGenerator: ShadowGenerator | null = null;
 
     // Gameplay systems
     private enemyManager: EnemyManager | null = null;
@@ -332,7 +333,7 @@ export class SurvivorsGameplayState implements GameState {
         this.enemyManager = new EnemyManager(this.game, this.map);
         this.enemyManager.setPlayerStats(this.playerStats);
         // Wire the shadow generator so bosses + elites auto-register as casters.
-        this.enemyManager.setShadowGenerator(this.shadowGenerator);
+        this.enemyManager.setShadowGenerators([this.shadowGenerator, this.torchShadowGenerator]);
         // Cache the last known hero position so the provider stays null-safe even
         // when an enemy attack kills the hero mid-frame: HeroController.takeDamage
         // triggers state.exit() synchronously (nulling this.hero), and the rest of
@@ -641,11 +642,32 @@ export class SurvivorsGameplayState implements GameState {
                 }
             }
         }
+
+        // ── Torch (point-light) shadow generator ──────────────────────────────
+        // Cube shadow map on the hero's torch so bosses + heavies cast a
+        // shadow pool around the hero. 512 cube = 6 × 512² render targets per
+        // frame — heavy, but the caster set is intentionally small (bosses,
+        // tanks, etc). Hero itself is excluded so it doesn't block its own
+        // light. Re-uses the pre-registered torch from Game.setupScene.
+        const torch = this.game.getHeroTorch();
+        torch.shadowMinZ = 0.5;
+        torch.shadowMaxZ = 12;
+        const torchShadow = new ShadowGenerator(512, torch);
+        torchShadow.useExponentialShadowMap = true; // soft + fast on point lights
+        torchShadow.bias = 0.001;
+        torchShadow.darkness = 0.55; // a touch lighter than the directional
+        torchShadow.transparencyShadow = false;
+        this.torchShadowGenerator = torchShadow;
     }
 
     /** Public so EnemyManager can register boss/elite casters. */
     public getShadowGenerator(): ShadowGenerator | null {
         return this.shadowGenerator;
+    }
+
+    /** Public so EnemyManager can register boss/elite casters for the torch. */
+    public getTorchShadowGenerator(): ShadowGenerator | null {
+        return this.torchShadowGenerator;
     }
 
     private spawnItemDrop(position: Vector3, waveTier: number): void {
