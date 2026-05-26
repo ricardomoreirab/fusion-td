@@ -34,9 +34,19 @@ git diff main..overnight/lighting-and-cleanup -- 'src/**/*.ts'
 d493b47  fix(lighting):  pre-register torch + rebalance survivors lights
 65aedf8  feat(shadows):  single PCF shadow pass for hero + bosses + elites
 6a6c9d6  test:           introduce Vitest with PlayerStats + RunItems coverage
+9afef4f  docs:           add commit log to HANDOFF top
+ee22331  chore(cleanup): delete confirmed-orphan TD-era files
+1e36989  chore(cleanup): remove dead TD-era methods from WaveManager + EnemyManager
+035b4f8  feat(shadows):  torch point-light shadow generator (cube shadow map)
+0afa423  refactor:       restructure src/ into engine/survivors/menu/game-over/shared
 ```
 
-11 files touched (+1855 / −41 lines).
+**Post-approval round** (commits ee22331 → 0afa423):
+1. Deleted 3 orphan `.ts` files (448 lines) + the orphan `grock-fortress-titan-in-game/` asset folder (1.9 MiB).
+2. Removed dead `WaveManager.generateLevel2Waves` / `generateLevel3Waves` / `createEnemyWithDifficulty` and `EnemyManager.createEnemy` (~300 lines).
+3. **Skipped** grass-blade shadow receiving — you said you're going to change the grass; left the existing torch-uniform setup intact.
+4. Added torch point-light shadow generator (512 cube + ExpShadowMap). Bosses + heavies cast into both directional AND torch passes.
+5. Restructured `src/` into `engine / survivors / menu / game-over / shared`. 47 file moves via `git mv` (blame preserved), 140 import lines rewritten by `scripts/restructure.py`. CLAUDE.md fully updated with new paths + lighting/shadow architecture notes.
 
 ---
 
