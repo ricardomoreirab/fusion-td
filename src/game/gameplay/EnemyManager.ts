@@ -451,48 +451,6 @@ export class EnemyManager {
     }
 
     /**
-     * Create a new enemy. Uses composite path if available, otherwise the single map path.
-     */
-    public createEnemy(type: string): Enemy {
-        const path = this.compositePath || this.map.getPath();
-        const startPosition = this.map.getStartPosition();
-
-        let enemy: Enemy;
-
-        switch (type) {
-            case 'basic':
-                enemy = new BasicEnemy(this.game, startPosition, path);
-                break;
-            case 'fast':
-                enemy = new FastEnemy(this.game, startPosition, path);
-                break;
-            case 'tank':
-                enemy = new TankEnemy(this.game, startPosition, path);
-                break;
-            case 'boss':
-                enemy = new BossEnemy(this.game, startPosition, path);
-                break;
-            case 'splitting':
-                enemy = new SplittingEnemy(this.game, startPosition, path);
-                break;
-            case 'healer':
-                enemy = new HealerEnemy(this.game, startPosition, path);
-                break;
-            case 'shield':
-                enemy = new ShieldEnemy(this.game, startPosition, path);
-                break;
-            default:
-                enemy = new BasicEnemy(this.game, startPosition, path);
-                break;
-        }
-
-        // Add to enemies list
-        this.enemies.push(enemy);
-
-        return enemy;
-    }
-
-    /**
      * Remove an enemy from the manager
      */
     private removeEnemy(enemy: Enemy): void {
