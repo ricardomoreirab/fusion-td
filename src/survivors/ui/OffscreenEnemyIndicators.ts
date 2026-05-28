@@ -112,9 +112,10 @@ export class OffscreenEnemyIndicators {
             dot.thickness    = border;
             dot.background   = bg;
             dot.cornerRadius = size / 2;
-            // Position in ADT space (center-origin)
-            dot.left = `${ex - cx}px`;
-            dot.top  = `${ey - cy}px`;
+            // Position in ADT space (center-origin) as percentages — px values
+            // get scaled by idealWidth and land off-screen at non-800 viewports.
+            dot.left = `${((ex - cx) / sw) * 100}%`;
+            dot.top  = `${((ey - cy) / sh) * 100}%`;
         }
 
         // Clean up stale entries (dead enemies)
