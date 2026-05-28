@@ -15,9 +15,9 @@ const CAMERA_SHAKE_DURATION_S = 0.10;
 const BLOOD_BURST_COUNT       = 12;
 
 /** Per-class basic-attack configuration */
-const CLASS_ATTACK_CONFIG: Record<string, { mode: BasicAttackMode; fireRate: number; damage: number; range: number; shape: ProjectileShape }> = {
+const CLASS_ATTACK_CONFIG: Record<string, { mode: BasicAttackMode; fireRate: number; damage: number; range: number; shape: ProjectileShape; multiTargetFromAttackSpeed?: boolean }> = {
     barbarian: { mode: 'melee',      fireRate: 1.0, damage: 18, range: 3.5, shape: 'sphere'   },
-    ranger:    { mode: 'projectile', fireRate: 1.8, damage: 8,  range: 9,   shape: 'arrow'    },
+    ranger:    { mode: 'projectile', fireRate: 1.8, damage: 8,  range: 9,   shape: 'arrow',    multiTargetFromAttackSpeed: true },
     mage:      { mode: 'projectile', fireRate: 1.0, damage: 10, range: 8,   shape: 'mageBolt' },
 };
 
@@ -138,6 +138,7 @@ export class HeroController {
             projectileShape:  cfg.shape,
             targetProvider:   () => this.targetProvider(),
             enemyProvider:    () => this.enemyProvider?.() ?? [],
+            multiTargetFromAttackSpeed: cfg.multiTargetFromAttackSpeed,
         });
     }
 

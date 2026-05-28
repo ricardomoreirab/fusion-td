@@ -512,7 +512,7 @@ export class SurvivorsGameplayState implements GameState {
         this.abilityManager.configureForClass(this.currentChampionType);
         this.abilityManager.setHeroProvider(() => this.hero!.getPosition());
         this.abilityManager.setHero(this.hero);
-        // Multishot needs the PowerSlotManager to force-fire every equipped arrow.
+        // Multishot's magical-arrow layer force-casts each equipped autocast slot.
         this.abilityManager.setPowerSlots(this.powerSlots);
         // Space-bar dash: direction comes from current movement input (WASD/joystick),
         // class flavor from the chosen champion, and the position drive routes back
@@ -1003,6 +1003,12 @@ export class SurvivorsGameplayState implements GameState {
     // ─────────────────────────────────────────────────────────────────────────
 
     private onOrbPickup(element: string): void {
+        // Hidden mechanic: every orb collected makes future enemy spawns +5%
+        // tougher (additive, per-run). Applied BEFORE the overlay guards so
+        // the penalty triggers on physical collection even in the rare case
+        // an overlay is already up and the choice flow gets skipped.
+        this.enemyManager?.addOrbHpBonus(0.05);
+
         if (!this.powerSlots || !this.powerChoice || !this.playerStats) return;
 
         // Don't open if another overlay is already up
@@ -1012,8 +1018,13 @@ export class SurvivorsGameplayState implements GameState {
         const cards: PowerCard[] = [];
 
         // Helper: build a "Lv X→Y · Dmg A→B · CD A.A s→B.Bs" subtitle for an upgrade.
+        // Passive enchantments (barbarian) have no damage/cooldown — they show the
+        // per-level effect description instead.
         const upgradeSubtitle = (def: typeof orbDef, fromLevel: number): string => {
             const next = fromLevel + 1;
+            if (def.mode === 'passive' && def.description) {
+                return `Lv ${fromLevel} → ${next}  ·  ${def.description(next)}`;
+            }
             const curState  = { level: fromLevel, cooldownRemaining: 0 };
             const nextState = { level: next,     cooldownRemaining: 0 };
             const curDmg  = Math.round(def.damageFor(curState));
@@ -1024,6 +1035,9 @@ export class SurvivorsGameplayState implements GameState {
         };
         // Helper: subtitle for a freshly-added power (no current values yet).
         const newPowerSubtitle = (def: typeof orbDef): string => {
+            if (def.mode === 'passive' && def.description) {
+                return `New  ·  ${def.description(1)}`;
+            }
             const state = { level: 1, cooldownRemaining: 0 };
             const dmg = Math.round(def.damageFor(state));
             const cd  = def.cooldownFor(state).toFixed(1);

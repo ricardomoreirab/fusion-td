@@ -56,6 +56,12 @@ export interface PowerDefinition {
     rangeBonus?: (level: number) => number;
     cooldownFor: (state: PowerRuntimeState) => number;
     damageFor: (state: PowerRuntimeState) => number;
+    /**
+     * Human-readable per-level effect summary used by PowerChoiceOverlay.
+     * Required for passive enchantments (where damage/cooldown read as 0 and
+     * would be meaningless to display). Optional for autocast spells.
+     */
+    description?: (level: number) => string;
 }
 
 // =============================================================================
@@ -1229,6 +1235,7 @@ const barbarianFireDef: PowerDefinition = {
     mode: 'passive',
     cooldownFor: () => 0,
     damageFor:   () => 0,
+    description: (lvl) => `On hit: burn for ${Math.round(30 * lvl)}% weapon dmg/s over 2s`,
     onHit: (enemy, level, ctx) => {
         const dotStrength = ctx.baseDamage * 0.3 * level;
         enemy.applyStatusEffect(StatusEffect.BURNING, 2, dotStrength);
@@ -1250,6 +1257,11 @@ const barbarianIceDef: PowerDefinition = {
     mode: 'passive',
     cooldownFor: () => 0,
     damageFor:   () => 0,
+    description: (lvl) => {
+        const slowMult = Math.max(0.4, 0.65 - lvl * 0.05);
+        const pct = Math.round((1 - slowMult) * 100);
+        return `On hit: slow target ${pct}% for 1.5s`;
+    },
     onHit: (enemy, level) => {
         const slowMult = Math.max(0.4, 0.65 - level * 0.05);
         enemy.applyStatusEffect(StatusEffect.SLOWED, 1.5, slowMult);
@@ -1271,6 +1283,7 @@ const barbarianArcaneDef: PowerDefinition = {
     mode: 'passive',
     cooldownFor: () => 0,
     damageFor:   () => 0,
+    description: (lvl) => `On hit: +${Math.round(20 * lvl)}% bonus arcane damage`,
     onHit: (enemy, level, ctx) => {
         const bonusDamage = ctx.baseDamage * 0.20 * level;
         enemy.takeDamage(bonusDamage);
@@ -1293,6 +1306,7 @@ const barbarianPhysicalDef: PowerDefinition = {
     cooldownFor: () => 0,
     damageFor:   () => 0,
     rangeBonus: (level) => level * 0.3,
+    description: (lvl) => `+${Math.round(25 * lvl)}% damage and +${(0.3 * lvl).toFixed(1)}u swing reach`,
     onHit: (enemy, level, ctx) => {
         const bonusDamage = ctx.baseDamage * 0.25 * level;
         enemy.takeDamage(bonusDamage);
@@ -1314,6 +1328,7 @@ const barbarianStormDef: PowerDefinition = {
     mode: 'passive',
     cooldownFor: () => 0,
     damageFor:   () => 0,
+    description: (lvl) => `On hit: chain to ${Math.min(lvl, 3)} nearby enemies for 30% weapon dmg`,
     onHit: (enemy, level, ctx) => {
         const chainCount = Math.min(level, 3);
         const chainDamage = ctx.baseDamage * 0.30;

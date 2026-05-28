@@ -34,6 +34,9 @@ export class HeroBasicAttack {
     private damage: number;
     private baseRange: number;
     private mode: BasicAttackMode;
+    /** When true, every 15% above 1.0× attack speed grants +1 projectile in the fan.
+     *  Wired on for the ranger so AS investment scales target count, not just rate. */
+    private multiTargetFromAttackSpeed: boolean = false;
     private targetProvider: () => BasicAttackTarget | null;
     private powerSlots: PowerSlotManager | null = null;
     private playerStats: PlayerStats | null = null;
@@ -58,6 +61,7 @@ export class HeroBasicAttack {
             targetProvider: () => BasicAttackTarget | null;
             enemyProvider?: () => Enemy[];
             projectileShape?: ProjectileShape;
+            multiTargetFromAttackSpeed?: boolean;
         },
     ) {
         this.scene = scene;
@@ -69,6 +73,7 @@ export class HeroBasicAttack {
         this.targetProvider = opts.targetProvider;
         this.enemyProvider = opts.enemyProvider ?? null;
         this.projectileShape = opts.projectileShape ?? 'sphere';
+        this.multiTargetFromAttackSpeed = opts.multiTargetFromAttackSpeed ?? false;
     }
 
     /** Wire up the power slot manager so enchantments apply on each hit. */
@@ -171,9 +176,30 @@ export class HeroBasicAttack {
             if (dist > this.effectiveRange) return;
 
             const extras = this.playerStats?.extraAttacks ?? 0;
-            const total  = 1 + extras;
+            // Ranger: every 15% above 1.0× AS grants an extra projectile. The
+            // Multishot ult also rides on this — it boosts AS temporarily so the
+            // multi-target effect chains naturally instead of duplicating logic.
+            const asBonus = this.multiTargetFromAttackSpeed
+                ? Math.max(0, Math.floor((this.attackSpeedMultiplier - 1) / 0.15))
+                : 0;
+            const total  = 1 + extras + asBonus;
             if (total === 1) {
                 this.spawnProjectile(heroPos.clone(), target);
+            } else if (this.multiTargetFromAttackSpeed) {
+                // Ranger multishot: each extra arrow tracks a distinct nearest enemy.
+                // Falls back to the angle-fan for any arrows beyond the available
+                // target count so the volley still reads as "many arrows."
+                const tgts = this.pickDistinctNearestTargets(heroPos, target, total);
+                for (const t of tgts) this.spawnProjectile(heroPos.clone(), t);
+                const fanned = total - tgts.length;
+                if (fanned > 0) {
+                    const totalSpreadRad = (20 * Math.PI) / 180;
+                    const step = fanned > 1 ? totalSpreadRad / (fanned - 1) : 0;
+                    const start = -totalSpreadRad / 2;
+                    for (let i = 0; i < fanned; i++) {
+                        this.spawnProjectileAtAngle(heroPos.clone(), target, start + step * i);
+                    }
+                }
             } else {
                 const totalSpreadRad = (20 * Math.PI) / 180;
                 const step = total > 1 ? totalSpreadRad / (total - 1) : 0;
@@ -384,6 +410,50 @@ export class HeroBasicAttack {
             isAlive: () => target.isAlive(),
         };
         this.spawnProjectile(from, virtualTarget);
+    }
+
+    /**
+     * For the ranger multishot mechanic: return up to `total` distinct targets,
+     * starting with the primary auto-target and filling the rest with the next
+     * nearest alive enemies inside `effectiveRange`. Returned BasicAttackTargets
+     * wrap the live Enemy.getPosition() reference so projectiles keep tracking.
+     */
+    private pickDistinctNearestTargets(
+        heroPos: Vector3,
+        primary: BasicAttackTarget,
+        total: number,
+    ): BasicAttackTarget[] {
+        const out: BasicAttackTarget[] = [primary];
+        if (!this.enemyProvider || total <= 1) return out;
+        const range = this.effectiveRange;
+        const rangeSq = range * range;
+
+        const candidates: { e: Enemy; d2: number }[] = [];
+        for (const e of this.enemyProvider()) {
+            if (!e.isAlive()) continue;
+            const ep = e.getPosition();
+            // Skip the primary target — compare positions (BasicAttackTarget hides identity).
+            const dxp = ep.x - primary.position.x;
+            const dzp = ep.z - primary.position.z;
+            if (dxp * dxp + dzp * dzp < 0.04) continue; // ~0.2u tolerance
+            const dx = ep.x - heroPos.x;
+            const dz = ep.z - heroPos.z;
+            const d2 = dx * dx + dz * dz;
+            if (d2 > rangeSq) continue;
+            candidates.push({ e, d2 });
+        }
+        candidates.sort((a, b) => a.d2 - b.d2);
+
+        const need = total - 1;
+        for (let i = 0; i < Math.min(need, candidates.length); i++) {
+            const e = candidates[i].e;
+            out.push({
+                position: e.getPosition(),
+                takeDamage: (amount: number) => e.takeDamage(amount),
+                isAlive: () => e.isAlive(),
+            });
+        }
+        return out;
     }
 
     private spawnProjectile(from: Vector3, target: BasicAttackTarget): void {

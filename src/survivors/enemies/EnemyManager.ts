@@ -47,6 +47,12 @@ export class EnemyManager {
      *  class's static pendingAsset slot before constructing the instance. */
     private enemyAssets: Record<string, AssetContainer> = {};
 
+    /** Cumulative HP buff applied to every NEW enemy spawn this run. Bumped by
+     *  +0.05 each time the hero picks up a magical orb (hidden mechanic — no
+     *  UI). Resets to 0 because the EnemyManager is freshly constructed at the
+     *  start of each run. */
+    private orbHpBonus: number = 0;
+
     constructor(game: Game) {
         this.game = game;
 
@@ -59,6 +65,7 @@ export class EnemyManager {
                 const spawnPos = position.add(offset);
                 MiniEnemy.pendingAsset = this.enemyAssets['mini'] ?? null;
                 const mini = new MiniEnemy(this.game, spawnPos, [...path]);
+                this._applyOrbHpBonus(mini);
                 this._registerAsShadowCaster(mini);
                 this.enemies.push(mini);
             }
@@ -116,6 +123,7 @@ export class EnemyManager {
                 if (this.heroProvider) {
                     mini.seekTarget = this.heroProvider;
                 }
+                this._applyOrbHpBonus(mini);
                 this._registerAsShadowCaster(mini);
                 this.enemies.push(mini);
             }
@@ -128,6 +136,24 @@ export class EnemyManager {
      */
     public setOnEliteDeath(fn: (position: Vector3, element: string) => void): void {
         this.onEliteDeathCallback = fn;
+    }
+
+    /**
+     * Increase the per-spawn HP buff applied to future enemy spawns. Called by
+     * SurvivorsGameplayState on every orb pickup with `amount = 0.05`. Additive
+     * (linear), so 10 orbs picked = +50% HP on subsequent spawns. Alive enemies
+     * are not retroactively scaled.
+     */
+    public addOrbHpBonus(amount: number): void {
+        this.orbHpBonus += amount;
+    }
+
+    /** Apply the current orb HP buff to a freshly-constructed enemy. No-op when
+     *  the counter is still 0 (e.g. warmup spawns before any orb pickup). */
+    private _applyOrbHpBonus(enemy: Enemy): void {
+        if (this.orbHpBonus > 0) {
+            enemy.applyHealthMultiplier(1 + this.orbHpBonus);
+        }
     }
 
     /**
@@ -351,6 +377,10 @@ export class EnemyManager {
         if (eliteElement) {
             makeElite(enemy, eliteElement, this.game.getScene());
         }
+
+        // Hidden orb-pickup HP buff: scales on top of elite multipliers so
+        // late-run elites compound both effects.
+        this._applyOrbHpBonus(enemy);
 
         // Quality gating:
         //   low    → scene.shadowsEnabled is off, registration is a no-op anyway.

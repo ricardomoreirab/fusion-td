@@ -1,9 +1,10 @@
 import { Vector3, Color3, Color4, MeshBuilder, ParticleSystem, Animation, Scene, Mesh, StandardMaterial } from '@babylonjs/core';
 import { Game } from '../../engine/Game';
+import { Enemy } from '../enemies/Enemy';
 import { EnemyManager } from '../enemies/EnemyManager';
+import { PowerSlotManager } from '../powers/PowerSlotManager';
 import { PlayerStats } from '../PlayerStats';
 import { StatusEffect } from '../GameTypes';
-import { PowerSlotManager } from '../powers/PowerSlotManager';
 import { createEmissiveMaterial } from '../../engine/rendering/LowPolyMaterial';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
 
@@ -99,7 +100,8 @@ export class AbilityManager {
     // Active timed effects (Whirlwind, Multishot, Explosive Arrow, Dash override window)
     private activeEffects: ActiveEffect[] = [];
 
-    /** PowerSlotManager handle — used by Multishot to force-fire all equipped autocast slots. */
+    /** Equipped autocast power slots. Multishot force-fires each one repeatedly to
+     *  layer the ranger's equipped magical arrows on top of the plain volley. */
     private powerSlots: PowerSlotManager | null = null;
 
     /** Provides current movement input direction (WASD + joystick) for the Space-bar
@@ -143,7 +145,10 @@ export class AbilityManager {
                 break;
             case 'mage':
             default:
-                this.abilities.set('meteor',    { name: 'Meteor Strike', cooldown: 45, currentCooldown: 0, isReady: true, needsTargeting: true });
+                // Meteor auto-targets the nearest enemy when fired from the HUD button
+                // (HeroHud.activate() doesn't supply a click position). Keep
+                // needsTargeting false so the button fires instantly like other ults.
+                this.abilities.set('meteor',    { name: 'Meteor Strike', cooldown: 45, currentCooldown: 0, isReady: true, needsTargeting: false });
                 this.abilities.set('frostNova', { name: 'Frost Nova',    cooldown: 30, currentCooldown: 0, isReady: true, needsTargeting: false });
                 break;
         }
@@ -280,11 +285,30 @@ export class AbilityManager {
 
         switch (abilityId) {
             // ── Mage ─────────────────────────────────────────────────────────
-            case 'meteor':
-                if (position) {
-                    success = this.activateMeteor(position);
+            case 'meteor': {
+                // HUD button fires without a position — fall back to nearest enemy
+                // so the ult is always usable. A future click-to-target flow can still
+                // pass an explicit position.
+                let target = position;
+                if (!target) {
+                    const heroPos = this.getHeroPosition();
+                    if (heroPos) {
+                        let best: Vector3 | null = null;
+                        let bestSq = Infinity;
+                        for (const e of this.enemyManager.getEnemies()) {
+                            if (!e.isAlive()) continue;
+                            const p = e.getPosition();
+                            const dx = p.x - heroPos.x;
+                            const dz = p.z - heroPos.z;
+                            const d2 = dx * dx + dz * dz;
+                            if (d2 < bestSq) { bestSq = d2; best = p.clone(); }
+                        }
+                        target = best ?? heroPos.clone();
+                    }
                 }
+                if (target) success = this.activateMeteor(target);
                 break;
+            }
             case 'frostNova':
                 success = this.activateFrostNova();
                 break;
@@ -848,95 +872,163 @@ export class AbilityManager {
     }
 
     // ========================================================================
-    // Ranger: Multishot — 5s; every 0.4s force-fire every equipped autocast
-    // power-slot (Fire Arrow / Frost Arrow / Seeking / Piercing / Lightning).
-    // Each power picks its own nearest target via its existing cast() logic, so
-    // damage multipliers + perks apply automatically. Power-slot cooldowns are
-    // intentionally NOT consumed — regular autocast resumes from where it was.
-    //
-    // Fallback: when no autocast slots are equipped (early game), fire a single
-    // plain volley arrow at the nearest enemy each tick so the ult never no-ops.
+    // Ranger: Multishot — machine-gun volley layered with the ranger's equipped
+    // magical arrows. Over MULTISHOT_DURATION seconds the ult fires:
+    //   - MULTISHOT_PLAIN_COUNT plain homing arrows at nearest distinct enemies, and
+    //   - MULTISHOT_MAGIC_COUNT of each equipped autocast power (Fire Arrow,
+    //     Lightning Arrow, etc.) via force-cast — slot cooldowns are not consumed.
+    // Decoupled from basic-attack timing so the burst stays continuous.
     // ========================================================================
+
+    private static readonly MULTISHOT_DURATION     = 5.0;
+    private static readonly MULTISHOT_PLAIN_COUNT  = 30;
+    private static readonly MULTISHOT_MAGIC_COUNT  = 10;
+    private static readonly MULTISHOT_ARROW_DAMAGE = 12;
 
     private activateMultishot(): boolean {
         const heroPos = this.getHeroPosition();
         if (!heroPos) return false;
 
+        // Brief feedback: green aura ring at the ranger's feet that fades over the burst window.
+        const ring = MeshBuilder.CreateTorus('multishotAuraRing', {
+            diameter: 2.4, thickness: 0.18, tessellation: 24,
+        }, this.scene);
+        ring.position.set(heroPos.x, heroPos.y + 0.2, heroPos.z);
+        const mat = createEmissiveMaterial('multishotAuraMat', new Color3(0.5, 1.0, 0.4), 0.9, this.scene);
+        (mat as StandardMaterial).alpha = 0.7;
+        ring.material = mat;
+
+        const auraEmitter = heroPos.clone();
+        const followObs = this.scene.onBeforeRenderObservable.add(() => {
+            const p = this.getHeroPosition();
+            if (!p) return;
+            ring.position.set(p.x, p.y + 0.2, p.z);
+            auraEmitter.copyFrom(p);
+        });
+
+        const ps = new ParticleSystem('multishotAuraPs', 40, this.scene);
+        ps.emitter = auraEmitter;
+        ps.minEmitBox = new Vector3(-0.8, 0, -0.8);
+        ps.maxEmitBox = new Vector3(0.8, 0.1, 0.8);
+        ps.color1 = new Color4(0.5, 1.0, 0.4, 1);
+        ps.color2 = new Color4(0.8, 1.0, 0.6, 1);
+        ps.colorDead = new Color4(0.2, 0.4, 0.1, 0);
+        ps.minSize = 0.06;
+        ps.maxSize = 0.16;
+        ps.minLifeTime = 0.3;
+        ps.maxLifeTime = 0.6;
+        ps.emitRate = 60;
+        ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
+        ps.direction1 = new Vector3(-0.5, 1.5, -0.5);
+        ps.direction2 = new Vector3(0.5, 2.5, 0.5);
+        ps.minEmitPower = 0.5;
+        ps.maxEmitPower = 1.2;
+        ps.gravity = new Vector3(0, -1.5, 0);
+        ps.start();
+
+        // Plain volley: 30 arrows spread evenly across the duration.
         this.activeEffects.push({
-            id: 'multishot',
-            timeLeft: 5.0,
-            tickInterval: 0.4,
+            id: 'multishot_plain',
+            timeLeft: AbilityManager.MULTISHOT_DURATION,
+            tickInterval: AbilityManager.MULTISHOT_DURATION / AbilityManager.MULTISHOT_PLAIN_COUNT,
             timeSinceLastTick: 0,
             tick: () => {
                 const pos = this.getHeroPosition();
                 if (!pos) return;
-                let fired = 0;
-                if (this.powerSlots) {
-                    fired = this.powerSlots.forceCastAutocastSlots();
+                const alive = this.enemyManager.getEnemies().filter(e => e.isAlive());
+                if (alive.length === 0) return;
+                // Pick the nearest alive enemy each tick — spreads naturally as they die.
+                let nearest = alive[0];
+                let bestSq = Vector3.DistanceSquared(pos, nearest.getPosition());
+                for (const e of alive) {
+                    const d = Vector3.DistanceSquared(pos, e.getPosition());
+                    if (d < bestSq) { bestSq = d; nearest = e; }
                 }
-                // Fallback when no autocast powers are equipped: keep the
-                // ult feeling useful with a plain arrow at the nearest enemy.
-                if (fired === 0) {
-                    const alive = this.enemyManager.getEnemies().filter(e => e.isAlive());
-                    if (alive.length === 0) return;
-                    let nearest = alive[0];
-                    let bestSq = Vector3.DistanceSquared(pos, nearest.getPosition());
-                    for (const e of alive) {
-                        const d = Vector3.DistanceSquared(pos, e.getPosition());
-                        if (d < bestSq) { bestSq = d; nearest = e; }
-                    }
-                    this.spawnVolleyArrow(pos, nearest, 10);
-                }
-                // Re-trigger the ranger's special/attack animation each burst for feedback.
-                if (this.hero && typeof this.hero.triggerSpecial === 'function') {
-                    this.hero.triggerSpecial();
-                } else if (this.hero && typeof this.hero.triggerAttack === 'function') {
-                    this.hero.triggerAttack();
+                this.spawnVolleyArrow(pos, nearest, AbilityManager.MULTISHOT_ARROW_DAMAGE);
+                if (this.hero && typeof this.hero.triggerAttack === 'function') {
+                    this.hero.triggerAttack(nearest.getPosition());
                 }
             },
+            onEnd: () => {
+                this.scene.onBeforeRenderObservable.remove(followObs);
+                try { ps.stop(); } catch { /* ignore */ }
+                if (!ring.isDisposed()) {
+                    const fade = new Animation('multishotAuraFade', 'material.alpha', 30,
+                        Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT);
+                    fade.setKeys([{ frame: 0, value: 0.7 }, { frame: 12, value: 0 }]);
+                    ring.animations = [fade];
+                    this.scene.beginAnimation(ring, 0, 12, false, 1, () => ring.dispose());
+                }
+                setTimeout(() => { try { ps.dispose(); } catch { /* ignore */ } }, 700);
+            },
         });
+
+        // Magical layer: each equipped autocast slot fires MULTISHOT_MAGIC_COUNT times,
+        // evenly spaced across the duration. Skips entirely when no autocast slots are
+        // equipped (early game) so the plain volley still feels good on its own.
+        if (this.powerSlots && this.powerSlots.forceCastAutocastSlots) {
+            this.activeEffects.push({
+                id: 'multishot_magic',
+                timeLeft: AbilityManager.MULTISHOT_DURATION,
+                tickInterval: AbilityManager.MULTISHOT_DURATION / AbilityManager.MULTISHOT_MAGIC_COUNT,
+                timeSinceLastTick: 0,
+                tick: () => {
+                    this.powerSlots?.forceCastAutocastSlots();
+                },
+            });
+        }
+
+        if (this.hero && typeof this.hero.triggerSpecial === 'function') {
+            this.hero.triggerSpecial();
+        } else if (this.hero && typeof this.hero.triggerAttack === 'function') {
+            this.hero.triggerAttack();
+        }
 
         return true;
     }
 
-    private spawnVolleyArrow(from: Vector3, target: any, damage: number): void {
+    /** Homing arrow used by Multishot's per-tick volley. Spawns at the hero's
+     *  shoulder height, tracks the target, deals fixed damage on impact. */
+    private spawnVolleyArrow(from: Vector3, target: Enemy, damage: number): void {
         const arrow = MeshBuilder.CreateCylinder('volleyArrow', {
             height: 0.6, diameter: 0.08, tessellation: 5,
         }, this.scene);
-        arrow.position = new Vector3(from.x, from.y + 1.0, from.z);
+        arrow.position.set(from.x, from.y + 1.0, from.z);
+        arrow.material = createEmissiveMaterial('volleyArrowMat', new Color3(0.6, 1.0, 0.4), 0.8, this.scene);
 
-        const mat = createEmissiveMaterial('volleyArrowMat', new Color3(0.6, 1.0, 0.4), 0.8, this.scene);
-        arrow.material = mat;
-
-        // Orient toward target
-        const targetPos = target.getPosition().clone();
-        targetPos.y += 1.0;
-        const dir = targetPos.subtract(arrow.position).normalize();
-        arrow.lookAt(targetPos);
-        arrow.rotation.x += Math.PI / 2;
-
-        const speed = 18; // units/sec
+        const speed = 22;
         let observer: any = null;
         observer = this.scene.onBeforeRenderObservable.add(() => {
-            if (arrow.isDisposed()) {
+            if (arrow.isDisposed() || !target.isAlive()) {
+                if (!arrow.isDisposed()) arrow.dispose();
                 this.scene.onBeforeRenderObservable.remove(observer);
                 return;
             }
             const dt = this.scene.getEngine().getDeltaTime() / 1000;
-            const toTarget = targetPos.subtract(arrow.position);
-            const dist = toTarget.length();
+            const tp = target.getPosition();
+            const dx = tp.x - arrow.position.x;
+            const dy = (tp.y + 1.0) - arrow.position.y;
+            const dz = tp.z - arrow.position.z;
+            const dist = Math.hypot(dx, dy, dz);
             if (dist < 0.4) {
-                // Impact
-                if (target.isAlive()) {
-                    target.takeDamage(damage);
-                }
+                target.takeDamage(damage);
                 arrow.dispose();
                 this.scene.onBeforeRenderObservable.remove(observer);
                 return;
             }
-            const move = toTarget.normalize().scale(speed * dt);
-            arrow.position.addInPlace(move);
+            // Orient toward travel direction (flat yaw is enough for a thin arrow)
+            arrow.rotation.y = Math.atan2(dx, dz);
+            arrow.rotation.x = Math.atan2(-dy, Math.hypot(dx, dz));
+            const step = Math.min(dist, speed * dt);
+            arrow.position.x += (dx / dist) * step;
+            arrow.position.y += (dy / dist) * step;
+            arrow.position.z += (dz / dist) * step;
         });
+        // Safety: dispose after 3s of flight
+        setTimeout(() => {
+            if (!arrow.isDisposed()) arrow.dispose();
+            this.scene.onBeforeRenderObservable.remove(observer);
+        }, 3000);
     }
 
     // ========================================================================

@@ -36,9 +36,7 @@ export function makeElite(enemy: Enemy, element: string, scene: Scene): void {
     }
 
     // Triple HP
-    const newMax = ((enemy as any).maxHealth ?? 30) * 3;
-    (enemy as any).maxHealth = newMax;
-    (enemy as any).health = newMax;
+    enemy.applyHealthMultiplier(3);
 
     // 1.5× reward
     if ((enemy as any).reward !== undefined) {

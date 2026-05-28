@@ -177,6 +177,15 @@ export class Enemy {
         this.createHealthBar();
     }
 
+    /**
+     * Scale both current and max HP by `mult`. Used by elite promotion and by
+     * the orb-pickup global HP buff. Safe to call any time after construction.
+     */
+    public applyHealthMultiplier(mult: number): void {
+        this.health *= mult;
+        this.maxHealth *= mult;
+    }
+
     /** Return the (width, height) of the bar based on the current tier. */
     private _barDims(): { width: number; height: number } {
         if (this.barTier === 'boss')  return { width: 2.5, height: 0.18 };
