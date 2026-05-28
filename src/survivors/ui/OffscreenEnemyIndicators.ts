@@ -1,6 +1,7 @@
 import { AdvancedDynamicTexture, Rectangle } from '@babylonjs/gui';
 import { Scene, Vector3, Matrix, Camera } from '@babylonjs/core';
 import { Enemy } from '../enemies/Enemy';
+import { BossEnemy } from '../enemies/BossEnemy';
 
 const ELEMENT_HEX: Record<string, string> = {
     fire:     '#ff5500',
@@ -45,7 +46,7 @@ export class OffscreenEnemyIndicators {
         const vp           = this.camera.viewport.toGlobal(sw, sh);
 
         for (const e of enemies) {
-            if (!e.isAlive() || !e.isElite || !e.eliteDropElement) continue;
+            if (!e.isAlive()) continue;
             seen.add(e);
 
             // Project world → screen
@@ -58,13 +59,26 @@ export class OffscreenEnemyIndicators {
                 sp.y >= 0 && sp.y <= sh;
 
             if (onScreen) {
-                // Remove the indicator if the elite came back on screen
+                // Remove the indicator if the enemy came back on screen
                 if (this.active.has(e)) {
                     this.active.get(e)!.dispose();
                     this.active.delete(e);
                 }
                 continue;
             }
+
+            // Tier detection (boss first so a hypothetical boss+elite stays boss)
+            const isBoss  = e instanceof BossEnemy;
+            const isElite = !isBoss && e.isElite;
+
+            const size   = isBoss ? 18 : isElite ? 12 : 6;
+            const border = isBoss || isElite ? 2 : 0;
+            const bg     = isBoss
+                ? '#ff3333'
+                : isElite
+                    ? (ELEMENT_HEX[e.eliteDropElement ?? ''] ?? '#ffffff')
+                    : '#aaaaaa';
+            const margin = size / 2 + 4;
 
             // Compute the clamped screen-edge position
             // ADT uses center-origin; convert from top-left screen space.
@@ -73,28 +87,29 @@ export class OffscreenEnemyIndicators {
             const dx = sp.z > 0 ? sp.x - cx : cx - sp.x;  // flip when behind camera
             const dy = sp.z > 0 ? sp.y - cy : cy - sp.y;
             const ang = Math.atan2(dy, dx);
-            const margin = 28;
             const ex = cx + Math.cos(ang) * (cx - margin);
             const ey = cy + Math.sin(ang) * (cy - margin);
 
             let dot = this.active.get(e);
             if (!dot) {
                 dot = new Rectangle(`offscreenEnemyDot_${Math.random()}`);
-                dot.width = '18px';
-                dot.height = '18px';
-                dot.thickness = 2;
-                dot.color = '#fff';
-                dot.background = ELEMENT_HEX[e.eliteDropElement] ?? '#fff';
-                dot.cornerRadius = 9;
+                dot.color = '#ffffff';
                 this.ui.addControl(dot);
                 this.active.set(e, dot);
             }
+            // Style every frame so tier upgrades (e.g. EliteSpawner promoting
+            // a regular spawn to elite) immediately reflect in the dot.
+            dot.width        = `${size}px`;
+            dot.height       = `${size}px`;
+            dot.thickness    = border;
+            dot.background   = bg;
+            dot.cornerRadius = size / 2;
             // Position in ADT space (center-origin)
             dot.left = `${ex - cx}px`;
             dot.top  = `${ey - cy}px`;
         }
 
-        // Clean up stale entries (dead or non-elite)
+        // Clean up stale entries (dead enemies)
         for (const [e, dot] of this.active) {
             if (!seen.has(e)) {
                 dot.dispose();
