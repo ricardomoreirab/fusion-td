@@ -10,7 +10,7 @@ const ELEMENT_HEX: Record<string, string> = {
     storm:    '#bbbbff',
 };
 
-export class EliteIndicators {
+export class OffscreenEnemyIndicators {
     private ui: AdvancedDynamicTexture;
     private scene: Scene;
     private camera: Camera;
@@ -79,7 +79,7 @@ export class EliteIndicators {
 
             let dot = this.active.get(e);
             if (!dot) {
-                dot = new Rectangle(`eliteIndDot_${Math.random()}`);
+                dot = new Rectangle(`offscreenEnemyDot_${Math.random()}`);
                 dot.width = '18px';
                 dot.height = '18px';
                 dot.thickness = 2;

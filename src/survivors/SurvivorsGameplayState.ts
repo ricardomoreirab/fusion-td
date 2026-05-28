@@ -1,4 +1,4 @@
-import { Scene, Vector3, Color3, Color4, DirectionalLight, AssetContainer, LoadAssetContainerAsync, CubeTexture, Texture, MeshBuilder, Mesh, BackgroundMaterial, ShadowGenerator } from '@babylonjs/core';
+import { Scene, Vector3, Color3, Color4, DirectionalLight, AssetContainer, LoadAssetContainerAsync, CubeTexture, Texture, MeshBuilder, Mesh, BackgroundMaterial, ShadowGenerator, KeyboardEventTypes } from '@babylonjs/core';
 import '@babylonjs/loaders/glTF';
 import { AdvancedDynamicTexture } from '@babylonjs/gui';
 import { Game } from '../engine/Game';
@@ -19,7 +19,7 @@ import { PowerChoiceOverlay, PowerCard } from './ui/PowerChoiceOverlay';
 import { ReplaceSlotOverlay } from './ui/ReplaceSlotOverlay';
 import { BetweenWaveShopOverlay, ShopItem } from './ui/BetweenWaveShopOverlay';
 import { HeroHud } from './ui/HeroHud';
-import { EliteIndicators } from './ui/EliteIndicators';
+import { OffscreenEnemyIndicators } from './ui/OffscreenEnemyIndicators';
 import { ChampionSelectOverlay, ChampionOption } from './ui/ChampionSelectOverlay';
 import { GameOverState, SurvivorsRunSummary } from '../game-over/GameOverState';
 import { AbilityManager } from './abilities/AbilityManager';
@@ -180,7 +180,7 @@ export class SurvivorsGameplayState implements GameState {
     private powerChoice: PowerChoiceOverlay | null = null;
     private replaceSlotOverlay: ReplaceSlotOverlay | null = null;
     private shopOverlay: BetweenWaveShopOverlay | null = null;
-    private eliteIndicators: EliteIndicators | null = null;
+    private offscreenIndicators: OffscreenEnemyIndicators | null = null;
     private championSelect: ChampionSelectOverlay | null = null;
     private shopItems: ShopItem[] = [];
 
@@ -512,6 +512,16 @@ export class SurvivorsGameplayState implements GameState {
         this.abilityManager.configureForClass(this.currentChampionType);
         this.abilityManager.setHeroProvider(() => this.hero!.getPosition());
         this.abilityManager.setHero(this.hero);
+        // Multishot needs the PowerSlotManager to force-fire every equipped arrow.
+        this.abilityManager.setPowerSlots(this.powerSlots);
+        // Space-bar dash: direction comes from current movement input (WASD/joystick),
+        // class flavor from the chosen champion, and the position drive routes back
+        // into HeroController so position + invulnerability live in one place.
+        this.abilityManager.setDirectionProvider(() => this.heroController!.getMoveInput());
+        this.abilityManager.setChampionTypeProvider(() => this.currentChampionType);
+        this.abilityManager.setDashOverride((target, duration, mode, onComplete) => {
+            this.heroController!.startDashOverride(target, duration, mode, onComplete);
+        });
         this.abilityManager.prewarmAbilityEffects();
 
         // Map class-specific ultimate IDs → GLB clip + duration so the hero plays
@@ -519,9 +529,10 @@ export class SurvivorsGameplayState implements GameState {
         // plays as a forced "special" channel — basic attacks suspend for the
         // whole duration. When `duration` exceeds the clip's natural length the
         // clip loops (Whirlwind ticks for 5s so the slash should keep going).
+        // Whirlwind speed bumped 1.5 → 2.2 to read more like a tornado.
         const ABILITY_CLIPS: Partial<Record<string, { suffix: string; duration?: number; speed?: number }>> = {
             // Barbarian (Aulus)
-            whirlwind: { suffix: 'aulus_warrior_of_ferocity_in_game_skill3',   duration: 5.0, speed: 1.5 },
+            whirlwind: { suffix: 'aulus_warrior_of_ferocity_in_game_skill3',   duration: 5.0, speed: 2.2 },
             smash:     { suffix: 'aulus_warrior_of_ferocity_in_game_skill2_3' }, // one-shot, natural length
         };
         this.abilityManager.setOnActivate((abilityId) => {
@@ -549,6 +560,22 @@ export class SurvivorsGameplayState implements GameState {
             this.hud.setRunItems(this.runItems);
         }
 
+        // Q / E / Space → first / second / third ultimate. Mirrors a tap on the HUD
+        // button exactly (HeroHud.triggerUltimateByIndex shares the same closure as
+        // the press handler). The scene-wide onKeyboardObservable is cleared by
+        // Game.cleanupScene() on state exit, so no manual disposal needed.
+        // Space-bar = dash/jump/teleport (always index 2 — every class has it).
+        this.game.getScene().onKeyboardObservable.add((kbInfo) => {
+            if (kbInfo.type !== KeyboardEventTypes.KEYDOWN) return;
+            const key = kbInfo.event.key.toLowerCase();
+            if (key === 'q') this.hud?.triggerUltimateByIndex(0);
+            else if (key === 'e') this.hud?.triggerUltimateByIndex(1);
+            else if (key === ' ') {
+                this.hud?.triggerUltimateByIndex(2);
+                kbInfo.event.preventDefault?.(); // stop the browser from scrolling
+            }
+        });
+
         // Overlays
         this.powerChoice     = new PowerChoiceOverlay(this.ui);
         this.replaceSlotOverlay = new ReplaceSlotOverlay(this.ui);
@@ -557,8 +584,8 @@ export class SurvivorsGameplayState implements GameState {
         // Define shop items (applied directly via playerStats + heroController)
         this.shopItems = this.buildShopItems();
 
-        // Off-screen elite indicators
-        this.eliteIndicators = new EliteIndicators(
+        // Off-screen enemy indicators (all tiers)
+        this.offscreenIndicators = new OffscreenEnemyIndicators(
             this.ui,
             this.scene,
             this.heroController.getCamera(),
@@ -772,8 +799,8 @@ export class SurvivorsGameplayState implements GameState {
         this.championSelect?.close();
         this.championSelect = null;
 
-        this.eliteIndicators?.dispose();
-        this.eliteIndicators = null;
+        this.offscreenIndicators?.dispose();
+        this.offscreenIndicators = null;
 
         this.powerSlots?.dispose();
         this.powerSlots = null;
@@ -948,9 +975,9 @@ export class SurvivorsGameplayState implements GameState {
         }
         _measure('hud');
 
-        // Off-screen elite indicators
-        if (this.eliteIndicators) this.eliteIndicators.update();
-        _measure('eliteInd');
+        // Off-screen enemy indicators (all tiers)
+        if (this.offscreenIndicators) this.offscreenIndicators.update();
+        _measure('offscreenInd');
 
         const totalMs = performance.now() - _t0;
         if (totalMs > 50) {
