@@ -93,12 +93,20 @@ export class OffscreenEnemyIndicators {
             let dot = this.active.get(e);
             if (!dot) {
                 dot = new Rectangle(`offscreenEnemyDot_${Math.random()}`);
-                dot.color = '#ffffff';
+                // Size/background MUST be set before addControl. A Rectangle
+                // added at its default 100%/transparent state never recovers
+                // visibility when those props are set later in the same frame.
+                dot.color        = '#ffffff';
+                dot.width        = `${size}px`;
+                dot.height       = `${size}px`;
+                dot.thickness    = border;
+                dot.background   = bg;
+                dot.cornerRadius = size / 2;
                 this.ui.addControl(dot);
                 this.active.set(e, dot);
             }
-            // Style every frame so tier upgrades (e.g. EliteSpawner promoting
-            // a regular spawn to elite) immediately reflect in the dot.
+            // Re-style every frame so tier upgrades (e.g. EliteSpawner
+            // promoting a regular spawn to elite) immediately reflect.
             dot.width        = `${size}px`;
             dot.height       = `${size}px`;
             dot.thickness    = border;
