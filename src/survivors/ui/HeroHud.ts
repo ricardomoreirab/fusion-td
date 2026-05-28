@@ -34,12 +34,16 @@ const ELEMENT_COLOR: Record<string, string> = {
     storm:    '#ffe040',
 };
 
-/** Per-item glyph and color for the items HUD row. */
+/** Per-item glyph and color for the items HUD row.
+ *  The trailing ︎ (text variation selector) on ♥ and ⚡ forces the
+ *  monochrome text presentation. Without it, browsers render ⚡ as a
+ *  colored emoji that ignores the icon's `color` CSS — so locked items
+ *  would appear lit instead of dim grey. */
 const ITEM_GLYPH: Record<ItemId, string> = {
-    lifesteal: '♥',
+    lifesteal: '♥︎',
     multishotCleave: '✦',
     knockback: '➤',
-    attackSpeed: '⚡',
+    attackSpeed: '⚡︎',
 };
 const ITEM_COLOR: Record<ItemId, string> = {
     lifesteal: '#ff2a40',
@@ -66,6 +70,10 @@ export class HeroHud {
     }[] = [];
     private abilityManager: AbilityManager | null = null;
     private ultimateContainers: { bg: Rectangle; label: TextBlock; cdMask: Rectangle; cdText: TextBlock }[] = [];
+    // One activator per ultimate button, by display order. Pressing the button
+    // and pressing the bound key (Q / E) both call the same closure so behaviour
+    // (cooldown check, flash, haptic) stays in sync.
+    private ultimateActivators: (() => void)[] = [];
     private lowHpVignette!: Rectangle;
     private lowHpPulseTime: number = 0;
 
@@ -271,53 +279,54 @@ export class HeroHud {
         // ── Pause/play button — top row, left of gold pill ────────────────
         this._buildPauseButton({ sizePx: 25, rightOffset: 10 + 110 + 8 });
 
-        // ── 4 power-slot icons — bottom-center row ────────────────────────
-        // Sized to match the items row above (so lifesteal / power slots align visually).
-        const slotSize = 36;
-        const slotGap = 6;
-        const slotRowWidth = slotSize * 4 + slotGap * 3;
+        // ── Combined bottom row — 4 power slots + 4 item slots, bottom-left ──
+        const iconSize = 22;
+        const iconGap  = 4;
+        const rowWidth = 8 * iconSize + 7 * iconGap;
 
-        const slotRow = new Rectangle('slotRow');
-        slotRow.width = `${slotRowWidth}px`;
-        slotRow.height = `${slotSize}px`;
-        slotRow.thickness = 0;
-        slotRow.background = '';
-        slotRow.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        slotRow.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        slotRow.top = '-10px';
-        this.ui.addControl(slotRow);
-        this.builtControls.push(slotRow);
+        const bottomRow = new Rectangle('bottomRow');
+        bottomRow.width = `${rowWidth}px`;
+        bottomRow.height = `${iconSize}px`;
+        bottomRow.thickness = 0;
+        bottomRow.background = '';
+        bottomRow.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        bottomRow.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        bottomRow.left = '14px';
+        bottomRow.top = '-10px';
+        this.ui.addControl(bottomRow);
+        this.builtControls.push(bottomRow);
 
         for (let i = 0; i < 4; i++) {
             const bg = makeFrame({
                 name: `slotBg_${i}`,
-                sizePx: slotSize,
+                sizePx: iconSize,
                 color: STYLE.panelBorderEmpty,
                 isEmpty: true,
             });
             bg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            bg.left = `${i * (slotSize + slotGap)}px`;
-            slotRow.addControl(bg);
+            bg.left = `${i * (iconSize + iconGap)}px`;
+            bottomRow.addControl(bg);
 
             const icon = new TextBlock(`slotIcon_${i}`, '+');
             icon.color = '#666';
-            icon.fontSize = 19;
+            icon.fontSize = Math.round(iconSize * 0.55);
             icon.fontFamily = 'Arial';
             icon.shadowColor = STYLE.textShadowColor;
             icon.shadowBlur = STYLE.textShadowBlur;
             bg.addControl(icon);
 
             const level = new TextBlock(`slotLvl_${i}`, '');
-            level.color = '#fff';
-            level.fontSize = 10;
+            level.color = '#ffffff';
+            level.fontSize = Math.round(iconSize * 0.32);
             level.fontStyle = 'bold';
             level.fontFamily = 'Arial';
             level.shadowColor = STYLE.textShadowColor;
             level.shadowBlur = STYLE.textShadowBlur;
             level.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
             level.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-            level.paddingRight = '3px';
+            level.paddingRight = '2px';
             level.paddingBottom = '1px';
+            level.isVisible = false;
             bg.addControl(level);
 
             const cdMask = new Rectangle(`slotCd_${i}`);
@@ -333,22 +342,9 @@ export class HeroHud {
             this.slotContainers.push({ bg, icon, level, cdMask });
         }
 
-        // ── Items row — 4 small slots sitting above the power-slot row ──────
-        const itemSize = 36;
-        const itemGap  = 6;
-        const itemRowWidth = itemSize * 4 + itemGap * 3;
-        const itemRow = new Rectangle('itemRow');
-        itemRow.width = `${itemRowWidth}px`;
-        itemRow.height = `${itemSize}px`;
-        itemRow.thickness = 0;
-        itemRow.background = '';
-        itemRow.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        itemRow.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        itemRow.top = `-${slotSize + 18}px`; // sits just above the power-slot row
-        this.ui.addControl(itemRow);
-        this.builtControls.push(itemRow);
-
-        this._buildItemSlots(itemRow, itemSize, itemGap);
+        // Item slots in positions 4..7, with the same uniform gap.
+        const itemOffset = 4 * (iconSize + iconGap);
+        this._buildItemSlots(bottomRow, iconSize, iconGap, itemOffset);
 
         // ── Ultimate ability buttons ──────────────────────────────────────
         this._buildUltimateButtons({
@@ -453,53 +449,54 @@ export class HeroHud {
         // ── Pause/play button — top row, left of gold pill ────────────────
         this._buildPauseButton({ sizePx: 28, rightOffset: 10 + 90 + 8 });
 
-        // ── 4 power-slot icons — bottom-center row ────────────────────────
-        // Sized to match the items row above (so lifesteal / power slots align visually).
-        const slotSize = 28;
-        const slotGap = 4;
-        const slotRowWidth = slotSize * 4 + slotGap * 3;
+        // ── Combined bottom row — 4 power slots + 4 item slots, bottom-left ──
+        const iconSize = 18;
+        const iconGap  = 3;
+        const rowWidth = 8 * iconSize + 7 * iconGap;
 
-        const slotRow = new Rectangle('slotRow');
-        slotRow.width = `${slotRowWidth}px`;
-        slotRow.height = `${slotSize}px`;
-        slotRow.thickness = 0;
-        slotRow.background = '';
-        slotRow.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        slotRow.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        slotRow.top = '-10px';
-        this.ui.addControl(slotRow);
-        this.builtControls.push(slotRow);
+        const bottomRow = new Rectangle('bottomRow');
+        bottomRow.width = `${rowWidth}px`;
+        bottomRow.height = `${iconSize}px`;
+        bottomRow.thickness = 0;
+        bottomRow.background = '';
+        bottomRow.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        bottomRow.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        bottomRow.left = '12px';
+        bottomRow.top = '-10px';
+        this.ui.addControl(bottomRow);
+        this.builtControls.push(bottomRow);
 
         for (let i = 0; i < 4; i++) {
             const bg = makeFrame({
                 name: `slotBg_${i}`,
-                sizePx: slotSize,
+                sizePx: iconSize,
                 color: STYLE.panelBorderEmpty,
                 isEmpty: true,
             });
             bg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            bg.left = `${i * (slotSize + slotGap)}px`;
-            slotRow.addControl(bg);
+            bg.left = `${i * (iconSize + iconGap)}px`;
+            bottomRow.addControl(bg);
 
             const icon = new TextBlock(`slotIcon_${i}`, '+');
             icon.color = '#666';
-            icon.fontSize = 15;
+            icon.fontSize = Math.round(iconSize * 0.55);
             icon.fontFamily = 'Arial';
             icon.shadowColor = STYLE.textShadowColor;
             icon.shadowBlur = STYLE.textShadowBlur;
             bg.addControl(icon);
 
             const level = new TextBlock(`slotLvl_${i}`, '');
-            level.color = '#fff';
-            level.fontSize = 8;
+            level.color = '#ffffff';
+            level.fontSize = Math.round(iconSize * 0.32);
             level.fontStyle = 'bold';
             level.fontFamily = 'Arial';
             level.shadowColor = STYLE.textShadowColor;
             level.shadowBlur = STYLE.textShadowBlur;
             level.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
             level.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-            level.paddingRight = '3px';
-            level.paddingBottom = '2px';
+            level.paddingRight = '2px';
+            level.paddingBottom = '1px';
+            level.isVisible = false;
             bg.addControl(level);
 
             const cdMask = new Rectangle(`slotCd_${i}`);
@@ -515,22 +512,8 @@ export class HeroHud {
             this.slotContainers.push({ bg, icon, level, cdMask });
         }
 
-        // ── Items row — mobile variant, smaller slots ──────────────────────
-        const itemSizeM = 28;
-        const itemGapM  = 4;
-        const itemRowWidthM = itemSizeM * 4 + itemGapM * 3;
-        const itemRowM = new Rectangle('itemRow');
-        itemRowM.width = `${itemRowWidthM}px`;
-        itemRowM.height = `${itemSizeM}px`;
-        itemRowM.thickness = 0;
-        itemRowM.background = '';
-        itemRowM.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        itemRowM.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        itemRowM.top = `-${slotSize + 14}px`;
-        this.ui.addControl(itemRowM);
-        this.builtControls.push(itemRowM);
-
-        this._buildItemSlots(itemRowM, itemSizeM, itemGapM);
+        const itemOffset = 4 * (iconSize + iconGap);
+        this._buildItemSlots(bottomRow, iconSize, iconGap, itemOffset);
 
         // ── Ultimate ability buttons — bottom-right ───────────────────────
         this._buildUltimateButtons({
@@ -542,7 +525,7 @@ export class HeroHud {
         });
     }
 
-    private _buildItemSlots(parent: Rectangle, sizePx: number, gapPx: number): void {
+    private _buildItemSlots(parent: Rectangle, sizePx: number, gapPx: number, leftOffset: number = 0): void {
         const ids: ItemId[] = ['lifesteal', 'multishotCleave', 'knockback', 'attackSpeed'];
 
         // Reset slot table so resize-rebuilds don't keep stale references.
@@ -566,7 +549,7 @@ export class HeroHud {
             bg.color = '#3a3a46';
             bg.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
             bg.verticalAlignment   = Control.VERTICAL_ALIGNMENT_TOP;
-            bg.left = `${i * (sizePx + gapPx)}px`;
+            bg.left = `${leftOffset + i * (sizePx + gapPx)}px`;
             parent.addControl(bg);
 
             const icon = new TextBlock(`itemIcon_${id}`, ITEM_GLYPH[id]);
@@ -597,8 +580,10 @@ export class HeroHud {
         frostNova:      { glyph: '❄',  color: '#3080c0', label: 'Frost Nova (30s)' },
         whirlwind:      { glyph: '\u{1F300}', color: '#4090d0', label: 'Whirlwind (35s)' },
         smash:          { glyph: '\u{1F4A5}', color: '#d06030', label: 'Smash (25s)' },
-        volley:         { glyph: '\u{1F3F9}', color: '#60c060', label: 'Volley (30s)' },
+        multishot:      { glyph: '\u{1F3F9}', color: '#60c060', label: 'Multishot (30s)' },
         explosiveArrow: { glyph: '\u{1F4A2}', color: '#e06030', label: 'Explosive Arrow (25s)' },
+        // Shared across classes — flavor is decided at activation time
+        dash:           { glyph: '➤', color: '#a0a8c0', label: 'Dash / Jump / Teleport (7s)' },
     };
 
     /**
@@ -664,6 +649,7 @@ export class HeroHud {
         rightOffset: number;
     }): void {
         const ultimateDefs = this._resolveUltimateDefs();
+        this.ultimateActivators = [];
         const rowWidth = ultimateDefs.length * opts.btnSize + Math.max(0, ultimateDefs.length - 1) * opts.gap;
 
         const ultRow = new Rectangle('ultRow');
@@ -720,17 +706,63 @@ export class HeroHud {
             bg.addControl(cdText);
 
             const capturedId = def.id;
-            addPressFeedback(bg, () => {
+            const activate = () => {
                 if (!this.abilityManager) return;
                 const fired = this.abilityManager.activate(capturedId);
                 if (fired) {
                     flashControl(bg, '#ffffff', 200);
                     tryHaptic(15);
                 }
-            });
+            };
+            addPressFeedback(bg, activate);
+            this.ultimateActivators.push(activate);
+
+            // Keybind badge in the top-left corner. Bound keys: Q (0), E (1),
+            // SPACE (2 — universal dash). Only on desktop; mobile players use taps.
+            if (!this.isMobile) {
+                const keyLabel = i === 0 ? 'Q' : i === 1 ? 'E' : i === 2 ? 'SP' : null;
+                if (keyLabel) this._addKeybindBadge(bg, keyLabel, opts.btnSize);
+            }
 
             this.ultimateContainers.push({ bg, label, cdMask, cdText });
         });
+    }
+
+    /**
+     * Trigger the i-th ultimate as if its button was tapped (cooldown check,
+     * flash, haptic — all the same). Out-of-range indexes are no-ops, so binding
+     * E to index 1 is safe even when the current champion only has one ultimate.
+     */
+    public triggerUltimateByIndex(index: number): void {
+        this.ultimateActivators[index]?.();
+    }
+
+    private _addKeybindBadge(parent: Rectangle, keyLabel: string, btnSize: number): void {
+        const badgeSize = Math.max(14, Math.round(btnSize * 0.22));
+        const badge = new Rectangle(`${parent.name}_kb`);
+        badge.width = `${badgeSize}px`;
+        badge.height = `${badgeSize}px`;
+        badge.thickness = 1;
+        badge.color = 'rgba(255, 255, 255, 0.7)';
+        badge.background = 'rgba(0, 0, 0, 0.7)';
+        badge.cornerRadius = 4;
+        badge.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        badge.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        badge.left = '3px';
+        badge.top = '3px';
+        badge.isPointerBlocker = false;
+
+        const txt = new TextBlock(`${parent.name}_kbTxt`, keyLabel);
+        txt.color = '#ffffff';
+        txt.fontSize = Math.round(badgeSize * 0.65);
+        txt.fontStyle = 'bold';
+        txt.fontFamily = 'Arial';
+        txt.shadowColor = '#000000';
+        txt.shadowBlur = 2;
+        txt.isPointerBlocker = false;
+        badge.addControl(txt);
+
+        parent.addControl(badge);
     }
 
     public update(
@@ -820,7 +852,7 @@ export class HeroHud {
             if (!slot) {
                 icon.text = '+';
                 icon.color = '#666';
-                level.text = '';
+                level.isVisible = false;
                 cdMask.height = 0;
                 bg.color = STYLE.panelBorderEmpty;
                 bg.background = STYLE.panelBgEmpty;
@@ -833,7 +865,8 @@ export class HeroHud {
                 const elemColor = ELEMENT_COLOR[slot.def.element] ?? '#fff';
                 icon.text = glyph;
                 icon.color = elemColor;
-                level.text = `L${slot.state.level}`;
+                level.isVisible = slot.state.level > 1;
+                if (slot.state.level > 1) level.text = `×${slot.state.level}`;
                 bg.color = elemColor;
                 bg.background = STYLE.panelBg;
 

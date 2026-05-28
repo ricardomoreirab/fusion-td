@@ -2,6 +2,7 @@ import { EnemyManager } from './enemies/EnemyManager';
 import { PlayerStats } from './PlayerStats';
 import { Enemy } from './enemies/Enemy';
 import { WaveStatus } from './WaveStatus';
+import { computeWaveElites } from './WaveElites';
 
 // Define a wave of enemies
 interface Wave {
@@ -13,8 +14,6 @@ interface Wave {
     reward: number; // Bonus money for completing the wave
     name: string; // Display name for the wave
     description: string; // Flavor text / strategic hint
-    /** Survivors-mode elite specs for this wave */
-    elites?: { type: string; element: 'fire' | 'ice' | 'arcane' | 'physical' | 'storm'; count: number }[];
 }
 
 // Type for the spawn function injected by survivors mode
@@ -256,32 +255,26 @@ export class WaveManager {
     // Level 1: "The Enchanted Forest" (tutorial → first boss)
     // =================================================================
     private generateLevel1Waves(): void {
-        // Wave 1: First Contact — 1 fire elite
+        // Wave 1: First Contact
         this.waves.push({
             enemies: [{ type: 'basic', count: 5, delay: 2.5 }],
             reward: 50,
             name: 'First Contact',
             description: 'A small scouting party approaches. Place your first defenses.',
-            elites: [{ type: 'basic', element: 'fire', count: 1 }],
         });
-        // Wave 2: The Trickle — 1 ice elite
+        // Wave 2: The Trickle
         this.waves.push({
             enemies: [{ type: 'basic', count: 8, delay: 1.8 }],
             reward: 55,
             name: 'The Trickle',
             description: 'They keep coming. Make sure your towers cover the path.',
-            elites: [{ type: 'basic', element: 'ice', count: 1 }],
         });
-        // Wave 3: Swift Shadows — 1 arcane fast elite, 1 storm elite
+        // Wave 3: Swift Shadows
         this.waves.push({
             enemies: [{ type: 'fast', count: 6, delay: 1.5 }],
             reward: 60,
             name: 'Swift Shadows',
             description: 'These ones are fast! You may need towers that can keep up.',
-            elites: [
-                { type: 'fast', element: 'arcane', count: 1 },
-                { type: 'basic', element: 'storm', count: 1 },
-            ],
         });
         // Wave 4: First Mix — introducing Hydras (splitting enemies)
         this.waves.push({
@@ -792,16 +785,16 @@ export class WaveManager {
             this.enemiesLeftToSpawn[0].delay = 0;
         }
 
-        // Survivors mode: queue elite spawns from wave config (staggered halfway through)
-        if (wave.elites && wave.elites.length > 0) {
-            for (const eliteSpec of wave.elites) {
-                for (let i = 0; i < eliteSpec.count; i++) {
-                    this.enemiesLeftToSpawn.push({
-                        type: eliteSpec.type,
-                        delay: 5.0, // Elites spawn with 5s gap between them
-                        eliteElement: eliteSpec.element,
-                    });
-                }
+        // Survivors mode: one elite per distinct non-boss type in the wave,
+        // each with a different element. See src/survivors/WaveElites.ts.
+        const eliteSpecs = computeWaveElites(wave);
+        for (const spec of eliteSpecs) {
+            for (let i = 0; i < spec.count; i++) {
+                this.enemiesLeftToSpawn.push({
+                    type: spec.type,
+                    delay: 5.0, // Elites spawn with 5s gap between them
+                    eliteElement: spec.element,
+                });
             }
         }
         

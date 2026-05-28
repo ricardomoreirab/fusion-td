@@ -3,8 +3,21 @@ import { Game } from '../../engine/Game';
 import { EnemyManager } from '../enemies/EnemyManager';
 import { PlayerStats } from '../PlayerStats';
 import { StatusEffect } from '../GameTypes';
+import { PowerSlotManager } from '../powers/PowerSlotManager';
 import { createEmissiveMaterial } from '../../engine/rendering/LowPolyMaterial';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
+
+/** Mode passed to the dash-override callback, picks which interpolation HeroController uses. */
+export type DashMode = 'linear' | 'arc' | 'instant';
+
+/** Callback HeroController registers so AbilityManager can drive hero position
+ *  during the brief dash/jump/teleport window. */
+export type DashOverrideFn = (
+    target: Vector3,
+    duration: number,
+    mode: DashMode,
+    onComplete: (landingPos: Vector3) => void,
+) => void;
 
 // =============================================================================
 // WHIRLWIND RING POOL — 8 pre-allocated torus meshes reused across ring spawns.
@@ -62,6 +75,8 @@ interface ActiveEffect {
     tickInterval: number;
     timeSinceLastTick: number;
     tick: () => void;
+    /** Optional one-shot cleanup hook fired when timeLeft hits 0. */
+    onEnd?: () => void;
 }
 
 export class AbilityManager {
@@ -81,8 +96,22 @@ export class AbilityManager {
     // Hero position provider
     private heroProvider: (() => Vector3) | null = null;
 
-    // Active timed effects (Whirlwind, Volley, Explosive Arrow)
+    // Active timed effects (Whirlwind, Multishot, Explosive Arrow, Dash override window)
     private activeEffects: ActiveEffect[] = [];
+
+    /** PowerSlotManager handle — used by Multishot to force-fire all equipped autocast slots. */
+    private powerSlots: PowerSlotManager | null = null;
+
+    /** Provides current movement input direction (WASD + joystick) for the Space-bar
+     *  dash. Falls back to hero facing if magnitude is 0. */
+    private directionProvider: (() => { dx: number; dz: number } | null) | null = null;
+
+    /** Provides current champion class for per-class dash flavor (dash/jump/teleport). */
+    private championTypeProvider: (() => 'barbarian' | 'ranger' | 'mage') | null = null;
+
+    /** HeroController-registered hook that drives the hero's position during the
+     *  dash window. AbilityManager calls this with the target landing position. */
+    private dashOverride: DashOverrideFn | null = null;
 
     /** Fires after a successful activate(). Used by SurvivorsGameplayState to drive
      *  hero animations (e.g. play the Aulus whirlwind clip on barbarian whirlwind). */
@@ -109,7 +138,7 @@ export class AbilityManager {
                 this.abilities.set('smash',     { name: 'Smash',         cooldown: 25, currentCooldown: 0, isReady: true, needsTargeting: false });
                 break;
             case 'ranger':
-                this.abilities.set('volley',         { name: 'Volley',          cooldown: 30, currentCooldown: 0, isReady: true, needsTargeting: false });
+                this.abilities.set('multishot',      { name: 'Multishot',       cooldown: 30, currentCooldown: 0, isReady: true, needsTargeting: false });
                 this.abilities.set('explosiveArrow', { name: 'Explosive Arrow', cooldown: 25, currentCooldown: 0, isReady: true, needsTargeting: false });
                 break;
             case 'mage':
@@ -118,6 +147,8 @@ export class AbilityManager {
                 this.abilities.set('frostNova', { name: 'Frost Nova',    cooldown: 30, currentCooldown: 0, isReady: true, needsTargeting: false });
                 break;
         }
+        // Every class also gets the Space-bar mobility ability.
+        this.abilities.set('dash', { name: 'Dash', cooldown: 7, currentCooldown: 0, isReady: true, needsTargeting: false });
     }
 
     /**
@@ -152,6 +183,27 @@ export class AbilityManager {
         this.playerStats = stats;
     }
 
+    /** Wire the PowerSlotManager so Multishot can force-fire equipped autocast slots. */
+    public setPowerSlots(slots: PowerSlotManager): void {
+        this.powerSlots = slots;
+    }
+
+    /** Provider for current movement input direction (normalized). Returning null
+     *  or a zero vector means "use hero facing" — caller decides. */
+    public setDirectionProvider(fn: () => { dx: number; dz: number } | null): void {
+        this.directionProvider = fn;
+    }
+
+    /** Provider for current champion class — drives per-class dash flavor. */
+    public setChampionTypeProvider(fn: () => 'barbarian' | 'ranger' | 'mage'): void {
+        this.championTypeProvider = fn;
+    }
+
+    /** HeroController registers this so AbilityManager can drive position during dash. */
+    public setDashOverride(fn: DashOverrideFn): void {
+        this.dashOverride = fn;
+    }
+
     // ========================================================================
     // Update — tick cooldowns + active effects
     // ========================================================================
@@ -175,6 +227,13 @@ export class AbilityManager {
             if (eff.timeSinceLastTick >= eff.tickInterval) {
                 eff.tick();
                 eff.timeSinceLastTick = 0;
+            }
+        }
+        // Fire onEnd hooks for effects that just expired, then drop them.
+        const ended = this.activeEffects.filter(e => e.timeLeft <= 0);
+        for (const e of ended) {
+            if (e.onEnd) {
+                try { e.onEnd(); } catch { /* ignore */ }
             }
         }
         this.activeEffects = this.activeEffects.filter(e => e.timeLeft > 0);
@@ -237,11 +296,15 @@ export class AbilityManager {
                 success = this.activateSmash();
                 break;
             // ── Ranger ───────────────────────────────────────────────────────
-            case 'volley':
-                success = this.activateVolley();
+            case 'multishot':
+                success = this.activateMultishot();
                 break;
             case 'explosiveArrow':
                 success = this.activateExplosiveArrow();
+                break;
+            // ── Universal ────────────────────────────────────────────────────
+            case 'dash':
+                success = this.activateDash();
                 break;
             // ── Legacy (unused in class mode) ────────────────────────────────
             case 'chainLightning':
@@ -269,7 +332,7 @@ export class AbilityManager {
     }
 
     /** Register a callback fired after each successful ability activation. The
-     *  callback receives the ability id ('whirlwind', 'smash', 'volley', etc.).
+     *  callback receives the ability id ('whirlwind', 'smash', 'multishot', etc.).
      *  SurvivorsGameplayState uses this to drive hero GLB animations. */
     public setOnActivate(fn: (abilityId: string) => void): void {
         this.onActivateCallback = fn;
@@ -442,6 +505,38 @@ export class AbilityManager {
         const heroPos = this.getHeroPosition();
         if (!heroPos) return false;
 
+        // Vortex dust PS — swirling tan particles around the hero, rising up.
+        // Emitter is a Vector3 we update each frame via an onBeforeRender hook
+        // so the PS tracks the hero's actual position.
+        const vortexEmitter = heroPos.clone();
+        const vortexPs = new ParticleSystem('whirlwindVortex', 80, this.scene);
+        vortexPs.emitter = vortexEmitter;
+        vortexPs.minEmitBox = new Vector3(-1.2, 0, -1.2);
+        vortexPs.maxEmitBox = new Vector3(1.2, 0.2, 1.2);
+        vortexPs.color1 = new Color4(0.75, 0.62, 0.42, 1);
+        vortexPs.color2 = new Color4(0.55, 0.42, 0.28, 1);
+        vortexPs.colorDead = new Color4(0.20, 0.15, 0.10, 0);
+        vortexPs.minSize = 0.10;
+        vortexPs.maxSize = 0.28;
+        vortexPs.minLifeTime = 0.35;
+        vortexPs.maxLifeTime = 0.65;
+        vortexPs.emitRate = 220;
+        vortexPs.blendMode = ParticleSystem.BLENDMODE_STANDARD;
+        // Tangential / upward emission so the swarm reads as a rising swirl
+        vortexPs.direction1 = new Vector3(-3, 1.2, -3);
+        vortexPs.direction2 = new Vector3(3, 2.4, 3);
+        vortexPs.minEmitPower = 2;
+        vortexPs.maxEmitPower = 4;
+        vortexPs.gravity = new Vector3(0, 1.2, 0); // positive — debris rises
+        vortexPs.start();
+
+        const emitterObs = this.scene.onBeforeRenderObservable.add(() => {
+            const pos = this.getHeroPosition();
+            if (!pos) return;
+            vortexEmitter.copyFrom(pos);
+            vortexEmitter.y += 0.2;
+        });
+
         this.activeEffects.push({
             id: 'whirlwind',
             timeLeft: 5.0,
@@ -459,10 +554,19 @@ export class AbilityManager {
                     }
                 }
                 this.spawnWhirlwindRing(pos, radius);
+                // Secondary outer ring — 1.4× scale, lighter, layered concentric tornado read.
+                this.spawnWhirlwindRing(pos, radius * 1.4);
                 // Keep champion body spinning
                 if (this.hero && typeof this.hero.triggerSpinAttack === 'function') {
                     this.hero.triggerSpinAttack();
                 }
+            },
+            onEnd: () => {
+                this.scene.onBeforeRenderObservable.remove(emitterObs);
+                try { vortexPs.stop(); } catch { /* ignore */ }
+                setTimeout(() => {
+                    try { vortexPs.dispose(); } catch { /* ignore */ }
+                }, 700);
             },
         });
 
@@ -498,6 +602,170 @@ export class AbilityManager {
                 }
             }
         });
+    }
+
+    // ========================================================================
+    // Universal: Space-bar Dash / Jump / Teleport
+    //
+    // - 8u distance, 3u landing-push radius, ~2u push force, no damage.
+    // - Hero invulnerable for the duration (HeroController gates takeDamage()
+    //   via the override window).
+    // - Per-class flavor:
+    //     barbarian → linear ground dash, 0.20s
+    //     ranger    → parabolic jump (sin arc up to ~2.5u apex), 0.35s
+    //     mage      → instant teleport with blink VFX, 0.10s
+    // ========================================================================
+
+    private static readonly DASH_DISTANCE       = 8;
+    private static readonly DASH_PUSH_RADIUS    = 3;
+    private static readonly DASH_PUSH_DISTANCE  = 2;
+
+    private activateDash(): boolean {
+        if (!this.dashOverride) return false;
+        const heroPos = this.getHeroPosition();
+        if (!heroPos) return false;
+
+        // ── Resolve direction ────────────────────────────────────────────────
+        let dx = 0, dz = 0;
+        const input = this.directionProvider?.();
+        if (input) { dx = input.dx; dz = input.dz; }
+        const mag = Math.hypot(dx, dz);
+        if (mag < 0.01) {
+            // Fallback to current hero facing (Champion writes rotation.y from
+            // its velocity or attack-aim each frame).
+            const meshRotY = this.hero?.mesh?.rotation?.y ?? 0;
+            dx = Math.sin(meshRotY);
+            dz = Math.cos(meshRotY);
+        } else {
+            dx /= mag;
+            dz /= mag;
+        }
+
+        // ── Resolve class flavor ─────────────────────────────────────────────
+        const championType = this.championTypeProvider?.() ?? 'barbarian';
+        let mode: DashMode = 'linear';
+        let duration = 0.20;
+        if (championType === 'ranger')      { mode = 'arc';     duration = 0.35; }
+        else if (championType === 'mage')   { mode = 'instant'; duration = 0.10; }
+
+        const target = new Vector3(
+            heroPos.x + dx * AbilityManager.DASH_DISTANCE,
+            heroPos.y,
+            heroPos.z + dz * AbilityManager.DASH_DISTANCE,
+        );
+
+        // Class-specific source/start VFX (mage gets a blink-out ring at origin).
+        if (championType === 'mage') {
+            this.spawnTeleportRing(heroPos.clone(), new Color3(0.7, 0.3, 1.0));
+        } else if (championType === 'barbarian') {
+            this.spawnDashTrail(heroPos.clone());
+        }
+
+        this.dashOverride(target, duration, mode, (landingPos: Vector3) => {
+            // Landing push: every enemy within DASH_PUSH_RADIUS shoved outward
+            // by DASH_PUSH_DISTANCE over 0.2s. No damage.
+            for (const e of this.enemyManager.getEnemies()) {
+                if (!e.isAlive()) continue;
+                const ePos = e.getPosition();
+                const ddx = ePos.x - landingPos.x;
+                const ddz = ePos.z - landingPos.z;
+                const dist = Math.hypot(ddx, ddz);
+                if (dist > AbilityManager.DASH_PUSH_RADIUS || dist < 0.001) continue;
+                const tx = ePos.x + (ddx / dist) * AbilityManager.DASH_PUSH_DISTANCE;
+                const tz = ePos.z + (ddz / dist) * AbilityManager.DASH_PUSH_DISTANCE;
+                this.animateEnemyKnockback(e, tx, tz, 0.2);
+            }
+            // Landing VFX
+            if (championType === 'mage') {
+                this.spawnTeleportRing(landingPos, new Color3(0.7, 0.3, 1.0));
+            } else {
+                this.spawnDashLandingDust(landingPos);
+            }
+        });
+
+        return true;
+    }
+
+    /** Purple particle ring that marks both endpoints of a mage teleport. */
+    private spawnTeleportRing(center: Vector3, color: Color3): void {
+        const ring = MeshBuilder.CreateTorus('teleportRing', {
+            diameter: 1.0, thickness: 0.18, tessellation: 18,
+        }, this.scene);
+        ring.position.set(center.x, center.y + 0.4, center.z);
+        const mat = createEmissiveMaterial('teleportRingMat', color, 0.9, this.scene);
+        (mat as StandardMaterial).alpha = 0.85;
+        ring.material = mat;
+
+        const expandAnim = new Animation('teleportExpand', 'scaling', 30,
+            Animation.ANIMATIONTYPE_VECTOR3, Animation.ANIMATIONLOOPMODE_CONSTANT);
+        expandAnim.setKeys([
+            { frame: 0,  value: new Vector3(0.5, 1, 0.5) },
+            { frame: 10, value: new Vector3(3.5, 1, 3.5) },
+        ]);
+        const fadeAnim = new Animation('teleportFade', 'material.alpha', 30,
+            Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT);
+        fadeAnim.setKeys([
+            { frame: 0,  value: 0.85 },
+            { frame: 10, value: 0.0 },
+        ]);
+        ring.animations = [expandAnim, fadeAnim];
+        this.scene.beginAnimation(ring, 0, 10, false, 1, () => ring.dispose());
+    }
+
+    /** Brief dust streak at the dash origin for barbarian. */
+    private spawnDashTrail(origin: Vector3): void {
+        const ps = new ParticleSystem('dashTrail', 30, this.scene);
+        ps.emitter = new Vector3(origin.x, origin.y + 0.1, origin.z);
+        ps.minEmitBox = new Vector3(-0.3, 0, -0.3);
+        ps.maxEmitBox = new Vector3(0.3, 0.1, 0.3);
+        ps.color1 = new Color4(0.65, 0.55, 0.40, 1);
+        ps.color2 = new Color4(0.40, 0.32, 0.22, 1);
+        ps.colorDead = new Color4(0.15, 0.12, 0.08, 0);
+        ps.minSize = 0.15;
+        ps.maxSize = 0.35;
+        ps.minLifeTime = 0.20;
+        ps.maxLifeTime = 0.40;
+        ps.emitRate = 0;
+        ps.manualEmitCount = 30;
+        ps.blendMode = ParticleSystem.BLENDMODE_STANDARD;
+        ps.direction1 = new Vector3(-1, 0.5, -1);
+        ps.direction2 = new Vector3(1, 1.2, 1);
+        ps.minEmitPower = 1.5;
+        ps.maxEmitPower = 3.0;
+        ps.gravity = new Vector3(0, -2, 0);
+        ps.start();
+        setTimeout(() => {
+            try { ps.stop(); } catch { /* ignore */ }
+            setTimeout(() => { try { ps.dispose(); } catch { /* ignore */ } }, 500);
+        }, 100);
+    }
+
+    /** Landing dust ring for barbarian dash and ranger jump. */
+    private spawnDashLandingDust(center: Vector3): void {
+        const ps = new ParticleSystem('dashLandDust', 40, this.scene);
+        ps.emitter = new Vector3(center.x, center.y + 0.1, center.z);
+        ps.minEmitBox = new Vector3(-0.5, 0, -0.5);
+        ps.maxEmitBox = new Vector3(0.5, 0.1, 0.5);
+        ps.color1 = new Color4(0.70, 0.60, 0.45, 1);
+        ps.color2 = new Color4(0.45, 0.35, 0.25, 1);
+        ps.colorDead = new Color4(0.15, 0.12, 0.08, 0);
+        ps.minSize = 0.15;
+        ps.maxSize = 0.40;
+        ps.minLifeTime = 0.25;
+        ps.maxLifeTime = 0.50;
+        ps.emitRate = 0;
+        ps.manualEmitCount = 40;
+        ps.blendMode = ParticleSystem.BLENDMODE_STANDARD;
+        ps.direction1 = new Vector3(-2, 0.8, -2);
+        ps.direction2 = new Vector3(2, 1.6, 2);
+        ps.minEmitPower = 1.5;
+        ps.maxEmitPower = 3.5;
+        ps.gravity = new Vector3(0, -3, 0);
+        ps.start();
+        setTimeout(() => {
+            try { ps.stop(); } catch { /* ignore */ }
+            setTimeout(() => { try { ps.dispose(); } catch { /* ignore */ } }, 600);
+        }, 120);
     }
 
     // ========================================================================
@@ -580,30 +848,50 @@ export class AbilityManager {
     }
 
     // ========================================================================
-    // Ranger: Volley — 5s, every 0.2s fire 5 arrows at nearest 5 enemies
+    // Ranger: Multishot — 5s; every 0.4s force-fire every equipped autocast
+    // power-slot (Fire Arrow / Frost Arrow / Seeking / Piercing / Lightning).
+    // Each power picks its own nearest target via its existing cast() logic, so
+    // damage multipliers + perks apply automatically. Power-slot cooldowns are
+    // intentionally NOT consumed — regular autocast resumes from where it was.
+    //
+    // Fallback: when no autocast slots are equipped (early game), fire a single
+    // plain volley arrow at the nearest enemy each tick so the ult never no-ops.
     // ========================================================================
 
-    private activateVolley(): boolean {
+    private activateMultishot(): boolean {
         const heroPos = this.getHeroPosition();
         if (!heroPos) return false;
 
         this.activeEffects.push({
-            id: 'volley',
+            id: 'multishot',
             timeLeft: 5.0,
-            tickInterval: 0.2,
+            tickInterval: 0.4,
             timeSinceLastTick: 0,
             tick: () => {
                 const pos = this.getHeroPosition();
                 if (!pos) return;
-                const alive = this.enemyManager.getEnemies().filter(e => e.isAlive());
-                if (alive.length === 0) return;
-                alive.sort((a, b) => {
-                    return Vector3.DistanceSquared(pos, a.getPosition()) -
-                           Vector3.DistanceSquared(pos, b.getPosition());
-                });
-                const targets = alive.slice(0, 5);
-                for (const target of targets) {
-                    this.spawnVolleyArrow(pos, target, 10);
+                let fired = 0;
+                if (this.powerSlots) {
+                    fired = this.powerSlots.forceCastAutocastSlots();
+                }
+                // Fallback when no autocast powers are equipped: keep the
+                // ult feeling useful with a plain arrow at the nearest enemy.
+                if (fired === 0) {
+                    const alive = this.enemyManager.getEnemies().filter(e => e.isAlive());
+                    if (alive.length === 0) return;
+                    let nearest = alive[0];
+                    let bestSq = Vector3.DistanceSquared(pos, nearest.getPosition());
+                    for (const e of alive) {
+                        const d = Vector3.DistanceSquared(pos, e.getPosition());
+                        if (d < bestSq) { bestSq = d; nearest = e; }
+                    }
+                    this.spawnVolleyArrow(pos, nearest, 10);
+                }
+                // Re-trigger the ranger's special/attack animation each burst for feedback.
+                if (this.hero && typeof this.hero.triggerSpecial === 'function') {
+                    this.hero.triggerSpecial();
+                } else if (this.hero && typeof this.hero.triggerAttack === 'function') {
+                    this.hero.triggerAttack();
                 }
             },
         });

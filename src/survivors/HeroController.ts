@@ -4,6 +4,7 @@ import { HeroBasicAttack, BasicAttackTarget, BasicAttackMode, ProjectileShape } 
 import { PowerSlotManager } from './powers/PowerSlotManager';
 import { Enemy } from './enemies/Enemy';
 import { PlayerStats } from './PlayerStats';
+import { DashMode } from './abilities/AbilityManager';
 
 /** Hero damage-feedback tuning — adjust here, not deep in the update loop. */
 const HIT_REACTION_COOLDOWN_S = 0.5;
@@ -58,6 +59,19 @@ export class HeroController {
 
     // Camera shake — decays to zero over CAMERA_SHAKE_DURATION_S.
     private cameraShakeTimeRemaining: number = 0;
+
+    // Dash override state (Space-bar mobility) — when active, position is driven
+    // by interpolation between dashStartPos/dashTargetPos instead of velocity, and
+    // the hero is invulnerable to contact damage for the duration.
+    private dashActive: boolean = false;
+    private dashStartPos: Vector3 = new Vector3();
+    private dashTargetPos: Vector3 = new Vector3();
+    private dashDuration: number = 0;
+    private dashElapsed: number = 0;
+    private dashMode: DashMode = 'linear';
+    private dashOnComplete: ((landingPos: Vector3) => void) | null = null;
+    private isInvulnerable: boolean = false;
+    private static readonly DASH_ARC_APEX = 2.5;
 
     // Scratch Vector3 fields — reused every frame to eliminate per-frame allocations
     private _scratchVel: Vector3 = new Vector3();
@@ -218,6 +232,7 @@ export class HeroController {
 
     public takeDamage(amount: number, sourcePos?: Vector3): void {
         if (this.isDead) return;
+        if (this.isInvulnerable) return;
         this.currentHealth -= amount;
         if (this.currentHealth <= 0) {
             this.currentHealth = 0;
@@ -277,36 +292,142 @@ export class HeroController {
         this.basicAttack?.updateRange(multiplier);
     }
 
-    public update(deltaTime: number): void {
-        this.elapsedTime += deltaTime;
-
-        // Compute movement input from keyboard + external joystick
+    /**
+     * Returns the current movement input direction (WASD + joystick), unnormalized.
+     * Returns null when input magnitude is below the deadzone — caller falls back
+     * to hero facing for the dash direction in that case.
+     */
+    public getMoveInput(): { dx: number; dz: number } | null {
         let dx = this.externalDx;
         let dz = this.externalDz;
         if (this.keys['w'] || this.keys['arrowup']) dz += 1;
         if (this.keys['s'] || this.keys['arrowdown']) dz -= 1;
         if (this.keys['a'] || this.keys['arrowleft']) dx -= 1;
         if (this.keys['d'] || this.keys['arrowright']) dx += 1;
+        if (Math.hypot(dx, dz) < 0.01) return null;
+        return { dx, dz };
+    }
 
-        // Normalize — cap at magnitude 1, allow joystick analog below 1
-        const len = Math.hypot(dx, dz);
-        if (len > 1) { dx /= len; dz /= len; }
-
-        this._scratchVel.set(
-            dx * this.moveSpeed * this.moveSpeedMultiplier,
-            0,
-            dz * this.moveSpeed * this.moveSpeedMultiplier,
-        );
-
-        // Decay knockback impulse, add it on top of player input.
-        if (this.knockbackTimeRemaining > 0) {
-            const decay = Math.max(0, this.knockbackTimeRemaining / KNOCKBACK_DURATION_S);
-            this._scratchVel.x += this.knockbackVelocity.x * decay;
-            this._scratchVel.z += this.knockbackVelocity.z * decay;
-            this.knockbackTimeRemaining -= deltaTime;
+    /**
+     * Drive the hero's position via interpolation between current position and
+     * `target` over `duration` seconds. Hero becomes invulnerable for the
+     * window. AbilityManager calls this when 'dash' activates.
+     */
+    public startDashOverride(
+        target: Vector3,
+        duration: number,
+        mode: DashMode,
+        onComplete: (landingPos: Vector3) => void,
+    ): void {
+        // Clamp target inside the arena (same buffer the normal clamp uses).
+        const dist = Math.hypot(target.x, target.z);
+        const limit = this.arenaRadius - 0.5;
+        if (dist > limit) {
+            const k = limit / dist;
+            target = new Vector3(target.x * k, target.y, target.z * k);
         }
 
-        this.hero.setPlayerVelocity(this._scratchVel);
+        this.dashStartPos.copyFrom(this.hero.getPosition());
+        this.dashTargetPos.copyFrom(target);
+        this.dashDuration = Math.max(0.01, duration);
+        this.dashElapsed = 0;
+        this.dashMode = mode;
+        this.dashOnComplete = onComplete;
+        this.dashActive = true;
+        this.isInvulnerable = true;
+
+        // Mage instant teleport: snap to target on the first frame.
+        if (mode === 'instant') {
+            this.writeHeroPosition(target.x, 0, target.z);
+        }
+    }
+
+    /** Internal helper: write a position to both this.position and the mesh, in
+     *  the exact same shape Champion.update would naturally produce. */
+    private writeHeroPosition(x: number, y: number, z: number): void {
+        const h = this.hero as unknown as { position: Vector3; mesh?: { position: Vector3 } };
+        h.position.x = x;
+        h.position.y = y;
+        h.position.z = z;
+        if (h.mesh) {
+            h.mesh.position.x = x;
+            h.mesh.position.z = z;
+            // y is set by Champion.update next frame (adds GLB feet offset).
+            h.mesh.position.y = y;
+        }
+    }
+
+    public update(deltaTime: number): void {
+        this.elapsedTime += deltaTime;
+
+        // ── Dash override (Space-bar mobility) ─────────────────────────────
+        // When active, position is driven by interpolation between start/target;
+        // velocity is forced to zero so Champion.update doesn't add to it. The
+        // hero is invulnerable for the whole window via this.isInvulnerable.
+        if (this.dashActive) {
+            this.dashElapsed += deltaTime;
+            const t = Math.min(1, this.dashElapsed / this.dashDuration);
+            if (this.dashMode === 'linear') {
+                const eased = 1 - (1 - t) * (1 - t); // ease-out quad
+                const x = this.dashStartPos.x + (this.dashTargetPos.x - this.dashStartPos.x) * eased;
+                const z = this.dashStartPos.z + (this.dashTargetPos.z - this.dashStartPos.z) * eased;
+                this.writeHeroPosition(x, 0, z);
+            } else if (this.dashMode === 'arc') {
+                const x = this.dashStartPos.x + (this.dashTargetPos.x - this.dashStartPos.x) * t;
+                const z = this.dashStartPos.z + (this.dashTargetPos.z - this.dashStartPos.z) * t;
+                const y = Math.sin(t * Math.PI) * HeroController.DASH_ARC_APEX;
+                this.writeHeroPosition(x, y, z);
+            }
+            // 'instant' was snapped on start — no per-frame position writes needed.
+
+            // Hero stays still in input terms; force velocity to zero so
+            // Champion.update doesn't add anything on top.
+            this._scratchVel.set(0, 0, 0);
+            this.hero.setPlayerVelocity(this._scratchVel);
+
+            if (t >= 1) {
+                // Reset y to ground so subsequent frames don't have arc residue.
+                const finalX = this.dashTargetPos.x;
+                const finalZ = this.dashTargetPos.z;
+                this.writeHeroPosition(finalX, 0, finalZ);
+                const cb = this.dashOnComplete;
+                const landing = new Vector3(finalX, 0, finalZ);
+                this.dashActive = false;
+                this.isInvulnerable = false;
+                this.dashOnComplete = null;
+                if (cb) cb(landing);
+            }
+
+            // Update camera follow + basic attack still run below.
+        } else {
+            // Compute movement input from keyboard + external joystick
+            let dx = this.externalDx;
+            let dz = this.externalDz;
+            if (this.keys['w'] || this.keys['arrowup']) dz += 1;
+            if (this.keys['s'] || this.keys['arrowdown']) dz -= 1;
+            if (this.keys['a'] || this.keys['arrowleft']) dx -= 1;
+            if (this.keys['d'] || this.keys['arrowright']) dx += 1;
+
+            // Normalize — cap at magnitude 1, allow joystick analog below 1
+            const len = Math.hypot(dx, dz);
+            if (len > 1) { dx /= len; dz /= len; }
+
+            this._scratchVel.set(
+                dx * this.moveSpeed * this.moveSpeedMultiplier,
+                0,
+                dz * this.moveSpeed * this.moveSpeedMultiplier,
+            );
+
+            // Decay knockback impulse, add it on top of player input.
+            if (this.knockbackTimeRemaining > 0) {
+                const decay = Math.max(0, this.knockbackTimeRemaining / KNOCKBACK_DURATION_S);
+                this._scratchVel.x += this.knockbackVelocity.x * decay;
+                this._scratchVel.z += this.knockbackVelocity.z * decay;
+                this.knockbackTimeRemaining -= deltaTime;
+            }
+
+            this.hero.setPlayerVelocity(this._scratchVel);
+        }
 
         // Clamp hero position inside arena after Champion.update applies velocity
         const pos = this.hero.getPosition();

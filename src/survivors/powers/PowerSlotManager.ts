@@ -138,6 +138,29 @@ export class PowerSlotManager {
     }
 
     /**
+     * Force-fire every currently equipped autocast slot once, ignoring cooldowns.
+     * Each power picks its own target via its existing `cast()` logic. Slot
+     * cooldowns are intentionally left untouched so regular autocast resumes
+     * exactly where it was after the burst.
+     *
+     * Returns the count of slots that were force-fired (0 if the ranger/mage
+     * has no autocast powers equipped yet — callers can fall back to a default
+     * effect in that case).
+     */
+    public forceCastAutocastSlots(): number {
+        const ctx = this.buildContext();
+        let count = 0;
+        for (const slot of this.slots) {
+            if (!slot) continue;
+            if (slot.def.mode !== 'autocast') continue;
+            if (!slot.def.cast) continue;
+            slot.def.cast(slot.state, ctx);
+            count++;
+        }
+        return count;
+    }
+
+    /**
      * Returns the set of unique elements from all currently equipped power slots.
      * Used to drive per-element weapon visual decorations on the Champion.
      */
