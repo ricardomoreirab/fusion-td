@@ -792,7 +792,7 @@ export class SurvivorsGameplayState implements GameState {
 
         const finalLoadout = (this.powerSlots?.getSlots() ?? [])
             .filter((s): s is NonNullable<typeof s> => s !== null)
-            .map(s => ({ name: s.def.name, level: s.state.level, icon: s.def.icon }));
+            .map(s => ({ name: s.def.name, level: s.state.level, icon: s.def.icon, tier: s.def.tier }));
 
         const summary: SurvivorsRunSummary = {
             waveReached,
