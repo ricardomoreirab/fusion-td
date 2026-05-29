@@ -658,10 +658,11 @@ export class ShieldEnemy extends Enemy {
             // Face direction of movement
             if (this.currentPathIndex < this.path.length) {
                 const targetPoint = this.path[this.currentPathIndex];
-                const direction = targetPoint.subtract(this.position);
+                const dx = targetPoint.x - this.position.x;
+                const dz = targetPoint.z - this.position.z;
 
-                if (direction.length() > 0.01) {
-                    const angle = Math.atan2(direction.z, direction.x);
+                if (dx * dx + dz * dz > 0.0001) {
+                    const angle = Math.atan2(dz, dx);
                     this.mesh.rotation.y = -angle + Math.PI / 2;
                 }
             }

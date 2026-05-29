@@ -116,19 +116,28 @@ export class PowerSlotManager {
     }
 
     public update(deltaTime: number): void {
-        const ctx = this.buildContext();
         const cooldownMult = this.cooldownMultiplierProvider();
-        // Cache the target check — if nothing's in range, every autocast skips and
-        // holds its cooldown so it's ready to fire the moment a mob walks in.
-        const hasTarget = this.hasAnyTargetInRange();
+        // Cooldowns are measured in seconds, so on the vast majority of frames no
+        // slot reaches ready. Defer the O(n) target scan and the context object
+        // allocation until a slot is actually ready to fire — when nothing fires
+        // this loop does no allocation and no enemy scan at all.
+        let ctx: PowerContext | null = null;
+        let hasTarget = false;
+        let targetChecked = false;
         for (const slot of this.slots) {
             if (!slot) continue;
             // Skip passive enchantments — they have no cast loop
             if (slot.def.mode === 'passive') continue;
             slot.state.cooldownRemaining -= deltaTime;
             if (slot.state.cooldownRemaining <= 0) {
+                // Resolve "anything to shoot at?" once per frame, lazily.
+                if (!targetChecked) {
+                    hasTarget = this.hasAnyTargetInRange();
+                    targetChecked = true;
+                }
                 if (!hasTarget) continue; // hold the cooldown, don't fire into empty arena
                 if (slot.def.cast) {
+                    if (!ctx) ctx = this.buildContext();
                     slot.def.cast(slot.state, ctx);
                 }
                 if (this.onCastCallback) this.onCastCallback(slot);

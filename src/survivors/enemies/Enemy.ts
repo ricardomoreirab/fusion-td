@@ -2,10 +2,19 @@ import { Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, Color4, Scene, Pa
 import { Game } from '../../engine/Game';
 import { EnemyType, StatusEffect } from '../GameTypes';
 
-// Cached health-bar colors — shared across all enemy instances to avoid per-frame allocations
-const HEALTH_COLOR_GREEN  = new Color3(0.2, 0.8, 0.2);
-const HEALTH_COLOR_YELLOW = new Color3(0.8, 0.8, 0.2);
-const HEALTH_COLOR_RED    = new Color3(0.8, 0.2, 0.2);
+// Cached health-bar colors — shared across all enemy instances to avoid per-frame
+// allocations. Exported so enemy subclasses that override updateHealthBar() reuse
+// the same constants instead of allocating `new Color3(...)` every frame.
+// These are assigned (never mutated in place) onto health-bar materials, so
+// sharing one instance across all enemies is safe.
+export const HEALTH_COLOR_GREEN  = new Color3(0.2, 0.8, 0.2);
+export const HEALTH_COLOR_YELLOW = new Color3(0.8, 0.8, 0.2);
+export const HEALTH_COLOR_RED    = new Color3(0.8, 0.2, 0.2);
+
+// Per-hit emissive tint — module-level constant so flashHit doesn't allocate
+// a fresh Color3 on every damage event (every chain-lightning sub-hit etc.).
+const HIT_TINT = new Color3(0.85, 0.10, 0.05);
+const HIT_FLASH_DURATION_S = 0.1;
 
 // Lazy-loaded shared texture for status-effect particle systems
 let _statusEffectTexture: Texture | null = null;
@@ -24,6 +33,17 @@ export class Enemy {
      * stale stats from a prior run.
      */
     public static critProvider: (() => { chance: number; damageMult: number }) | null = null;
+
+    /**
+     * Per-frame damage + reward callbacks — set once at run start by
+     * SurvivorsGameplayState (replaces the previous document.dispatchEvent
+     * CustomEvent flow). Avoids allocating a CustomEvent + detail object per
+     * hit; with chain lightning / multishot / AOE on 100+ enemies this used to
+     * be the dominant burst GC pressure. Position is passed by reference —
+     * callbacks must NOT retain it (consumers read x/y/z only).
+     */
+    public static onDamageCallback: ((position: Vector3, damage: number, isCrit: boolean) => void) | null = null;
+    public static onRewardCallback: ((position: Vector3, reward: number) => void) | null = null;
 
     protected game: Game;
     protected scene: Scene;
@@ -114,6 +134,15 @@ export class Enemy {
     // Scratch Vector3 fields — reused every frame to avoid per-frame allocations
     private _scratchDir: Vector3 = new Vector3();
     private _scratchMovement: Vector3 = new Vector3();
+
+    // Hit-flash state: per-instance restore cache + countdown timer. We store the
+    // material's ORIGINAL emissiveColor object by reference (not r/g/b numbers and
+    // not a clone) — restore reassigns it, so there's zero per-hit allocation AND
+    // we never mutate the shared HIT_TINT constant (the old `.set()` path mutated
+    // it in place, which corrupted the tint for the whole run). Driven by
+    // Enemy.update() — no setTimeout pile-up.
+    private _flashRestore: { mat: StandardMaterial; original: Color3 }[] = [];
+    private _flashTimeRemaining: number = 0;
 
     constructor(game: Game, position: Vector3, path: Vector3[], speed: number, health: number, damage: number, reward: number) {
         this.game = game;
@@ -423,6 +452,9 @@ export class Enemy {
     public update(deltaTime: number): boolean {
         if (!this.alive || !this.mesh) return false;
 
+        // Tick the hit-flash restore timer once per frame (was per-hit setTimeout).
+        this._tickFlashHit(deltaTime);
+
         // --- Survivors seek-target branch ---
         if (this.seekTarget) {
             // Always tick status effects so slow/freeze/stun/burn still work
@@ -586,32 +618,29 @@ export class Enemy {
     }
     
     /**
-     * Update active status effects
-     * @param deltaTime Time elapsed since last update in seconds
+     * Update active status effects.
+     *
+     * Iterates with for...of (instead of Map.forEach + arrow function) so the
+     * hot path doesn't allocate a closure per call per enemy.
      */
     protected updateStatusEffects(deltaTime: number): void {
+        // Early-out: most enemies have no active status effects.
+        if (this.activeStatusEffects.size === 0) return;
+
         const currentTime = performance.now();
         this._expiredStatusEffects.length = 0;
 
-        // Check for expired effects
-        this.activeStatusEffects.forEach((effectData, effect) => {
+        for (const [effect, effectData] of this.activeStatusEffects) {
             if (currentTime > effectData.endTime) {
-                // Effect has expired
                 this._expiredStatusEffects.push(effect);
-            } else {
-                // Process active effects
-                switch (effect) {
-                    case StatusEffect.BURNING:
-                        this.processBurningEffect(deltaTime);
-                        break;
-                    // Other effects are handled by their state flags (isFrozen, isSlowed, etc.)
-                }
+            } else if (effect === StatusEffect.BURNING) {
+                this.processBurningEffect(deltaTime);
             }
-        });
+            // Other effects are gated by state flags (isFrozen, isSlowed, …).
+        }
 
-        // Remove expired effects
-        for (const effect of this._expiredStatusEffects) {
-            this.removeStatusEffect(effect);
+        for (let i = 0; i < this._expiredStatusEffects.length; i++) {
+            this.removeStatusEffect(this._expiredStatusEffects[i]);
         }
     }
 
@@ -988,14 +1017,11 @@ export class Enemy {
         // Hit flash: briefly turn mesh white for 80ms
         this.flashHit();
 
-        const dmgEvent = new CustomEvent('enemyDamage', {
-            detail: {
-                position: this.position.clone(),
-                damage: actualDamage,
-                isCrit,
-            },
-        });
-        document.dispatchEvent(dmgEvent);
+        // Fire the static damage callback (replaces a CustomEvent dispatch +
+        // detail object allocation per hit). Position is passed by reference —
+        // consumer must NOT retain the Vector3.
+        const dmgCb = Enemy.onDamageCallback;
+        if (dmgCb) dmgCb(this.position, actualDamage, isCrit);
 
         if (this.health <= 0) {
             this.health = 0;
@@ -1009,33 +1035,64 @@ export class Enemy {
     /**
      * Brief red emissive tint on hit (~100ms). Read as damage but keeps the
      * underlying texture visible — a full-white emissive blew out detail.
+     *
+     * Avoids per-hit allocations: HIT_TINT is module-level, the restore cache
+     * is a per-instance field, original colors are stored as r/g/b numbers (no
+     * Color3.clone), and the timeout is driven by the update() loop (no
+     * setTimeout pile-up). Re-flashes on an already-flashing enemy just refresh
+     * the countdown — the cache stays valid.
      */
     protected flashHit(): void {
         if (!this.mesh || this.mesh.isDisposed()) return;
 
-        // Collect all materials from this mesh and children
-        const meshes = [this.mesh, ...this.mesh.getChildMeshes(false)];
-        const originalEmissives: { mat: StandardMaterial, color: Color3 }[] = [];
-
-        const HIT_TINT = new Color3(0.85, 0.10, 0.05);
-        for (const m of meshes) {
-            const mat = m.material as StandardMaterial;
-            if (mat && mat.emissiveColor !== undefined) {
-                originalEmissives.push({ mat, color: mat.emissiveColor.clone() });
-                mat.emissiveColor = HIT_TINT;
-            }
+        // Already flashing — just refresh the timer; emissive is already HIT_TINT.
+        if (this._flashTimeRemaining > 0) {
+            this._flashTimeRemaining = HIT_FLASH_DURATION_S;
+            return;
         }
 
-        // Restore after 100ms
-        setTimeout(() => {
-            for (const entry of originalEmissives) {
-                try {
-                    entry.mat.emissiveColor = entry.color;
-                } catch (_) {
-                    // Material may have been disposed
-                }
-            }
-        }, 100);
+        // Snapshot emissive colors for restore, then overwrite. Walk children once.
+        this._flashRestore.length = 0;
+        this._collectFlashEmissive(this.mesh);
+        for (const child of this.mesh.getChildMeshes(false)) {
+            this._collectFlashEmissive(child);
+        }
+        this._flashTimeRemaining = HIT_FLASH_DURATION_S;
+    }
+
+    /** Push one mesh's emissive into the flash restore cache and tint it. */
+    private _collectFlashEmissive(mesh: { material: unknown }): void {
+        const mat = mesh.material as StandardMaterial | null;
+        if (!mat || mat.emissiveColor === undefined) return;
+        // Material already shows the shared HIT_TINT (another enemy sharing a
+        // cached material is mid-flash) — don't capture/re-tint it. Capturing
+        // HIT_TINT as the "original" would leave it stuck red once we restore,
+        // and the other enemy already owns the restore.
+        if (mat.emissiveColor === HIT_TINT) return;
+        this._flashRestore.push({ mat, original: mat.emissiveColor });
+        mat.emissiveColor = HIT_TINT;
+    }
+
+    /** Tick the hit-flash timer. Called from update() — restores original
+     *  emissive colors once the window expires. */
+    private _tickFlashHit(deltaTime: number): void {
+        if (this._flashTimeRemaining <= 0) return;
+        this._flashTimeRemaining -= deltaTime;
+        if (this._flashTimeRemaining > 0) return;
+        this._restoreFlash();
+    }
+
+    /** Restore every flashed material to its original emissive and clear the
+     *  cache. Reassigns the original Color3 reference (never mutates HIT_TINT).
+     *  Called when the flash window expires, and on death/dispose so a flash
+     *  that's interrupted by death doesn't leave a shared material stuck red. */
+    private _restoreFlash(): void {
+        for (let i = 0; i < this._flashRestore.length; i++) {
+            const e = this._flashRestore[i];
+            try { e.mat.emissiveColor = e.original; } catch (_) { /* mat disposed */ }
+        }
+        this._flashRestore.length = 0;
+        this._flashTimeRemaining = 0;
     }
 
     /**
@@ -1051,6 +1108,11 @@ export class Enemy {
 
         // Create death effect
         this.createDeathEffect();
+
+        // If a hit-flash is mid-window, restore original emissives now — once the
+        // mesh is gone update() stops ticking and the restore would never fire,
+        // leaving any SHARED (cached) material stuck on HIT_TINT for other enemies.
+        this._restoreFlash();
 
         // Remove from scene
         if (this.mesh) {
@@ -1106,16 +1168,14 @@ export class Enemy {
     }
 
     /**
-     * Show floating gold reward text at the death position
+     * Show floating gold reward text at the death position.
+     *
+     * Position is passed by reference to the static callback — consumer must
+     * NOT retain it (DamageNumberManager copies x/y/z into its slot mesh).
      */
     protected showGoldRewardText(position: Vector3): void {
-        const rewardEvent = new CustomEvent('enemyReward', {
-            detail: {
-                position: position,
-                reward: this.reward
-            }
-        });
-        document.dispatchEvent(rewardEvent);
+        const cb = Enemy.onRewardCallback;
+        if (cb) cb(position, this.reward);
     }
 
     /**
@@ -1185,6 +1245,10 @@ export class Enemy {
      */
     public dispose(): void {
         this.cancelMeleeAttack();
+
+        // Restore any in-progress hit-flash before tearing materials down, so a
+        // shared cached material isn't left stuck on HIT_TINT.
+        this._restoreFlash();
 
         // Stop + dispose every AnimationGroup that GLB instantiation cloned
         // for this enemy. Without this the animatables keep running every

@@ -435,13 +435,15 @@ export class HeroController {
         const distFromCenter = Math.hypot(pos.x, pos.z);
         if (distFromCenter > this.arenaRadius - 0.5) {
             const k = (this.arenaRadius - 0.5) / distFromCenter;
-            pos.x *= k;
-            pos.z *= k;
-            (this.hero as any).position.x = pos.x;
-            (this.hero as any).position.z = pos.z;
+            // hero.getPosition() returns the live position by reference, so write the
+            // clamped values straight to it (and the mesh) — no scratch, no double-write.
+            const clampedX = pos.x * k;
+            const clampedZ = pos.z * k;
+            (this.hero as any).position.x = clampedX;
+            (this.hero as any).position.z = clampedZ;
             if ((this.hero as any).mesh) {
-                (this.hero as any).mesh.position.x = pos.x;
-                (this.hero as any).mesh.position.z = pos.z;
+                (this.hero as any).mesh.position.x = clampedX;
+                (this.hero as any).mesh.position.z = clampedZ;
             }
         }
 

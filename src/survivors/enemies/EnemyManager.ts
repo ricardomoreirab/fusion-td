@@ -419,80 +419,49 @@ export class EnemyManager {
     }
 
     /**
-     * Update all enemies
+     * Update all enemies.
+     *
+     * Iterates backwards so swap-pop removal during iteration is safe without
+     * allocating a snapshot of the array per frame (the previous `[...this.enemies]`
+     * was a hot-path allocation at 60 Hz × 100+ enemies).
      */
     public update(deltaTime: number): void {
-        // Create a copy of the array to safely remove enemies during iteration
-        const enemiesToUpdate = [...this.enemies];
-
-        // Diagnostic: time each enemy.update() and log the slowest of this frame
-        // if the total update spend exceeds 50ms. Helps pinpoint per-enemy cost.
-        const tUpdateStart = performance.now();
-        let slowestEnemyMs = 0;
-        let slowestEnemyType = '';
-
-        for (const enemy of enemiesToUpdate) {
+        const enemies = this.enemies;
+        for (let i = enemies.length - 1; i >= 0; i--) {
             // If an earlier enemy's attack killed the hero this frame, the gameplay
             // state has already started tearing down. Stop iterating to avoid
             // running enemy.update against a half-disposed scene.
             if (this.heroProvider?.isAlive && !this.heroProvider.isAlive()) break;
 
-            // Update enemy and check if it reached the end
-            const tE = performance.now();
+            const enemy = enemies[i];
             const reachedEnd = enemy.update(deltaTime);
-            const dE = performance.now() - tE;
-            if (dE > slowestEnemyMs) {
-                slowestEnemyMs = dE;
-                slowestEnemyType = enemy.constructor.name;
-            }
 
             if (reachedEnd) {
-                // Enemy reached the end, damage player
                 if (this.playerStats) {
                     this.playerStats.takeDamage(enemy.getDamage());
                 }
-
-                // Remove from enemies list
-                this.removeEnemy(enemy);
+                this._removeAt(i);
             } else if (!enemy.isAlive()) {
-                // Enemy died, give reward to player
                 if (this.playerStats) {
                     this.playerStats.addMoney(enemy.getReward());
                     this.playerStats.addKill();
                 }
-
-                // Survivors mode: fire elite-death callback so a PowerDrop can be spawned
                 if (enemy.isElite && enemy.eliteDropElement) {
                     this.onEliteDeathCallback(enemy.getPosition().clone(), enemy.eliteDropElement);
                 }
-
-                // Survivors mode: fire milestone-boss death callback so an ItemDrop can be spawned
                 if (enemy instanceof MilestoneBoss) {
                     this.onMilestoneBossDeathCallback(enemy.getPosition().clone(), enemy.waveTier);
                 }
-
-                // Remove from enemies list
-                this.removeEnemy(enemy);
+                this._removeAt(i);
             }
-        }
-
-        const totalUpdateMs = performance.now() - tUpdateStart;
-        if (totalUpdateMs > 50) {
-            console.warn(
-                `[slow-update] EnemyManager.update ${Math.round(totalUpdateMs)}ms ` +
-                `· ${enemiesToUpdate.length} enemies · slowest=${slowestEnemyType} ${Math.round(slowestEnemyMs)}ms`,
-            );
         }
     }
 
-    /**
-     * Remove an enemy from the manager
-     */
-    private removeEnemy(enemy: Enemy): void {
-        const index = this.enemies.indexOf(enemy);
-        if (index !== -1) {
-            this.enemies.splice(index, 1);
-        }
+    /** Swap-pop removal — O(1), order-preserving is not required for enemies. */
+    private _removeAt(index: number): void {
+        const last = this.enemies.length - 1;
+        if (index !== last) this.enemies[index] = this.enemies[last];
+        this.enemies.pop();
     }
 
     /**
@@ -513,9 +482,17 @@ export class EnemyManager {
      * Get enemies within a certain range of a position
      */
     public getEnemiesInRange(position: Vector3, range: number): Enemy[] {
+        // Squared-distance compare avoids a sqrt per enemy (this scans all enemies
+        // and is called per-frame from Champion.blockNearbyEnemies + abilities).
+        // Keeps the full 3D term so results are identical to the old Vector3.Distance.
+        const rangeSq = range * range;
         return this.enemies.filter(enemy => {
-            const distance = Vector3.Distance(position, enemy.getPosition());
-            return distance <= range && enemy.isAlive();
+            if (!enemy.isAlive()) return false;
+            const ep = enemy.getPosition();
+            const dx = ep.x - position.x;
+            const dy = ep.y - position.y;
+            const dz = ep.z - position.z;
+            return dx * dx + dy * dy + dz * dz <= rangeSq;
         });
     }
 
@@ -524,14 +501,19 @@ export class EnemyManager {
      */
     public getClosestEnemy(position: Vector3, maxRange?: number): Enemy | null {
         let closestEnemy: Enemy | null = null;
-        let closestDistance = maxRange !== undefined ? maxRange : Number.MAX_VALUE;
+        // Track squared distance to avoid a sqrt per enemy — ordering is identical.
+        let closestDistanceSq = maxRange !== undefined ? maxRange * maxRange : Number.MAX_VALUE;
 
         for (const enemy of this.enemies) {
             if (!enemy.isAlive()) continue;
 
-            const distance = Vector3.Distance(position, enemy.getPosition());
-            if (distance < closestDistance) {
-                closestDistance = distance;
+            const ep = enemy.getPosition();
+            const dx = ep.x - position.x;
+            const dy = ep.y - position.y;
+            const dz = ep.z - position.z;
+            const distanceSq = dx * dx + dy * dy + dz * dz;
+            if (distanceSq < closestDistanceSq) {
+                closestDistanceSq = distanceSq;
                 closestEnemy = enemy;
             }
         }
@@ -545,11 +527,15 @@ export class EnemyManager {
     public getFirstEnemy(position: Vector3, maxRange: number): Enemy | null {
         let firstEnemy: Enemy | null = null;
         let highestPathIndex = -1;
+        const maxRangeSq = maxRange * maxRange;
 
         for (const enemy of this.enemies) {
             if (!enemy.isAlive()) continue;
-            const distance = Vector3.Distance(position, enemy.getPosition());
-            if (distance > maxRange) continue;
+            const ep = enemy.getPosition();
+            const dx = ep.x - position.x;
+            const dy = ep.y - position.y;
+            const dz = ep.z - position.z;
+            if (dx * dx + dy * dy + dz * dz > maxRangeSq) continue;
             const pathIndex = enemy.getPathIndex();
             if (pathIndex > highestPathIndex) {
                 highestPathIndex = pathIndex;
@@ -566,11 +552,15 @@ export class EnemyManager {
     public getStrongestEnemy(position: Vector3, maxRange: number): Enemy | null {
         let strongestEnemy: Enemy | null = null;
         let highestHP = -1;
+        const maxRangeSq = maxRange * maxRange;
 
         for (const enemy of this.enemies) {
             if (!enemy.isAlive()) continue;
-            const distance = Vector3.Distance(position, enemy.getPosition());
-            if (distance > maxRange) continue;
+            const ep = enemy.getPosition();
+            const dx = ep.x - position.x;
+            const dy = ep.y - position.y;
+            const dz = ep.z - position.z;
+            if (dx * dx + dy * dy + dz * dz > maxRangeSq) continue;
             const hp = enemy.getHealth();
             if (hp > highestHP) {
                 highestHP = hp;
