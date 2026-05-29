@@ -113,6 +113,7 @@ export class ShieldEnemy extends Enemy {
         }
 
         this.glbAnimationGroups = inst.animationGroups;
+        this.glbSkeletons = inst.skeletons;
         for (const ag of inst.animationGroups) ag.stop();
         for (const ag of inst.animationGroups) {
             const n = ag.name.toLowerCase();

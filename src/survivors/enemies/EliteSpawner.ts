@@ -59,7 +59,15 @@ export function makeElite(enemy: Enemy, element: string, scene: Scene): void {
     // Pulse the aura — throttled to every 3 frames to reduce per-frame JS cost.
     let _auraFrameCounter = 0;
     const auraObserver: Observer<Scene> = scene.onBeforeRenderObservable.add(() => {
-        if (aura.isDisposed()) return;
+        if (aura.isDisposed()) {
+            // Enemy died (via die() OR dispose()) — the parented aura is gone.
+            // Self-remove so the observer doesn't pile up on the per-frame list
+            // for the rest of the run. The dispose() monkey-patch below never
+            // fires on the in-combat die() path (EnemyManager removes dead
+            // enemies without calling dispose()).
+            scene.onBeforeRenderObservable.remove(auraObserver);
+            return;
+        }
         _auraFrameCounter++;
         if (_auraFrameCounter < 3) return;
         _auraFrameCounter = 0;

@@ -1,4 +1,4 @@
-import { Engine, EngineFactory, AbstractEngine, Scene, Vector3, HemisphericLight, PointLight, Color3, ArcRotateCamera, Camera, Animation, AbstractMesh, GlowLayer, WebGPUEngine, DefaultRenderingPipeline } from '@babylonjs/core';
+import { Engine, EngineFactory, AbstractEngine, Scene, Vector3, HemisphericLight, PointLight, Color3, ArcRotateCamera, Camera, GlowLayer, WebGPUEngine, DefaultRenderingPipeline } from '@babylonjs/core';
 import { GameState } from './GameState';
 import { MenuState } from '../menu/MenuState';
 import { SurvivorsGameplayState } from '../survivors/SurvivorsGameplayState';
@@ -341,16 +341,15 @@ export class Game {
         
         // Freeze game objects first
         this.scene.freezeActiveMeshes();
-        
-        // Pause all animations and particles
-        this.scene.meshes.forEach((mesh: AbstractMesh) => {
-            if (mesh.animations) {
-                mesh.animations.forEach((animation: Animation) => {
-                    this.scene.stopAnimation(mesh);
-                });
-            }
-        });
-        
+
+        // Freeze ALL animation evaluation in one flag. This pauses GLB skeletal
+        // animation groups + every animatable without removing them from the
+        // active list, so resume() can simply re-enable evaluation. (The old
+        // code stopped per-mesh animations on pause and re-`beginAnimation`'d
+        // them with loop=true on resume — that LEAKED a looping animatable per
+        // mesh.animation on every pause/resume cycle.)
+        this.scene.animationsEnabled = false;
+
         this.scene.particleSystems.forEach(system => {
             system.stop();
         });
@@ -403,16 +402,11 @@ export class Game {
         
         this._isPaused = false;
         this.scene.unfreezeActiveMeshes();
-        
-        // Resume all animations and particles
-        this.scene.meshes.forEach((mesh: AbstractMesh) => {
-            if (mesh.animations) {
-                mesh.animations.forEach((animation: Animation) => {
-                    this.scene.beginAnimation(mesh, 0, Number.MAX_VALUE, true);
-                });
-            }
-        });
-        
+
+        // Re-enable animation evaluation (see pause()). Animatables/groups resume
+        // from where they were — no new animatables are created.
+        this.scene.animationsEnabled = true;
+
         this.scene.particleSystems.forEach(system => {
             system.start();
         });

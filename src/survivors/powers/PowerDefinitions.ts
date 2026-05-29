@@ -2,7 +2,7 @@ import { Scene, Vector3, MeshBuilder, Color3, StandardMaterial, Mesh } from '@ba
 import { Enemy } from '../enemies/Enemy';
 import { StatusEffect } from '../GameTypes';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
-import { acquireProjectile, releaseProjectile } from '../../engine/rendering/ProjectilePool';
+import { buildArrowMesh } from './ArrowMesh';
 
 export type PowerElement = 'fire' | 'ice' | 'arcane' | 'physical' | 'storm';
 export type ChampionType = 'barbarian' | 'ranger' | 'mage';
@@ -218,42 +218,6 @@ function spawnJaggedBolt(scene: Scene, from: Vector3, to: Vector3, color: Color3
             scene.onBeforeRenderObservable.remove(obs);
         }
     });
-}
-
-/**
- * Builds an arrow mesh: shaft cylinder + tip cone + fletch box,
- * all parented under the shaft. The shaft's rotation.x = PI/2 so
- * "forward" is the +Z axis (matching atan2 orientation in the observers).
- */
-function buildArrowMesh(scene: Scene, key: string, color: Color3): Mesh {
-    const shaft = MeshBuilder.CreateCylinder(
-        `${key}_shaft`,
-        { height: 0.6, diameterTop: 0.05, diameterBottom: 0.05, tessellation: 6 },
-        scene,
-    ) as Mesh;
-    const tip = MeshBuilder.CreateCylinder(
-        `${key}_tip`,
-        { height: 0.18, diameterTop: 0, diameterBottom: 0.12, tessellation: 6 },
-        scene,
-    ) as Mesh;
-    tip.position.y = 0.39;
-    tip.parent = shaft;
-    const fletch = MeshBuilder.CreateBox(
-        `${key}_fletch`,
-        { width: 0.13, height: 0.13, depth: 0.03 },
-        scene,
-    ) as Mesh;
-    fletch.position.y = -0.30;
-    fletch.parent = shaft;
-    shaft.rotation.x = Math.PI / 2;
-    const mat = getCachedMaterial(scene, `${key}_mat`, m => {
-        m.emissiveColor = color;
-        m.diffuseColor = new Color3(0, 0, 0);
-    });
-    shaft.material = mat;
-    tip.material = mat;
-    fletch.material = mat;
-    return shaft;
 }
 
 // =============================================================================

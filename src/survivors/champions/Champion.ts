@@ -332,6 +332,13 @@ export class Champion extends Enemy {
         // slot attacks (Fire Arrow / Frost Shards / etc.) — usually a longer/more dramatic
         // clip than the basic shoot.
         this.championAnims = { idle: null, walk: null, attack: null, special: null, all: [...inst.animationGroups] };
+        // Register the cloned GLB anim groups + skeleton on the inherited fields
+        // so the base teardown (dispose() -> _releaseMeshAndAnimations) stops the
+        // hero's animatables and frees its bone-matrix texture. Without this the
+        // hero leaked ~one skeletal-group's worth of animatables + a texture per
+        // run (championAnims.all alone is never disposed).
+        this.glbAnimationGroups = [...inst.animationGroups];
+        this.glbSkeletons = inst.skeletons;
         console.log(`[${this.championType}] available animation groups (${inst.animationGroups.length}):`);
         for (const ag of inst.animationGroups) {
             console.log(`  - "${ag.name}"`);
@@ -1639,11 +1646,29 @@ export class Champion extends Enemy {
 
         this._disposeTorch();
 
+        // Stop + dispose the cloned GLB animation groups so their animatables
+        // stop ticking once the mesh is gone (empty no-op on the procedural
+        // barbarian path). Mirrors Enemy._releaseMeshAndAnimations but WITHOUT
+        // disposing child-mesh materials — the procedural hero uses shared/cached
+        // materials that must survive.
+        for (const ag of this.glbAnimationGroups) {
+            try { ag.stop(); } catch (_) { /* already stopped */ }
+            try { ag.dispose(); } catch (_) { /* already disposed */ }
+        }
+        this.glbAnimationGroups.length = 0;
+
         // Dispose mesh and health bars
         if (this.mesh) {
             this.mesh.dispose();
             this.mesh = null;
         }
+
+        // Dispose the cloned skeleton AFTER the mesh to free its bone-matrix
+        // texture (empty no-op on the procedural path).
+        for (const sk of this.glbSkeletons) {
+            try { sk.dispose(); } catch (_) { /* already disposed */ }
+        }
+        this.glbSkeletons.length = 0;
         if (this.healthBarMesh) {
             this.healthBarMesh.dispose();
             this.healthBarMesh = null;

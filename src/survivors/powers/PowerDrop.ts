@@ -31,6 +31,10 @@ export class PowerDrop {
     private opts: PowerDropOpts;
     private alive: boolean = true;
     private heroProvider: () => Vector3;
+    /** Per-pickup flash material (unique, NOT cached). Tracked so dispose() can
+     *  free it — mesh.dispose() does not dispose materials, and the orb's base
+     *  material is a SHARED cached instance that must not be disposed. */
+    private flashMat: StandardMaterial | null = null;
 
     constructor(
         scene: Scene,
@@ -90,6 +94,7 @@ export class PowerDrop {
         const col = ELEMENT_COLORS[this.element] ?? new Color3(1, 1, 1);
         const flashMat = new StandardMaterial('orbFlash_' + Math.random(), this.scene);
         flashMat.emissiveColor = col.scale(2);  // bright burst
+        this.flashMat = flashMat;               // tracked for disposal
         // Temporarily replace material for the flash
         this.mesh.material = flashMat;
         this.mesh.scaling.setAll(2.2);          // pop-out scale
@@ -100,6 +105,12 @@ export class PowerDrop {
         this.alive = false;
         if (!this.mesh.isDisposed()) {
             this.mesh.dispose();
+        }
+        // Free the per-pickup flash material (the shared base material is left
+        // alone). mesh.dispose() above does not dispose materials.
+        if (this.flashMat) {
+            this.flashMat.dispose();
+            this.flashMat = null;
         }
     }
 }
