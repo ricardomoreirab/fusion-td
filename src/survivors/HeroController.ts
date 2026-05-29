@@ -265,6 +265,13 @@ export class HeroController {
         this.currentHealth = Math.min(this.maxHealth, this.currentHealth + amount);
     }
 
+    /** Apply full basic-attack hits to all enemies within `radius` of `center`.
+     *  Used by Whirlwind so its ticks reuse the basic attack's hit pipeline
+     *  (crit / lifesteal / knockback / element enchantments). */
+    public applyAttackHitsInRadius(center: Vector3, radius: number): void {
+        this.basicAttack?.applyAttackHitsInRadius(center, radius);
+    }
+
     /** Increase max HP (and current HP) by amount — used by the Vitality shop item. */
     public addMaxHealth(amount: number): void {
         this.maxHealth += amount;

@@ -553,6 +553,11 @@ export class SurvivorsGameplayState implements GameState {
         this.abilityManager.setDashOverride((target, duration, mode, onComplete) => {
             this.heroController!.startDashOverride(target, duration, mode, onComplete);
         });
+        // Whirlwind ticks reuse the basic attack's hit pipeline (crit / lifesteal /
+        // knockback / enchantments) via the hero controller.
+        this.abilityManager.setMeleeAoeHit((center, radius) => {
+            this.heroController?.applyAttackHitsInRadius(center, radius);
+        });
         this.abilityManager.prewarmAbilityEffects();
 
         // Map class-specific ultimate IDs → GLB clip + duration so the hero plays
