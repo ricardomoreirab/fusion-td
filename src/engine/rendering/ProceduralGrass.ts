@@ -445,6 +445,14 @@ export function createProceduralGrass(scene: Scene, opts: ProceduralGrassOptions
     blade.material = mat;
     blade.alwaysSelectAsActiveMesh = true;
 
+    // Scratch instances reused by the per-frame observer below so the sun/shadow
+    // uniform sync doesn't churn a fresh Vector3 + Color3 + Vector2 every frame
+    // (60/s). ShaderMaterial re-reads these by reference at bind time, so mutating
+    // the same instance in place each frame is correct.
+    const lightDirScratch = new Vector3();
+    const lightColorScratch = new Color3();
+    const shadowDepthScratch = new Vector2();
+
     let elapsed = 0;
     const tickObserver: Observer<Scene> | null = scene.onBeforeRenderObservable.add(() => {
         elapsed += scene.getEngine().getDeltaTime() / 1000;
@@ -453,9 +461,10 @@ export function createProceduralGrass(scene: Scene, opts: ProceduralGrassOptions
         // Keep the sun uniforms in sync with the live light each frame —
         // cheap and means we react to runtime intensity/colour tweaks.
         if (opts.directionalLight) {
-            const d = opts.directionalLight.direction.clone().normalize();
-            mat.setVector3('uLightDir', d);
-            mat.setColor3('uLightColor', opts.directionalLight.diffuse.scale(opts.directionalLight.intensity));
+            lightDirScratch.copyFrom(opts.directionalLight.direction).normalize();
+            mat.setVector3('uLightDir', lightDirScratch);
+            opts.directionalLight.diffuse.scaleToRef(opts.directionalLight.intensity, lightColorScratch);
+            mat.setColor3('uLightColor', lightColorScratch);
         }
 
         // Per-frame shadow VP + depth values. The depth values depend on the
@@ -468,7 +477,8 @@ export function createProceduralGrass(scene: Scene, opts: ProceduralGrassOptions
             if (cam) {
                 const minZ = opts.directionalLight.getDepthMinZ(cam);
                 const maxZ = opts.directionalLight.getDepthMaxZ(cam);
-                mat.setVector2('uShadowDepthValues', new Vector2(minZ, minZ + maxZ));
+                shadowDepthScratch.copyFromFloats(minZ, minZ + maxZ);
+                mat.setVector2('uShadowDepthValues', shadowDepthScratch);
             }
         }
     });

@@ -1,6 +1,6 @@
 import { Vector3, MeshBuilder, StandardMaterial, Color3, Mesh, AssetContainer, AnimationGroup, TransformNode, Quaternion } from '@babylonjs/core';
 import { Game } from '../../engine/Game';
-import { Enemy } from './Enemy';
+import { Enemy, HEALTH_COLOR_GREEN, HEALTH_COLOR_YELLOW, HEALTH_COLOR_RED } from './Enemy';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../engine/rendering/LowPolyMaterial';
 import { PALETTE } from '../../engine/rendering/StyleConstants';
 
@@ -392,11 +392,11 @@ export class FastEnemy extends Enemy {
 
         const material = this.healthBarMesh.material as StandardMaterial;
         if (healthPercent > 0.6) {
-            material.diffuseColor = new Color3(0.2, 0.8, 0.2);
+            material.diffuseColor = HEALTH_COLOR_GREEN;
         } else if (healthPercent > 0.3) {
-            material.diffuseColor = new Color3(0.8, 0.8, 0.2);
+            material.diffuseColor = HEALTH_COLOR_YELLOW;
         } else {
-            material.diffuseColor = new Color3(0.8, 0.2, 0.2);
+            material.diffuseColor = HEALTH_COLOR_RED;
         }
 
         if (this.healthBarOutlineMesh && !this.healthBarOutlineMesh.isDisposed()) {
@@ -522,10 +522,11 @@ export class FastEnemy extends Enemy {
             // Face direction of movement
             if (this.currentPathIndex < this.path.length) {
                 const targetPoint = this.path[this.currentPathIndex];
-                const direction = targetPoint.subtract(this.position);
+                const dx = targetPoint.x - this.position.x;
+                const dz = targetPoint.z - this.position.z;
 
-                if (direction.length() > 0.01) {
-                    const angle = Math.atan2(direction.z, direction.x);
+                if (dx * dx + dz * dz > 0.0001) {
+                    const angle = Math.atan2(dz, dx);
                     this.mesh.rotation.y = -angle + Math.PI / 2;
                 }
             }

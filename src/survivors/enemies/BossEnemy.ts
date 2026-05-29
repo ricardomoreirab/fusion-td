@@ -449,16 +449,17 @@ export class BossEnemy extends Enemy {
         for (let i = 0; i < this.crystals.length; i++) {
             const crystal = this.crystals[i];
             const pulse = 1.0 + Math.sin(t * 2.0 + i * 1.2) * 0.08;
-            crystal.scaling = new Vector3(pulse, pulse, pulse);
+            crystal.scaling.setAll(pulse); // mutate in place — no per-frame Vector3 alloc
         }
 
         // --- Face direction of movement ---
         if (this.currentPathIndex < this.path.length) {
             const targetPoint = this.path[this.currentPathIndex];
-            const direction = targetPoint.subtract(this.position);
+            const dx = targetPoint.x - this.position.x;
+            const dz = targetPoint.z - this.position.z;
 
-            if (direction.length() > 0.01) {
-                const angle = Math.atan2(direction.z, direction.x);
+            if (dx * dx + dz * dz > 0.0001) {
+                const angle = Math.atan2(dz, dx);
                 this.mesh.rotation.y = -angle + Math.PI / 2;
             }
         }

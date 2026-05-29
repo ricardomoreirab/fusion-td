@@ -1,5 +1,5 @@
 import { AdvancedDynamicTexture, Rectangle } from '@babylonjs/gui';
-import { Scene, Vector3, Matrix, Camera } from '@babylonjs/core';
+import { Scene, Vector3, Matrix, Camera, Viewport } from '@babylonjs/core';
 import { Enemy } from '../enemies/Enemy';
 import { BossEnemy } from '../enemies/BossEnemy';
 
@@ -20,6 +20,11 @@ export class OffscreenEnemyIndicators {
     private active: Map<Enemy, Rectangle> = new Map();
     /** Reused per-frame set to avoid allocating a new Set every update */
     private _seen: Set<Enemy> = new Set<Enemy>();
+    /** Scratch buffers reused per call to Vector3.ProjectToRef so the projection
+     *  doesn't allocate a fresh Vector3 + Viewport per enemy per frame. */
+    private _scratchProject: Vector3 = new Vector3();
+    private _scratchViewport: Viewport = new Viewport(0, 0, 1, 1);
+    private _identityMat: Matrix = Matrix.Identity();
 
     constructor(
         ui: AdvancedDynamicTexture,
@@ -41,16 +46,20 @@ export class OffscreenEnemyIndicators {
         this._seen.clear();
         const seen    = this._seen;
 
-        const identityMat  = Matrix.Identity();
         const transformMat = this.scene.getTransformMatrix();
-        const vp           = this.camera.viewport.toGlobal(sw, sh);
+        // Compute the screen-space viewport once into the scratch instance
+        // (toGlobalToRef avoids the per-call Viewport allocation that
+        // viewport.toGlobal returns).
+        const vp = this._scratchViewport;
+        this.camera.viewport.toGlobalToRef(sw, sh, vp);
+        const sp = this._scratchProject;
 
         for (const e of enemies) {
             if (!e.isAlive()) continue;
             seen.add(e);
 
-            // Project world → screen
-            const sp = Vector3.Project(e.getPosition(), identityMat, transformMat, vp);
+            // Project world → screen into the shared scratch Vector3.
+            Vector3.ProjectToRef(e.getPosition(), this._identityMat, transformMat, vp, sp);
 
             // sp.z < 0 means the point is behind the camera
             const onScreen =

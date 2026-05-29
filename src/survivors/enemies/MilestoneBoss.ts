@@ -65,7 +65,11 @@ export class MilestoneBoss extends BossEnemy {
     private enraged: boolean = false;
 
     // Hero velocity tracking for sidestep predict (tier 2+)
-    private lastHeroPos: Vector3 | null = null;
+    // Last hero position stored as scalars (only x/z matter for 2D velocity) so
+    // the per-frame velocity tracking doesn't clone a Vector3 every frame.
+    private lastHeroX: number = 0;
+    private lastHeroZ: number = 0;
+    private hasLastHeroPos: boolean = false;
     private heroVelX: number = 0;
     private heroVelZ: number = 0;
 
@@ -259,11 +263,13 @@ export class MilestoneBoss extends BossEnemy {
             return;
         }
         const heroPos = this.seekTarget.getPosition();
-        if (this.lastHeroPos) {
-            this.heroVelX = (heroPos.x - this.lastHeroPos.x) / deltaTime;
-            this.heroVelZ = (heroPos.z - this.lastHeroPos.z) / deltaTime;
+        if (this.hasLastHeroPos) {
+            this.heroVelX = (heroPos.x - this.lastHeroX) / deltaTime;
+            this.heroVelZ = (heroPos.z - this.lastHeroZ) / deltaTime;
         }
-        this.lastHeroPos = heroPos.clone();
+        this.lastHeroX = heroPos.x;
+        this.lastHeroZ = heroPos.z;
+        this.hasLastHeroPos = true;
     }
 
     private tickLungeStateMachine(deltaTime: number): void {

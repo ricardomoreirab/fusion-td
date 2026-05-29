@@ -185,12 +185,13 @@ export class Champion extends Enemy {
         this.playerVelocity.copyFrom(velocity);
     }
 
-    /**
-     * Get current world position of the champion.
-     */
-    public getPosition(): Vector3 {
-        return this.position.clone();
-    }
+    // getPosition() inherited from Enemy — returns this.position by REFERENCE.
+    // The previous override here cloned on every call, which was the dominant
+    // source of GC pressure at high enemy counts (every enemy calls
+    // seekTarget.getPosition() once per update, plus HeroController, ability
+    // managers, contact-damage check, etc.). Callers must NOT mutate the
+    // returned Vector3 — write back to (hero as any).position instead, the
+    // same way HeroController's arena clamp already does it.
 
     /** Triggered by HeroBasicAttack when the melee swing fires. */
     public triggerSpinAttack(): void {

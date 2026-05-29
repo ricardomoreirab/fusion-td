@@ -214,8 +214,9 @@ export class AbilityManager {
     // ========================================================================
 
     public update(deltaTime: number): void {
-        // Cooldown ticking
-        this.abilities.forEach((ability) => {
+        // Cooldown ticking — for...of avoids the per-call closure allocation
+        // that Map.forEach incurs.
+        for (const ability of this.abilities.values()) {
             if (!ability.isReady) {
                 ability.currentCooldown -= deltaTime;
                 if (ability.currentCooldown <= 0) {
@@ -223,25 +224,29 @@ export class AbilityManager {
                     ability.isReady = true;
                 }
             }
-        });
+        }
 
-        // Active timed effects (Whirlwind, Volley, Explosive Arrow)
-        for (const eff of this.activeEffects) {
+        // Active timed effects (Whirlwind, Volley, Explosive Arrow). Single
+        // backwards pass: tick, fire onEnd hook on expiry, swap-pop. Previous
+        // version allocated two filter arrays per frame.
+        const fx = this.activeEffects;
+        for (let i = fx.length - 1; i >= 0; i--) {
+            const eff = fx[i];
             eff.timeLeft -= deltaTime;
             eff.timeSinceLastTick += deltaTime;
             if (eff.timeSinceLastTick >= eff.tickInterval) {
                 eff.tick();
                 eff.timeSinceLastTick = 0;
             }
-        }
-        // Fire onEnd hooks for effects that just expired, then drop them.
-        const ended = this.activeEffects.filter(e => e.timeLeft <= 0);
-        for (const e of ended) {
-            if (e.onEnd) {
-                try { e.onEnd(); } catch { /* ignore */ }
+            if (eff.timeLeft <= 0) {
+                if (eff.onEnd) {
+                    try { eff.onEnd(); } catch { /* ignore */ }
+                }
+                const last = fx.length - 1;
+                if (i !== last) fx[i] = fx[last];
+                fx.pop();
             }
         }
-        this.activeEffects = this.activeEffects.filter(e => e.timeLeft > 0);
     }
 
     // ========================================================================
@@ -570,10 +575,12 @@ export class AbilityManager {
                 const pos = this.getHeroPosition();
                 if (!pos) return;
                 const radius = 5;
+                // Squared compare — this ticks ~17× per cast over every enemy.
+                const radiusSq = radius * radius;
                 for (const e of this.enemyManager.getEnemies()) {
                     if (!e.isAlive()) continue;
                     const ePos = e.getPosition();
-                    if (Vector3.Distance(pos, ePos) <= radius) {
+                    if (Vector3.DistanceSquared(pos, ePos) <= radiusSq) {
                         e.takeDamage(18);
                     }
                 }
@@ -935,15 +942,16 @@ export class AbilityManager {
             tick: () => {
                 const pos = this.getHeroPosition();
                 if (!pos) return;
-                const alive = this.enemyManager.getEnemies().filter(e => e.isAlive());
-                if (alive.length === 0) return;
-                // Pick the nearest alive enemy each tick — spreads naturally as they die.
-                let nearest = alive[0];
-                let bestSq = Vector3.DistanceSquared(pos, nearest.getPosition());
-                for (const e of alive) {
+                // Pick the nearest alive enemy each tick — spreads naturally as they
+                // die. Single inline pass (no intermediate filtered-array allocation).
+                let nearest: Enemy | null = null;
+                let bestSq = Infinity;
+                for (const e of this.enemyManager.getEnemies()) {
+                    if (!e.isAlive()) continue;
                     const d = Vector3.DistanceSquared(pos, e.getPosition());
                     if (d < bestSq) { bestSq = d; nearest = e; }
                 }
+                if (!nearest) return;
                 this.spawnVolleyArrow(pos, nearest, AbilityManager.MULTISHOT_ARROW_DAMAGE);
                 if (this.hero && typeof this.hero.triggerAttack === 'function') {
                     this.hero.triggerAttack(nearest.getPosition());
@@ -1048,14 +1056,15 @@ export class AbilityManager {
             tick: () => {
                 const pos = this.getHeroPosition();
                 if (!pos) return;
-                const alive = this.enemyManager.getEnemies().filter(e => e.isAlive());
-                if (alive.length === 0) return;
-                let nearest = alive[0];
-                let bestDist = Vector3.DistanceSquared(pos, nearest.getPosition());
-                for (const e of alive) {
+                // Nearest alive enemy via a single inline pass — no filtered-array alloc.
+                let nearest: Enemy | null = null;
+                let bestDist = Infinity;
+                for (const e of this.enemyManager.getEnemies()) {
+                    if (!e.isAlive()) continue;
                     const d = Vector3.DistanceSquared(pos, e.getPosition());
                     if (d < bestDist) { bestDist = d; nearest = e; }
                 }
+                if (!nearest) return;
                 this.spawnExplosiveArrow(pos, nearest, 25, 3);
             },
         });
@@ -1101,10 +1110,11 @@ export class AbilityManager {
     }
 
     private triggerExplosion(position: Vector3, damage: number, radius: number): void {
-        // Damage all enemies in radius
+        // Damage all enemies in radius (squared compare — no sqrt per enemy).
+        const radiusSq = radius * radius;
         for (const e of this.enemyManager.getEnemies()) {
             if (!e.isAlive()) continue;
-            if (Vector3.Distance(position, e.getPosition()) <= radius) {
+            if (Vector3.DistanceSquared(position, e.getPosition()) <= radiusSq) {
                 e.takeDamage(damage);
             }
         }

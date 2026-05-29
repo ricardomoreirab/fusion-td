@@ -158,6 +158,26 @@ export class SurvivorsGameplayState implements GameState {
         attackRangeMultiplier: 1.0,
     };
 
+    // Scratch state reused inside update() to avoid per-frame allocations.
+    // Influencers list and torch-opts object are passed straight to the grass
+    // shader; HUD waveInfo is a mutable struct that the HUD reads each frame.
+    private _scratchInfluencers: Vector3[] = [];
+    private _scratchTorchOpts: { position: Vector3; color: Color3; intensity: number; range: number } = {
+        position: new Vector3(),
+        color: new Color3(),
+        intensity: 0,
+        range: 0,
+    };
+    private _scratchWaveInfo: { wave: number; enemiesAlive: number; inProgress: boolean } = {
+        wave: 0,
+        enemiesAlive: 0,
+        inProgress: false,
+    };
+    /** Flip to true while diagnosing a slow-frame regression. Kept off by
+     *  default so the per-frame instrumentation (per-subsystem performance.now,
+     *  closure + object literal allocations) doesn't add background overhead. */
+    private static readonly PROFILE_UPDATE: boolean = false;
+
     // Run tracking for game-over summary
     private runStartTime: number = 0;
     private currentChampionType: ChampionType = 'mage';
@@ -172,8 +192,6 @@ export class SurvivorsGameplayState implements GameState {
 
     // Floating damage / reward text
     private damageNumbers: DamageNumberManager | null = null;
-    private damageHandler: ((e: Event) => void) | null = null;
-    private rewardHandler: ((e: Event) => void) | null = null;
 
     // UI modules
     private hud: HeroHud | null = null;
@@ -410,18 +428,18 @@ export class SurvivorsGameplayState implements GameState {
             }
         }
 
-        // Damage / reward floating text manager
+        // Damage / reward floating text manager.
+        // Wired via static callbacks (replaces the previous CustomEvent flow
+        // through document.dispatchEvent) — same dispatch path, zero per-hit
+        // allocations. Cleared in exit() so the menu / game-over states never
+        // see calls from a stale run.
         this.damageNumbers = new DamageNumberManager(this.game);
-        this.damageHandler = (e: Event) => {
-            const d = (e as CustomEvent).detail;
-            this.damageNumbers?.showDamage(d.position, d.damage, undefined, !!d.isCrit);
+        Enemy.onDamageCallback = (position, damage, isCrit) => {
+            this.damageNumbers?.showDamage(position, damage, undefined, isCrit);
         };
-        this.rewardHandler = (e: Event) => {
-            const d = (e as CustomEvent).detail;
-            this.damageNumbers?.showReward(d.position, d.reward);
+        Enemy.onRewardCallback = (position, reward) => {
+            this.damageNumbers?.showReward(position, reward);
         };
-        document.addEventListener('enemyDamage', this.damageHandler);
-        document.addEventListener('enemyReward', this.rewardHandler);
 
         // Power slot manager — consults playerStats for damage/cooldown multipliers
         this.powerSlots = new PowerSlotManager(
@@ -816,14 +834,8 @@ export class SurvivorsGameplayState implements GameState {
         this.powerChoice?.close();
         this.powerChoice = null;
 
-        if (this.damageHandler) {
-            document.removeEventListener('enemyDamage', this.damageHandler);
-            this.damageHandler = null;
-        }
-        if (this.rewardHandler) {
-            document.removeEventListener('enemyReward', this.rewardHandler);
-            this.rewardHandler = null;
-        }
+        Enemy.onDamageCallback = null;
+        Enemy.onRewardCallback = null;
         this.damageNumbers?.dispose();
         this.damageNumbers = null;
 
@@ -873,12 +885,15 @@ export class SurvivorsGameplayState implements GameState {
 
         const dt = deltaTime * this.timeScale;
 
-        // Diagnostic: time every per-frame subsystem; if total exceeds 50ms,
-        // dump the breakdown so we can see which subsystem is the slow one.
-        const _t0 = performance.now();
+        // Per-subsystem timing is gated behind a compile-time-style flag —
+        // when off (production), no performance.now / object allocations run.
+        const profile = SurvivorsGameplayState.PROFILE_UPDATE;
+        const _t0 = profile ? performance.now() : 0;
         let _tMark = _t0;
-        const _times: Record<string, number> = {};
+        let _times: Record<string, number> | null = null;
+        if (profile) _times = {};
         const _measure = (key: string) => {
+            if (!profile || !_times) return;
             const now = performance.now();
             _times[key] = now - _tMark;
             _tMark = now;
@@ -892,24 +907,29 @@ export class SurvivorsGameplayState implements GameState {
         // grass glow goes off too — previously it was always on regardless.
         if (this.grass && this.hero) {
             const torch = this.game.getHeroTorch();
-            this.grass.setTorch(torch.intensity > 0 ? {
-                position: this.hero.getPosition(),
-                color: torch.diffuse,
-                intensity: TORCH_INTENSITY * (torch.intensity / 5.0),
-                range: TORCH_RANGE,
-            } : null);
+            if (torch.intensity > 0) {
+                // Mutate the pre-allocated torch-opts struct in place so we
+                // don't churn a fresh object every frame.
+                const opts = this._scratchTorchOpts;
+                opts.position.copyFrom(this.hero.getPosition());
+                opts.color.copyFrom(torch.diffuse);
+                opts.intensity = TORCH_INTENSITY * (torch.intensity / 5.0);
+                opts.range = TORCH_RANGE;
+                this.grass.setTorch(opts);
+            } else {
+                this.grass.setTorch(null);
+            }
 
             // Character grass displacement: hero + nearest 15 enemies push
             // surrounding blades outward as they move. Shader caps at 16,
-            // so we trim if more are alive nearby.
-            const influencers: Vector3[] = [this.hero.getPosition()];
+            // so we trim if more are alive nearby. Reuse the scratch array —
+            // setInfluencers reads the contents synchronously, so swapping the
+            // contents in-place each frame is safe.
+            const influencers = this._scratchInfluencers;
+            influencers.length = 0;
+            influencers.push(this.hero.getPosition());
             if (this.enemyManager) {
                 const enemies = this.enemyManager.getEnemies();
-                // Take the first 15 — full ranking by distance every frame
-                // is overkill; the visible enemies are usually swarming the
-                // hero anyway, and the shader's distance falloff dies off
-                // past ~1.6u so far enemies wouldn't contribute even if
-                // included.
                 for (let i = 0; i < enemies.length && influencers.length < 16; i++) {
                     const ep = (enemies[i] as unknown as { position?: Vector3; getPosition?: () => Vector3 });
                     const pos = ep.getPosition?.() ?? ep.position;
@@ -944,27 +964,41 @@ export class SurvivorsGameplayState implements GameState {
         if (this.abilityManager) this.abilityManager.update(dt);
         _measure('abilities');
 
-        // Power drops (magnet + pickup)
-        for (const d of this.powerDrops) d.update(dt);
-        this.powerDrops = this.powerDrops.filter(d => d.isAlive());
-
-        // Item drops (milestone boss rewards)
-        for (const d of this.itemDrops) d.update(dt);
-        this.itemDrops = this.itemDrops.filter(d => d.isAlive());
+        // Power drops + item drops — tick + swap-pop dead entries in one
+        // backwards pass (the previous .filter rebuilt both arrays every
+        // frame, even when nothing was dying).
+        for (let i = this.powerDrops.length - 1; i >= 0; i--) {
+            const d = this.powerDrops[i];
+            d.update(dt);
+            if (!d.isAlive()) {
+                const last = this.powerDrops.length - 1;
+                if (i !== last) this.powerDrops[i] = this.powerDrops[last];
+                this.powerDrops.pop();
+            }
+        }
+        for (let i = this.itemDrops.length - 1; i >= 0; i--) {
+            const d = this.itemDrops[i];
+            d.update(dt);
+            if (!d.isAlive()) {
+                const last = this.itemDrops.length - 1;
+                if (i !== last) this.itemDrops[i] = this.itemDrops[last];
+                this.itemDrops.pop();
+            }
+        }
         _measure('drops');
 
         this.damageNumbers?.update(dt);
         _measure('damageNum');
 
-        // HUD update
+        // HUD update — reuse the scratch waveInfo struct.
         if (this.hud && this.powerSlots && this.playerStats) {
-            const waveInfo = this.waveManager
-                ? {
-                    wave: this.waveManager.getCurrentWave(),
-                    enemiesAlive: this.waveManager?.getRemainingEnemiesInWave() ?? 0,
-                    inProgress: this.waveManager.isWaveInProgress(),
-                  }
-                : undefined;
+            let waveInfo: { wave: number; enemiesAlive: number; inProgress: boolean } | undefined;
+            if (this.waveManager) {
+                waveInfo = this._scratchWaveInfo;
+                waveInfo.wave = this.waveManager.getCurrentWave();
+                waveInfo.enemiesAlive = this.waveManager.getRemainingEnemiesInWave() ?? 0;
+                waveInfo.inProgress = this.waveManager.isWaveInProgress();
+            }
             this.hud.update(
                 this.heroController.getHealth(),
                 this.playerStats.getGold(),
@@ -979,14 +1013,16 @@ export class SurvivorsGameplayState implements GameState {
         if (this.offscreenIndicators) this.offscreenIndicators.update();
         _measure('offscreenInd');
 
-        const totalMs = performance.now() - _t0;
-        if (totalMs > 50) {
-            const breakdown = Object.entries(_times)
-                .filter(([, ms]) => ms > 1)
-                .sort(([, a], [, b]) => b - a)
-                .map(([k, ms]) => `${k}=${Math.round(ms)}ms`)
-                .join(' ');
-            console.warn(`[slow-frame] ${Math.round(totalMs)}ms · ${breakdown}`);
+        if (profile && _times) {
+            const totalMs = performance.now() - _t0;
+            if (totalMs > 50) {
+                const breakdown = Object.entries(_times)
+                    .filter(([, ms]) => ms > 1)
+                    .sort(([, a], [, b]) => b - a)
+                    .map(([k, ms]) => `${k}=${Math.round(ms)}ms`)
+                    .join(' ');
+                console.warn(`[slow-frame] ${Math.round(totalMs)}ms · ${breakdown}`);
+            }
         }
     }
 
