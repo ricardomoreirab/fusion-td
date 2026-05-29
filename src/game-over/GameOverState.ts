@@ -11,6 +11,7 @@ export interface SurvivorsRunSummary {
     kills: number;
     goldCollected: number;
     finalLoadout: { name: string; level: number; icon: string; tier?: string }[];
+    championType?: string;
 }
 
 export class GameOverState implements GameState {

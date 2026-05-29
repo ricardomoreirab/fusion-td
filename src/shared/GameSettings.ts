@@ -11,10 +11,12 @@ export type GraphicsQuality = 'low' | 'medium' | 'high';
 
 interface SettingsShape {
     graphicsQuality: GraphicsQuality;
+    leaderboardName: string;
 }
 
 const DEFAULTS: SettingsShape = {
     graphicsQuality: 'high',
+    leaderboardName: '',
 };
 
 type Listener = (next: SettingsShape) => void;
@@ -32,7 +34,10 @@ function load(): SettingsShape {
                 parsed.graphicsQuality === 'low' || parsed.graphicsQuality === 'medium' || parsed.graphicsQuality === 'high'
                     ? parsed.graphicsQuality
                     : DEFAULTS.graphicsQuality;
-            _state = { graphicsQuality: quality };
+            const leaderboardName = typeof parsed.leaderboardName === 'string'
+                ? parsed.leaderboardName.slice(0, 16)
+                : DEFAULTS.leaderboardName;
+            _state = { graphicsQuality: quality, leaderboardName };
             return _state;
         }
     } catch (_) {
@@ -60,6 +65,22 @@ export const GameSettings = {
         const s = load();
         if (s.graphicsQuality === q) return;
         s.graphicsQuality = q;
+        persist();
+        for (const fn of _listeners) fn(s);
+    },
+
+    getLeaderboardName(): string {
+        return load().leaderboardName;
+    },
+
+    setLeaderboardName(name: string): void {
+        const s = load();
+        // Mirror the server-side sanitize (leaderboardValidation.ts) so the stored
+        // and displayed name matches what gets submitted: strip control chars, trim, clamp.
+        // eslint-disable-next-line no-control-regex
+        const clean = name.replace(/[\x00-\x1F\x7F]/g, '').trim().slice(0, 16);
+        if (s.leaderboardName === clean) return;
+        s.leaderboardName = clean;
         persist();
         for (const fn of _listeners) fn(s);
     },
