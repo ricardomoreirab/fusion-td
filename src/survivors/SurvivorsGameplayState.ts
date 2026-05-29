@@ -19,7 +19,8 @@ import { BasicAttackTarget } from './champions/HeroBasicAttack';
 import { PowerChoiceOverlay, PowerCard } from './ui/PowerChoiceOverlay';
 import { ReplaceSlotOverlay } from './ui/ReplaceSlotOverlay';
 import { BetweenWaveShopOverlay, ShopItem } from './ui/BetweenWaveShopOverlay';
-import { HeroHud } from './ui/HeroHud';
+import { Hud } from '../ui/hud/Hud';
+import { GameUI } from '../ui/GameUI';
 import { OffscreenEnemyIndicators } from './ui/OffscreenEnemyIndicators';
 import { ChampionSelectOverlay, ChampionOption } from './ui/ChampionSelectOverlay';
 import { GameOverState, SurvivorsRunSummary } from '../game-over/GameOverState';
@@ -195,7 +196,8 @@ export class SurvivorsGameplayState implements GameState {
     private damageNumbers: DamageNumberManager | null = null;
 
     // UI modules
-    private hud: HeroHud | null = null;
+    private hud: Hud | null = null;
+    private gameUI: GameUI | null = null;
     private powerChoice: PowerChoiceOverlay | null = null;
     private replaceSlotOverlay: ReplaceSlotOverlay | null = null;
     private shopOverlay: BetweenWaveShopOverlay | null = null;
@@ -235,6 +237,7 @@ export class SurvivorsGameplayState implements GameState {
         // Create UI layer
         this.ui = AdvancedDynamicTexture.CreateFullscreenUI('survivorsUI', true, this.scene);
         this.ui.idealWidth = 800; // cap GUI rasterization — matches MenuState and GameOverState
+        this.gameUI = new GameUI();
 
         // Show champion select; actual run starts when player picks
         this.championSelect = new ChampionSelectOverlay(this.ui);
@@ -573,14 +576,14 @@ export class SurvivorsGameplayState implements GameState {
 
         // HUD (HP bar, gold, power slots, ultimate buttons)
         // Built AFTER configureForClass so HUD reads the correct ability IDs.
-        this.hud = new HeroHud(this.ui, this.abilityManager, this.game);
+        this.hud = new Hud(this.gameUI!, this.abilityManager, this.game);
 
         if (this.runItems) {
             this.hud.setRunItems(this.runItems);
         }
 
         // Q / E / Space → first / second / third ultimate. Mirrors a tap on the HUD
-        // button exactly (HeroHud.triggerUltimateByIndex shares the same closure as
+        // button exactly (Hud.triggerUltimateByIndex shares the same closure as
         // the press handler). The scene-wide onKeyboardObservable is cleared by
         // Game.cleanupScene() on state exit, so no manual disposal needed.
         // Space-bar = dash/jump/teleport (always index 2 — every class has it).
@@ -842,6 +845,8 @@ export class SurvivorsGameplayState implements GameState {
 
         this.hud?.dispose();
         this.hud = null;
+        this.gameUI?.dispose();
+        this.gameUI = null;
 
         this.waveManager?.dispose();
         this.waveManager = null;

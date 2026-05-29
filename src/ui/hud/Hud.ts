@@ -61,6 +61,10 @@ export class Hud {
   private ultButtons: { root: HTMLDivElement; label: HTMLDivElement; cd: HTMLDivElement; cdText: HTMLDivElement; id: string }[] = [];
   private ultimateActivators: (() => void)[] = [];
 
+  private pauseIcon!: HTMLDivElement;
+  private vignette!: HTMLDivElement;
+  private lowHpTime = 0;
+
   // diff trackers
   private prevHp = -1;
   private prevGold = -1;
@@ -121,6 +125,21 @@ export class Hud {
       bottomRight.appendChild(root);
     }
     this.root.appendChild(bottomRight);
+
+    // Pause button (top-right, left of gold).
+    const pauseBtn = el('div', { class: 'hud__pause interactive', attrs: { role: 'button' } });
+    this.pauseIcon = el('div', { class: 'hud__pause-icon', text: '⏸' });
+    pauseBtn.appendChild(this.pauseIcon);
+    onTap(pauseBtn, () => {
+      if (!this.game) return;
+      this.game.togglePause();
+      this.pauseIcon.textContent = this.game.getIsPaused() ? '▶' : '⏸';
+    });
+    this.root.appendChild(pauseBtn);
+
+    // Low-HP vignette lives on the fx layer.
+    this.vignette = el('div', { class: 'hud__vignette' });
+    this.gameUI.layer('fx').appendChild(this.vignette);
   }
 
   setRunItems(runItems: RunItems): void { this.runItems = runItems; }
@@ -221,6 +240,16 @@ export class Hud {
         }
       }
     }
+
+    const inDanger = ratio < 0.25;
+    if (inDanger) {
+      this.lowHpTime += deltaTime;
+      const a = 0.08 + 0.1 * Math.max(0, Math.sin(this.lowHpTime * Math.PI * 1.8));
+      this.vignette.style.opacity = `${a}`;
+    } else {
+      this.vignette.style.opacity = '0';
+      this.lowHpTime = 0;
+    }
   }
 
   // Stubs completed in later tasks (kept so the API exists from the start).
@@ -229,6 +258,7 @@ export class Hud {
 
   dispose(): void {
     this.root.remove();
+    this.vignette.remove();
   }
 
   // Helpers used by later tasks
