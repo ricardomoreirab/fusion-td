@@ -215,6 +215,14 @@ export class Enemy {
         this.maxHealth *= mult;
     }
 
+    /**
+     * Multiply the enemy's gold reward by `mult` (floored). Used by survivors-mode
+     * per-wave scaling so the shop economy keeps pace with rising enemy HP.
+     */
+    public applyRewardMultiplier(mult: number): void {
+        this.reward = Math.floor(this.reward * mult);
+    }
+
     /** Return the (width, height) of the bar based on the current tier. */
     private _barDims(): { width: number; height: number } {
         if (this.barTier === 'boss')  return { width: 2.5, height: 0.18 };

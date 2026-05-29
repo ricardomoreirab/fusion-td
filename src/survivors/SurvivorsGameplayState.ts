@@ -1039,11 +1039,12 @@ export class SurvivorsGameplayState implements GameState {
     // ─────────────────────────────────────────────────────────────────────────
 
     private onOrbPickup(element: string): void {
-        // Hidden mechanic: every orb collected makes future enemy spawns +5%
-        // tougher (additive, per-run). Applied BEFORE the overlay guards so
-        // the penalty triggers on physical collection even in the rare case
-        // an overlay is already up and the choice flow gets skipped.
-        this.enemyManager?.addOrbHpBonus(0.05);
+        // Hidden mechanic: every orb collected makes future enemy spawns +8%
+        // tougher (geometric/compounding, per-run) so the buff tracks the
+        // player's multiplicative per-orb damage growth. Applied BEFORE the
+        // overlay guards so the penalty triggers on physical collection even in
+        // the rare case an overlay is already up and the choice flow is skipped.
+        this.enemyManager?.addOrbHpBonus(0.08);
 
         if (!this.powerSlots || !this.powerChoice || !this.playerStats) return;
 
