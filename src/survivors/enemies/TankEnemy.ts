@@ -44,6 +44,10 @@ export class TankEnemy extends Enemy {
         this.meleeWindupDuration   = 0.55;
         this.meleeStrikeDuration   = 0.15;
         this.meleeCooldownDuration = 0.95;
+
+        // Build mesh + health bar AFTER field initializers have run (see Enemy
+        // constructor note). new.target guard → fires only for the concrete leaf.
+        if (new.target === TankEnemy) this._initEnemyVisuals();
     }
 
     /**

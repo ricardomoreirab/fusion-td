@@ -168,16 +168,31 @@ export class Enemy {
         this.maxHealth = health;
         this.damage = damage;
         this.reward = reward;
-        
+
+        // NOTE: createMesh()/createHealthBar() are intentionally NOT called here.
+        // A derived class's field initializers (e.g. `private usingGLB = false`,
+        // `private glbWalkAnim = null`, the procedural part refs) run AFTER super()
+        // returns — which would CLOBBER every field createMesh() assigns if we built
+        // the mesh during super(). That's exactly what silently disabled GLB attack
+        // animations: createMesh set usingGLB=true, then the subclass initializer
+        // reset it to false, so update()'s attack-switching branch never ran.
+        // Each leaf subclass instead calls this._initEnemyVisuals() at the END of its
+        // own constructor, guarded by `new.target` so it fires exactly once (only for
+        // the concrete leaf — never the intermediate BossEnemy when building a
+        // MilestoneBoss), after all field initializers have settled.
+    }
+
+    /**
+     * Build the mesh + health bar. MUST be called from the END of the concrete
+     * (leaf) subclass constructor — see the note in the constructor for why it
+     * cannot run during super().
+     */
+    protected _initEnemyVisuals(): void {
         try {
-            // Create the enemy mesh
             this.createMesh();
-            
             if (!this.mesh) {
                 console.error('Enemy mesh creation failed');
             }
-            
-            // Create health bar
             this.createHealthBar();
         } catch (error) {
             console.error('Error creating enemy:', error);
