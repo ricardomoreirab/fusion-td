@@ -18,7 +18,7 @@ import { Enemy } from './enemies/Enemy';
 import { BasicAttackTarget } from './champions/HeroBasicAttack';
 import { PowerChoiceOverlay, PowerCard } from '../ui/overlays/PowerChoice';
 import { ReplaceSlotOverlay } from '../ui/overlays/ReplaceSlot';
-import { BetweenWaveShopOverlay, ShopItem } from './ui/BetweenWaveShopOverlay';
+import { BetweenWaveShopOverlay, ShopItem } from '../ui/overlays/Shop';
 import { Hud } from '../ui/hud/Hud';
 import { GameUI } from '../ui/GameUI';
 import { OffscreenEnemyIndicators } from './ui/OffscreenEnemyIndicators';
@@ -602,7 +602,7 @@ export class SurvivorsGameplayState implements GameState {
         // Overlays
         this.powerChoice     = new PowerChoiceOverlay(this.gameUI!.layer('overlay'));
         this.replaceSlotOverlay = new ReplaceSlotOverlay(this.gameUI!.layer('overlay'));
-        this.shopOverlay     = new BetweenWaveShopOverlay(this.ui);
+        this.shopOverlay     = new BetweenWaveShopOverlay(this.gameUI!.layer('overlay'));
 
         // Define shop items (applied directly via playerStats + heroController)
         this.shopItems = this.buildShopItems();
