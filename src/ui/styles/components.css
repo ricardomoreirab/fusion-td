@@ -160,3 +160,10 @@
   gap: var(--s-2);
 }
 .hud__topbar .pill { pointer-events: none; }
+
+.hud__cluster { position: absolute; display: flex; gap: var(--s-2); }
+.hud__cluster--left { left: 0; bottom: 0; flex-direction: column; }
+.hud__row { display: flex; gap: var(--s-2); }
+.hud__row .slot { pointer-events: none; }
+.slot--item { --accent: #3a3a46; }
+@media (max-height: 430px) { .hud__cluster { gap: var(--s-1); } .hud__row { gap: var(--s-1); } }
