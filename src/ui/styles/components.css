@@ -324,9 +324,14 @@
   padding: var(--s-1) 0;
 }
 
-/* Widescreen armory: a wider panel lets the ~9 items lay out in ~2 rows
-   (≈5 columns) instead of wrapping into a tall narrow grid. */
-.modal-panel--shop { max-width: min(1040px, 96vw); }
+/* Widescreen armory: give the panel an explicit width (not just max-width)
+   so the auto-fit grid has room to form multiple columns — a shrink-to-fit
+   flex column would otherwise collapse the grid to a single column. The
+   explicit max-width also overrides .modal-panel's 680px cap. */
+.modal-panel--shop {
+  width: min(1040px, 96vw);
+  max-width: min(1040px, 96vw);
+}
 .shop-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
