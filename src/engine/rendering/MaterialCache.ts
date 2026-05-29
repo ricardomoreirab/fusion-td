@@ -42,6 +42,13 @@ export function getCachedMaterial(
     return mat;
 }
 
+/** Number of distinct keys currently held in the cache. Test/diagnostic hook —
+ *  an ever-growing value means callers are passing unbounded (e.g. randomized)
+ *  keys, which defeats the cache and leaks a material per call. */
+export function getMaterialCacheSize(): number {
+    return cache.size;
+}
+
 /**
  * Dispose every material currently in the cache and clear it.
  * Call this when doing a full scene reset to free GPU resources.

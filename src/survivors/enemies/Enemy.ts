@@ -1,4 +1,4 @@
-import { Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, Color4, Scene, ParticleSystem, Texture, DynamicTexture, Sound, Animation, AnimationGroup } from '@babylonjs/core';
+import { Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, Color4, Scene, ParticleSystem, Texture, DynamicTexture, Sound, Animation, AnimationGroup, Skeleton } from '@babylonjs/core';
 import { Game } from '../../engine/Game';
 import { EnemyType, StatusEffect } from '../GameTypes';
 
@@ -16,10 +16,13 @@ export const HEALTH_COLOR_RED    = new Color3(0.8, 0.2, 0.2);
 const HIT_TINT = new Color3(0.85, 0.10, 0.05);
 const HIT_FLASH_DURATION_S = 0.1;
 
-// Lazy-loaded shared texture for status-effect particle systems
+// Lazy-loaded shared texture for status-effect particle systems. Particle
+// systems that use it must dispose(false) so they don't take the shared texture
+// down with them; the `scene.textures` membership check below is a self-healing
+// backstop in case any caller forgets and disposes it anyway.
 let _statusEffectTexture: Texture | null = null;
 export function getStatusEffectTexture(scene: Scene): Texture {
-    if (!_statusEffectTexture) {
+    if (!_statusEffectTexture || scene.textures.indexOf(_statusEffectTexture) === -1) {
         _statusEffectTexture = new Texture('assets/textures/particle.png', scene);
     }
     return _statusEffectTexture;
@@ -106,7 +109,17 @@ export class Enemy {
      *  ~hundreds of animatables ticking in the scene every frame — the leak
      *  that made each subsequent wave's freeze longer than the last. */
     protected glbAnimationGroups: AnimationGroup[] = [];
-    
+
+    /** Skeletons cloned by GLB instantiation (`instantiateModelsToScene` with
+     *  doNotInstantiate:true does a full Skeleton.clone() per instance). Each
+     *  cloned skeleton allocates its OWN bone-matrix RawTexture on first render
+     *  (Skeleton.useTextureToStoreBoneMatrices defaults true), freed only by
+     *  Skeleton.dispose(). mesh.dispose() does NOT cascade to the skeleton, so
+     *  without this every spawn leaked one texture (the steady scene.textures
+     *  climb across waves). Subclasses register them via
+     *  `this.glbSkeletons = inst.skeletons`. */
+    protected glbSkeletons: Skeleton[] = [];
+
     // Elemental properties
     protected enemyType: EnemyType = EnemyType.NORMAL;
     protected isFlying: boolean = false;
@@ -962,7 +975,11 @@ export class Enemy {
         const particleSystem = this.statusEffectParticles.get(effect);
         if (particleSystem) {
             particleSystem.stop();
-            particleSystem.dispose();
+            // dispose(false): the particleTexture is the shared status-effect
+            // singleton (getStatusEffectTexture). dispose() defaults to
+            // disposeTexture=true, which would destroy the shared texture for
+            // every other enemy. Keep the texture; only free this system.
+            particleSystem.dispose(false);
             this.statusEffectParticles.delete(effect);
         }
     }
@@ -1115,7 +1132,7 @@ export class Enemy {
      * scene._activeAnimatables climbed into the thousands with only a few enemies
      * alive, producing multi-second stop-the-world freezes by wave 4+.
      */
-    private _releaseMeshAndAnimations(): void {
+    protected _releaseMeshAndAnimations(): void {
         // Stop + dispose every AnimationGroup that GLB instantiation cloned for
         // this enemy, or the animatables keep running every frame after the mesh
         // is gone.
@@ -1143,6 +1160,15 @@ export class Enemy {
             this.mesh.dispose();
             this.mesh = null;
         }
+
+        // Dispose the per-instance cloned skeleton AFTER the mesh — frees its
+        // bone-matrix RawTexture (mesh.dispose() does not cascade to skeletons).
+        // These are the CLONED skeletons (inst.skeletons), never the source
+        // skeleton owned by the cached AssetContainer, so this is safe.
+        for (const sk of this.glbSkeletons) {
+            try { sk.dispose(); } catch (_) { /* already disposed */ }
+        }
+        this.glbSkeletons.length = 0;
     }
 
     /**
@@ -1171,13 +1197,14 @@ export class Enemy {
         // Remove health bar (handles segments + boss label too)
         this._disposeHealthBarMeshes();
 
-        // Remove status effect particles
+        // Remove status effect particles. dispose(false): keep the shared
+        // status-effect texture (see stopStatusEffectParticles).
         this.statusEffectParticles.forEach(particleSystem => {
             particleSystem.stop();
-            particleSystem.dispose();
+            particleSystem.dispose(false);
         });
         this.statusEffectParticles.clear();
-        
+
         // Note: Money reward is handled by the EnemyManager which has access to PlayerStats
         // We don't need to award money here as it's done in EnemyManager.update()
     }
@@ -1306,9 +1333,10 @@ export class Enemy {
         // (see createHealthBar). Dispose them explicitly along with their meshes.
         this._disposeHealthBarMeshes();
 
-        // Dispose all status-effect particle systems
+        // Dispose all status-effect particle systems. dispose(false): keep the
+        // shared status-effect texture (see stopStatusEffectParticles).
         this.statusEffectParticles.forEach(particleSystem => {
-            particleSystem.dispose();
+            particleSystem.dispose(false);
         });
         this.statusEffectParticles.clear();
     }

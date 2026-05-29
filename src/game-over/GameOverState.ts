@@ -10,7 +10,7 @@ export interface SurvivorsRunSummary {
     timeSurvivedSec: number;
     kills: number;
     goldCollected: number;
-    finalLoadout: { name: string; level: number; icon: string }[];
+    finalLoadout: { name: string; level: number; icon: string; tier?: string }[];
 }
 
 export class GameOverState implements GameState {
@@ -295,8 +295,9 @@ export class GameOverState implements GameState {
         const mins = Math.floor(s.timeSurvivedSec / 60);
         const secs = Math.floor(s.timeSurvivedSec % 60);
         const timeStr = `${mins}:${secs.toString().padStart(2, '0')}`;
+        const tierBadge = (t?: string) => (t === 'ultimate' ? '✪ ' : t === 'fusion' ? '✦ ' : '');
         const loadoutStr = s.finalLoadout.length > 0
-            ? s.finalLoadout.map(p => `${p.icon} ${p.name} Lv${p.level}`).join('  ')
+            ? s.finalLoadout.map(p => `${tierBadge(p.tier)}${p.icon} ${p.name} Lv${p.level}`).join('  ')
             : '(no powers)';
 
         const statsLines = [

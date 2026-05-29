@@ -103,6 +103,7 @@ export class BasicEnemy extends Enemy {
 
         // Register groups for base-class dispose cleanup (prevents animatable leak).
         this.glbAnimationGroups = inst.animationGroups;
+        this.glbSkeletons = inst.skeletons;
 
         // Categorize all anim clips by name so we can switch between walk/attack/idle.
         for (const ag of inst.animationGroups) ag.stop();

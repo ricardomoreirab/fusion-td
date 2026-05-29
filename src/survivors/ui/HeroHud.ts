@@ -861,8 +861,13 @@ export class HeroHud {
                 this.prevCooldownRemaining[i] = -1;
                 this.slotPulseActive[i] = false;
             } else {
-                const glyph = POWER_GLYPH[slot.def.id] ?? ELEMENT_GLYPH[slot.def.element] ?? '?';
-                const elemColor = ELEMENT_COLOR[slot.def.element] ?? '#fff';
+                const tier = slot.def.tier;
+                const glyph = tier === 'ultimate' ? '✪'
+                    : tier === 'fusion' ? '✦'
+                    : (POWER_GLYPH[slot.def.id] ?? ELEMENT_GLYPH[slot.def.element] ?? '?');
+                const elemColor = tier === 'ultimate' ? '#ffd24d'
+                    : tier === 'fusion' ? '#c060ff'
+                    : (ELEMENT_COLOR[slot.def.element] ?? '#fff');
                 icon.text = glyph;
                 icon.color = elemColor;
                 level.isVisible = slot.state.level > 1;

@@ -1,5 +1,6 @@
 import { Scene, Vector3 } from '@babylonjs/core';
-import { PowerDefinition, PowerRuntimeState, PowerContext, PowerElement, POWER_DEFS } from './PowerDefinitions';
+import { PowerDefinition, PowerRuntimeState, PowerContext, PowerElement } from './PowerDefinitions';
+import { getAnyPowerDef, getFusionFor } from './FusionDefinitions';
 import { Enemy } from '../enemies/Enemy';
 
 export interface PowerSlot {
@@ -47,7 +48,7 @@ export class PowerSlotManager {
 
     /** Add a power by id. Returns false if unknown, true on success (including level-up). */
     public addPower(defId: string): boolean {
-        const def = POWER_DEFS[defId];
+        const def = getAnyPowerDef(defId);
         if (!def) return false;
         if (this.hasPower(defId)) return this.levelUp(defId);
         const idx = this.emptySlotIndex();
@@ -73,10 +74,60 @@ export class PowerSlotManager {
         return true;
     }
 
+    /** Slots whose power has reached its level cap. */
+    public getMaxedSlots(): PowerSlot[] {
+        return this.slots.filter(
+            (s): s is PowerSlot => s !== null && s.state.level >= s.def.maxLevel,
+        );
+    }
+
+    /**
+     * Forge two equipped, level-capped powers into `resultDefId`.
+     * Consumes both parents (disposing their persistent data), inserts the
+     * result at level 1 into one of the freed slots, and runs its init.
+     * Returns false if validation fails (defs missing, not both present & maxed).
+     *
+     * Callers are expected to obtain `resultDefId` from `fusionResultFor(idA, idB)`
+     * (tier-2) or `getUltimatesForClass()` (tier-3). This method does NOT enforce
+     * class/element compatibility between the parents and the result.
+     */
+    public fuse(idA: string, idB: string, resultDefId: string): boolean {
+        if (idA === idB) return false;
+        const idxA = this.slots.findIndex(s => s?.def.id === idA);
+        const idxB = this.slots.findIndex(s => s?.def.id === idB);
+        if (idxA < 0 || idxB < 0 || idxA === idxB) return false;
+        const slotA = this.slots[idxA]!;
+        const slotB = this.slots[idxB]!;
+        if (slotA.state.level < slotA.def.maxLevel) return false;
+        if (slotB.state.level < slotB.def.maxLevel) return false;
+        const resultDef = getAnyPowerDef(resultDefId);
+        if (!resultDef) return false;
+
+        this.disposeSlotData(slotA);
+        this.disposeSlotData(slotB);
+        this.slots[idxB] = null;
+
+        const slot: PowerSlot = {
+            def: resultDef,
+            state: { level: 1, cooldownRemaining: resultDef.baseCooldown },
+        };
+        this.slots[idxA] = slot;
+        if (resultDef.init) {
+            const ctx = this.buildContext();
+            resultDef.init(slot.state, ctx);
+        }
+        return true;
+    }
+
+    /** Convenience: the tier-2 fusion def for two equipped base power ids, or null. */
+    public fusionResultFor(idA: string, idB: string): PowerDefinition | null {
+        return getFusionFor(idA, idB);
+    }
+
     public replaceSlot(index: number, defId: string): boolean {
-        const def = POWER_DEFS[defId];
+        const def = getAnyPowerDef(defId);
         if (!def || index < 0 || index >= this.slots.length) return false;
-        // Dispose blade meshes from the replaced slot if any
+        // Dispose any persistent slot resources (meshes etc.) via the def hook
         this.disposeSlotData(this.slots[index]);
         const slot: PowerSlot = {
             def,
@@ -206,7 +257,7 @@ export class PowerSlotManager {
         return bonus;
     }
 
-    /** Dispose all persistent slot data (blade meshes etc.) */
+    /** Dispose all persistent slot data via each slot's def.dispose hook. */
     public dispose(): void {
         for (const slot of this.slots) {
             this.disposeSlotData(slot);
@@ -225,12 +276,7 @@ export class PowerSlotManager {
     }
 
     private disposeSlotData(slot: PowerSlot | null): void {
-        if (!slot?.state?.data) return;
-        const blades = slot.state.data['blades'] as { mesh: { dispose: () => void } }[] | undefined;
-        if (blades) {
-            for (const b of blades) {
-                try { b.mesh.dispose(); } catch { /* ignore */ }
-            }
-        }
+        if (!slot) return;
+        try { slot.def.dispose?.(slot.state); } catch { /* ignore */ }
     }
 }
