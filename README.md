@@ -67,15 +67,16 @@ npm run build
 
 Output goes to the `dist/` directory.
 
-## Deploying to Vercel
+## Deploying to Cloudflare
+
+The static build (`dist/`) plus the leaderboard Worker (`worker/index.ts`) deploy together via Wrangler:
 
 ```bash
-npm install -g vercel
-vercel login
-vercel --prod
+npx wrangler login   # first time only
+npm run deploy       # builds dist/ then runs `wrangler deploy`
 ```
 
-Or connect the GitHub repository to Vercel for automatic deployments.
+`npm run preview` (`wrangler dev`) serves the assets + Worker + a local D1 database for end-to-end testing. The leaderboard's D1 schema lives in `worker/schema.sql`; apply it with `wrangler d1 execute fusion-td-leaderboard --remote --file=worker/schema.sql`.
 
 ## Project Structure
 

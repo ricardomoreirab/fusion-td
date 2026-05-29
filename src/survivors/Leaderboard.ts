@@ -14,7 +14,9 @@ export async function submitScore(
 ): Promise<{ rank: number } | null> {
     const payload: ScoreSubmission = {
         name,
-        wave: Math.trunc(summary.waveReached),
+        // Clamp to 1: a death before wave 1 starts reports wave 0, which the
+        // server rejects (wave >= 1) and would surface a spurious submit failure.
+        wave: Math.max(1, Math.trunc(summary.waveReached)),
         timeSec: Math.trunc(summary.timeSurvivedSec),
         kills: Math.trunc(summary.kills),
         gold: Math.trunc(summary.goldCollected),
