@@ -6,7 +6,7 @@ import { RunItems, ItemId } from '../../survivors/RunItems';
 import { el } from '../dom';
 import { makePill, PillController } from '../primitives/Pill';
 import { makeIconSlot, IconSlotController } from '../primitives/IconSlot';
-import { flashClass } from '../interaction';
+import { flashClass, onTap } from '../interaction';
 import { cooldownFraction, waveLabel, goldLabel, WaveInfo } from '../format';
 
 // Copied verbatim from HeroHud.ts — keep in sync until HeroHud is deleted.
@@ -28,6 +28,16 @@ const ITEM_COLOR: Record<ItemId, string> = {
 };
 const ITEM_IDS: ItemId[] = ['lifesteal', 'multishotCleave', 'knockback', 'attackSpeed'];
 
+const ULT_DISPLAY: Record<string, { glyph: string; color: string }> = {
+  meteor: { glyph: '☄', color: '#c04010' },
+  frostNova: { glyph: '❄', color: '#3080c0' },
+  whirlwind: { glyph: '\u{1F300}', color: '#4090d0' },
+  smash: { glyph: '\u{1F4A5}', color: '#d06030' },
+  multishot: { glyph: '\u{1F3F9}', color: '#60c060' },
+  explosiveArrow: { glyph: '\u{1F4A2}', color: '#e06030' },
+  dash: { glyph: '➤', color: '#a0a8c0' },
+};
+
 export class Hud {
   private gameUI: GameUI;
   private game: Game | null;
@@ -47,6 +57,9 @@ export class Hud {
   private itemPulse: Record<ItemId, boolean> = {
     lifesteal: false, multishotCleave: false, knockback: false, attackSpeed: false,
   };
+
+  private ultButtons: { root: HTMLDivElement; label: HTMLDivElement; cd: HTMLDivElement; cdText: HTMLDivElement; id: string }[] = [];
+  private ultimateActivators: (() => void)[] = [];
 
   // diff trackers
   private prevHp = -1;
@@ -87,9 +100,44 @@ export class Hud {
     }
     bottomLeft.append(powerRow, itemRow);
     this.root.appendChild(bottomLeft);
+
+    // Bottom-right cluster: ultimate buttons.
+    const bottomRight = el('div', { class: 'hud__cluster hud__cluster--right' });
+    const ultDefs = this.resolveUltimateDefs();
+    for (const def of ultDefs) {
+      const root = el('div', { class: 'ult slot interactive' });
+      root.style.setProperty('--accent', def.color);
+      const label = el('div', { class: 'ult__label', text: def.glyph });
+      const cd = el('div', { class: 'slot__cd' });
+      const cdText = el('div', { class: 'ult__cdtext' });
+      root.append(label, cd, cdText);
+      const activate = () => {
+        if (!this.abilityManager) return;
+        if (this.abilityManager.activate(def.id)) flashClass(root, 'ult--fire');
+      };
+      onTap(root, activate);
+      this.ultimateActivators.push(activate);
+      this.ultButtons.push({ root, label, cd, cdText, id: def.id });
+      bottomRight.appendChild(root);
+    }
+    this.root.appendChild(bottomRight);
   }
 
   setRunItems(runItems: RunItems): void { this.runItems = runItems; }
+
+  private resolveUltimateDefs(): { id: string; glyph: string; color: string }[] {
+    const fallback = [
+      { id: 'meteor', glyph: '☄', color: '#c04010' },
+      { id: 'frostNova', glyph: '❄', color: '#3080c0' },
+    ];
+    if (!this.abilityManager) return fallback;
+    const ids = this.abilityManager.getRegisteredAbilityIds();
+    if (ids.length === 0) return fallback;
+    return ids.map(id => {
+      const meta = ULT_DISPLAY[id];
+      return { id, glyph: meta?.glyph ?? '◉', color: meta?.color ?? '#808080' };
+    });
+  }
 
   update(
     hp: { current: number; max: number },
@@ -154,11 +202,30 @@ export class Hud {
       ui.setLevel(stacks);
       if (this.itemPulse[id]) { ui.pulseReady(); this.itemPulse[id] = false; }
     }
+
+    if (this.abilityManager) {
+      const ids = this.abilityManager.getRegisteredAbilityIds();
+      for (let i = 0; i < this.ultButtons.length; i++) {
+        const btn = this.ultButtons[i];
+        const ability = ids[i] ? this.abilityManager.getAbility(ids[i]) : null;
+        if (!ability) continue;
+        if (ability.isReady) {
+          btn.cd.style.height = '0%';
+          btn.cdText.textContent = '';
+          btn.label.style.opacity = '1';
+        } else {
+          btn.cd.style.height = `${this.cdFraction(ability.currentCooldown, ability.cooldown) * 100}%`;
+          const secs = ability.currentCooldown;
+          btn.cdText.textContent = secs >= 10 ? `${Math.ceil(secs)}` : secs.toFixed(1);
+          btn.label.style.opacity = '0.35';
+        }
+      }
+    }
   }
 
   // Stubs completed in later tasks (kept so the API exists from the start).
   pulseItem(id: ItemId): void { this.itemPulse[id] = true; }
-  triggerUltimateByIndex(_index: number): void { /* Task 16 */ }
+  triggerUltimateByIndex(index: number): void { this.ultimateActivators[index]?.(); }
 
   dispose(): void {
     this.root.remove();
