@@ -596,6 +596,7 @@ export class SurvivorsGameplayState implements GameState {
                 this.hud?.triggerUltimateByIndex(2);
                 kbInfo.event.preventDefault?.(); // stop the browser from scrolling
             }
+            else if (key === 'escape') this.hud?.togglePause();
         });
 
         // Overlays

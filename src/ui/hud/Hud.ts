@@ -132,14 +132,10 @@ export class Hud {
     this.root.appendChild(bottomRight);
 
     // Pause button (top-right, left of gold).
-    const pauseBtn = el('div', { class: 'hud__pause interactive', attrs: { role: 'button' } });
+    const pauseBtn = el('div', { class: 'hud__pause frame frame--lite interactive', attrs: { role: 'button' } });
     this.pauseIcon = el('div', { class: 'hud__pause-icon', text: '⏸' });
     pauseBtn.appendChild(this.pauseIcon);
-    onTap(pauseBtn, () => {
-      if (!this.game) return;
-      this.game.togglePause();
-      this.pauseIcon.textContent = this.game.getIsPaused() ? '▶' : '⏸';
-    });
+    onTap(pauseBtn, () => this.togglePause());
     this.root.appendChild(pauseBtn);
 
     // Low-HP vignette lives on the fx layer.
@@ -148,6 +144,15 @@ export class Hud {
   }
 
   setRunItems(runItems: RunItems): void { this.runItems = runItems; }
+
+  /** Toggle pause and keep the button glyph in sync. Safe to call from a key
+      handler (ESC) — the game-update loop is frozen while paused, so the icon
+      must be synced here rather than in update(). */
+  togglePause(): void {
+    if (!this.game) return;
+    this.game.togglePause();
+    this.pauseIcon.textContent = this.game.getIsPaused() ? '▶' : '⏸';
+  }
 
   private resolveUltimateDefs(): { id: string; glyph: string; color: string }[] {
     const fallback = [

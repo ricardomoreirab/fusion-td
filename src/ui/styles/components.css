@@ -216,15 +216,15 @@
 
 /* ── Pause button + vignette ─────────────────────────────── */
 .hud__pause {
+  /* Uses .frame--lite for the forged background/border/bevel, matching the
+     gold & wave pills. This rule only handles placement, size, and shape. */
   position: absolute;
   top: 0;
   right: clamp(100px, 22vw, 130px); /* clears the gold pill */
   width: clamp(30px, 5vw, 36px);
   height: clamp(30px, 5vw, 36px);
   display: flex; align-items: center; justify-content: center;
-  border-radius: var(--r-pill);
-  background: linear-gradient(180deg, rgba(36,28,18,.8), rgba(14,11,8,.8));
-  border: 1px solid var(--c-gold);
+  border-radius: var(--r-sm);
   cursor: pointer;
 }
 .hud__pause-icon { font-size: clamp(14px, 2.6vw, 18px); color: var(--c-parchment); }
