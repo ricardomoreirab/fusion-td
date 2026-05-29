@@ -281,6 +281,15 @@ export class SurvivorsGameplayState implements GameState {
     private async startRun(championType: string): Promise<void> {
         if (!this.scene || !this.ui || !this.map) return;
 
+        // The pre-game flow (main menu + champion select) is all DOM, so the
+        // canvas never received keyboard focus — WASD would be dead until the
+        // player clicked the scene. Focus it now that the run is starting.
+        // tabIndex -1 (set only if Babylon didn't already make it focusable)
+        // keeps it programmatically focusable without entering the Tab order.
+        const canvas = this.game.getCanvas();
+        if (!canvas.hasAttribute('tabindex')) canvas.tabIndex = -1;
+        canvas.focus();
+
         // Await the picked champion's GLB if one exists. No-op for champion types without
         // a GLB; instant if the preload already finished. On failure we fall through with
         // null and Champion uses the procedural builder.
