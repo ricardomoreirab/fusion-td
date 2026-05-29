@@ -1096,6 +1096,48 @@ export class Enemy {
     }
 
     /**
+     * Release this enemy's GPU/scene resources: stop + dispose the GLB-cloned
+     * AnimationGroups, dispose the per-instance (cloned) materials, then dispose
+     * the mesh. Shared by die() (normal in-wave death) and dispose() (teardown)
+     * so a death frees exactly what a teardown does.
+     *
+     * mesh.dispose() alone does NOT stop the cloned AnimationGroups and does NOT
+     * dispose cloned materials. Disposing only the mesh on death therefore leaked
+     * tens of bone animatables (ticked forever) plus materials per kill —
+     * scene._activeAnimatables climbed into the thousands with only a few enemies
+     * alive, producing multi-second stop-the-world freezes by wave 4+.
+     */
+    private _releaseMeshAndAnimations(): void {
+        // Stop + dispose every AnimationGroup that GLB instantiation cloned for
+        // this enemy, or the animatables keep running every frame after the mesh
+        // is gone.
+        for (const ag of this.glbAnimationGroups) {
+            try { ag.stop(); } catch (_) { /* already stopped */ }
+            try { ag.dispose(); } catch (_) { /* already disposed */ }
+        }
+        this.glbAnimationGroups.length = 0;
+
+        if (this.mesh) {
+            // Dispose per-instance materials (cloned via instantiateModelsToScene
+            // with cloneMaterials=true) but NOT their textures. The textures are
+            // shared with the source AssetContainer — disposing them was nulling
+            // bone-matrix RawTextures on the source skeleton, crashing the next
+            // instantiateModelsToScene (e.g. after death → re-pick champion)
+            // inside Mesh.clone → Skeleton.prepare.
+            const allMeshes = [this.mesh, ...this.mesh.getChildMeshes(false)];
+            for (const m of allMeshes) {
+                const mat = m.material;
+                if (mat) {
+                    m.material = null;
+                    try { mat.dispose(false, false); } catch (_) { /* already disposed */ }
+                }
+            }
+            this.mesh.dispose();
+            this.mesh = null;
+        }
+    }
+
+    /**
      * Handle enemy death
      */
     protected die(): void {
@@ -1114,12 +1156,10 @@ export class Enemy {
         // leaving any SHARED (cached) material stuck on HIT_TINT for other enemies.
         this._restoreFlash();
 
-        // Remove from scene
-        if (this.mesh) {
-            this.mesh.dispose();
-            this.mesh = null;
-        }
-        
+        // Release the mesh together with its cloned AnimationGroups + per-instance
+        // materials. Disposing the mesh alone leaks both (the wave-N freeze).
+        this._releaseMeshAndAnimations();
+
         // Remove health bar (handles segments + boss label too)
         this._disposeHealthBarMeshes();
 
@@ -1250,34 +1290,9 @@ export class Enemy {
         // shared cached material isn't left stuck on HIT_TINT.
         this._restoreFlash();
 
-        // Stop + dispose every AnimationGroup that GLB instantiation cloned
-        // for this enemy. Without this the animatables keep running every
-        // frame even though the mesh is gone — the dominant leak that made
-        // scene._activeAnimatables grow to ~1900 with only a few enemies alive.
-        for (const ag of this.glbAnimationGroups) {
-            try { ag.stop(); } catch (_) { /* already stopped */ }
-            try { ag.dispose(); } catch (_) { /* already disposed */ }
-        }
-        this.glbAnimationGroups.length = 0;
-
-        if (this.mesh) {
-            // Dispose per-instance materials (cloned via instantiateModelsToScene
-            // with cloneMaterials=true) but NOT their textures. The textures are
-            // shared with the source AssetContainer — disposing them was nulling
-            // bone-matrix RawTextures on the source skeleton, crashing the next
-            // instantiateModelsToScene (e.g. after death → re-pick champion)
-            // inside Mesh.clone → Skeleton.prepare.
-            const allMeshes = [this.mesh, ...this.mesh.getChildMeshes(false)];
-            for (const m of allMeshes) {
-                const mat = m.material;
-                if (mat) {
-                    m.material = null;
-                    try { mat.dispose(false, false); } catch (_) { /* already disposed */ }
-                }
-            }
-            this.mesh.dispose();
-            this.mesh = null;
-        }
+        // Release the mesh together with its cloned AnimationGroups + per-instance
+        // materials (shared with die() so a kill frees the same resources).
+        this._releaseMeshAndAnimations();
 
         // Health bar materials are per-enemy `new StandardMaterial(...)` allocations
         // (see createHealthBar). Dispose them explicitly along with their meshes.
