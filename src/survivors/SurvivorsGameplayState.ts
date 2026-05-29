@@ -1,4 +1,4 @@
-import { Scene, Vector3, Color3, Color4, DirectionalLight, AssetContainer, LoadAssetContainerAsync, CubeTexture, Texture, MeshBuilder, Mesh, BackgroundMaterial, ShadowGenerator, KeyboardEventTypes } from '@babylonjs/core';
+import { Scene, Vector3, Color3, Color4, DirectionalLight, AssetContainer, LoadAssetContainerAsync, CubeTexture, Texture, MeshBuilder, Mesh, BackgroundMaterial, ShadowGenerator, KeyboardEventTypes, StandardMaterial } from '@babylonjs/core';
 import '@babylonjs/loaders/glTF';
 import { AdvancedDynamicTexture } from '@babylonjs/gui';
 import { Game } from '../engine/Game';
@@ -11,8 +11,9 @@ import { EnemyManager } from './enemies/EnemyManager';
 import { WaveManager } from './WaveManager';
 import { PlayerStats } from './PlayerStats';
 import { PowerDrop } from './powers/PowerDrop';
-import { PowerSlotManager } from './powers/PowerSlotManager';
-import { POWER_DEFS, getPowerByElementAndClass, getPowerMapForClass, PowerElement, ChampionType } from './powers/PowerDefinitions';
+import { PowerSlotManager, PowerSlot } from './powers/PowerSlotManager';
+import { POWER_DEFS, getPowerByElementAndClass, getPowerMapForClass, PowerElement, ChampionType, PowerDefinition } from './powers/PowerDefinitions';
+import { getFusionFor, getUltimatesForClass } from './powers/FusionDefinitions';
 import { Enemy } from './enemies/Enemy';
 import { BasicAttackTarget } from './champions/HeroBasicAttack';
 import { PowerChoiceOverlay, PowerCard } from './ui/PowerChoiceOverlay';
@@ -1039,110 +1040,188 @@ export class SurvivorsGameplayState implements GameState {
     // ─────────────────────────────────────────────────────────────────────────
 
     private onOrbPickup(element: string): void {
-        // Hidden mechanic: every orb collected makes future enemy spawns +5%
-        // tougher (additive, per-run). Applied BEFORE the overlay guards so
-        // the penalty triggers on physical collection even in the rare case
-        // an overlay is already up and the choice flow gets skipped.
+        // Hidden mechanic: every orb collected makes future spawns +5% tougher.
         this.enemyManager?.addOrbHpBonus(0.05);
 
         if (!this.powerSlots || !this.powerChoice || !this.playerStats) return;
-
-        // Don't open if another overlay is already up
         if (this.powerChoice.isOpen() || this.replaceSlotOverlay?.isOpen()) return;
 
-        const orbDef = getPowerByElementAndClass(element as PowerElement, this.currentChampionType) ?? Object.values(POWER_DEFS)[0];
-        const cards: PowerCard[] = [];
-
-        // Helper: build a "Lv X→Y · Dmg A→B · CD A.A s→B.Bs" subtitle for an upgrade.
-        // Passive enchantments (barbarian) have no damage/cooldown — they show the
-        // per-level effect description instead.
-        const upgradeSubtitle = (def: typeof orbDef, fromLevel: number): string => {
-            const next = fromLevel + 1;
-            if (def.mode === 'passive' && def.description) {
-                return `Lv ${fromLevel} → ${next}  ·  ${def.description(next)}`;
+        // Fusion / ultimate offers take priority over the normal cards.
+        const fusionCards = this.buildFusionOfferCards();
+        if (fusionCards && fusionCards.length > 0) {
+            const cards = fusionCards.slice(0, 3);
+            // Tier-2 fusion offers leave room for one normal upgrade; ultimate
+            // offers (3 choices) fill the row themselves.
+            if (cards[0].kind === 'fusion' && cards.length < 3) {
+                const fill = this.buildOrbUpgradeCard(element) ?? this.buildWildcardCard(element);
+                if (fill) cards.push(fill);
             }
-            const curState  = { level: fromLevel, cooldownRemaining: 0 };
-            const nextState = { level: next,     cooldownRemaining: 0 };
-            const curDmg  = Math.round(def.damageFor(curState));
-            const nextDmg = Math.round(def.damageFor(nextState));
-            const curCd   = def.cooldownFor(curState).toFixed(1);
-            const nextCd  = def.cooldownFor(nextState).toFixed(1);
-            return `Lv ${fromLevel} → ${next}  ·  Dmg ${curDmg}→${nextDmg}  ·  CD ${curCd}s→${nextCd}s`;
-        };
-        // Helper: subtitle for a freshly-added power (no current values yet).
-        const newPowerSubtitle = (def: typeof orbDef): string => {
-            if (def.mode === 'passive' && def.description) {
-                return `New  ·  ${def.description(1)}`;
-            }
-            const state = { level: 1, cooldownRemaining: 0 };
-            const dmg = Math.round(def.damageFor(state));
-            const cd  = def.cooldownFor(state).toFixed(1);
-            return `New  ·  Dmg ${dmg}  ·  CD ${cd}s`;
-        };
-
-        // Card A: the orb's power
-        const owned     = this.powerSlots.hasPower(orbDef.id);
-        const slotData  = this.powerSlots.getSlots().find(s => s?.def.id === orbDef.id);
-        const slotsFull = this.powerSlots.emptySlotIndex() < 0;
-
-        cards.push({
-            kind:     'power',
-            title:    orbDef.name,
-            subtitle: owned
-                ? upgradeSubtitle(orbDef, slotData!.state.level)
-                : slotsFull ? `${newPowerSubtitle(orbDef)} (replace slot)` : newPowerSubtitle(orbDef),
-            onPick: () => {
-                if (owned) {
-                    this.powerSlots!.levelUp(orbDef.id);
-                } else if (slotsFull) {
-                    // Open replace-slot secondary prompt (after choice overlay closes)
-                    this.openReplacePrompt(orbDef.id);
-                } else {
-                    this.powerSlots!.addPower(orbDef.id);
-                }
-            },
-        });
-
-        // Card B: wildcard — random upgrade of another owned power, or another new power
-        const ownedSlots = this.powerSlots
-            .getSlots()
-            .filter((s): s is NonNullable<typeof s> => s !== null && s.def.id !== orbDef.id);
-
-        if (ownedSlots.length > 0) {
-            const target = ownedSlots[Math.floor(Math.random() * ownedSlots.length)];
-            cards.push({
-                kind:     'wildcard',
-                title:    target.def.name,
-                subtitle: upgradeSubtitle(target.def, target.state.level),
-                onPick: () => this.powerSlots!.levelUp(target.def.id),
-            });
-        } else {
-            // Offer a random class-specific power the player doesn't already own
-            const classMap = getPowerMapForClass(this.currentChampionType);
-            const classPowerIds = Object.values(classMap).filter(id => id !== orbDef.id && !this.powerSlots!.hasPower(id));
-            const altId = classPowerIds.length > 0
-                ? classPowerIds[Math.floor(Math.random() * classPowerIds.length)]
-                : Object.values(classMap).filter(id => id !== orbDef.id)[0];
-            const altDef = POWER_DEFS[altId];
-            cards.push({
-                kind:     'wildcard',
-                title:    altDef.name,
-                subtitle: newPowerSubtitle(altDef),
-                onPick: () => this.powerSlots!.addPower(altDef.id),
-            });
+            // Backstop: never present a lone card — pad with perks (a perk is
+            // always a valid pick) so the offer row stays usable.
+            while (cards.length < 2) cards.push(this.buildPerkCard());
+            this.showChoiceCards(cards);
+            return;
         }
 
-        // Card C: run perk
-        const perks = [
-            {
-                title: '+5% Damage',
-                apply: () => { this.runPerks.damageMultiplier *= 1.05; },
+        // Normal flow: power upgrade + wildcard + perk. cardA/cardB may be null
+        // in late-game corners (owned+maxed, all powers owned) — pad with perks
+        // so the player always sees a full 3-card row, as the old flow did.
+        const cards: PowerCard[] = [];
+        const cardA = this.buildOrbUpgradeCard(element);
+        if (cardA) cards.push(cardA);
+        const cardB = this.buildWildcardCard(element);
+        if (cardB) cards.push(cardB);
+        cards.push(this.buildPerkCard());
+        while (cards.length < 3) cards.push(this.buildPerkCard());
+        this.showChoiceCards(cards);
+    }
+
+    /**
+     * Tier-3 (two maxed fusions → choose 1 of 3 class ultimates) takes priority
+     * over tier-2 (two maxed base powers → fuse). Returns null when no offer.
+     */
+    private buildFusionOfferCards(): PowerCard[] | null {
+        if (!this.powerSlots) return null;
+        const maxed = this.powerSlots.getMaxedSlots();
+
+        const maxedFusions = maxed.filter(s => s.def.tier === 'fusion');
+        if (maxedFusions.length >= 2) {
+            const a = maxedFusions[0];
+            const b = maxedFusions[1];
+            const ults = getUltimatesForClass(this.currentChampionType);
+            const cards = ults.map((ult): PowerCard => ({
+                kind: 'ultimate',
+                title: ult.name,
+                subtitle: `ULTIMATE  ·  forge from ${a.def.name} + ${b.def.name}`,
+                element: ult.element,
+                onPick: () => {
+                    this.powerSlots!.fuse(a.def.id, b.def.id, ult.id);
+                    this.playForgeVfx(true);
+                },
+            }));
+            return cards.length > 0 ? cards : null;
+        }
+
+        const maxedBase = maxed.filter(s => (s.def.tier ?? 'base') === 'base');
+        if (maxedBase.length >= 2) {
+            const cards: PowerCard[] = [];
+            for (let i = 0; i < maxedBase.length && cards.length < 2; i++) {
+                for (let j = i + 1; j < maxedBase.length && cards.length < 2; j++) {
+                    const aSlot = maxedBase[i];
+                    const bSlot = maxedBase[j];
+                    const fdef = getFusionFor(aSlot.def.id, bSlot.def.id);
+                    if (!fdef) continue;
+                    cards.push({
+                        kind: 'fusion',
+                        title: fdef.name,
+                        subtitle: `FUSE  ·  ${aSlot.def.name} + ${bSlot.def.name}`,
+                        element: fdef.element,
+                        onPick: () => {
+                            this.powerSlots!.fuse(aSlot.def.id, bSlot.def.id, fdef.id);
+                            this.playForgeVfx(false);
+                        },
+                    });
+                }
+            }
+            return cards.length > 0 ? cards : null;
+        }
+
+        return null;
+    }
+
+    /**
+     * Owned, non-maxed slot that contains `element` (a fusion/ultimate counts if
+     * it lists the element). Prefers the lowest tier so a fresh fusion levels
+     * before an any-element ultimate hogs every orb.
+     */
+    private getOwnedSlotForElement(element: string): PowerSlot | null {
+        if (!this.powerSlots) return null;
+        const rank = (t?: string) => (t === 'ultimate' ? 2 : t === 'fusion' ? 1 : 0);
+        let best: PowerSlot | null = null;
+        for (const s of this.powerSlots.getSlots()) {
+            if (!s) continue;
+            if (s.state.level >= s.def.maxLevel) continue;
+            const elems = s.def.elements ?? [s.def.element];
+            if (!elems.includes(element as PowerElement)) continue;
+            if (!best || rank(s.def.tier) < rank(best.def.tier)) best = s;
+        }
+        return best;
+    }
+
+    /** Card A: level the owned power for this element, or add the base power. */
+    private buildOrbUpgradeCard(element: string): PowerCard | null {
+        if (!this.powerSlots) return null;
+        const owned = this.getOwnedSlotForElement(element);
+        if (owned) {
+            const def = owned.def;
+            const lvl = owned.state.level;
+            return {
+                kind: 'power',
+                title: def.name,
+                element: def.element,
+                subtitle: this.upgradeSubtitle(def, lvl),
+                onPick: () => this.powerSlots!.levelUp(def.id),
+            };
+        }
+        const orbDef = getPowerByElementAndClass(element as PowerElement, this.currentChampionType)
+            ?? Object.values(POWER_DEFS)[0];
+        // Owned but maxed (and no fusion partner) → no useful upgrade card.
+        if (this.powerSlots.hasPower(orbDef.id)) return null;
+        const slotsFull = this.powerSlots.emptySlotIndex() < 0;
+        return {
+            kind: 'power',
+            title: orbDef.name,
+            element: orbDef.element,
+            subtitle: slotsFull ? `${this.newPowerSubtitle(orbDef)} (replace slot)` : this.newPowerSubtitle(orbDef),
+            onPick: () => {
+                if (slotsFull) this.openReplacePrompt(orbDef.id);
+                else this.powerSlots!.addPower(orbDef.id);
             },
+        };
+    }
+
+    /** Card B: upgrade a random other owned power, or offer a new class power. */
+    private buildWildcardCard(element: string): PowerCard | null {
+        if (!this.powerSlots) return null;
+        const orbDefId = (getPowerByElementAndClass(element as PowerElement, this.currentChampionType)
+            ?? Object.values(POWER_DEFS)[0]).id;
+        const ownedSlots = this.powerSlots.getSlots().filter(
+            (s): s is PowerSlot => s !== null && s.def.id !== orbDefId && s.state.level < s.def.maxLevel,
+        );
+        if (ownedSlots.length > 0) {
+            const target = ownedSlots[Math.floor(Math.random() * ownedSlots.length)];
+            return {
+                kind: 'wildcard',
+                title: target.def.name,
+                element: target.def.element,
+                subtitle: this.upgradeSubtitle(target.def, target.state.level),
+                onPick: () => this.powerSlots!.levelUp(target.def.id),
+            };
+        }
+        const classMap = getPowerMapForClass(this.currentChampionType);
+        const classPowerIds = Object.values(classMap).filter(id => id !== orbDefId && !this.powerSlots!.hasPower(id));
+        if (classPowerIds.length === 0) return null;
+        const altDef = POWER_DEFS[classPowerIds[Math.floor(Math.random() * classPowerIds.length)]];
+        return {
+            kind: 'wildcard',
+            title: altDef.name,
+            element: altDef.element,
+            subtitle: this.newPowerSubtitle(altDef),
+            onPick: () => {
+                if (this.powerSlots!.emptySlotIndex() < 0) this.openReplacePrompt(altDef.id);
+                else this.powerSlots!.addPower(altDef.id);
+            },
+        };
+    }
+
+    /** Card C: a random run perk. */
+    private buildPerkCard(): PowerCard {
+        const perks = [
+            { title: '+5% Damage', apply: () => { this.runPerks.damageMultiplier *= 1.05; } },
             {
                 title: '+5% Move Speed',
                 apply: () => {
                     this.runPerks.moveSpeedMultiplier *= 1.05;
-                    // Apply immediately to hero controller
                     if (this.heroController && this.playerStats) {
                         this.heroController.updateMoveSpeed(
                             this.playerStats.moveSpeedMultiplier * this.runPerks.moveSpeedMultiplier,
@@ -1163,31 +1242,82 @@ export class SurvivorsGameplayState implements GameState {
             },
         ];
         const perk = perks[Math.floor(Math.random() * perks.length)];
-        cards.push({
-            kind:     'perk',
-            title:    perk.title,
-            subtitle: 'This run',
-            onPick:   perk.apply,
-        });
+        return { kind: 'perk', title: perk.title, subtitle: 'This run', onPick: perk.apply };
+    }
 
-        // Every orb pickup grants a small global power bump on top of the chosen
-        // card's effect, so any pick feels universally stronger (not just one
-        // spell scaling). User explicitly asked for global, card-independent power.
+    /** "Lv X→Y · Dmg A→B · CD a→b" (or per-level description for passives/fusions). */
+    private upgradeSubtitle(def: PowerDefinition, fromLevel: number): string {
+        const next = fromLevel + 1;
+        if ((def.mode === 'passive' || def.tier === 'fusion') && def.description) {
+            return `Lv ${fromLevel} → ${next}  ·  ${def.description(next)}`;
+        }
+        const curState = { level: fromLevel, cooldownRemaining: 0 };
+        const nextState = { level: next, cooldownRemaining: 0 };
+        const curDmg = Math.round(def.damageFor(curState));
+        const nextDmg = Math.round(def.damageFor(nextState));
+        const curCd = def.cooldownFor(curState).toFixed(1);
+        const nextCd = def.cooldownFor(nextState).toFixed(1);
+        return `Lv ${fromLevel} → ${next}  ·  Dmg ${curDmg}→${nextDmg}  ·  CD ${curCd}s→${nextCd}s`;
+    }
+
+    /** Subtitle for a freshly-added power. */
+    private newPowerSubtitle(def: PowerDefinition): string {
+        if (def.mode === 'passive' && def.description) {
+            return `New  ·  ${def.description(1)}`;
+        }
+        const state = { level: 1, cooldownRemaining: 0 };
+        const dmg = Math.round(def.damageFor(state));
+        const cd = def.cooldownFor(state).toFixed(1);
+        return `New  ·  Dmg ${dmg}  ·  CD ${cd}s`;
+    }
+
+    /** Apply the per-pickup global power bump to every card, then show. */
+    private showChoiceCards(cards: PowerCard[]): void {
+        if (!this.powerChoice || !this.playerStats) return;
         const GLOBAL_POWER_BUMP = 1.06;
         for (const card of cards) {
-            const cardPick = card.onPick;
+            const pick = card.onPick;
             card.onPick = () => {
-                cardPick();
+                pick();
                 this.runPerks.damageMultiplier *= GLOBAL_POWER_BUMP;
             };
         }
-
-        // Pause game while overlay is open (handled by isPausedForOverlay in update)
         this.powerChoice.show(
             cards,
-            () => this.playerStats!.addGold(25), // cancel → +25 gold
-            () => {},                            // onClosed → nothing (pause auto-lifts)
+            () => this.playerStats!.addGold(25),
+            () => {},
         );
+    }
+
+    /** Brief expanding burst at the hero + camera shake when forging. */
+    private playForgeVfx(isUltimate: boolean): void {
+        this.heroController?.triggerScreenShake(isUltimate ? 0.5 : 0.25);
+        if (!this.scene || !this.hero) return;
+        const scene = this.scene;
+        const pos = this.hero.getPosition().clone();
+        pos.y = 1.2;
+        const color = isUltimate ? new Color3(1, 0.9, 0.4) : new Color3(0.75, 0.45, 1);
+        const burst = MeshBuilder.CreateSphere('forgeBurst', { diameter: 0.6, segments: 8 }, scene);
+        burst.position.copyFrom(pos);
+        const mat = new StandardMaterial('forgeBurstMat_' + Math.random(), scene);
+        mat.emissiveColor = color;
+        mat.diffuseColor = new Color3(0, 0, 0);
+        mat.alpha = 0.9;
+        burst.material = mat;
+        const lifeS = isUltimate ? 0.7 : 0.5;
+        let elapsed = 0;
+        const obs = scene.onBeforeRenderObservable.add(() => {
+            const dt = scene.getEngine().getDeltaTime() / 1000;
+            elapsed += dt;
+            const t = Math.min(elapsed / lifeS, 1);
+            burst.scaling.setAll(0.6 + t * (isUltimate ? 10 : 6));
+            mat.alpha = 0.9 * (1 - t);
+            if (t >= 1) {
+                burst.dispose();
+                mat.dispose();
+                scene.onBeforeRenderObservable.remove(obs);
+            }
+        });
     }
 
     private openReplacePrompt(newPowerId: string): void {
