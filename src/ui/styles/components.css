@@ -249,6 +249,14 @@
   background: rgba(0, 0, 0, 0.65);
   padding: var(--s-4);
 }
+/* Opaque themed backdrop (champion select) — fully hides the scene behind,
+   matching the menu/loading palette, so asset loading isn't visible. */
+.modal-scrim--solid {
+  background:
+    radial-gradient(60% 50% at 50% 38%, rgba(120, 30, 20, 0.25), transparent 70%),
+    radial-gradient(50% 30% at 50% 10%, rgba(60, 100, 30, 0.10), transparent 70%),
+    var(--c-void);
+}
 .modal-panel {
   max-width: min(680px, 92vw);
   max-height: 92vh;

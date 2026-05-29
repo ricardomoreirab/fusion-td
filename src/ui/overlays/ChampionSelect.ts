@@ -35,6 +35,9 @@ export class ChampionSelectOverlay {
         this.close();
 
         const modal = makeModal({ title: 'Choose Your Champion' });
+        // Opaque themed backdrop so the arena / champion assets loading behind
+        // the picker aren't visible (other overlays keep the see-through scrim).
+        modal.root.classList.add('modal-scrim--solid');
 
         const choices = el('div', { class: 'modal-choices' });
         for (const opt of options) {
