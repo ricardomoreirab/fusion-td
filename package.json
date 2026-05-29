@@ -6,7 +6,6 @@
   "scripts": {
     "start": "webpack serve --open",
     "build": "webpack --mode production",
-    "vercel-build": "webpack --mode production",
     "dev": "webpack serve --open",
     "deploy": "npm run build && wrangler deploy",
     "preview": "wrangler dev",
