@@ -1,1 +1,32 @@
 /* Component styles are appended by later tasks. */
+
+/* ── Frame ───────────────────────────────────────────────── */
+.frame {
+  --accent: var(--c-gold);
+  position: relative;
+  box-sizing: border-box;
+}
+.frame--ornate {
+  background: linear-gradient(180deg, var(--c-stone-700), var(--c-stone-900));
+  border: 2px solid var(--c-gold);
+  border-radius: var(--r-md);
+  box-shadow: var(--bevel-ornate);
+}
+.frame--ornate::before,
+.frame--ornate::after {
+  content: '';
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--c-gold-hi);
+  opacity: 0.85;
+  pointer-events: none;
+}
+.frame--ornate::before { top: 5px; left: 5px; border-right: none; border-bottom: none; }
+.frame--ornate::after { bottom: 5px; right: 5px; border-left: none; border-top: none; }
+.frame--lite {
+  background: linear-gradient(180deg, rgba(36, 28, 18, 0.72), rgba(14, 11, 8, 0.72));
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: var(--r-sm);
+  box-shadow: var(--bevel-lite);
+}
