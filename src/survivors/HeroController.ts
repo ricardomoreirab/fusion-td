@@ -174,6 +174,15 @@ export class HeroController {
     }
 
     /**
+     * Trigger a camera shake of the given duration (seconds). Larger durations
+     * read as stronger shakes because the magnitude scales with
+     * remaining / CAMERA_SHAKE_DURATION_S. Used for fusion/ultimate forges.
+     */
+    public triggerScreenShake(durationS: number = 0.3): void {
+        this.cameraShakeTimeRemaining = Math.max(this.cameraShakeTimeRemaining, durationS);
+    }
+
+    /**
      * Fire the four damage-feedback effects (red flash, blood burst, camera shake,
      * knockback). Rate-limited to once per HIT_REACTION_COOLDOWN_S so per-frame
      * contact damage doesn't produce a permanent strobe.
