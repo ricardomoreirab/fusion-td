@@ -22,7 +22,7 @@ import { BetweenWaveShopOverlay, ShopItem } from './ui/BetweenWaveShopOverlay';
 import { Hud } from '../ui/hud/Hud';
 import { GameUI } from '../ui/GameUI';
 import { OffscreenEnemyIndicators } from './ui/OffscreenEnemyIndicators';
-import { ChampionSelectOverlay, ChampionOption } from './ui/ChampionSelectOverlay';
+import { ChampionSelectOverlay, ChampionOption } from '../ui/overlays/ChampionSelect';
 import { GameOverState, SurvivorsRunSummary } from '../game-over/GameOverState';
 import { AbilityManager } from './abilities/AbilityManager';
 import { DamageNumberManager } from './DamageNumberManager';
@@ -240,7 +240,7 @@ export class SurvivorsGameplayState implements GameState {
         this.gameUI = new GameUI();
 
         // Show champion select; actual run starts when player picks
-        this.championSelect = new ChampionSelectOverlay(this.ui);
+        this.championSelect = new ChampionSelectOverlay(this.gameUI!.layer('overlay'));
         const championOptions: ChampionOption[] = [
             {
                 type: 'barbarian',

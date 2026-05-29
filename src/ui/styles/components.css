@@ -308,3 +308,4 @@
   font-family: var(--ff-body); font-size: var(--fs-200);
   color: var(--c-parchment-dim); text-align: center; line-height: 1.35;
 }
+.choice-card__sub { white-space: pre-line; }
