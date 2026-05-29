@@ -1,9 +1,12 @@
 import { Scene } from '@babylonjs/core';
-import { AdvancedDynamicTexture, Button, Control, TextBlock, Rectangle } from '@babylonjs/gui';
+import { AdvancedDynamicTexture, Button, Control, TextBlock, Rectangle, InputText } from '@babylonjs/gui';
 import { Game } from '../engine/Game';
 import { GameState } from '../engine/GameState';
 import { PlayerStats } from '../survivors/PlayerStats';
 import { makeFrame, addPressFeedback, tryHaptic, STYLE } from '../shared/ui/HudStyle';
+import { GameSettings } from '../shared/GameSettings';
+import { submitScore } from '../survivors/Leaderboard';
+import { LeaderboardPanel } from '../shared/ui/LeaderboardPanel';
 
 export interface SurvivorsRunSummary {
     waveReached: number;
@@ -359,5 +362,88 @@ export class GameOverState implements GameState {
             this.game.getStateManager().changeState('menu');
         });
         this.ui.addControl(menuBtn);
+
+        this.addLeaderboardSection(isMobile, isLandscape);
+    }
+
+    /**
+     * Bottom-anchored leaderboard submit row: a name field (pre-filled from the
+     * last-used name) + a submit button. On success the button becomes a
+     * "RANKED #N — VIEW BOARD" action that opens the full panel. Anchored to the
+     * screen bottom so it never collides with the centered stats/buttons stack.
+     */
+    private addLeaderboardSection(isMobile: boolean, isLandscape: boolean): void {
+        if (!this.ui || !this.survivorsSummary) return;
+        const summary = this.survivorsSummary;
+
+        const fieldWidthPx = isLandscape ? 200 : (isMobile ? 240 : 280);
+        const rowHeightPx = isLandscape ? 34 : (isMobile ? 44 : 48);
+        const fontSize = isLandscape ? 14 : (isMobile ? 16 : 18);
+        const nameTop = isLandscape ? -92 : (isMobile ? -150 : -172);
+        const submitTop = isLandscape ? -50 : (isMobile ? -98 : -112);
+
+        const nameInput = new InputText('lbName');
+        nameInput.width = `${fieldWidthPx}px`;
+        nameInput.height = `${rowHeightPx}px`;
+        nameInput.text = GameSettings.getLeaderboardName();
+        nameInput.placeholderText = 'Enter your name';
+        nameInput.placeholderColor = '#888';
+        nameInput.color = '#FFFFFF';
+        nameInput.background = STYLE.panelBg;
+        nameInput.focusedBackground = STYLE.panelBg;
+        nameInput.fontSize = fontSize;
+        nameInput.fontFamily = 'Arial';
+        nameInput.thickness = 2;
+        nameInput.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        nameInput.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        nameInput.top = `${nameTop}px`;
+        this.ui.addControl(nameInput);
+
+        const submitBtn = makeFrame({ name: 'lbSubmit', sizePx: fieldWidthPx, color: '#F5A623', cornerRadius: 10 });
+        submitBtn.width = `${fieldWidthPx}px`;
+        submitBtn.height = `${rowHeightPx}px`;
+        submitBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        submitBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        submitBtn.top = `${submitTop}px`;
+        const submitLabel = new TextBlock('lbSubmitLabel', '🏆 SUBMIT SCORE');
+        submitLabel.color = '#FFFFFF';
+        submitLabel.fontSize = fontSize;
+        submitLabel.fontWeight = 'bold';
+        submitLabel.fontFamily = 'Arial';
+        submitBtn.addControl(submitLabel);
+        this.ui.addControl(submitBtn);
+
+        let submitted = false;
+        addPressFeedback(submitBtn, () => {
+            if (submitted) {
+                this.openLeaderboard();
+                return;
+            }
+            const name = nameInput.text.trim();
+            if (name.length === 0) {
+                submitLabel.text = 'ENTER A NAME FIRST';
+                return;
+            }
+            GameSettings.setLeaderboardName(name);
+            submitLabel.text = 'SUBMITTING…';
+            submitBtn.isEnabled = false; // block double-taps from posting duplicate rows
+            void submitScore(summary, name).then((result) => {
+                if (!this.ui) return; // screen exited mid-submit — controls are disposed
+                submitBtn.isEnabled = true;
+                if (result) {
+                    submitted = true;
+                    submitLabel.text = `RANKED #${result.rank} — VIEW BOARD`;
+                    nameInput.isVisible = false;
+                } else {
+                    submitLabel.text = 'FAILED — TAP TO RETRY';
+                }
+            });
+        });
+    }
+
+    private openLeaderboard(): void {
+        if (!this.ui) return;
+        const panel = new LeaderboardPanel(this.ui, () => { /* closed — nothing to restore */ });
+        void panel.open();
     }
 }
