@@ -28,6 +28,7 @@ import { AbilityManager } from './abilities/AbilityManager';
 import { DamageNumberManager } from './DamageNumberManager';
 import { RunItems, ItemId } from './RunItems';
 import { ItemDrop } from './ItemDrop';
+import { DifficultyTuning } from './DifficultyTuning';
 import { createProceduralGrass } from '../engine/rendering/ProceduralGrass';
 import { GameSettings, bladeCountForQuality } from '../shared/GameSettings';
 
@@ -316,6 +317,11 @@ export class SurvivorsGameplayState implements GameState {
         };
         const variant = variants[championType] ?? variants['barbarian'];
 
+        // Difficulty rebalance: shave hero starting HP (~-8%) so the "more
+        // incoming damage" axis bites. Multiplier (not flat) preserves the
+        // per-champion HP spread (barb 140 / ranger 90 / mage 80).
+        const heroHp = Math.round(variant.hp * DifficultyTuning.playerHpMult);
+
         // Spawn hero — Champion in player-controlled mode. Pass the preloaded champion
         // GLB (Miya for ranger, Aulus for barbarian, etc.) so Champion uses the GLB
         // pipeline instead of the procedural box-and-cylinder mesh.
@@ -363,7 +369,7 @@ export class SurvivorsGameplayState implements GameState {
             this.hero,
             this.map.getArenaRadius(),
             variant.speed,
-            variant.hp,
+            heroHp,
             championType,
         );
 
@@ -373,7 +379,7 @@ export class SurvivorsGameplayState implements GameState {
 
         // ---------- Gameplay systems ----------
 
-        this.playerStats = new PlayerStats(variant.hp, 100);
+        this.playerStats = new PlayerStats(heroHp, 100);
 
         // Install the global crit provider — every Enemy.takeDamage() reads from it.
         // Cleared in exit() so the menu / non-survivors flows never crit.
@@ -404,6 +410,12 @@ export class SurvivorsGameplayState implements GameState {
                     this.heroController.takeDamage(amount * mult, sourcePos);
                 },
                 isAlive: () => !!this.heroController,
+                applyPull: (towardX: number, towardZ: number, speed: number, durationS: number) => {
+                    this.heroController?.applyPull(towardX, towardZ, speed, durationS);
+                },
+                applySlow: (multiplier: number, durationS: number) => {
+                    this.heroController?.applySlow(multiplier, durationS);
+                },
             },
             this.map.getArenaRadius(),
         );
@@ -523,7 +535,10 @@ export class SurvivorsGameplayState implements GameState {
 
         // Survivors mode: crank up spawn cadence and per-wave enemy count
         // so the arena feels swarmed (Vampire Survivors-y) instead of TD-paced.
-        this.waveManager.setSurvivorsRates(2.2, 1.6);
+        this.waveManager.setSurvivorsRates(
+            DifficultyTuning.spawnRateMult,
+            DifficultyTuning.enemyCountMult,
+        );
 
         // Survivors-mode: manual wave start after the shop
         this.waveManager.setOnWaveCleared(() => {
