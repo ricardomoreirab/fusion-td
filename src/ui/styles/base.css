@@ -26,12 +26,3 @@
 
 /* Opt back into pointer events for interactive widgets. */
 #ui-root .interactive { pointer-events: auto; }
-
-/* Honour notches in landscape. */
-#ui-root .layer-hud {
-  padding:
-    max(var(--hud-pad), env(safe-area-inset-top))
-    max(var(--hud-pad), env(safe-area-inset-right))
-    max(var(--hud-pad), env(safe-area-inset-bottom))
-    max(var(--hud-pad), env(safe-area-inset-left));
-}

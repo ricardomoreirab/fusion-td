@@ -33,7 +33,9 @@ export function makeIconSlot(extraClass = ''): IconSlotController {
     setLevel(lv) {
       if (lv === curLevel) return;
       curLevel = lv;
-      if (lv > 1) { level.textContent = `×${lv}`; level.style.display = ''; }
+      // Set 'block' explicitly — '' would fall back to the stylesheet's
+      // `.slot__level { display: none }` and the badge would never show.
+      if (lv > 1) { level.textContent = `×${lv}`; level.style.display = 'block'; }
       else level.style.display = 'none';
     },
     pulseReady() {

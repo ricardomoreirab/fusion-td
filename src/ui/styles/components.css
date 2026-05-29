@@ -150,7 +150,17 @@
 }
 
 /* ── HUD layout ──────────────────────────────────────────── */
-.hud { position: absolute; inset: 0; pointer-events: none; }
+/* Inset from the screen edges (and notches). Anchored regions position to
+   this box, so the padding actually takes effect — unlike padding on the
+   absolutely-positioned layer, which children ignore. */
+.hud {
+  position: absolute;
+  top: max(var(--hud-pad), env(safe-area-inset-top));
+  right: max(var(--hud-pad), env(safe-area-inset-right));
+  bottom: max(var(--hud-pad), env(safe-area-inset-bottom));
+  left: max(var(--hud-pad), env(safe-area-inset-left));
+  pointer-events: none;
+}
 .hud__topbar {
   position: absolute;
   top: 0; left: 0; right: 0;
@@ -185,6 +195,24 @@
 }
 @keyframes ult-fire { from { box-shadow: inset 0 0 0 999px rgba(255,255,255,0.6); } to {} }
 .ult--fire { animation: ult-fire 200ms linear; }
+.ult__key {
+  position: absolute;
+  top: 2px;
+  left: 3px;
+  min-width: calc(var(--hud-ult) * 0.28);
+  padding: 0 2px;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.7);
+  font-family: var(--ff-body);
+  font-weight: 800;
+  font-size: calc(var(--hud-ult) * 0.22);
+  line-height: 1.35;
+  text-align: center;
+  color: #fff;
+  pointer-events: none;
+}
+@media (pointer: coarse) { .ult__key { display: none; } }
 
 /* ── Pause button + vignette ─────────────────────────────── */
 .hud__pause {

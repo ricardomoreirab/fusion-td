@@ -108,13 +108,18 @@ export class Hud {
     // Bottom-right cluster: ultimate buttons.
     const bottomRight = el('div', { class: 'hud__cluster hud__cluster--right' });
     const ultDefs = this.resolveUltimateDefs();
-    for (const def of ultDefs) {
+    for (let i = 0; i < ultDefs.length; i++) {
+      const def = ultDefs[i];
       const root = el('div', { class: 'ult slot interactive' });
       root.style.setProperty('--accent', def.color);
       const label = el('div', { class: 'ult__label', text: def.glyph });
       const cd = el('div', { class: 'slot__cd' });
       const cdText = el('div', { class: 'ult__cdtext' });
       root.append(label, cd, cdText);
+      // Keybind hint — Q / E / Space, matching the keyboard activators.
+      // Desktop only; hidden on touch via `@media (pointer: coarse)`.
+      const keyLabel = i === 0 ? 'Q' : i === 1 ? 'E' : i === 2 ? 'SP' : null;
+      if (keyLabel) root.appendChild(el('div', { class: 'ult__key', text: keyLabel }));
       const activate = () => {
         if (!this.abilityManager) return;
         if (this.abilityManager.activate(def.id)) flashClass(root, 'ult--fire');
