@@ -46,6 +46,16 @@ export interface PowerDefinition {
      * 'passive'  — no cast loop; takes effect via onHit() on basic-attack contact.
      */
     mode: 'autocast' | 'passive';
+    /** Progression tier. Absent ⇒ treated as 'base'. */
+    tier?: 'base' | 'fusion' | 'ultimate';
+    /** Owning class — set on fusion/ultimate defs (base ids encode it as `<class>_…`). */
+    championType?: ChampionType;
+    /** Parent def ids for fusion/ultimate defs. */
+    parents?: [string, string];
+    /** All constituent elements (fusion: 2; ultimate: representative set). */
+    elements?: PowerElement[];
+    /** Optional cleanup hook for persistent slot data (meshes). Called on remove/fuse/dispose. */
+    dispose?: (state: PowerRuntimeState) => void;
     /** Optional hook called once when the power is added to a slot */
     init?: (state: PowerRuntimeState, ctx: PowerContext) => void;
     /** Required for autocast; omitted for passive powers. */
@@ -589,6 +599,14 @@ const magePhysicalDef: PowerDefinition = {
                     e.takeDamage(damage);
                     hitSet.add(e);
                 }
+            }
+        }
+    },
+    dispose: (state) => {
+        const blades = state.data?.['blades'] as { mesh: { dispose: () => void } }[] | undefined;
+        if (blades) {
+            for (const b of blades) {
+                try { b.mesh.dispose(); } catch { /* ignore */ }
             }
         }
     },
