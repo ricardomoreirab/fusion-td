@@ -219,8 +219,8 @@
   /* Uses .frame--lite for the forged background/border/bevel, matching the
      gold & wave pills. This rule only handles placement, size, and shape. */
   position: absolute;
-  top: 0;
-  right: clamp(100px, 22vw, 130px); /* clears the gold pill */
+  right: 0;                       /* right corner, directly under the gold pill */
+  top: clamp(30px, 6vw, 38px);
   width: clamp(30px, 5vw, 36px);
   height: clamp(30px, 5vw, 36px);
   display: flex; align-items: center; justify-content: center;
