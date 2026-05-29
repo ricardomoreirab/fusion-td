@@ -17,7 +17,7 @@ import { getFusionFor, getUltimatesForClass } from './powers/FusionDefinitions';
 import { Enemy } from './enemies/Enemy';
 import { BasicAttackTarget } from './champions/HeroBasicAttack';
 import { PowerChoiceOverlay, PowerCard } from '../ui/overlays/PowerChoice';
-import { ReplaceSlotOverlay } from './ui/ReplaceSlotOverlay';
+import { ReplaceSlotOverlay } from '../ui/overlays/ReplaceSlot';
 import { BetweenWaveShopOverlay, ShopItem } from './ui/BetweenWaveShopOverlay';
 import { Hud } from '../ui/hud/Hud';
 import { GameUI } from '../ui/GameUI';
@@ -601,7 +601,7 @@ export class SurvivorsGameplayState implements GameState {
 
         // Overlays
         this.powerChoice     = new PowerChoiceOverlay(this.gameUI!.layer('overlay'));
-        this.replaceSlotOverlay = new ReplaceSlotOverlay(this.ui);
+        this.replaceSlotOverlay = new ReplaceSlotOverlay(this.gameUI!.layer('overlay'));
         this.shopOverlay     = new BetweenWaveShopOverlay(this.ui);
 
         // Define shop items (applied directly via playerStats + heroController)
