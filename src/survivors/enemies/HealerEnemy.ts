@@ -47,6 +47,10 @@ export class HealerEnemy extends Enemy {
 
         // Anchor HP bar above shaman's head (taller than base enemy).
         this.applyHealthBarTier('normal', { heightOffset: 1.9 });
+
+        // Build mesh + health bar AFTER field initializers have run (see Enemy
+        // constructor note). new.target guard → fires only for the concrete leaf.
+        if (new.target === HealerEnemy) this._initEnemyVisuals();
     }
 
     /**

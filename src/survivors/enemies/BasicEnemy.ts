@@ -43,6 +43,10 @@ export class BasicEnemy extends Enemy {
         this.meleeWindupDuration   = 0.28;
         this.meleeStrikeDuration   = 0.1;
         this.meleeCooldownDuration = 0.5;
+
+        // Build mesh + health bar AFTER field initializers have run (see Enemy
+        // constructor note). new.target guard → fires only for the concrete leaf.
+        if (new.target === BasicEnemy) this._initEnemyVisuals();
     }
 
     /**

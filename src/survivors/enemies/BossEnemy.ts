@@ -38,6 +38,12 @@ export class BossEnemy extends Enemy {
         // Boss-tier HP bar: 2.5× wide, segmented, red glowing frame, name label
         // anchored above the horns.
         this.applyHealthBarTier('boss', { heightOffset: 3.6, label: 'Abyssal Titan' });
+
+        // Build mesh + health bar AFTER field initializers have run (see Enemy
+        // constructor note). new.target guard → only when BossEnemy is the leaf;
+        // for `new MilestoneBoss()` the guard is false here and MilestoneBoss's
+        // own constructor performs the build (after ITS fields have initialized).
+        if (new.target === BossEnemy) this._initEnemyVisuals();
     }
 
     /**

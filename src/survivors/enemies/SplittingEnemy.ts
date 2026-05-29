@@ -43,6 +43,10 @@ export class SplittingEnemy extends Enemy {
 
         // Anchor HP bar above the hydra heads (taller than base enemy).
         this.applyHealthBarTier('normal', { heightOffset: 1.8 });
+
+        // Build mesh + health bar AFTER field initializers have run (see Enemy
+        // constructor note). new.target guard → fires only for the concrete leaf.
+        if (new.target === SplittingEnemy) this._initEnemyVisuals();
     }
 
     /**
