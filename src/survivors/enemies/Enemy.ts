@@ -247,9 +247,11 @@ export class Enemy {
         this.maxHealth *= mult;
     }
 
-    /** Scale this enemy's outgoing damage (contact DPS + melee swing + path-end
-     *  damage). Mirror of applyHealthMultiplier; used by the global difficulty
-     *  multiplier at spawn. */
+    /** Scale this enemy's outgoing damage. Mirror of applyHealthMultiplier; used
+     *  by the global difficulty multiplier at spawn. Scales contact DPS + melee
+     *  swing (both live in survivors mode) and `damage` (the TD-era path-end
+     *  value — inert in survivors since enemies never reach an end, kept only so
+     *  the mirror stays complete if TD mode ever returns). */
     public applyDamageMultiplier(mult: number): void {
         this.contactDamagePerSecond *= mult;
         this.meleeHitDamage = Math.round(this.meleeHitDamage * mult);
