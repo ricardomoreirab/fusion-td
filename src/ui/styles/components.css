@@ -118,3 +118,33 @@
 .slot--empty .slot__icon { color: rgba(201, 162, 63, 0.4); }
 @keyframes slot-ready { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
 .slot--ready { animation: slot-ready 400ms ease-out; }
+
+/* ── Button ──────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--ff-display);
+  font-weight: 700;
+  font-size: var(--fs-400);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: var(--s-3) var(--s-6);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  user-select: none;
+  transition: transform 100ms ease;
+}
+.btn:active { transform: scale(0.94); }
+.btn--forged {
+  color: #1a1206;
+  border: 2px solid var(--c-gold);
+  background: linear-gradient(180deg, var(--c-gold-hi), var(--c-gold) 55%, #9a7a2e);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 3px 0 #5a4418, 0 5px 10px rgba(0, 0, 0, 0.5);
+}
+.btn--ghost {
+  color: var(--c-parchment);
+  border: 2px solid var(--c-gold);
+  background: linear-gradient(180deg, var(--c-stone-700), var(--c-stone-900));
+  box-shadow: inset 0 1px 0 rgba(243, 218, 142, 0.2), 0 3px 0 #000, 0 5px 10px rgba(0, 0, 0, 0.5);
+}
