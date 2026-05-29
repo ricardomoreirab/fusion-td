@@ -2,7 +2,7 @@ import { AdvancedDynamicTexture, Rectangle, TextBlock, Control, Button } from '@
 import { getLayoutMode, getRenderWidth } from '../../shared/ui/responsive';
 import { makeFrame, addPressFeedback, STYLE } from '../../shared/ui/HudStyle';
 
-export type PowerCardKind = 'power' | 'wildcard' | 'perk';
+export type PowerCardKind = 'power' | 'wildcard' | 'perk' | 'fusion' | 'ultimate';
 
 export interface PowerCard {
     kind: PowerCardKind;
@@ -34,6 +34,8 @@ const KIND_CONFIG: Record<PowerCardKind, { border: string; kindLabel: string; gl
     power:    { border: '#888',    kindLabel: 'POWER',   glyph: '★'  },
     wildcard: { border: '#ffffff', kindLabel: 'UPGRADE', glyph: '↑'  },
     perk:     { border: '#ffd700', kindLabel: 'PERK',    glyph: '✦'  },
+    fusion:   { border: '#c060ff', kindLabel: 'FUSE',    glyph: '✦'  },
+    ultimate: { border: '#ffd24d', kindLabel: 'ULTIMATE',glyph: '✪'  },
 };
 
 export class PowerChoiceOverlay {
@@ -136,6 +138,9 @@ export class PowerChoiceOverlay {
             headerColor = '#3a3010';
         } else if (card.kind === 'wildcard') {
             headerColor = '#1a2a1a';
+        } else if (card.kind === 'fusion' || card.kind === 'ultimate') {
+            // Tint the header with the kind's own color so the marquee cards stand out.
+            headerColor = kindCfg.border + '44';
         }
 
         // ── Outer card frame (colored border) ──────────────────────────────
@@ -242,6 +247,9 @@ export class PowerChoiceOverlay {
                 headerColor = '#3a3010';
             } else if (card.kind === 'wildcard') {
                 headerColor = '#1a2a1a';
+            } else if (card.kind === 'fusion' || card.kind === 'ultimate') {
+                // Tint the header with the kind's own color so the marquee cards stand out.
+                headerColor = kindCfg.border + '44';
             }
 
             const glyphStr = card.kind === 'power' && card.element
