@@ -47,11 +47,20 @@ export class EnemyManager {
      *  class's static pendingAsset slot before constructing the instance. */
     private enemyAssets: Record<string, AssetContainer> = {};
 
-    /** Cumulative HP buff applied to every NEW enemy spawn this run. Bumped by
-     *  +0.05 each time the hero picks up a magical orb (hidden mechanic — no
-     *  UI). Resets to 0 because the EnemyManager is freshly constructed at the
-     *  start of each run. */
-    private orbHpBonus: number = 0;
+    /** Compounding HP multiplier applied to every NEW enemy spawn this run.
+     *  Multiplied by (1 + 0.08) each time the hero picks up a magical orb
+     *  (hidden mechanic — no UI). Geometric rather than additive so it can track
+     *  the player's multiplicative per-orb damage growth (~+10%/orb from the
+     *  global ×1.06 bump + the chosen card). Resets to 1 because the EnemyManager
+     *  is freshly constructed at the start of each run. */
+    private orbHpMultiplier: number = 1;
+
+    /** Per-wave baseline HP/reward scaling. Each wave past the first adds this
+     *  fraction (linear): wave N → ×(1 + WAVE_HP_SCALE_PER_WAVE × (N − 1)).
+     *  Applied to every survivors spawn EXCEPT milestone bosses, whose tier HP
+     *  already derives from the wave number. Stacks multiplicatively with the
+     *  orb buff and elite scaling. */
+    private static readonly WAVE_HP_SCALE_PER_WAVE = 0.06;
 
     constructor(game: Game) {
         this.game = game;
@@ -139,20 +148,33 @@ export class EnemyManager {
     }
 
     /**
-     * Increase the per-spawn HP buff applied to future enemy spawns. Called by
-     * SurvivorsGameplayState on every orb pickup with `amount = 0.05`. Additive
-     * (linear), so 10 orbs picked = +50% HP on subsequent spawns. Alive enemies
-     * are not retroactively scaled.
+     * Compound the per-spawn HP buff applied to future enemy spawns. Called by
+     * SurvivorsGameplayState on every orb pickup with `amount = 0.08`. Geometric,
+     * so 10 orbs picked = ×(1.08^10) ≈ ×2.16 HP on subsequent spawns. Alive
+     * enemies are not retroactively scaled.
      */
     public addOrbHpBonus(amount: number): void {
-        this.orbHpBonus += amount;
+        this.orbHpMultiplier *= 1 + amount;
     }
 
     /** Apply the current orb HP buff to a freshly-constructed enemy. No-op when
-     *  the counter is still 0 (e.g. warmup spawns before any orb pickup). */
+     *  the multiplier is still 1 (e.g. warmup spawns before any orb pickup). */
     private _applyOrbHpBonus(enemy: Enemy): void {
-        if (this.orbHpBonus > 0) {
-            enemy.applyHealthMultiplier(1 + this.orbHpBonus);
+        if (this.orbHpMultiplier > 1) {
+            enemy.applyHealthMultiplier(this.orbHpMultiplier);
+        }
+    }
+
+    /** Apply the per-wave baseline HP + reward scaling to a freshly-constructed
+     *  enemy. Skips milestone bosses (their tier HP already encodes the wave).
+     *  No-op on wave 1 (multiplier is exactly 1). */
+    private _applyWaveScaling(enemy: Enemy): void {
+        if (enemy instanceof MilestoneBoss) return;
+        const wave = this.waveManager?.getCurrentWave() ?? 1;
+        const waveMult = 1 + EnemyManager.WAVE_HP_SCALE_PER_WAVE * Math.max(0, wave - 1);
+        if (waveMult > 1) {
+            enemy.applyHealthMultiplier(waveMult);
+            enemy.applyRewardMultiplier(waveMult);
         }
     }
 
@@ -381,6 +403,11 @@ export class EnemyManager {
         // Hidden orb-pickup HP buff: scales on top of elite multipliers so
         // late-run elites compound both effects.
         this._applyOrbHpBonus(enemy);
+
+        // Per-wave baseline HP + reward scaling (skips milestone bosses, which
+        // already derive tier HP from the wave number). Compounds on top of the
+        // orb buff and elite scaling.
+        this._applyWaveScaling(enemy);
 
         // Quality gating:
         //   low    → scene.shadowsEnabled is off, registration is a no-op anyway.
