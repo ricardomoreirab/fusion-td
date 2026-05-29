@@ -112,6 +112,13 @@ export class MilestoneBoss extends BossEnemy {
         this.originalSpeed = baseSpeed;
         this.contactDamagePerSecond = this.contactDamagePerSecond * dpsMult;
 
+        // Build mesh + health bar AFTER field initializers have run (see Enemy
+        // constructor note). Guarded so it fires once for MilestoneBoss (the
+        // BossEnemy super-constructor's own guarded build is skipped). Runs the
+        // most-derived createMesh() (the tier GLB) with this.position already set
+        // and pendingAsset still staged.
+        if (new.target === MilestoneBoss) this._initEnemyVisuals();
+
         this.updateHealthBar();
     }
 

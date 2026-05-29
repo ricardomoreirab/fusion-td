@@ -56,9 +56,12 @@ export class ShieldEnemy extends Enemy {
         // Anchor HP bar above the helmet (taller than base enemy).
         this.applyHealthBarTier('normal', { heightOffset: 1.9 });
 
-        // Spawn the shield dome lazily here — the GLB createMesh path runs
-        // before this constructor body so we attach the dome regardless of
-        // which mesh pipeline rendered the body.
+        // Build mesh + health bar AFTER field initializers have run (see Enemy
+        // constructor note). new.target guard → fires only for the concrete leaf.
+        if (new.target === ShieldEnemy) this._initEnemyVisuals();
+
+        // Attach the shield dome AFTER the body mesh exists (either GLB or
+        // procedural — _buildShieldDome parents the dome to this.mesh).
         this._buildShieldDome();
     }
 

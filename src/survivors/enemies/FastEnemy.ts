@@ -45,6 +45,10 @@ export class FastEnemy extends Enemy {
         this.meleeWindupDuration   = 0.2;
         this.meleeStrikeDuration   = 0.08;
         this.meleeCooldownDuration = 0.35;
+
+        // Build mesh + health bar AFTER field initializers have run (see Enemy
+        // constructor note). new.target guard → fires only for the concrete leaf.
+        if (new.target === FastEnemy) this._initEnemyVisuals();
     }
 
     /**
