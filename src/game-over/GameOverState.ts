@@ -23,6 +23,7 @@ export class GameOverState implements GameState {
     private playerWon: boolean = false;
     private playerStats: PlayerStats | null = null;
     private survivorsSummary: SurvivorsRunSummary | null = null;
+    private lbOpen = false;
 
     constructor(game: Game) {
         this.game = game;
@@ -442,8 +443,9 @@ export class GameOverState implements GameState {
     }
 
     private openLeaderboard(): void {
-        if (!this.ui) return;
-        const panel = new LeaderboardPanel(this.ui, () => { /* closed — nothing to restore */ });
+        if (!this.ui || this.lbOpen) return; // guard against stacking panels on rapid taps
+        this.lbOpen = true;
+        const panel = new LeaderboardPanel(this.ui, () => { this.lbOpen = false; });
         void panel.open();
     }
 }

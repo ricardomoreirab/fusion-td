@@ -3,6 +3,7 @@ import { AdvancedDynamicTexture, Button, TextBlock, Rectangle } from '@babylonjs
 import { Game } from '../engine/Game';
 import { GameState } from '../engine/GameState';
 import { GameSettings, GraphicsQuality } from '../shared/GameSettings';
+import { LeaderboardPanel } from '../shared/ui/LeaderboardPanel';
 
 export class MenuState implements GameState {
     private game: Game;
@@ -10,6 +11,7 @@ export class MenuState implements GameState {
     private sceneObjects: Mesh[] = [];
     private particleSystems: ParticleSystem[] = [];
     private animationCallback: (() => void) | null = null;
+    private lbOpen = false;
 
     constructor(game: Game) {
         this.game = game;
@@ -236,6 +238,26 @@ export class MenuState implements GameState {
             gfxButtons.push(btn);
             touchBlocker.addControl(btn);
         }
+
+        const lbButton = Button.CreateSimpleButton('leaderboardButton', '🏆 LEADERBOARD');
+        lbButton.width = btnWidth;
+        lbButton.height = isLandscape ? '34px' : (isMobile ? '44px' : '48px');
+        lbButton.color = '#F5A623';
+        lbButton.background = '#3a2a08';
+        lbButton.cornerRadius = 6;
+        lbButton.thickness = 2;
+        lbButton.fontFamily = 'Georgia';
+        lbButton.fontSize = isLandscape ? 14 : (isMobile ? 16 : 18);
+        lbButton.fontWeight = 'bold';
+        lbButton.top = isLandscape ? '108px' : (isMobile ? '118px' : '140px');
+        if (lbButton.textBlock) lbButton.textBlock.color = '#F5A623';
+        lbButton.onPointerUpObservable.add(() => {
+            if (!this.ui || this.lbOpen) return; // guard against stacking panels on rapid taps
+            this.lbOpen = true;
+            const panel = new LeaderboardPanel(this.ui, () => { this.lbOpen = false; });
+            void panel.open();
+        });
+        touchBlocker.addControl(lbButton);
 
         refreshGfx();
     }
