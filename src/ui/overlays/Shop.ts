@@ -61,7 +61,7 @@ export class BetweenWaveShopOverlay {
 
         this.close();
 
-        const modal = makeModal({ title: 'Armory' });
+        const modal = makeModal({ title: 'Armory', panelClass: 'modal-panel--shop' });
         this.modal = modal;
         this.parent.appendChild(modal.root);
 
