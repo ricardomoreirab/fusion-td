@@ -81,6 +81,10 @@ export class Enemy {
         getPosition: () => Vector3;
         takeDamage?: (amount: number, sourcePos?: Vector3) => void;
         isAlive?: () => boolean;
+        /** Drag the hero toward a world point over durationS (boss grab). */
+        applyPull?: (towardX: number, towardZ: number, speed: number, durationS: number) => void;
+        /** Temporarily slow the hero's move speed (multiplier < 1). */
+        applySlow?: (multiplier: number, durationS: number) => void;
     } | null = null;
     public contactDamagePerSecond: number = 10;
     public isElite: boolean = false;
@@ -241,6 +245,15 @@ export class Enemy {
     public applyHealthMultiplier(mult: number): void {
         this.health *= mult;
         this.maxHealth *= mult;
+    }
+
+    /** Scale this enemy's outgoing damage (contact DPS + melee swing + path-end
+     *  damage). Mirror of applyHealthMultiplier; used by the global difficulty
+     *  multiplier at spawn. */
+    public applyDamageMultiplier(mult: number): void {
+        this.contactDamagePerSecond *= mult;
+        this.meleeHitDamage = Math.round(this.meleeHitDamage * mult);
+        this.damage = Math.round(this.damage * mult);
     }
 
     /**
