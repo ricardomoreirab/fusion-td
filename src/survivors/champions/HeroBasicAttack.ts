@@ -1,4 +1,4 @@
-import { Scene, Vector3, MeshBuilder, Mesh, Color3, StandardMaterial } from '@babylonjs/core';
+import { Scene, Vector3, MeshBuilder, Mesh, Color3 } from '@babylonjs/core';
 import { Champion } from './Champion';
 import { PowerSlotManager } from '../powers/PowerSlotManager';
 import { EnchantmentHitContext, PowerElement } from '../powers/PowerDefinitions';
@@ -319,8 +319,7 @@ export class HeroBasicAttack {
         const active = (this.powerSlots && (this.hero as any).championType === 'barbarian')
             ? Array.from(this.powerSlots.getActiveElements())
             : [];
-        const elemental = active.length > 0;
-        const tint = elemental ? blendElements(active) : null;
+        const tint = active.length > 0 ? blendElements(active) : null;
 
         // Thick golden torus on the ground — the main slash arc readout
         const ring = MeshBuilder.CreateTorus(
@@ -330,23 +329,23 @@ export class HeroBasicAttack {
         );
         ring.position.copyFrom(center);
         ring.position.y = 0.25;
-        let ringMat: StandardMaterial;
-        if (tint) {
-            // Fresh per-swing material so we never mutate the shared cached gold
-            // material in place (it is frozen + shared across concurrent swings).
-            // Disposed in the sweep cleanup below alongside the mesh.
-            ringMat = new StandardMaterial('swingRingMatElem', this.scene);
-            ringMat.emissiveColor = tint.scale(1.1);
-            ringMat.diffuseColor = new Color3(0, 0, 0);
-            ringMat.disableLighting = true;
-            ringMat.alpha = 0.9;
-        } else {
-            ringMat = getCachedMaterial(this.scene, 'swingRingMat', m => {
+        // Cache the material by its tint hue. There are only finitely many element
+        // blends, so each variant is compiled once and reused forever — no per-swing
+        // allocation, nothing to orphan into scene.materials. The per-frame fade is
+        // driven by mesh.visibility below (effective alpha = material.alpha *
+        // mesh.visibility), so this shared frozen material is NEVER mutated in place.
+        const ringMat = tint
+            ? getCachedMaterial(this.scene, 'swingRingMatElem_' + tint.toHexString(), m => {
+                m.emissiveColor = tint.scale(1.1);
+                m.diffuseColor = new Color3(0, 0, 0);
+                m.disableLighting = true;
+                m.alpha = 0.9;
+            })
+            : getCachedMaterial(this.scene, 'swingRingMat', m => {
                 m.emissiveColor = new Color3(1, 0.85, 0.4);
                 m.diffuseColor = new Color3(0, 0, 0);
                 m.alpha = 0.9;
             });
-        }
         ring.material = ringMat;
         ring.scaling.set(0.7, 0.7, 0.7); // starts a bit smaller
 
@@ -359,20 +358,18 @@ export class HeroBasicAttack {
         arc.position.copyFrom(center);
         arc.position.y = 0.35;
         arc.rotation.x = Math.PI / 2;
-        let arcMat: StandardMaterial;
-        if (tint) {
-            arcMat = new StandardMaterial('swingArcMatElem', this.scene);
-            arcMat.emissiveColor = tint.scale(1.25);
-            arcMat.diffuseColor = new Color3(0, 0, 0);
-            arcMat.disableLighting = true;
-            arcMat.alpha = 0.5;
-        } else {
-            arcMat = getCachedMaterial(this.scene, 'swingArcMat', m => {
+        const arcMat = tint
+            ? getCachedMaterial(this.scene, 'swingArcMatElem_' + tint.toHexString(), m => {
+                m.emissiveColor = tint.scale(1.25);
+                m.diffuseColor = new Color3(0, 0, 0);
+                m.disableLighting = true;
+                m.alpha = 0.5;
+            })
+            : getCachedMaterial(this.scene, 'swingArcMat', m => {
                 m.emissiveColor = new Color3(1, 0.95, 0.7);
                 m.diffuseColor = new Color3(0, 0, 0);
                 m.alpha = 0.5;
             });
-        }
         arc.material = arcMat;
 
         const duration = 0.35; // seconds — matches Champion spin duration roughly
@@ -383,25 +380,23 @@ export class HeroBasicAttack {
             elapsed += dt;
             const t = Math.min(elapsed / duration, 1);
 
-            // Ring: expand from 0.7 to 1.0× and fade out
+            // Ring: expand from 0.7 to 1.0× and fade out. Fade is per-mesh via
+            // visibility (effective alpha = material.alpha * mesh.visibility) so the
+            // shared cached material is never mutated and concurrent swings can't fight.
             const ringScale = 0.7 + 0.3 * t;
             ring.scaling.set(ringScale, ringScale, ringScale);
-            ringMat.alpha = 0.9 * (1 - t);
+            ring.visibility = 1 - t;
 
             // Arc: sweep a full 360° (the half-disc rotates twice to look like a continuous sweep).
             // Negative sign = clockwise (viewed from above), matching the Aulus whirlwind spin.
             arc.rotation.y = -t * Math.PI * 2;
-            arcMat.alpha = 0.5 * (1 - t);
+            arc.visibility = 1 - t;
 
             if (t >= 1) {
+                // Dispose only the meshes — the materials are cached/shared and must
+                // never be disposed (clearMaterialCache() frees them on run teardown).
                 ring.dispose();
                 arc.dispose();
-                // Per-swing elemental materials must be freed with their meshes;
-                // the shared cached gold materials must NOT be disposed.
-                if (elemental) {
-                    ringMat.dispose();
-                    arcMat.dispose();
-                }
                 this.scene.onBeforeRenderObservable.remove(observer);
             }
         });
