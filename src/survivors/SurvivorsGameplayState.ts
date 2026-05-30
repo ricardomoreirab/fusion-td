@@ -14,7 +14,7 @@ import { PowerDrop } from './powers/PowerDrop';
 import { PowerSlotManager, PowerSlot } from './powers/PowerSlotManager';
 import { POWER_DEFS, getPowerByElementAndClass, getPowerMapForClass, PowerElement, ChampionType, PowerDefinition } from './powers/PowerDefinitions';
 import { getFusionFor, getUltimatesForClass } from './powers/FusionDefinitions';
-import { Enemy } from './enemies/Enemy';
+import { Enemy, HEALTH_BAR_RENDER_GROUP } from './enemies/Enemy';
 import { BasicAttackTarget } from './champions/HeroBasicAttack';
 import { PowerChoiceOverlay, PowerCard } from '../ui/overlays/PowerChoice';
 import { ReplaceSlotOverlay } from '../ui/overlays/ReplaceSlot';
@@ -133,6 +133,11 @@ export class SurvivorsGameplayState implements GameState {
     private shadowSourceLight: DirectionalLight | null = null;
     private shadowGenerator: ShadowGenerator | null = null;
     private torchShadowGenerator: ShadowGenerator | null = null;
+    // Per-run env/sky GPU resources — tracked so exit() can dispose them.
+    // cleanupScene() only frees meshes/particles/ADT textures, so these cube
+    // textures + skybox material otherwise leak one set per run.
+    private skyTexture: CubeTexture | null = null;
+    private skyMaterial: BackgroundMaterial | null = null;
 
     // Gameplay systems
     private enemyManager: EnemyManager | null = null;
@@ -214,6 +219,11 @@ export class SurvivorsGameplayState implements GameState {
         this.game.cleanupScene();
         this.scene = this.game.getScene();
         this.scene.clearColor = new Color4(0.04, 0.03, 0.05, 1); // near-black warm
+
+        // Clear the depth buffer before the health-bar rendering group so enemy
+        // health bars always draw ON TOP of their model and stay visible no matter
+        // how large the monster is (big bosses used to occlude their own bar).
+        this.scene.setRenderingAutoClearDepthStencil(HEALTH_BAR_RENDER_GROUP, true, true, false);
 
         // No second hemispheric light here — Game.setupScene already added
         // 'light' (warm fill, intensity 0.55). Stacking another hemi was
@@ -673,6 +683,9 @@ export class SurvivorsGameplayState implements GameState {
         skyTex.coordinatesMode = Texture.SKYBOX_MODE;
         skyMat.reflectionTexture = skyTex;
         skydome.material = skyMat;
+        // Track the cloned sky texture + material for disposal in exit().
+        this.skyTexture = skyTex;
+        this.skyMaterial = skyMat;
 
         // (Removed ruinsSpot SpotLight — it didn't cast shadows and was
         // washing out the directional's shadows at world origin where the
@@ -907,6 +920,29 @@ export class SurvivorsGameplayState implements GameState {
 
         this.grass?.dispose();
         this.grass = null;
+
+        // Dispose per-run lights, shadow generators, and env/sky textures. None of
+        // these are meshes / particle systems / ADT textures, so Game.cleanupScene()
+        // does NOT free them — without this they accumulate one set per run on the
+        // persistent (never-disposed) scene. Each leaked ShadowGenerator keeps
+        // rendering a full shadow map every frame (refreshRate=1), the dominant
+        // "later runs freeze worse" cost. Dispose each generator BEFORE the light it
+        // references; disposing the torch generator does NOT touch the shared
+        // heroTorch light (only its per-run generator).
+        this.shadowGenerator?.dispose();
+        this.shadowGenerator = null;
+        this.torchShadowGenerator?.dispose();
+        this.torchShadowGenerator = null;
+        this.shadowSourceLight?.dispose();
+        this.shadowSourceLight = null;
+        if (this.scene?.environmentTexture) {
+            this.scene.environmentTexture.dispose();
+            this.scene.environmentTexture = null;
+        }
+        this.skyTexture?.dispose();
+        this.skyTexture = null;
+        this.skyMaterial?.dispose();
+        this.skyMaterial = null;
 
         this.scene = null;
         this.timeScale = 1.0;
@@ -1655,12 +1691,21 @@ export class SurvivorsGameplayState implements GameState {
         // every frame. If they grow across waves, we have a leak (the most
         // likely cause given the rAF gap is outside our update tick).
         const scene = this.scene;
+        // shadowRL = directional/torch shadow-map renderList sizes. These must track
+        // the LIVE enemy count (+ a few lingering corpses), NOT climb monotonically —
+        // a steady climb means dead-enemy meshes are leaking into the shadow passes.
+        // lights must stay flat (3) across menu→play→gameOver→play; a climb means a
+        // per-run light leak. Both are the confirmed freeze sources.
+        const shadowRL = (g: ShadowGenerator | null): number | string =>
+            g?.getShadowMap()?.renderList?.length ?? '?';
         const sceneInfo = scene
             ? ` · ps=${scene.particleSystems.length}` +
               ` anim=${(scene as unknown as { _activeAnimatables?: unknown[] })._activeAnimatables?.length ?? '?'}` +
               ` meshes=${scene.meshes.length}` +
               ` materials=${scene.materials.length}` +
-              ` textures=${scene.textures.length}`
+              ` textures=${scene.textures.length}` +
+              ` lights=${scene.lights.length}` +
+              ` shadowRL=${shadowRL(this.shadowGenerator)}/${shadowRL(this.torchShadowGenerator)}`
             : '';
         console.error(`[freeze:${kind}] ${durationMs}ms at t=${tRun}s · wave ${wave} · ${enemies} enemies${overlayStr}${sceneInfo}`);
     }

@@ -8,6 +8,19 @@ import { StateManager } from './StateManager';
 import { PauseScreen } from '../shared/ui/PauseScreen';
 import { PALETTE } from './rendering/StyleConstants';
 
+// Rate-limited logger for per-frame update/render exceptions. The render loop
+// keeps running (a thrown frame must not permanently black/freeze the canvas),
+// but the error is surfaced with its stack — a silent black screen is otherwise
+// undiagnosable. Logs the first 8 occurrences, then every 120th, so a per-frame
+// throw doesn't flood the console.
+let _loopErrorCount = 0;
+function logLoopError(phase: string, err: unknown): void {
+    _loopErrorCount++;
+    if (_loopErrorCount <= 8 || _loopErrorCount % 120 === 0) {
+        console.error(`[loop:${phase}] frame error #${_loopErrorCount}:`, err);
+    }
+}
+
 export class Game {
     private canvas: HTMLCanvasElement;
     // Engine + scene + everything that depends on them are created in start()
@@ -107,7 +120,14 @@ export class Game {
                 // Update the current state. update() can trigger a state
                 // change (hero death → gameOver) which synchronously runs
                 // exit()+enter() and tears the scene down.
-                this.stateManager.update(this.engine.getDeltaTime() / 1000);
+                // Wrap update so a per-frame throw (e.g. a bad enemy/boss spawn) is
+                // logged with its stack and the loop survives, instead of escaping
+                // the rAF callback and leaving a frozen/black canvas.
+                try {
+                    this.stateManager.update(this.engine.getDeltaTime() / 1000);
+                } catch (err) {
+                    logLoopError('update', err);
+                }
 
                 // If a state transition happened this frame, skip the render.
                 // Half-disposed asset references (skeleton bone-matrix texture,
@@ -121,7 +141,10 @@ export class Game {
                 try {
                     this.scene.render();
                 } catch (err) {
-                    console.warn('[render] swallowed render error:', err);
+                    // Surface (don't just warn) so a recurring render-phase throw —
+                    // which during survivors leaves the near-black clearColor on screen,
+                    // i.e. an "all black" frame — is diagnosable with a stack trace.
+                    logLoopError('render', err);
                 }
             });
         }, (progress: number) => {

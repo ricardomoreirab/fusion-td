@@ -1630,7 +1630,36 @@ export class Champion extends Enemy {
     /** Add torch disposal on top of the base Enemy cleanup. */
     public dispose(): void {
         this._disposeTorch();
+        // dispose() is the path used on state exit (SurvivorsGameplayState.exit ->
+        // hero.dispose()). Without this the barbarian spin/footstep ParticleSystems
+        // and spin-arc mesh — which only die() used to free — leaked one set per run
+        // onto the never-disposed shared scene and kept ticking forever.
+        this._releaseChampionFx();
         super.dispose();
+    }
+
+    /** Tear down the barbarian-only spin/footstep FX (procedural champion path) and
+     *  any pending hit-flash restore timer. Shared by BOTH die() and dispose() so a
+     *  state-exit teardown frees them too. */
+    private _releaseChampionFx(): void {
+        if (this.barbSpinBloodPs) {
+            this.barbSpinBloodPs.stop();
+            this.barbSpinBloodPs.dispose();
+            this.barbSpinBloodPs = null;
+        }
+        if (this.barbSpinArcMesh) {
+            this.barbSpinArcMesh.dispose();
+            this.barbSpinArcMesh = null;
+        }
+        if (this.barbFootDustPs) {
+            this.barbFootDustPs.stop();
+            this.barbFootDustPs.dispose();
+            this.barbFootDustPs = null;
+        }
+        if (this.flashHitRedRestoreTimer !== null) {
+            clearTimeout(this.flashHitRedRestoreTimer);
+            this.flashHitRedRestoreTimer = null;
+        }
     }
 
     /**
@@ -1657,8 +1686,21 @@ export class Champion extends Enemy {
         }
         this.glbAnimationGroups.length = 0;
 
-        // Dispose mesh and health bars
+        // Dispose mesh and health bars. For the GLB hero, also free the per-instance
+        // cloned material textures — instantiateModelsToScene(cloneMaterials=true)
+        // clones the material's textures too, so each run's hero otherwise leaks its
+        // base-color texture. Skip for the procedural hero, which shares cached
+        // colour-only materials that must survive into the next run.
         if (this.mesh) {
+            if (this.championAsset) {
+                for (const m of [this.mesh, ...this.mesh.getChildMeshes(false)]) {
+                    const mat = m.material;
+                    if (mat) {
+                        m.material = null;
+                        try { mat.dispose(false, true); } catch (_) { /* already disposed */ }
+                    }
+                }
+            }
             this.mesh.dispose();
             this.mesh = null;
         }
@@ -1687,21 +1729,8 @@ export class Champion extends Enemy {
         });
         this.statusEffectParticles.clear();
 
-        // Barbarian spin FX cleanup
-        if (this.barbSpinBloodPs) {
-            this.barbSpinBloodPs.stop();
-            this.barbSpinBloodPs.dispose();
-            this.barbSpinBloodPs = null;
-        }
-        if (this.barbSpinArcMesh) {
-            this.barbSpinArcMesh.dispose();
-            this.barbSpinArcMesh = null;
-        }
-        if (this.barbFootDustPs) {
-            this.barbFootDustPs.stop();
-            this.barbFootDustPs.dispose();
-            this.barbFootDustPs = null;
-        }
+        // Barbarian spin/footstep FX cleanup (shared with dispose()).
+        this._releaseChampionFx();
     }
 
     /**
