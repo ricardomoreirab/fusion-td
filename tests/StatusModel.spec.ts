@@ -85,3 +85,51 @@ describe('StatusStacks — expiry', () => {
         expect(s.has('curse')).toBe(false);
     });
 });
+
+describe('StatusStacks — refresh & timing edge cases', () => {
+    it('burn re-apply does not truncate a longer remaining duration', () => {
+        const s = new StatusStacks();
+        s.apply('burn', 10, 2, 1);   // 10s remaining
+        s.apply('burn', 2, 2, 1);    // shorter re-apply must NOT shrink it
+        s.tick(3, 100);              // 3s elapsed; burn would be gone if truncated to 2s
+        expect(s.has('burn')).toBe(true);
+    });
+
+    it('burn fires every elapsed interval when dtS spans several', () => {
+        const s = new StatusStacks();
+        s.apply('burn', 10, 2, 3);   // 3 stacks × 2 = 6 per 0.5s interval
+        expect(s.tick(1.5, 100).burnDamage).toBe(18); // three intervals → 3 × 6
+    });
+
+    it('burn accumulator resets after expiry (no phantom carry-over on re-apply)', () => {
+        const s = new StatusStacks();
+        s.apply('burn', 0.4, 2, 1);
+        s.tick(0.3, 100);            // 0.1s of burn left, acc=0.3
+        s.tick(0.3, 100);           // fires once (acc→0.1), then burn expires & acc resets
+        expect(s.has('burn')).toBe(false);
+        s.apply('burn', 10, 2, 1);   // fresh burn
+        expect(s.tick(0.45, 100).burnDamage).toBe(0); // 0.45<0.5; would fire if acc carried 0.1
+    });
+
+    it('curse re-apply keeps the stronger drain rate', () => {
+        const s = new StatusStacks();
+        s.apply('curse', 5, 0.1);
+        s.apply('curse', 5, 0.03);   // weaker — must not override
+        expect(s.tick(1, 100).curseDamage).toBeCloseTo(10, 5); // 100 × 0.1 × 1
+    });
+
+    it('chill applied at/over the threshold in one shot signals freeze', () => {
+        const s = new StatusStacks();
+        expect(s.apply('chill', 3, 0, STATUS_TUNING.chill.freezeAtStacks).reachedFreeze).toBe(true);
+        expect(s.has('chill')).toBe(false);
+    });
+
+    it('burn and curse both deal damage in the same tick', () => {
+        const s = new StatusStacks();
+        s.apply('burn', 10, 2, 2);
+        s.apply('curse', 10, 0.05);
+        const r = s.tick(0.5, 100);
+        expect(r.burnDamage).toBe(4);            // 2 stacks × 2
+        expect(r.curseDamage).toBeCloseTo(2.5, 5); // 100 × 0.05 × 0.5
+    });
+});

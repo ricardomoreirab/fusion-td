@@ -17,14 +17,15 @@ export const STATUS_TUNING = {
 interface Track {
     stacks: number;
     remainingS: number;
-    /** burn: damage per stack per tick · curse: fraction of maxHP per second. */
+    /** burn: damage per stack per tick · curse: fraction of maxHP/s · chill/fragile: always 0 (unused). */
     strength: number;
 }
 
 export interface ApplyResult {
     /** Burst damage to deal NOW because burn was applied at/over cap (0 otherwise). */
     overflowDetonate: number;
-    /** True when chill reached the freeze threshold — caller should apply Freeze. */
+    /** True when chill reached the freeze threshold — caller should apply a Freeze
+     *  for STATUS_TUNING.chill.freezeDurationS seconds. */
     reachedFreeze: boolean;
 }
 
@@ -68,17 +69,18 @@ export class StatusStacks {
                     t.strength = dmg;
                 } else {
                     const stacks = Math.min(STATUS_TUNING.burn.maxStacks, (t?.stacks ?? 0) + addStacks);
-                    this.tracks.set('burn', { stacks, remainingS: durationS, strength: dmg });
+                    this.tracks.set('burn', { stacks, remainingS: Math.max(t?.remainingS ?? 0, durationS), strength: dmg });
                 }
                 break;
             }
             case 'chill': {
-                const stacks = (this.tracks.get('chill')?.stacks ?? 0) + addStacks;
+                const t = this.tracks.get('chill');
+                const stacks = (t?.stacks ?? 0) + addStacks;
                 if (stacks >= STATUS_TUNING.chill.freezeAtStacks) {
                     this.tracks.delete('chill'); // consumed into a Freeze (caller applies it)
                     res.reachedFreeze = true;
                 } else {
-                    this.tracks.set('chill', { stacks, remainingS: durationS, strength: 0 });
+                    this.tracks.set('chill', { stacks, remainingS: Math.max(t?.remainingS ?? 0, durationS), strength: 0 });
                 }
                 break;
             }
@@ -92,11 +94,9 @@ export class StatusStacks {
                 break;
             }
             case 'fragile': {
-                const stacks = Math.min(
-                    STATUS_TUNING.fragile.maxStacks,
-                    (this.tracks.get('fragile')?.stacks ?? 0) + addStacks,
-                );
-                this.tracks.set('fragile', { stacks, remainingS: durationS, strength: 0 });
+                const t = this.tracks.get('fragile');
+                const stacks = Math.min(STATUS_TUNING.fragile.maxStacks, (t?.stacks ?? 0) + addStacks);
+                this.tracks.set('fragile', { stacks, remainingS: Math.max(t?.remainingS ?? 0, durationS), strength: 0 });
                 break;
             }
         }
@@ -111,8 +111,8 @@ export class StatusStacks {
         const burn = this.tracks.get('burn');
         if (burn) {
             this.burnTickAcc += dtS;
-            if (this.burnTickAcc >= STATUS_TUNING.burn.tickIntervalS) {
-                out.burnDamage = burn.stacks * burn.strength;
+            while (this.burnTickAcc >= STATUS_TUNING.burn.tickIntervalS) {
+                out.burnDamage += burn.stacks * burn.strength;
                 this.burnTickAcc -= STATUS_TUNING.burn.tickIntervalS;
             }
         } else {
@@ -135,6 +135,7 @@ export class StatusStacks {
             if (t.remainingS <= 0) out.expired.push(kind);
         }
         for (const kind of out.expired) this.tracks.delete(kind);
+        if (out.expired.includes('burn')) this.burnTickAcc = 0;
         return out;
     }
 
