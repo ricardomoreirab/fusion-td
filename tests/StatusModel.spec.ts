@@ -86,6 +86,33 @@ describe('StatusStacks — expiry', () => {
     });
 });
 
+describe('StatusStacks — detonate', () => {
+    it('returns the burn burst (stacks×strength×overflowFactor) and clears burn', () => {
+        const s = new StatusStacks();
+        s.apply('burn', 5, 2, 4); // 4 stacks, 2 dmg/stack
+        const burst = s.detonate('burn');
+        expect(burst).toBeCloseTo(4 * 2 * STATUS_TUNING.burn.overflowFactor, 5);
+        expect(s.has('burn')).toBe(false);
+    });
+
+    it('returns 0 for an absent kind and for non-burn kinds', () => {
+        const s = new StatusStacks();
+        expect(s.detonate('burn')).toBe(0);
+        s.apply('chill', 5, 0, 3);
+        expect(s.detonate('chill')).toBe(0); // no burst value defined for chill
+        expect(s.has('chill')).toBe(false);  // still cleared
+    });
+
+    it('resets the burn accumulator so a later burn does not phantom-tick', () => {
+        const s = new StatusStacks();
+        s.apply('burn', 5, 2, 1);
+        s.tick(0.3, 100);       // acc = 0.3
+        s.detonate('burn');     // clears burn + acc
+        s.apply('burn', 5, 2, 1);
+        expect(s.tick(0.3, 100).burnDamage).toBe(0); // 0.3 < 0.5; would fire if acc carried
+    });
+});
+
 describe('StatusStacks — refresh & timing edge cases', () => {
     it('burn re-apply does not truncate a longer remaining duration', () => {
         const s = new StatusStacks();

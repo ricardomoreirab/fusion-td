@@ -150,6 +150,20 @@ export class StatusStacks {
         return out;
     }
 
+    /**
+     * Remove a status and return its "burst" damage for a reaction (e.g. Overload
+     * detonating burn). Currently only burn yields a burst
+     * (stacks × strength × overflowFactor); other kinds return 0 but are still cleared.
+     */
+    detonate(kind: RichStatusKind): number {
+        const t = this.tracks.get(kind);
+        if (!t) return 0;
+        const burst = kind === 'burn' ? t.stacks * t.strength * STATUS_TUNING.burn.overflowFactor : 0;
+        this.tracks.delete(kind);
+        if (kind === 'burn') this.burnTickAcc = 0;
+        return burst;
+    }
+
     clear(kind?: RichStatusKind): void {
         if (kind) this.tracks.delete(kind);
         else this.tracks.clear();
