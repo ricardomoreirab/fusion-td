@@ -2,6 +2,7 @@ import { Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, Color4, Scene, Pa
 import { Game } from '../../engine/Game';
 import { EnemyType, StatusEffect } from '../GameTypes';
 import { PowerElement } from '../powers/PowerDefinitions';
+import { StatusStacks, STATUS_TUNING } from '../powers/StatusModel';
 
 // One-time per-enemy-class log when a GLB has no recognizable death clip, so the
 // asset's real clip name can be added to the matcher in _findDeathClip().
@@ -184,6 +185,9 @@ export class Enemy {
     // Status effect properties
     protected activeStatusEffects: Map<StatusEffect, { endTime: number, strength: number }> = new Map();
     protected statusEffectParticles: Map<StatusEffect, ParticleSystem> = new Map();
+    /** Rich-status stack model (burn/chill/curse/fragile). Legacy CC (slow/
+     *  freeze/stun) still lives in activeStatusEffects above. */
+    protected statuses: StatusStacks = new StatusStacks();
     protected isFrozen: boolean = false;
     protected isStunned: boolean = false;
     protected isConfused: boolean = false;
@@ -748,21 +752,35 @@ export class Enemy {
      * hot path doesn't allocate a closure per call per enemy.
      */
     protected updateStatusEffects(deltaTime: number): void {
-        // Early-out: most enemies have no active status effects.
-        if (this.activeStatusEffects.size === 0) return;
+        // ── Rich statuses (model-owned: burn/chill/curse/fragile) ──
+        const rich = this.statuses.tick(deltaTime, this.maxHealth);
+        if (rich.burnDamage > 0 && this.alive) this.takeDamage(rich.burnDamage, 'fire');
+        if (rich.curseDamage > 0 && this.alive) this.takeDamage(rich.curseDamage, 'arcane');
+        if (this.alive && !this.isFrozen && !this.isStunned && rich.chillSlowMultiplier < 1) {
+            this.speed = this.originalSpeed * rich.chillSlowMultiplier;
+        }
+        for (let i = 0; i < rich.expired.length; i++) {
+            if (rich.expired[i] === 'chill') {
+                // Restore base speed; an active legacy SLOWED re-asserts on its next apply.
+                if (!this.isFrozen && !this.isStunned) this.speed = this.originalSpeed;
+                this.stopStatusEffectParticles(StatusEffect.SLOWED);
+            } else if (rich.expired[i] === 'curse') {
+                // stopStatusEffectParticles is safe for absent keys (Map.get → undefined → skipped).
+                // No particle was started for CURSE, so this is a safe no-op.
+                this.stopStatusEffectParticles(StatusEffect.CURSE);
+            }
+        }
 
+        // ── Legacy CC (slow/freeze/stun/push/confused) — unchanged ──
+        if (this.activeStatusEffects.size === 0) return;
         const currentTime = performance.now();
         this._expiredStatusEffects.length = 0;
-
         for (const [effect, effectData] of this.activeStatusEffects) {
             if (currentTime > effectData.endTime) {
                 this._expiredStatusEffects.push(effect);
-            } else if (effect === StatusEffect.BURNING) {
-                this.processBurningEffect(deltaTime);
             }
-            // Other effects are gated by state flags (isFrozen, isSlowed, …).
+            // Burn is no longer ticked here — the model owns it.
         }
-
         for (let i = 0; i < this._expiredStatusEffects.length; i++) {
             this.removeStatusEffect(this._expiredStatusEffects[i]);
         }
@@ -846,23 +864,9 @@ export class Enemy {
         this.meleeStrikeHasHit = false;
     }
 
-    /**
-     * Process burning damage over time
-     * @param deltaTime Time elapsed since last update in seconds
-     */
-    protected processBurningEffect(deltaTime: number): void {
-        const currentTime = performance.now();
-        const burnData = this.activeStatusEffects.get(StatusEffect.BURNING);
-        
-        if (!burnData) return;
-        
-        // Check if it's time for another burn damage tick
-        if (currentTime - this.lastBurnDamageTime > this.burnDamageInterval * 1000) {
-            // Apply burn damage
-            this.takeDamage(this.burnDamagePerTick, 'fire');
-            this.lastBurnDamageTime = currentTime;
-        }
-    }
+    /** @deprecated Burn is now ticked by the StatusStacks model in
+     *  updateStatusEffects. Kept as a no-op so subclass overrides don't break. */
+    protected processBurningEffect(_deltaTime: number): void { /* model-owned */ }
 
     /**
      * Apply a status effect to this enemy
@@ -876,12 +880,38 @@ export class Enemy {
 
         // Apply effect-specific changes
         switch (effect) {
-            case StatusEffect.BURNING:
-                this.activeStatusEffects.set(effect, { endTime, strength });
-                this.burnDamagePerTick = strength;
-                this.lastBurnDamageTime = currentTime;
+            case StatusEffect.BURNING: {
+                // strength = damage per stack per 0.5s tick (preserves legacy feel).
+                const rb = this.statuses.apply('burn', duration, strength, 1);
+                if (rb.overflowDetonate > 0) this.takeDamage(rb.overflowDetonate, 'fire');
                 this.createStatusEffectParticles(effect);
                 break;
+            }
+
+            case StatusEffect.CHILL: {
+                const rc = this.statuses.apply('chill', duration, 0, 1);
+                if (rc.reachedFreeze) {
+                    // Convert to a real Freeze through the normal (immunity-gated) path.
+                    this.applyStatusEffect(StatusEffect.FROZEN, STATUS_TUNING.chill.freezeDurationS, 1);
+                } else {
+                    this.createStatusEffectParticles(StatusEffect.SLOWED); // reuse slow visual
+                }
+                break;
+            }
+
+            case StatusEffect.CURSE: {
+                // strength = fraction of MAX HP drained per second.
+                this.statuses.apply('curse', duration, strength, 1);
+                // No createStatusEffectParticles call: the switch has no CURSE branch
+                // (would create uncoloured default particles). Amplifier felt via damage numbers.
+                break;
+            }
+
+            case StatusEffect.FRAGILE: {
+                this.statuses.apply('fragile', duration, 0, 1);
+                // No dedicated particle; amplifier is felt via bigger damage numbers.
+                break;
+            }
 
             case StatusEffect.SLOWED:
                 // Cap slow at 80% (prevent 100% slow = freeze)
@@ -1136,6 +1166,9 @@ export class Enemy {
         if (this.damageResistance && this.damageResistance > 0) {
             actualDamage = actualDamage * (1 - this.damageResistance);
         }
+
+        // Fragile: stacking amplifier raises incoming direct damage.
+        actualDamage *= this.statuses.damageAmplifier();
 
         this.health -= actualDamage;
 
