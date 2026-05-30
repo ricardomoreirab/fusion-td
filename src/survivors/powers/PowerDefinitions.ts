@@ -745,6 +745,7 @@ const rangerFireDef: PowerDefinition = {
             proj.position.addInPlace(dirN.scale(Math.min(dist, speed * dt)));
         });
         setTimeout(() => {
+            if (proj.isDisposed()) return;
             explodeFireArrow(proj.position.clone(), damage, aoeRadius, enemies, ctx.scene, ctx.element);
             cleanup();
             ctx.scene.onBeforeRenderObservable.remove(observer);
@@ -874,6 +875,7 @@ const rangerIceDef: PowerDefinition = {
             }
         });
         setTimeout(() => {
+            if (proj.isDisposed()) return;
             cleanup();
             ctx.scene.onBeforeRenderObservable.remove(observer);
         }, 3500);
@@ -979,6 +981,7 @@ const rangerArcaneDef: PowerDefinition = {
             proj.position.addInPlace(velDir.scale(speed * dt));
         });
         setTimeout(() => {
+            if (proj.isDisposed()) return;
             cleanup();
             ctx.scene.onBeforeRenderObservable.remove(observer);
         }, 4000);
@@ -1067,6 +1070,7 @@ const rangerPhysicalDef: PowerDefinition = {
             }
         });
         setTimeout(() => {
+            if (proj.isDisposed()) return;
             cleanup();
             ctx.scene.onBeforeRenderObservable.remove(observer);
         }, 3000);
@@ -1169,6 +1173,7 @@ const rangerStormDef: PowerDefinition = {
             proj.position.addInPlace(dirN.scale(Math.min(dist, speed * dt)));
         });
         setTimeout(() => {
+            if (proj.isDisposed()) return;
             cleanup();
             ctx.scene.onBeforeRenderObservable.remove(observer);
         }, 4000);

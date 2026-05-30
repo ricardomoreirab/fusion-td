@@ -15,7 +15,6 @@ import { MiniEnemy } from './MiniEnemy';
 import { PlayerStats } from '../PlayerStats';
 import { makeElite } from './EliteSpawner';
 import { DifficultyTuning } from '../DifficultyTuning';
-import { GameSettings } from '../../shared/GameSettings';
 
 export class EnemyManager {
     private game: Game;
@@ -494,7 +493,6 @@ export class EnemyManager {
         // on any quality level — they're the bulk of spawns and their shadows are visual noise.
         //   low    → scene.shadowsEnabled is off, registration is a no-op anyway.
         //   medium/high → basics skipped; everything else casts.
-        const quality = GameSettings.getGraphicsQuality();
         const skipShadow = type === 'basic';
         if (!skipShadow) this._registerAsShadowCaster(enemy);
 
