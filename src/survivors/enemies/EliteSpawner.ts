@@ -1,6 +1,7 @@
 import { Color3, MeshBuilder, Scene, Observer } from '@babylonjs/core';
 import { Enemy } from './Enemy';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
+import { DifficultyTuning } from '../DifficultyTuning';
 
 const ELEMENT_COLORS: Record<string, Color3> = {
     fire:     new Color3(1.0, 0.4, 0.0),
@@ -13,7 +14,7 @@ const ELEMENT_COLORS: Record<string, Color3> = {
 /**
  * Transform a regular enemy into an elite:
  * - 1.4× scale
- * - 3× HP
+ * - eliteHpMult× HP (DifficultyTuning)
  * - 1.5× reward
  * - Emissive aura sphere (pulsing alpha) tinted to the drop element
  * - Element-colored spikes protruding from the top
@@ -35,8 +36,8 @@ export function makeElite(enemy: Enemy, element: string, scene: Scene): void {
         mesh.scaling.scaleInPlace(1.4);
     }
 
-    // Triple HP
-    enemy.applyHealthMultiplier(3);
+    // Elite HP multiplier (DifficultyTuning.eliteHpMult).
+    enemy.applyHealthMultiplier(DifficultyTuning.eliteHpMult);
 
     // 1.5× reward
     if ((enemy as any).reward !== undefined) {

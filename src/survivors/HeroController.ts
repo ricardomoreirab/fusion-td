@@ -57,6 +57,22 @@ export class HeroController {
     private knockbackVelocity: Vector3 = new Vector3();
     private knockbackTimeRemaining: number = 0;
 
+    // Boss "pull" — a sustained drag toward a world point (the boss). While active,
+    // a velocity of pullSpeed toward (pullSourceX, pullSourceZ) is added on top of
+    // the player's own input every frame (so the hero can still fight it, but loses
+    // ground). Recomputed each frame so it always aims at the current source. Set
+    // by HeroController.applyPull (driven by the tier-2/4 boss grab).
+    private pullSourceX: number = 0;
+    private pullSourceZ: number = 0;
+    private pullSpeed: number = 0;
+    private pullTimeRemaining: number = 0;
+
+    // Boss "slow" — a temporary multiplier on move speed that stacks MULTIPLICATIVELY
+    // with the shop moveSpeedMultiplier (so it never clobbers shop upgrades). Last
+    // application wins; expires at externalSlowUntil (elapsedTime clock).
+    private externalSlowMultiplier: number = 1;
+    private externalSlowUntil: number = -Infinity;
+
     // Camera shake — decays to zero over CAMERA_SHAKE_DURATION_S.
     private cameraShakeTimeRemaining: number = 0;
 
@@ -293,6 +309,31 @@ export class HeroController {
         this.basicAttack?.updateAttackSpeed(multiplier);
     }
 
+    /**
+     * Drag the hero toward a world point over `durationS` seconds. Used by the
+     * tier-2/4 boss "grab": a velocity of `speed` toward (towardX, towardZ) is
+     * added on top of player input every frame until the timer runs out. No
+     * effect while the hero is mid-dash (the dash override owns position then).
+     */
+    public applyPull(towardX: number, towardZ: number, speed: number, durationS: number): void {
+        if (this.isDead) return;
+        this.pullSourceX = towardX;
+        this.pullSourceZ = towardZ;
+        this.pullSpeed = speed;
+        this.pullTimeRemaining = Math.max(this.pullTimeRemaining, durationS);
+    }
+
+    /**
+     * Apply a temporary move-speed slow (multiplicative on top of the shop
+     * move-speed multiplier, so shop upgrades are preserved). `multiplier` < 1
+     * slows; `durationS` is how long it lasts. Last application wins.
+     */
+    public applySlow(multiplier: number, durationS: number): void {
+        if (this.isDead) return;
+        this.externalSlowMultiplier = Math.max(0.1, Math.min(1, multiplier));
+        this.externalSlowUntil = this.elapsedTime + durationS;
+    }
+
     /** Push player-stats reference into the inner basic-attack instance, and also wire
      *  the lifesteal heal callback to this controller's heal() so lifesteal updates the
      *  real hero HP (not the phantom PlayerStats.health that the HUD doesn't read). */
@@ -429,11 +470,12 @@ export class HeroController {
             const len = Math.hypot(dx, dz);
             if (len > 1) { dx /= len; dz /= len; }
 
-            this._scratchVel.set(
-                dx * this.moveSpeed * this.moveSpeedMultiplier,
-                0,
-                dz * this.moveSpeed * this.moveSpeedMultiplier,
-            );
+            // Boss slow: multiplies the player's own move speed only (knockback and
+            // pull are external forces and are NOT slowed). Expires on its timer.
+            const slow = this.elapsedTime < this.externalSlowUntil ? this.externalSlowMultiplier : 1;
+            const effectiveSpeed = this.moveSpeed * this.moveSpeedMultiplier * slow;
+
+            this._scratchVel.set(dx * effectiveSpeed, 0, dz * effectiveSpeed);
 
             // Decay knockback impulse, add it on top of player input.
             if (this.knockbackTimeRemaining > 0) {
@@ -441,6 +483,20 @@ export class HeroController {
                 this._scratchVel.x += this.knockbackVelocity.x * decay;
                 this._scratchVel.z += this.knockbackVelocity.z * decay;
                 this.knockbackTimeRemaining -= deltaTime;
+            }
+
+            // Boss pull: drag the hero toward the source point (recomputed each
+            // frame so it tracks a moving boss). Added on top of input + knockback.
+            if (this.pullTimeRemaining > 0) {
+                const hp = this.hero.getPosition();
+                const pdx = this.pullSourceX - hp.x;
+                const pdz = this.pullSourceZ - hp.z;
+                const plen = Math.hypot(pdx, pdz);
+                if (plen > 0.4) {  // stop tugging once basically on top of the boss
+                    this._scratchVel.x += (pdx / plen) * this.pullSpeed;
+                    this._scratchVel.z += (pdz / plen) * this.pullSpeed;
+                }
+                this.pullTimeRemaining -= deltaTime;
             }
 
             this.hero.setPlayerVelocity(this._scratchVel);
