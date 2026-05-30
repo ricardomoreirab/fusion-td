@@ -760,15 +760,14 @@ export class Enemy {
             this.speed = this.originalSpeed * rich.chillSlowMultiplier;
         }
         for (let i = 0; i < rich.expired.length; i++) {
-            if (rich.expired[i] === 'chill') {
+            if (rich.expired[i] === 'burn') {
+                this.stopStatusEffectParticles(StatusEffect.BURNING);
+            } else if (rich.expired[i] === 'chill') {
                 // Restore base speed; an active legacy SLOWED re-asserts on its next apply.
                 if (!this.isFrozen && !this.isStunned) this.speed = this.originalSpeed;
                 this.stopStatusEffectParticles(StatusEffect.SLOWED);
-            } else if (rich.expired[i] === 'curse') {
-                // stopStatusEffectParticles is safe for absent keys (Map.get → undefined → skipped).
-                // No particle was started for CURSE, so this is a safe no-op.
-                this.stopStatusEffectParticles(StatusEffect.CURSE);
             }
+            // CURSE/FRAGILE start no particles → nothing to stop on expiry.
         }
 
         // ── Legacy CC (slow/freeze/stun/push/confused) — unchanged ──
@@ -882,15 +881,15 @@ export class Enemy {
         switch (effect) {
             case StatusEffect.BURNING: {
                 // strength = damage per stack per 0.5s tick (preserves legacy feel).
-                const rb = this.statuses.apply('burn', duration, strength, 1);
-                if (rb.overflowDetonate > 0) this.takeDamage(rb.overflowDetonate, 'fire');
+                const burnResult = this.statuses.apply('burn', duration, strength, 1);
+                if (burnResult.overflowDetonate > 0) this.takeDamage(burnResult.overflowDetonate, 'fire');
                 this.createStatusEffectParticles(effect);
                 break;
             }
 
             case StatusEffect.CHILL: {
-                const rc = this.statuses.apply('chill', duration, 0, 1);
-                if (rc.reachedFreeze) {
+                const chillResult = this.statuses.apply('chill', duration, 0, 1);
+                if (chillResult.reachedFreeze) {
                     // Convert to a real Freeze through the normal (immunity-gated) path.
                     this.applyStatusEffect(StatusEffect.FROZEN, STATUS_TUNING.chill.freezeDurationS, 1);
                 } else {

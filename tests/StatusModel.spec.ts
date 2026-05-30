@@ -132,4 +132,13 @@ describe('StatusStacks — refresh & timing edge cases', () => {
         expect(r.burnDamage).toBe(4);            // 2 stacks × 2
         expect(r.curseDamage).toBeCloseTo(2.5, 5); // 100 × 0.05 × 0.5
     });
+
+    it('tick with no active statuses returns a zero result', () => {
+        const s = new StatusStacks();
+        const r = s.tick(0.016, 100);
+        expect(r.burnDamage).toBe(0);
+        expect(r.curseDamage).toBe(0);
+        expect(r.chillSlowMultiplier).toBe(1);
+        expect(r.expired).toEqual([]);
+    });
 });

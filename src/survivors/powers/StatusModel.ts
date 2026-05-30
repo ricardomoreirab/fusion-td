@@ -38,6 +38,13 @@ export interface StatusTickResult {
     expired: RichStatusKind[];
 }
 
+// Shared zero-result for the common "no active statuses" case — avoids a per-frame
+// object+array allocation on every enemy (hundreds of enemies × 60fps). Callers MUST
+// treat the returned value as read-only and never mutate `expired`.
+const EMPTY_TICK_RESULT: StatusTickResult = {
+    burnDamage: 0, curseDamage: 0, chillSlowMultiplier: 1, expired: [],
+};
+
 export class StatusStacks {
     private tracks = new Map<RichStatusKind, Track>();
     private burnTickAcc = 0;
@@ -105,8 +112,8 @@ export class StatusStacks {
 
     /** Advance all timers by dtS; return DoT damage + chill slow + expiries. */
     tick(dtS: number, maxHp: number): StatusTickResult {
+        if (this.tracks.size === 0) { this.burnTickAcc = 0; return EMPTY_TICK_RESULT; }
         const out: StatusTickResult = { burnDamage: 0, curseDamage: 0, chillSlowMultiplier: 1, expired: [] };
-        if (this.tracks.size === 0) { this.burnTickAcc = 0; return out; }
 
         const burn = this.tracks.get('burn');
         if (burn) {
@@ -130,12 +137,16 @@ export class StatusStacks {
             );
         }
 
+        let burnExpired = false;
         for (const [kind, t] of this.tracks) {
             t.remainingS -= dtS;
-            if (t.remainingS <= 0) out.expired.push(kind);
+            if (t.remainingS <= 0) {
+                out.expired.push(kind);
+                if (kind === 'burn') burnExpired = true;
+            }
         }
         for (const kind of out.expired) this.tracks.delete(kind);
-        if (out.expired.includes('burn')) this.burnTickAcc = 0;
+        if (burnExpired) this.burnTickAcc = 0;
         return out;
     }
 
