@@ -58,6 +58,7 @@ export class MenuState implements GameState {
         // Dispose UI
         this.gameUI?.dispose();
         this.gameUI = null;
+        this.lbOpen = false; // singleton state — clear the guard so the board reopens next time
     }
 
     public update(_deltaTime: number): void {

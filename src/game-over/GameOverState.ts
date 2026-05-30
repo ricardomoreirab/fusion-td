@@ -62,6 +62,7 @@ export class GameOverState implements GameState {
         this.gameUI = null;
         this.playerStats = null;
         this.survivorsSummary = null;
+        this.lbOpen = false; // singleton state — clear the guard so the board reopens next time
     }
 
     public update(_deltaTime: number): void {
@@ -159,6 +160,9 @@ export class GameOverState implements GameState {
             attrs: { type: 'text', maxlength: '16', placeholder: 'Enter your name' },
         }) as HTMLInputElement;
         nameInput.value = GameSettings.getLeaderboardName();
+        // GameUI preventDefaults #ui-root mousedown (to keep canvas keyboard focus);
+        // stop propagation here so clicking the field still focuses it on desktop.
+        nameInput.addEventListener('mousedown', (e) => e.stopPropagation());
 
         let busy = false;
         const submitBtn = makeButton({
