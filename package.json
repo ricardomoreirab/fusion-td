@@ -6,7 +6,6 @@
   "scripts": {
     "start": "webpack serve --open",
     "build": "webpack --mode production",
-    "vercel-build": "webpack --mode production",
     "dev": "webpack serve --open",
     "deploy": "npm run build && wrangler deploy",
     "preview": "wrangler dev",
@@ -30,6 +29,7 @@
     "@babylonjs/procedural-textures": "^9.9.1"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260529.1",
     "copy-webpack-plugin": "^11.0.0",
     "css-loader": "^6.11.0",
     "html-webpack-plugin": "^5.5.3",

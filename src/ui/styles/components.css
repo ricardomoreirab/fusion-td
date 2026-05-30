@@ -511,3 +511,35 @@
   text-align: center; margin-top: var(--s-2); line-height: 1.5;
 }
 .screen__buttons { display: flex; gap: var(--s-3); flex-wrap: wrap; justify-content: center; margin-top: var(--s-2); }
+
+/* ── Leaderboard overlay + game-over submit row ──────────── */
+.modal-panel--leaderboard { width: min(460px, 92vw); }
+.lb-header,
+.lb-row {
+  font-family: 'Courier New', monospace;
+  font-size: var(--fs-200);
+  white-space: pre;            /* preserve monospace column padding */
+  text-align: center;
+}
+.lb-header { color: var(--c-gold-hi); font-weight: 700; border-bottom: 1px solid var(--c-gold-lo); padding-bottom: var(--s-2); }
+.lb-list { display: flex; flex-direction: column; gap: 2px; max-height: 50vh; overflow-y: auto; }
+.lb-row { color: var(--c-parchment); padding: var(--s-1) var(--s-2); border-radius: var(--r-sm); }
+.lb-row:nth-child(even) { background: rgba(255, 255, 255, 0.04); }
+.lb-row--top { color: var(--c-gold-hi); }
+
+.lb-submit { display: flex; gap: var(--s-2); justify-content: center; align-items: stretch; flex-wrap: wrap; margin-top: var(--s-2); }
+.lb-name-input {
+  width: min(220px, 60vw);
+  padding: var(--s-2) var(--s-3);
+  border: 2px solid var(--c-gold-lo);
+  border-radius: var(--r-sm);
+  background: var(--c-stone-900);
+  color: var(--c-parchment);
+  font-family: var(--ff-body);
+  font-size: var(--fs-200);
+  outline: none;
+}
+.lb-name-input::placeholder { color: var(--c-parchment-faint); }
+.lb-name-input:focus { border-color: var(--c-gold-hi); }
+.lb-name-input--err { border-color: var(--c-blood); }
+.btn--disabled { opacity: 0.55; pointer-events: none; }

@@ -6,6 +6,7 @@ import { GameUI } from '../ui/GameUI';
 import { el } from '../ui/dom';
 import { onTap } from '../ui/interaction';
 import { makeButton } from '../ui/primitives/Button';
+import { LeaderboardOverlay } from '../ui/overlays/Leaderboard';
 
 export class MenuState implements GameState {
     private game: Game;
@@ -13,6 +14,7 @@ export class MenuState implements GameState {
     private sceneObjects: Mesh[] = [];
     private particleSystems: ParticleSystem[] = [];
     private animationCallback: (() => void) | null = null;
+    private lbOpen = false;
 
     constructor(game: Game) {
         this.game = game;
@@ -56,6 +58,7 @@ export class MenuState implements GameState {
         // Dispose UI
         this.gameUI?.dispose();
         this.gameUI = null;
+        this.lbOpen = false; // singleton state — clear the guard so the board reopens next time
     }
 
     public update(_deltaTime: number): void {
@@ -125,6 +128,18 @@ export class MenuState implements GameState {
 
         // Apply initial active state
         refresh();
+
+        // Leaderboard button — opens the shared modal over the menu.
+        screen.appendChild(makeButton({
+            label: '🏆 Leaderboard',
+            variant: 'ghost',
+            onClick: () => {
+                if (this.lbOpen) return; // guard against stacking panels on rapid taps
+                this.lbOpen = true;
+                const board = new LeaderboardOverlay(overlay);
+                void board.show(() => { this.lbOpen = false; });
+            },
+        }));
 
         overlay.appendChild(screen);
     }

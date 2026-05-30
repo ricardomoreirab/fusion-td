@@ -6,6 +6,9 @@ import { GameUI } from '../ui/GameUI';
 import { el } from '../ui/dom';
 import { makeButton } from '../ui/primitives/Button';
 import { makeFrame } from '../ui/primitives/Frame';
+import { GameSettings } from '../shared/GameSettings';
+import { submitScore } from '../survivors/Leaderboard';
+import { LeaderboardOverlay } from '../ui/overlays/Leaderboard';
 
 export interface SurvivorsRunSummary {
     waveReached: number;
@@ -13,6 +16,7 @@ export interface SurvivorsRunSummary {
     kills: number;
     goldCollected: number;
     finalLoadout: { name: string; level: number; icon: string; tier?: string }[];
+    championType?: string;
 }
 
 export class GameOverState implements GameState {
@@ -21,6 +25,7 @@ export class GameOverState implements GameState {
     private playerWon: boolean = false;
     private playerStats: PlayerStats | null = null;
     private survivorsSummary: SurvivorsRunSummary | null = null;
+    private lbOpen = false;
 
     constructor(game: Game) {
         this.game = game;
@@ -57,6 +62,7 @@ export class GameOverState implements GameState {
         this.gameUI = null;
         this.playerStats = null;
         this.survivorsSummary = null;
+        this.lbOpen = false; // singleton state — clear the guard so the board reopens next time
     }
 
     public update(_deltaTime: number): void {
@@ -133,6 +139,74 @@ export class GameOverState implements GameState {
         }));
         screen.appendChild(btnRow);
 
+        // Leaderboard submit row (survivors runs only).
+        if (this.survivorsSummary) {
+            this.addLeaderboardSection(screen, overlay, this.survivorsSummary);
+        }
+
         overlay.appendChild(screen);
+    }
+
+    /**
+     * Survivors-only: a submit row (name input + submit button) below the run
+     * summary. On a successful submit the button becomes a "Ranked #N — View
+     * Board" action that opens the shared leaderboard modal.
+     */
+    private addLeaderboardSection(screen: HTMLElement, parent: HTMLElement, summary: SurvivorsRunSummary): void {
+        const row = el('div', { class: 'lb-submit' });
+
+        const nameInput = el('input', {
+            class: 'lb-name-input',
+            attrs: { type: 'text', maxlength: '16', placeholder: 'Enter your name' },
+        }) as HTMLInputElement;
+        nameInput.value = GameSettings.getLeaderboardName();
+        // GameUI preventDefaults #ui-root mousedown (to keep canvas keyboard focus);
+        // stop propagation here so clicking the field still focuses it on desktop.
+        nameInput.addEventListener('mousedown', (e) => e.stopPropagation());
+
+        let busy = false;
+        const submitBtn = makeButton({
+            label: '🏆 Submit Score',
+            variant: 'forged',
+            onClick: () => {
+                if (busy) return;
+                const name = nameInput.value.trim();
+                if (name.length === 0) {
+                    nameInput.classList.add('lb-name-input--err');
+                    nameInput.focus();
+                    return;
+                }
+                busy = true;
+                GameSettings.setLeaderboardName(name);
+                submitBtn.textContent = 'Submitting…';
+                submitBtn.classList.add('btn--disabled');
+                void submitScore(summary, name).then((result) => {
+                    if (!this.gameUI) return; // screen exited mid-submit — nodes detached
+                    if (result) {
+                        const viewBtn = makeButton({
+                            label: `Ranked #${result.rank} — View Board`,
+                            variant: 'forged',
+                            onClick: () => this.openLeaderboard(parent),
+                        });
+                        row.replaceChild(viewBtn, submitBtn);
+                        nameInput.remove();
+                    } else {
+                        busy = false;
+                        submitBtn.classList.remove('btn--disabled');
+                        submitBtn.textContent = 'Failed — Tap to Retry';
+                    }
+                });
+            },
+        });
+
+        row.append(nameInput, submitBtn);
+        screen.appendChild(row);
+    }
+
+    private openLeaderboard(parent: HTMLElement): void {
+        if (this.lbOpen) return; // guard against stacking panels on rapid taps
+        this.lbOpen = true;
+        const board = new LeaderboardOverlay(parent);
+        void board.show(() => { this.lbOpen = false; });
     }
 }

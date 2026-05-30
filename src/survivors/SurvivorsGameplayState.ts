@@ -833,6 +833,7 @@ export class SurvivorsGameplayState implements GameState {
             kills,
             goldCollected,
             finalLoadout,
+            championType: this.currentChampionType,
         };
 
         const gos = this.game.getStateManager().getState('gameOver') as GameOverState;
