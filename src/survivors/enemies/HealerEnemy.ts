@@ -2,6 +2,7 @@ import { Vector3, MeshBuilder, StandardMaterial, Color3, Color4, ParticleSystem,
 import { Game } from '../../engine/Game';
 import { Enemy, getStatusEffectTexture, tryAcquireDeathBurst, releaseDeathBurst } from './Enemy';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../engine/rendering/LowPolyMaterial';
+import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
 import { PALETTE } from '../../engine/rendering/StyleConstants';
 
 export class HealerEnemy extends Enemy {
@@ -489,11 +490,15 @@ export class HealerEnemy extends Enemy {
         ring.position = this.position.clone();
         ring.position.y += 0.05;
 
-        const ringMat = new StandardMaterial('healPulseRingMat_' + Math.random(), this.scene);
-        ringMat.emissiveColor = PALETTE.ENEMY_HEALER_GLOW;
-        ringMat.alpha = 0.60;
-        ringMat.disableLighting = true;
-        ring.material = ringMat;
+        // Cache by stable key — one shared frozen material for all heal rings.
+        // Math.random() name forced a shader recompile per heal pulse. Fade via
+        // mesh.visibility, not the frozen mat's .alpha.
+        ring.material = getCachedMaterial(this.scene, 'healPulseRingMat', m => {
+            m.emissiveColor = PALETTE.ENEMY_HEALER_GLOW;
+            m.alpha = 0.60;
+            m.disableLighting = true;
+        });
+        ring.visibility = 0.60;
 
         const startTime = performance.now();
         const duration = 500; // ms
@@ -510,14 +515,11 @@ export class HealerEnemy extends Enemy {
             const radius = startRadius + (endRadius - startRadius) * t;
             const scale = radius / startRadius;
             ring.scaling.set(scale, scale, scale);
-            ringMat.alpha = 0.60 * (1 - t);
+            ring.visibility = 0.60 * (1 - t);
 
             if (t >= 1.0) {
                 this.scene.onBeforeRenderObservable.remove(observer);
-                // dispose(false, true): free the per-pulse, uniquely-named ringMat
-                // too. Default dispose() leaves it stranded in scene.materials
-                // forever — one leaked StandardMaterial per heal pulse.
-                ring.dispose(false, true);
+                ring.dispose(); // keeps the cached/shared material
             }
         });
     }

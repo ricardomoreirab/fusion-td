@@ -1,7 +1,8 @@
-import { Vector3, MeshBuilder, StandardMaterial, Color3, Color4, ParticleSystem, Texture, Mesh, AssetContainer, AnimationGroup, TransformNode, Quaternion } from '@babylonjs/core';
+import { Vector3, MeshBuilder, Color3, Color4, ParticleSystem, Texture, Mesh, AssetContainer, AnimationGroup, TransformNode, Quaternion } from '@babylonjs/core';
 import { Game } from '../../engine/Game';
 import { Enemy } from './Enemy';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../engine/rendering/LowPolyMaterial';
+import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
 import { PALETTE } from '../../engine/rendering/StyleConstants';
 
 export class SplittingEnemy extends Enemy {
@@ -546,11 +547,15 @@ export class SplittingEnemy extends Enemy {
         ring.position = this.position.clone();
         ring.position.y += 0.05;
 
-        const ringMat = new StandardMaterial('splitBurstRingMat_' + Math.random(), this.scene);
-        ringMat.emissiveColor = PALETTE.ENEMY_SPLITTING_EYE; // Orange-yellow burst
-        ringMat.alpha = 0.75;
-        ringMat.disableLighting = true;
-        ring.material = ringMat;
+        // Cache by stable key — one shared frozen material for all split rings.
+        // Math.random() name forced a shader recompile per SplittingEnemy death.
+        // Fade via mesh.visibility, not the frozen mat's .alpha.
+        ring.material = getCachedMaterial(this.scene, 'splitBurstRingMat', m => {
+            m.emissiveColor = PALETTE.ENEMY_SPLITTING_EYE; // Orange-yellow burst
+            m.alpha = 0.75;
+            m.disableLighting = true;
+        });
+        ring.visibility = 0.75;
 
         const startTime = performance.now();
         const duration = 600; // ms
@@ -566,14 +571,11 @@ export class SplittingEnemy extends Enemy {
             const t = Math.min(elapsed / duration, 1.0);
             const scale = (startRadius + (endRadius - startRadius) * t) / startRadius;
             ring.scaling.set(scale, scale, scale);
-            ringMat.alpha = 0.75 * (1 - t);
+            ring.visibility = 0.75 * (1 - t);
 
             if (t >= 1.0) {
                 this.scene.onBeforeRenderObservable.remove(observer);
-                // dispose(false, true): free the per-split, uniquely-named ringMat
-                // too. Default dispose() leaves it stranded in scene.materials
-                // forever — one leaked StandardMaterial per SplittingEnemy death.
-                ring.dispose(false, true);
+                ring.dispose(); // keeps the cached/shared material
             }
         });
     }

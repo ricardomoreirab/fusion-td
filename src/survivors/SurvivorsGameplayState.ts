@@ -1,4 +1,4 @@
-import { Scene, Vector3, Color3, Color4, DirectionalLight, AssetContainer, LoadAssetContainerAsync, CubeTexture, Texture, MeshBuilder, Mesh, BackgroundMaterial, ShadowGenerator, KeyboardEventTypes, StandardMaterial } from '@babylonjs/core';
+import { Scene, Vector3, Color3, Color4, DirectionalLight, AssetContainer, LoadAssetContainerAsync, CubeTexture, Texture, MeshBuilder, Mesh, BackgroundMaterial, ShadowGenerator, KeyboardEventTypes } from '@babylonjs/core';
 import '@babylonjs/loaders/glTF';
 import { AdvancedDynamicTexture } from '@babylonjs/gui';
 import { Game } from '../engine/Game';
@@ -33,7 +33,7 @@ import { ItemDrop } from './ItemDrop';
 import { DifficultyTuning } from './DifficultyTuning';
 import { createProceduralGrass } from '../engine/rendering/ProceduralGrass';
 import { GameSettings, bladeCountForQuality } from '../shared/GameSettings';
-import { clearMaterialCache, getMaterialCacheSize } from '../engine/rendering/MaterialCache';
+import { clearMaterialCache, getCachedMaterial, getMaterialCacheSize } from '../engine/rendering/MaterialCache';
 import { clearProjectilePools } from '../engine/rendering/ProjectilePool';
 import { formatBuckets } from '../engine/rendering/resourceBudget';
 
@@ -1442,11 +1442,17 @@ export class SurvivorsGameplayState implements GameState {
         const color = isUltimate ? new Color3(1, 0.9, 0.4) : new Color3(0.75, 0.45, 1);
         const burst = MeshBuilder.CreateSphere('forgeBurst', { diameter: 0.6, segments: 8 }, scene);
         burst.position.copyFrom(pos);
-        const mat = new StandardMaterial('forgeBurstMat_' + Math.random(), scene);
-        mat.emissiveColor = color;
-        mat.diffuseColor = new Color3(0, 0, 0);
-        mat.alpha = 0.9;
-        burst.material = mat;
+        // Cache by bounded key (ult vs fuse — two colours). Math.random() name
+        // defeated the cache and forced a shader recompile per forge. Fade via
+        // mesh.visibility, not the frozen mat's .alpha.
+        const matKey = isUltimate ? 'forgeBurstMat_ult' : 'forgeBurstMat_fuse';
+        burst.material = getCachedMaterial(scene, matKey, m => {
+            m.emissiveColor = color;
+            m.diffuseColor = new Color3(0, 0, 0);
+            m.disableLighting = true;
+            m.alpha = 0.9;
+        });
+        burst.visibility = 0.9;
         const lifeS = isUltimate ? 0.7 : 0.5;
         let elapsed = 0;
         const obs = scene.onBeforeRenderObservable.add(() => {
@@ -1454,10 +1460,9 @@ export class SurvivorsGameplayState implements GameState {
             elapsed += dt;
             const t = Math.min(elapsed / lifeS, 1);
             burst.scaling.setAll(0.6 + t * (isUltimate ? 10 : 6));
-            mat.alpha = 0.9 * (1 - t);
+            burst.visibility = 0.9 * (1 - t);
             if (t >= 1) {
-                burst.dispose();
-                mat.dispose();
+                burst.dispose(); // keeps the cached/shared material
                 scene.onBeforeRenderObservable.remove(obs);
             }
         });

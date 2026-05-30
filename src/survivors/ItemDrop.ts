@@ -1,4 +1,5 @@
-import { Scene, Vector3, Mesh, MeshBuilder, StandardMaterial, Color3 } from '@babylonjs/core';
+import { Scene, Vector3, Mesh, MeshBuilder, Color3 } from '@babylonjs/core';
+import { getCachedMaterial } from '../engine/rendering/MaterialCache';
 import { ItemId } from './RunItems';
 
 /** Visual color per item — matches the HUD slot color so the link reads. */
@@ -41,27 +42,31 @@ export class ItemDrop {
         this.heroProvider = heroProvider;
 
         // Faceted icosahedron gem
-        this.mesh = MeshBuilder.CreatePolyhedron(`itemGem_${itemId}_${Math.random()}`,
+        this.mesh = MeshBuilder.CreatePolyhedron(`itemGem_${itemId}`,
             { type: 2, size: 0.45 }, scene);
         this.mesh.position.copyFrom(position);
         this.mesh.position.y = 0.8;
-        const gemMat = new StandardMaterial(`itemGemMat_${itemId}_${Math.random()}`, scene);
-        gemMat.emissiveColor = this.color;
-        gemMat.diffuseColor  = this.color.scale(0.3);
-        gemMat.specularColor = Color3.Black();
-        this.mesh.material = gemMat;
+        // Cache by itemId (bounded: 4 ids). Math.random() suffix defeated the
+        // cache and forced a shader recompile per drop.
+        this.mesh.material = getCachedMaterial(scene, `itemGemMat_${itemId}`, m => {
+            m.emissiveColor = this.color;
+            m.diffuseColor  = this.color.scale(0.3);
+            m.specularColor = Color3.Black();
+            m.disableLighting = true;
+        });
 
         // Pillar of light — tall thin cylinder behind the gem
-        this.pillar = MeshBuilder.CreateCylinder(`itemPillar_${itemId}_${Math.random()}`,
+        this.pillar = MeshBuilder.CreateCylinder(`itemPillar_${itemId}`,
             { height: 8, diameterTop: 0.3, diameterBottom: 0.9, tessellation: 8 }, scene);
         this.pillar.position.copyFrom(position);
         this.pillar.position.y = 4;
-        const pillarMat = new StandardMaterial(`itemPillarMat_${itemId}_${Math.random()}`, scene);
-        pillarMat.emissiveColor = this.color;
-        pillarMat.diffuseColor  = new Color3(0, 0, 0);
-        pillarMat.specularColor = Color3.Black();
-        pillarMat.alpha = 0.20;
-        this.pillar.material = pillarMat;
+        this.pillar.material = getCachedMaterial(scene, `itemPillarMat_${itemId}`, m => {
+            m.emissiveColor = this.color;
+            m.diffuseColor  = new Color3(0, 0, 0);
+            m.specularColor = Color3.Black();
+            m.disableLighting = true;
+            m.alpha = 0.20;
+        });
         this.pillar.isPickable = false;
     }
 
@@ -99,20 +104,21 @@ export class ItemDrop {
     }
 
     private playPickupFlash(): void {
-        // Dispose the original gem material before swapping, otherwise it leaks
-        // (mesh.dispose(false, true) at the end only disposes the *current* material).
-        const prev = this.mesh.material;
-        if (prev) prev.dispose();
-        const flashMat = new StandardMaterial(`itemFlash_${Math.random()}`, this.scene);
-        flashMat.emissiveColor = this.color.scale(2.5);
-        flashMat.specularColor = Color3.Black();
-        this.mesh.material = flashMat;
+        // Cache by itemId (bounded: 4 ids). Math.random() suffix forced a shader
+        // recompile per pickup. The gem material is shared/cached — do NOT dispose
+        // it before swapping; just replace the mesh's material reference.
+        this.mesh.material = getCachedMaterial(this.scene, `itemFlash_${this.itemId}`, m => {
+            m.emissiveColor = this.color.scale(2.5);
+            m.specularColor = Color3.Black();
+            m.disableLighting = true;
+        });
         this.mesh.scaling.setAll(2.0);
     }
 
     public dispose(): void {
         this.alive = false;
-        if (!this.mesh.isDisposed()) this.mesh.dispose(false, true);
-        if (!this.pillar.isDisposed()) this.pillar.dispose(false, true);
+        // All materials are shared/cached — use default dispose() (keeps material).
+        if (!this.mesh.isDisposed()) this.mesh.dispose();
+        if (!this.pillar.isDisposed()) this.pillar.dispose();
     }
 }
