@@ -38,6 +38,29 @@ export function getStatusEffectTexture(scene: Scene): Texture {
     return _statusEffectTexture;
 }
 
+// Hard cap on simultaneously-alive death-burst ParticleSystems. scene.particleSystems
+// is walked + updated every frame, so a mass AoE wipe (Frost Nova / Meteor / Whirlwind)
+// killing dozens of enemies in a single frame would otherwise spawn dozens of concurrent
+// systems and spike the per-frame particle walk for ~1-2s. Past the cap, extra deaths
+// skip ONLY the visual poof — the kill, gold reward, and death sound still happen.
+let _activeDeathBursts = 0;
+const MAX_ACTIVE_DEATH_BURSTS = 18;
+/** Reserve a death-burst slot; returns false (caller skips the poof) when the cap is hit. */
+export function tryAcquireDeathBurst(): boolean {
+    if (_activeDeathBursts >= MAX_ACTIVE_DEATH_BURSTS) return false;
+    _activeDeathBursts++;
+    return true;
+}
+/** Release a slot reserved by tryAcquireDeathBurst — call once the system is disposed. */
+export function releaseDeathBurst(): void {
+    if (_activeDeathBursts > 0) _activeDeathBursts--;
+}
+/** Reset the budget to zero (EnemyManager teardown) so a missed release from a prior run
+ *  can never permanently starve future poofs. */
+export function resetDeathBurstBudget(): void {
+    _activeDeathBursts = 0;
+}
+
 export class Enemy {
     /**
      * Global crit provider — set once at run start by SurvivorsGameplayState.
@@ -1414,27 +1437,29 @@ export class Enemy {
         const deathPos = this.position.clone();
         deathPos.y += 0.5;
 
-        // --- Particle burst ---
-        const ps = new ParticleSystem('deathBurst', 30, this.scene);
-        ps.emitter = deathPos;
-        ps.minEmitBox = new Vector3(-0.2, 0, -0.2);
-        ps.maxEmitBox = new Vector3(0.2, 0, 0.2);
-        ps.color1 = new Color4(1, 0.8, 0.3, 1);
-        ps.color2 = new Color4(0.8, 0.3, 0.1, 1);
-        ps.colorDead = new Color4(0.3, 0.1, 0, 0);
-        ps.minSize = 0.1;
-        ps.maxSize = 0.35;
-        ps.minLifeTime = 0.2;
-        ps.maxLifeTime = 0.5;
-        ps.emitRate = 100;
-        ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-        ps.direction1 = new Vector3(-1, 1, -1);
-        ps.direction2 = new Vector3(1, 2, 1);
-        ps.minEmitPower = 1;
-        ps.maxEmitPower = 3;
-        ps.gravity = new Vector3(0, -5, 0);
-        ps.start();
-        setTimeout(() => { ps.stop(); setTimeout(() => ps.dispose(), 600); }, 150);
+        // --- Particle burst (capped to bound concurrent systems under mass kills) ---
+        if (tryAcquireDeathBurst()) {
+            const ps = new ParticleSystem('deathBurst', 30, this.scene);
+            ps.emitter = deathPos;
+            ps.minEmitBox = new Vector3(-0.2, 0, -0.2);
+            ps.maxEmitBox = new Vector3(0.2, 0, 0.2);
+            ps.color1 = new Color4(1, 0.8, 0.3, 1);
+            ps.color2 = new Color4(0.8, 0.3, 0.1, 1);
+            ps.colorDead = new Color4(0.3, 0.1, 0, 0);
+            ps.minSize = 0.1;
+            ps.maxSize = 0.35;
+            ps.minLifeTime = 0.2;
+            ps.maxLifeTime = 0.5;
+            ps.emitRate = 100;
+            ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
+            ps.direction1 = new Vector3(-1, 1, -1);
+            ps.direction2 = new Vector3(1, 2, 1);
+            ps.minEmitPower = 1;
+            ps.maxEmitPower = 3;
+            ps.gravity = new Vector3(0, -5, 0);
+            ps.start();
+            setTimeout(() => { ps.stop(); setTimeout(() => { ps.dispose(); releaseDeathBurst(); }, 600); }, 150);
+        }
 
         // --- Gold reward float-up text ---
         this.showGoldRewardText(deathPos);

@@ -781,6 +781,16 @@ export class SurvivorsGameplayState implements GameState {
         torchShadow.darkness = 0.55; // a touch lighter than the directional
         torchShadow.transparencyShadow = false;
         this.torchShadowGenerator = torchShadow;
+
+        // The torch is left dormant (intensity 0; enableTorch() is never called in
+        // the current design — see startRun). A point-light ShadowGenerator renders
+        // a 6-face cube depth map EVERY frame for every registered caster as long as
+        // light.shadowEnabled is true — gated on shadowEnabled, NOT intensity — so
+        // while the torch emits no light this is pure GPU waste (zero visible shadow),
+        // roughly doubling boss-wave shadow cost. Disable shadow casting until the
+        // torch is actually lit. NB: if Champion.enableTorch() is ever wired into a
+        // run, it must set heroTorch.shadowEnabled = true to restore the shadow pool.
+        torch.shadowEnabled = false;
     }
 
     /** Public so EnemyManager can register boss/elite casters. */

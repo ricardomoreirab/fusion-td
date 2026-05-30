@@ -1,6 +1,6 @@
 import { Vector3, MeshBuilder, StandardMaterial, Color3, Color4, ParticleSystem, Mesh, AssetContainer, AnimationGroup, TransformNode, Quaternion } from '@babylonjs/core';
 import { Game } from '../../engine/Game';
-import { Enemy, getStatusEffectTexture } from './Enemy';
+import { Enemy, getStatusEffectTexture, tryAcquireDeathBurst, releaseDeathBurst } from './Enemy';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../engine/rendering/LowPolyMaterial';
 import { PALETTE } from '../../engine/rendering/StyleConstants';
 
@@ -413,6 +413,13 @@ export class HealerEnemy extends Enemy {
     protected createDeathEffect(): void {
         if (!this.mesh) return;
 
+        // Cap concurrent death-burst particle systems (mass-AoE-kill spike guard).
+        // Past the cap, skip only the poof — the death sound still plays.
+        if (!tryAcquireDeathBurst()) {
+            this.game.getAssetManager().playSound('enemyDeath');
+            return;
+        }
+
         // Create a healing-themed explosion effect
         const particleSystem = new ParticleSystem('deathParticles', 50, this.scene);
 
@@ -458,11 +465,16 @@ export class HealerEnemy extends Enemy {
         // Play sound effect
         this.game.getAssetManager().playSound('enemyDeath');
 
-        // Stop and dispose after 1 second
+        // Stop and dispose after 1 second. dispose(false) so the SHARED
+        // status-effect texture (getStatusEffectTexture) is NOT destroyed —
+        // the default dispose() passes disposeTexture=true, which would tear the
+        // shared texture out from under every other enemy's live status particles
+        // and force a synchronous re-create on the next getStatusEffectTexture.
         setTimeout(() => {
             particleSystem.stop();
             setTimeout(() => {
-                particleSystem.dispose();
+                particleSystem.dispose(false);
+                releaseDeathBurst();
             }, 1000);
         }, 1000);
     }
@@ -502,7 +514,10 @@ export class HealerEnemy extends Enemy {
 
             if (t >= 1.0) {
                 this.scene.onBeforeRenderObservable.remove(observer);
-                ring.dispose();
+                // dispose(false, true): free the per-pulse, uniquely-named ringMat
+                // too. Default dispose() leaves it stranded in scene.materials
+                // forever — one leaked StandardMaterial per heal pulse.
+                ring.dispose(false, true);
             }
         });
     }

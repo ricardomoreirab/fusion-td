@@ -33,7 +33,16 @@ export function getCachedMaterial(
     setup: (mat: StandardMaterial) => void,
 ): StandardMaterial {
     let mat = cache.get(key);
-    if (!mat || mat.isReady() === false) {
+    // Miss test is KEY PRESENCE only. The previous `mat.isReady() === false`
+    // gate was a latent leak: Babylon's PushMaterial.isReady(mesh) returns false
+    // unconditionally when called with no mesh argument (the `if (!mesh) return
+    // false` guard) — which is exactly how it's called here — so the cache NEVER
+    // hit. Every call allocated a fresh frozen StandardMaterial, overwrote this
+    // entry, and orphaned the previous material in scene.materials forever (a
+    // list the scene walks every frame), worsening over a run and across runs.
+    // A cached material is frozen, shared, and only ever disposed via
+    // clearMaterialCache() (which also deletes the key), so presence == valid.
+    if (!mat) {
         mat = new StandardMaterial(key, scene);
         setup(mat);
         mat.freeze();
