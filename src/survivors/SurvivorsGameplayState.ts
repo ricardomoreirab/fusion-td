@@ -15,6 +15,7 @@ import { PowerSlotManager, PowerSlot } from './powers/PowerSlotManager';
 import { POWER_DEFS, getPowerByElementAndClass, getPowerMapForClass, PowerElement, ChampionType, PowerDefinition } from './powers/PowerDefinitions';
 import { getFusionFor, getUltimatesForClass } from './powers/FusionDefinitions';
 import { aoeBurst, setCameraShakeHook, resetPowerEffects } from './powers/PowerEffects';
+import './powers/FusionArchetypes'; // registers fusion archetypes at load
 import { Enemy, HEALTH_BAR_RENDER_GROUP } from './enemies/Enemy';
 import { BasicAttackTarget } from './champions/HeroBasicAttack';
 import { PowerChoiceOverlay, PowerCard } from '../ui/overlays/PowerChoice';
