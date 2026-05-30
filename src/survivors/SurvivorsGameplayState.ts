@@ -14,7 +14,7 @@ import { PowerDrop } from './powers/PowerDrop';
 import { PowerSlotManager, PowerSlot } from './powers/PowerSlotManager';
 import { POWER_DEFS, getPowerByElementAndClass, getPowerMapForClass, PowerElement, ChampionType, PowerDefinition } from './powers/PowerDefinitions';
 import { getFusionFor, getUltimatesForClass } from './powers/FusionDefinitions';
-import { Enemy } from './enemies/Enemy';
+import { Enemy, HEALTH_BAR_RENDER_GROUP } from './enemies/Enemy';
 import { BasicAttackTarget } from './champions/HeroBasicAttack';
 import { PowerChoiceOverlay, PowerCard } from '../ui/overlays/PowerChoice';
 import { ReplaceSlotOverlay } from '../ui/overlays/ReplaceSlot';
@@ -219,6 +219,11 @@ export class SurvivorsGameplayState implements GameState {
         this.game.cleanupScene();
         this.scene = this.game.getScene();
         this.scene.clearColor = new Color4(0.04, 0.03, 0.05, 1); // near-black warm
+
+        // Clear the depth buffer before the health-bar rendering group so enemy
+        // health bars always draw ON TOP of their model and stay visible no matter
+        // how large the monster is (big bosses used to occlude their own bar).
+        this.scene.setRenderingAutoClearDepthStencil(HEALTH_BAR_RENDER_GROUP, true, true, false);
 
         // No second hemispheric light here — Game.setupScene already added
         // 'light' (warm fill, intensity 0.55). Stacking another hemi was

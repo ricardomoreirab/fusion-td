@@ -1686,8 +1686,21 @@ export class Champion extends Enemy {
         }
         this.glbAnimationGroups.length = 0;
 
-        // Dispose mesh and health bars
+        // Dispose mesh and health bars. For the GLB hero, also free the per-instance
+        // cloned material textures — instantiateModelsToScene(cloneMaterials=true)
+        // clones the material's textures too, so each run's hero otherwise leaks its
+        // base-color texture. Skip for the procedural hero, which shares cached
+        // colour-only materials that must survive into the next run.
         if (this.mesh) {
+            if (this.championAsset) {
+                for (const m of [this.mesh, ...this.mesh.getChildMeshes(false)]) {
+                    const mat = m.material;
+                    if (mat) {
+                        m.material = null;
+                        try { mat.dispose(false, true); } catch (_) { /* already disposed */ }
+                    }
+                }
+            }
             this.mesh.dispose();
             this.mesh = null;
         }

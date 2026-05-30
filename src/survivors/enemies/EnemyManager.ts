@@ -160,6 +160,10 @@ export class EnemyManager {
             document.removeEventListener('bossClone', this.cloneHandler);
         }
         this.cloneHandler = (e: Event) => {
+          // Isolate the tier-3/4 twin spawn: it synchronously instantiates a boss
+          // GLB mid-update, and any throw here would otherwise abort the whole
+          // update frame. Catch + log so a clone failure can't blank the screen.
+          try {
             const detail = (e as CustomEvent).detail as { origin: MilestoneBoss; tier: number };
             const origin = detail.origin;
             if (!this.heroProvider || !origin || !origin.isAlive()) return;
@@ -192,6 +196,9 @@ export class EnemyManager {
             if (cloneMax > 0) clone.applyHealthMultiplier(origin.getMaxHealth() / cloneMax);
             this._registerAsShadowCaster(clone);
             this.enemies.push(clone);
+          } catch (err) {
+            console.error('[clone] boss-clone spawn failed (skipped):', err);
+          }
         };
         document.addEventListener('bossClone', this.cloneHandler);
     }

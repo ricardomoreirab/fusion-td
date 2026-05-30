@@ -15,6 +15,12 @@ export const HEALTH_COLOR_GREEN  = new Color3(0.2, 0.8, 0.2);
 export const HEALTH_COLOR_YELLOW = new Color3(0.8, 0.8, 0.2);
 export const HEALTH_COLOR_RED    = new Color3(0.8, 0.2, 0.2);
 
+/** Dedicated rendering group for enemy health bars. SurvivorsGameplayState.enter()
+ *  configures this group to CLEAR the depth buffer before it renders, so health
+ *  bars always draw ON TOP of the enemy mesh — they stay visible no matter how
+ *  large the model is (big bosses used to occlude their own bar). */
+export const HEALTH_BAR_RENDER_GROUP = 1;
+
 // Per-hit emissive tint — module-level constant so flashHit doesn't allocate
 // a fresh Color3 on every damage event (every chain-lightning sub-hit etc.).
 const HIT_TINT = new Color3(0.85, 0.10, 0.05);
@@ -220,6 +226,7 @@ export class Enemy {
                 console.error('Enemy mesh creation failed');
             }
             this.createHealthBar();
+            this._makeHealthBarAlwaysVisible();
         } catch (error) {
             console.error('Error creating enemy:', error);
         }
@@ -258,6 +265,7 @@ export class Enemy {
         if (opts?.label !== undefined) this.bossLabel = opts.label;
         this._disposeHealthBarMeshes();
         this.createHealthBar();
+        this._makeHealthBarAlwaysVisible();
     }
 
     /**
@@ -506,6 +514,25 @@ export class Enemy {
             this.barLabelTexture.dispose();
             this.barLabelTexture = null;
         }
+    }
+
+    /**
+     * Put every health-bar mesh into HEALTH_BAR_RENDER_GROUP. That group's depth
+     * buffer is cleared before it renders (configured once in
+     * SurvivorsGameplayState.enter), so the bar always draws on top of the enemy
+     * mesh and stays visible regardless of the model's size — large bosses used to
+     * occlude their own bar. Called after every createHealthBar() (init + re-tier),
+     * and safe to call when some bar meshes are absent (null-guarded).
+     */
+    private _makeHealthBarAlwaysVisible(): void {
+        const set = (m: Mesh | null): void => {
+            if (m && !m.isDisposed()) m.renderingGroupId = HEALTH_BAR_RENDER_GROUP;
+        };
+        set(this.healthBarOutlineMesh);
+        set(this.healthBarBackgroundMesh);
+        set(this.healthBarMesh);
+        for (const seg of this.barSegmentMeshes) set(seg);
+        set(this.barLabelMesh);
     }
 
     /**
@@ -1206,18 +1233,23 @@ export class Enemy {
                 try { g.removeShadowCaster(this.mesh, true); } catch (_) { /* not registered */ }
             }
 
-            // Dispose per-instance materials (cloned via instantiateModelsToScene
-            // with cloneMaterials=true) but NOT their textures. The textures are
-            // shared with the source AssetContainer — disposing them was nulling
-            // bone-matrix RawTextures on the source skeleton, crashing the next
-            // instantiateModelsToScene (e.g. after death → re-pick champion)
-            // inside Mesh.clone → Skeleton.prepare.
+            // Dispose the per-instance materials AND their textures. These materials
+            // are cloned per-instance by instantiateModelsToScene(cloneMaterials=true),
+            // and Babylon's Material.clone() also clones the material's TEXTURES — so
+            // every GLB spawn adds a fresh '<asset> (Base Color)' texture to
+            // scene.textures. forceDisposeTextures=true frees that per-instance clone;
+            // it does NOT touch the source AssetContainer's textures (different objects,
+            // so a later re-instantiate still renders). The cloned skeleton's
+            // bone-matrix RawTexture is freed separately below (glbSkeletons.dispose).
+            // Procedural enemy materials are colour-only (no textures), so the `true`
+            // is a no-op for them. Leaving this `false` leaked ~one texture per spawn
+            // (the steady cross-run scene.textures climb).
             const allMeshes = [this.mesh, ...this.mesh.getChildMeshes(false)];
             for (const m of allMeshes) {
                 const mat = m.material;
                 if (mat) {
                     m.material = null;
-                    try { mat.dispose(false, false); } catch (_) { /* already disposed */ }
+                    try { mat.dispose(false, true); } catch (_) { /* already disposed */ }
                 }
             }
             this.mesh.dispose();
