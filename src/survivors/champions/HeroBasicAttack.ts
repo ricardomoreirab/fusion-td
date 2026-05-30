@@ -244,25 +244,14 @@ export class HeroBasicAttack {
         const enemies = this.enemyProvider ? this.enemyProvider() : [];
         const hitEnemies: Enemy[] = [];
 
-        const lifestealPct = this.playerStats?.lifestealPct ?? 0;
-        const knockback    = this.playerStats?.knockbackOnHit ?? 0;
+        const rangeSq = range * range;
         for (const e of enemies) {
             if (!e.isAlive()) continue;
             const dx = e.getPosition().x - heroPos.x;
             const dz = e.getPosition().z - heroPos.z;
-            const horizDist = Math.hypot(dx, dz);
-            if (horizDist <= range) {
-                const dmg = this.effectiveDamage;
-                e.takeDamage(dmg);
-                if (lifestealPct > 0 && this.healCallback) {
-                    this.healCallback(dmg * lifestealPct);
-                }
-                if (knockback > 0 && horizDist > 0.001) {
-                    // Direction: from hero outward toward the enemy.
-                    e.applyKnockback(dx / horizDist, dz / horizDist, knockback);
-                }
+            if (dx * dx + dz * dz <= rangeSq) {
+                this.applyHit(e, heroPos, enemies);
                 hitEnemies.push(e);
-                this.applyEnchantments(e, heroPos, enemies);
             }
         }
 
@@ -278,6 +267,48 @@ export class HeroBasicAttack {
         if (typeof hero.triggerAttack === 'function') {
             const facing = hitEnemies.length > 0 ? hitEnemies[0].getPosition() : undefined;
             hero.triggerAttack(facing);
+        }
+    }
+
+    /** Apply one full basic-attack hit to a single enemy: effective damage
+     *  (crit is rolled inside Enemy.takeDamage), lifesteal, knockback radiating
+     *  from `fromPos`, and element enchantments. Shared by the melee swing and
+     *  Whirlwind ticks so both carry the exact same hit modifiers. */
+    private applyHit(e: Enemy, fromPos: Vector3, enemies: Enemy[]): void {
+        const dmg = this.effectiveDamage;
+        e.takeDamage(dmg);
+
+        const lifestealPct = this.playerStats?.lifestealPct ?? 0;
+        if (lifestealPct > 0 && this.healCallback) {
+            this.healCallback(dmg * lifestealPct);
+        }
+
+        const knockback = this.playerStats?.knockbackOnHit ?? 0;
+        if (knockback > 0) {
+            const dx = e.getPosition().x - fromPos.x;
+            const dz = e.getPosition().z - fromPos.z;
+            const horizDist = Math.hypot(dx, dz);
+            if (horizDist > 0.001) {
+                e.applyKnockback(dx / horizDist, dz / horizDist, knockback);
+            }
+        }
+
+        this.applyEnchantments(e, fromPos, enemies);
+    }
+
+    /** Apply full basic-attack hits to every enemy within `radius` of `center`.
+     *  Whirlwind uses this so each tick hits exactly like the basic attack
+     *  (crit / lifesteal / knockback / enchantments) — just far more often. */
+    public applyAttackHitsInRadius(center: Vector3, radius: number): void {
+        const enemies = this.enemyProvider ? this.enemyProvider() : [];
+        const rSq = radius * radius;
+        for (const e of enemies) {
+            if (!e.isAlive()) continue;
+            const dx = e.getPosition().x - center.x;
+            const dz = e.getPosition().z - center.z;
+            if (dx * dx + dz * dz <= rSq) {
+                this.applyHit(e, center, enemies);
+            }
         }
     }
 

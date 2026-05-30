@@ -1,0 +1,28 @@
+/* The DOM UI overlay. Sits above the canvas; transparent to pointer
+   events except where a widget opts back in with .interactive. */
+#ui-root {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  pointer-events: none;
+  font-family: var(--ff-body);
+  color: var(--c-parchment);
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#ui-root .layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+#ui-root .layer-hud { z-index: var(--z-hud); }
+#ui-root .layer-indicators { z-index: var(--z-indicators); }
+#ui-root .layer-fx { z-index: var(--z-fx); }
+#ui-root .layer-overlay { z-index: var(--z-overlay); }
+
+/* Opt back into pointer events for interactive widgets. */
+#ui-root .interactive { pointer-events: auto; }

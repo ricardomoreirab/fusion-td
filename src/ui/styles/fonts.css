@@ -1,0 +1,30 @@
+/* Self-hosted display + body faces. url() resolves through webpack's
+   asset/resource rule (Task 1) → dist/fonts/. */
+@font-face {
+  font-family: 'Cinzel';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/cinzel-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Cinzel';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/cinzel-700.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'EB Garamond';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/ebgaramond-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'EB Garamond';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/ebgaramond-700.woff2') format('woff2');
+}

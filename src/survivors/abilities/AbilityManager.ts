@@ -119,6 +119,11 @@ export class AbilityManager {
      *  hero animations (e.g. play the Aulus whirlwind clip on barbarian whirlwind). */
     private onActivateCallback: ((abilityId: string) => void) | null = null;
 
+    /** Applies a full basic-attack hit (crit / lifesteal / knockback / enchantments)
+     *  to every enemy in a radius. Wired to HeroController so Whirlwind ticks hit
+     *  exactly like the basic attack. */
+    private meleeAoeHit: ((center: Vector3, radius: number) => void) | null = null;
+
     constructor(game: Game, enemyManager: EnemyManager) {
         this.game = game;
         this.scene = game.getScene();
@@ -174,6 +179,11 @@ export class AbilityManager {
 
     public setHero(hero: any): void {
         this.hero = hero;
+    }
+
+    /** Wire the radial basic-attack hit (used by Whirlwind ticks). */
+    public setMeleeAoeHit(fn: (center: Vector3, radius: number) => void): void {
+        this.meleeAoeHit = fn;
     }
 
     private getHeroPosition(): Vector3 | null {
@@ -575,13 +585,19 @@ export class AbilityManager {
                 const pos = this.getHeroPosition();
                 if (!pos) return;
                 const radius = 5;
-                // Squared compare — this ticks ~17× per cast over every enemy.
-                const radiusSq = radius * radius;
-                for (const e of this.enemyManager.getEnemies()) {
-                    if (!e.isAlive()) continue;
-                    const ePos = e.getPosition();
-                    if (Vector3.DistanceSquared(pos, ePos) <= radiusSq) {
-                        e.takeDamage(18);
+                if (this.meleeAoeHit) {
+                    // Each tick hits exactly like the basic attack — full damage
+                    // plus crit / lifesteal / knockback / element enchantments —
+                    // just far more often than a normal swing.
+                    this.meleeAoeHit(pos, radius);
+                } else {
+                    // Fallback: flat damage if the hit pipeline isn't wired.
+                    const radiusSq = radius * radius;
+                    for (const e of this.enemyManager.getEnemies()) {
+                        if (!e.isAlive()) continue;
+                        if (Vector3.DistanceSquared(pos, e.getPosition()) <= radiusSq) {
+                            e.takeDamage(18);
+                        }
                     }
                 }
                 this.spawnWhirlwindRing(pos, radius);

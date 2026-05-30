@@ -1,0 +1,75 @@
+/* Forged Fantasy design tokens. Palette drawn from index.html's loading
+   screen + the in-game element colors. */
+:root {
+  /* ── Color: structure ── */
+  --c-void: #07050a;
+  --c-stone-900: #14110c;
+  --c-stone-800: #1d1a13;
+  --c-stone-700: #2a2418;
+  --c-leather: #241a10;
+  --c-iron: #4a4438;
+  --c-gold: #c9a23f;
+  --c-gold-hi: #f3da8e;
+  --c-gold-lo: #7a5f24;
+  --c-blood: #c8302a;
+  --c-blood-deep: #6a1812;
+  --c-moss: #88a070;
+  --c-parchment: #ece0c8;
+  --c-parchment-dim: #b8a888;
+  --c-parchment-faint: #8a7868;
+
+  /* ── Color: elements + tiers ── */
+  --el-fire: #ff6030;
+  --el-ice: #30cfff;
+  --el-arcane: #b050ff;
+  --el-physical: #e0e0e0;
+  --el-storm: #ffe040;
+  --tier-fusion: #c060ff;
+  --tier-ultimate: #ffd24d;
+
+  /* ── Spacing ── */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-6: 24px;
+  --s-8: 32px;
+
+  /* ── Radii ── */
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 10px;
+  --r-pill: 999px;
+
+  /* ── Typography ── */
+  --ff-display: 'Cinzel', 'Georgia', serif;
+  --ff-body: 'EB Garamond', 'Georgia', serif;
+  /* Fluid type scale: clamp(min, fluid, max) */
+  --fs-100: clamp(9px, 1.6vw, 11px);
+  --fs-200: clamp(11px, 1.9vw, 13px);
+  --fs-300: clamp(12px, 2.2vw, 15px);
+  --fs-400: clamp(14px, 2.6vw, 18px);
+  --fs-500: clamp(16px, 3vw, 22px);
+  --fs-600: clamp(20px, 4vw, 30px);
+
+  /* ── Bevel / shadow recipes ── */
+  --bevel-ornate:
+    inset 0 1px 0 var(--c-gold-hi),
+    inset 0 0 0 2px rgba(0, 0, 0, 0.55),
+    inset 0 -10px 22px rgba(0, 0, 0, 0.55),
+    0 8px 22px rgba(0, 0, 0, 0.7);
+  --bevel-lite:
+    inset 0 1px 0 rgba(243, 218, 142, 0.25),
+    0 2px 6px rgba(0, 0, 0, 0.5);
+
+  /* ── HUD sizing (fluid, landscape) ── */
+  --hud-slot: clamp(32px, 6vw, 44px);
+  --hud-ult: clamp(40px, 8vw, 58px);
+  --hud-pad: clamp(8px, 1.6vw, 14px);
+
+  /* ── Z layers (within #ui-root) ── */
+  --z-hud: 10;
+  --z-indicators: 15;
+  --z-fx: 30;
+  --z-overlay: 40;
+}

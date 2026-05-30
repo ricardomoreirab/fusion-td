@@ -16,12 +16,13 @@ import { POWER_DEFS, getPowerByElementAndClass, getPowerMapForClass, PowerElemen
 import { getFusionFor, getUltimatesForClass } from './powers/FusionDefinitions';
 import { Enemy } from './enemies/Enemy';
 import { BasicAttackTarget } from './champions/HeroBasicAttack';
-import { PowerChoiceOverlay, PowerCard } from './ui/PowerChoiceOverlay';
-import { ReplaceSlotOverlay } from './ui/ReplaceSlotOverlay';
-import { BetweenWaveShopOverlay, ShopItem } from './ui/BetweenWaveShopOverlay';
-import { HeroHud } from './ui/HeroHud';
+import { PowerChoiceOverlay, PowerCard } from '../ui/overlays/PowerChoice';
+import { ReplaceSlotOverlay } from '../ui/overlays/ReplaceSlot';
+import { BetweenWaveShopOverlay, ShopItem } from '../ui/overlays/Shop';
+import { Hud } from '../ui/hud/Hud';
+import { GameUI } from '../ui/GameUI';
 import { OffscreenEnemyIndicators } from './ui/OffscreenEnemyIndicators';
-import { ChampionSelectOverlay, ChampionOption } from './ui/ChampionSelectOverlay';
+import { ChampionSelectOverlay, ChampionOption } from '../ui/overlays/ChampionSelect';
 import { GameOverState, SurvivorsRunSummary } from '../game-over/GameOverState';
 import { AbilityManager } from './abilities/AbilityManager';
 import { DamageNumberManager } from './DamageNumberManager';
@@ -195,7 +196,8 @@ export class SurvivorsGameplayState implements GameState {
     private damageNumbers: DamageNumberManager | null = null;
 
     // UI modules
-    private hud: HeroHud | null = null;
+    private hud: Hud | null = null;
+    private gameUI: GameUI | null = null;
     private powerChoice: PowerChoiceOverlay | null = null;
     private replaceSlotOverlay: ReplaceSlotOverlay | null = null;
     private shopOverlay: BetweenWaveShopOverlay | null = null;
@@ -235,9 +237,10 @@ export class SurvivorsGameplayState implements GameState {
         // Create UI layer
         this.ui = AdvancedDynamicTexture.CreateFullscreenUI('survivorsUI', true, this.scene);
         this.ui.idealWidth = 800; // cap GUI rasterization — matches MenuState and GameOverState
+        this.gameUI = new GameUI();
 
         // Show champion select; actual run starts when player picks
-        this.championSelect = new ChampionSelectOverlay(this.ui);
+        this.championSelect = new ChampionSelectOverlay(this.gameUI!.layer('overlay'));
         const championOptions: ChampionOption[] = [
             {
                 type: 'barbarian',
@@ -277,6 +280,15 @@ export class SurvivorsGameplayState implements GameState {
     /** Initialize all gameplay systems and begin the run. Called once champion is chosen. */
     private async startRun(championType: string): Promise<void> {
         if (!this.scene || !this.ui || !this.map) return;
+
+        // The pre-game flow (main menu + champion select) is all DOM, so the
+        // canvas never received keyboard focus — WASD would be dead until the
+        // player clicked the scene. Focus it now that the run is starting.
+        // tabIndex -1 (set only if Babylon didn't already make it focusable)
+        // keeps it programmatically focusable without entering the Tab order.
+        const canvas = this.game.getCanvas();
+        if (!canvas.hasAttribute('tabindex')) canvas.tabIndex = -1;
+        canvas.focus();
 
         // Await the picked champion's GLB if one exists. No-op for champion types without
         // a GLB; instant if the preload already finished. On failure we fall through with
@@ -541,6 +553,11 @@ export class SurvivorsGameplayState implements GameState {
         this.abilityManager.setDashOverride((target, duration, mode, onComplete) => {
             this.heroController!.startDashOverride(target, duration, mode, onComplete);
         });
+        // Whirlwind ticks reuse the basic attack's hit pipeline (crit / lifesteal /
+        // knockback / enchantments) via the hero controller.
+        this.abilityManager.setMeleeAoeHit((center, radius) => {
+            this.heroController?.applyAttackHitsInRadius(center, radius);
+        });
         this.abilityManager.prewarmAbilityEffects();
 
         // Map class-specific ultimate IDs → GLB clip + duration so the hero plays
@@ -573,14 +590,14 @@ export class SurvivorsGameplayState implements GameState {
 
         // HUD (HP bar, gold, power slots, ultimate buttons)
         // Built AFTER configureForClass so HUD reads the correct ability IDs.
-        this.hud = new HeroHud(this.ui, this.abilityManager, this.game);
+        this.hud = new Hud(this.gameUI!, this.abilityManager, this.game);
 
         if (this.runItems) {
             this.hud.setRunItems(this.runItems);
         }
 
         // Q / E / Space → first / second / third ultimate. Mirrors a tap on the HUD
-        // button exactly (HeroHud.triggerUltimateByIndex shares the same closure as
+        // button exactly (Hud.triggerUltimateByIndex shares the same closure as
         // the press handler). The scene-wide onKeyboardObservable is cleared by
         // Game.cleanupScene() on state exit, so no manual disposal needed.
         // Space-bar = dash/jump/teleport (always index 2 — every class has it).
@@ -593,12 +610,13 @@ export class SurvivorsGameplayState implements GameState {
                 this.hud?.triggerUltimateByIndex(2);
                 kbInfo.event.preventDefault?.(); // stop the browser from scrolling
             }
+            else if (key === 'escape') this.hud?.togglePause();
         });
 
         // Overlays
-        this.powerChoice     = new PowerChoiceOverlay(this.ui);
-        this.replaceSlotOverlay = new ReplaceSlotOverlay(this.ui);
-        this.shopOverlay     = new BetweenWaveShopOverlay(this.ui);
+        this.powerChoice     = new PowerChoiceOverlay(this.gameUI!.layer('overlay'));
+        this.replaceSlotOverlay = new ReplaceSlotOverlay(this.gameUI!.layer('overlay'));
+        this.shopOverlay     = new BetweenWaveShopOverlay(this.gameUI!.layer('overlay'));
 
         // Define shop items (applied directly via playerStats + heroController)
         this.shopItems = this.buildShopItems();
@@ -843,6 +861,8 @@ export class SurvivorsGameplayState implements GameState {
 
         this.hud?.dispose();
         this.hud = null;
+        this.gameUI?.dispose();
+        this.gameUI = null;
 
         this.waveManager?.dispose();
         this.waveManager = null;

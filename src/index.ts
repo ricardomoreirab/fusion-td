@@ -1,3 +1,4 @@
+import './ui/styles/index.css';
 import { Game } from './engine/Game';
 
 // Wait for the DOM to be ready
