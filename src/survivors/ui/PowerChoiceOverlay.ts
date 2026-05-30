@@ -1,6 +1,7 @@
 import { AdvancedDynamicTexture, Rectangle, TextBlock, Control, Button } from '@babylonjs/gui';
 import { getLayoutMode, getRenderWidth } from '../../shared/ui/responsive';
 import { makeFrame, addPressFeedback, STYLE } from '../../shared/ui/HudStyle';
+import { ELEMENT_HEX as ELEMENT_COLOR } from '../ElementColors';
 
 export type PowerCardKind = 'power' | 'wildcard' | 'perk' | 'fusion' | 'ultimate';
 
@@ -22,13 +23,7 @@ const ELEMENT_GLYPH: Record<string, string> = {
     storm:    '⚡',
 };
 
-const ELEMENT_COLOR: Record<string, string> = {
-    fire:     '#ff6030',
-    ice:      '#30cfff',
-    arcane:   '#b050ff',
-    physical: '#e0e0e0',
-    storm:    '#ffe040',
-};
+// ELEMENT_COLOR is imported from the shared ElementColors palette (see top of file).
 
 const KIND_CONFIG: Record<PowerCardKind, { border: string; kindLabel: string; glyph: string }> = {
     power:    { border: '#888',    kindLabel: 'POWER',   glyph: '★'  },
@@ -132,7 +127,7 @@ export class PowerChoiceOverlay {
         let borderColor = kindCfg.border;
         let headerColor = '#2a2040';
         if (card.kind === 'power' && card.element) {
-            borderColor = ELEMENT_COLOR[card.element] ?? kindCfg.border;
+            borderColor = ELEMENT_COLOR[card.element as keyof typeof ELEMENT_COLOR] ?? kindCfg.border;
             headerColor = borderColor + '44';
         } else if (card.kind === 'perk') {
             headerColor = '#3a3010';
@@ -241,7 +236,7 @@ export class PowerChoiceOverlay {
             let borderColor = kindCfg.border;
             let headerColor = '#2a2040';
             if (card.kind === 'power' && card.element) {
-                borderColor = ELEMENT_COLOR[card.element] ?? kindCfg.border;
+                borderColor = ELEMENT_COLOR[card.element as keyof typeof ELEMENT_COLOR] ?? kindCfg.border;
                 headerColor = borderColor + '44';
             } else if (card.kind === 'perk') {
                 headerColor = '#3a3010';

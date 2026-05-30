@@ -469,8 +469,8 @@ export class SurvivorsGameplayState implements GameState {
         // allocations. Cleared in exit() so the menu / game-over states never
         // see calls from a stale run.
         this.damageNumbers = new DamageNumberManager(this.game);
-        Enemy.onDamageCallback = (position, damage, isCrit) => {
-            this.damageNumbers?.showDamage(position, damage, undefined, isCrit);
+        Enemy.onDamageCallback = (position, damage, isCrit, element) => {
+            this.damageNumbers?.showDamage(position, damage, element, isCrit);
         };
         Enemy.onRewardCallback = (position, reward) => {
             this.damageNumbers?.showReward(position, reward);
@@ -1638,7 +1638,7 @@ export class SurvivorsGameplayState implements GameState {
         const captured = best;
         return {
             position:   captured.getPosition(),
-            takeDamage: (n) => captured.takeDamage(n),
+            takeDamage: (n, element) => captured.takeDamage(n, element),
             isAlive:    () => captured.isAlive(),
         };
     }

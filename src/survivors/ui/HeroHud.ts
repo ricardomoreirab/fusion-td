@@ -5,6 +5,7 @@ import { AbilityManager } from '../abilities/AbilityManager';
 import { getLayoutMode } from '../../shared/ui/responsive';
 import { makePill, makeFrame, addPressFeedback, flashControl, pulseScale, tryHaptic, STYLE } from '../../shared/ui/HudStyle';
 import { RunItems, ItemId } from '../RunItems';
+import { ELEMENT_HEX as ELEMENT_COLOR } from '../ElementColors';
 
 // ─── Element glyph map ─────────────────────────────────────────────────────────
 // These are unicode characters that render reliably in most browsers via Canvas2D.
@@ -26,13 +27,7 @@ const POWER_GLYPH: Record<string, string> = {
     lightning_chain: '⚡',
 };
 
-const ELEMENT_COLOR: Record<string, string> = {
-    fire:     '#ff6030',
-    ice:      '#30cfff',
-    arcane:   '#b050ff',
-    physical: '#e0e0e0',
-    storm:    '#ffe040',
-};
+// ELEMENT_COLOR is imported from the shared ElementColors palette (see top of file).
 
 /** Per-item glyph and color for the items HUD row.
  *  The trailing ︎ (text variation selector) on ♥ and ⚡ forces the

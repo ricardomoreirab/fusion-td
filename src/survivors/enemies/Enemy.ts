@@ -1,6 +1,7 @@
 import { Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, Color4, Scene, ParticleSystem, Texture, DynamicTexture, Sound, Animation, AnimationGroup, Skeleton, ShadowGenerator } from '@babylonjs/core';
 import { Game } from '../../engine/Game';
 import { EnemyType, StatusEffect } from '../GameTypes';
+import { PowerElement } from '../powers/PowerDefinitions';
 
 // One-time per-enemy-class log when a GLB has no recognizable death clip, so the
 // asset's real clip name can be added to the matcher in _findDeathClip().
@@ -78,7 +79,7 @@ export class Enemy {
      * be the dominant burst GC pressure. Position is passed by reference —
      * callbacks must NOT retain it (consumers read x/y/z only).
      */
-    public static onDamageCallback: ((position: Vector3, damage: number, isCrit: boolean) => void) | null = null;
+    public static onDamageCallback: ((position: Vector3, damage: number, isCrit: boolean, element?: PowerElement) => void) | null = null;
     public static onRewardCallback: ((position: Vector3, reward: number) => void) | null = null;
 
     protected game: Game;
@@ -858,7 +859,7 @@ export class Enemy {
         // Check if it's time for another burn damage tick
         if (currentTime - this.lastBurnDamageTime > this.burnDamageInterval * 1000) {
             // Apply burn damage
-            this.takeDamage(this.burnDamagePerTick);
+            this.takeDamage(this.burnDamagePerTick, 'fire');
             this.lastBurnDamageTime = currentTime;
         }
     }
@@ -1117,7 +1118,7 @@ export class Enemy {
      * @param amount The amount of damage to apply
      * @returns True if the enemy died from this damage
      */
-    public takeDamage(amount: number): boolean {
+    public takeDamage(amount: number, element?: PowerElement): boolean {
         if (!this.alive) return false;
 
         // Roll for crit using the global provider (player run stats). DoT ticks
@@ -1148,7 +1149,7 @@ export class Enemy {
         // detail object allocation per hit). Position is passed by reference —
         // consumer must NOT retain the Vector3.
         const dmgCb = Enemy.onDamageCallback;
-        if (dmgCb) dmgCb(this.position, actualDamage, isCrit);
+        if (dmgCb) dmgCb(this.position, actualDamage, isCrit, element);
 
         if (this.health <= 0) {
             this.health = 0;

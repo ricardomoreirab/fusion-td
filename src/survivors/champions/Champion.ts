@@ -6,6 +6,8 @@ import { StatusEffect } from '../GameTypes';
 import { PALETTE } from '../../engine/rendering/StyleConstants';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../engine/rendering/LowPolyMaterial';
 import { buildBarbarianMesh } from './BarbarianBuilder';
+import { ELEMENT_COLOR, blendElements } from '../ElementColors';
+import { PowerElement } from '../powers/PowerDefinitions';
 
 /**
  * Champion — a friendly boss-like unit that walks the path in reverse,
@@ -77,10 +79,16 @@ export class Champion extends Enemy {
     private barbSpinArcTimer: number = 0;
     // Spin-attack blood trail particles
     private barbSpinBloodPs: ParticleSystem | null = null;
+    // Latest active power elements, snapshotted each frame from updateElementVisuals.
+    private activeElementSnapshot: string[] = [];
+    // Elemental axe-trail particle systems created per spin (one per active element).
+    private barbSpinElemPs: ParticleSystem[] = [];
 
     // Cached Color3 instances — reused every frame to avoid per-frame allocation
     private mageOrbColor: Color3 = new Color3(0, 0, 0);
     private barbSpinArcColor: Color3 = new Color3(0, 0, 0);
+    // Base hue the spin feet-ring fades from (blended element color, or red).
+    private barbSpinArcBaseColor: Color3 = new Color3(0.8, 0.10, 0.05);
 
     // Red hit-flash state — used by flashHitRed() to refresh the in-flight
     // flash instead of stacking snapshots that capture the already-red emissive.
@@ -201,10 +209,40 @@ export class Champion extends Enemy {
         }
     }
 
-    /** Barbarian-only: create the red blood trail PS + arc-ring mesh for the spin attack. */
+    /** Barbarian-only: create the axe-head trail PS + arc-ring mesh for the spin attack.
+     *  With active power elements the trail is one colored ribbon per element
+     *  (layered → reads as a blended multi-element trail); with none it falls back
+     *  to the classic red blood trail. */
     private startBarbSpinFx(): void {
-        // ===== Red blood-trail particle system attached to the axe head =====
-        if (this.barbAxeHead && !this.barbSpinBloodPs) {
+        const elems = this.activeElementSnapshot as PowerElement[];
+
+        // ===== Axe-head trail particles =====
+        if (this.barbAxeHead && elems.length > 0 && this.barbSpinElemPs.length === 0) {
+            for (const el of elems) {
+                const c = ELEMENT_COLOR[el];
+                if (!c) continue;
+                const ps = new ParticleSystem(`barbSpinElem_${el}`, 48, this.scene);
+                ps.emitter = this.barbAxeHead;
+                ps.minEmitBox = new Vector3(-0.2, -0.2, -0.2);
+                ps.maxEmitBox = new Vector3(0.2, 0.2, 0.2);
+                ps.color1 = new Color4(c.r, c.g, c.b, 1);
+                ps.color2 = new Color4(c.r * 0.6, c.g * 0.6, c.b * 0.6, 1);
+                ps.colorDead = new Color4(c.r * 0.2, c.g * 0.2, c.b * 0.2, 0);
+                ps.minSize = 0.10;
+                ps.maxSize = 0.30;
+                ps.minLifeTime = 0.1;
+                ps.maxLifeTime = 0.22;
+                ps.emitRate = 200;
+                ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
+                ps.direction1 = new Vector3(-1, 0.2, -1);
+                ps.direction2 = new Vector3(1, 1.2, 1);
+                ps.minEmitPower = 1;
+                ps.maxEmitPower = 3;
+                ps.gravity = new Vector3(0, -3, 0);
+                ps.start();
+                this.barbSpinElemPs.push(ps);
+            }
+        } else if (this.barbAxeHead && elems.length === 0 && !this.barbSpinBloodPs) {
             const ps = new ParticleSystem('barbSpinBlood', 60, this.scene);
             ps.emitter = this.barbAxeHead;
             ps.minEmitBox = new Vector3(-0.2, -0.2, -0.2);
@@ -227,7 +265,7 @@ export class Champion extends Enemy {
             this.barbSpinBloodPs = ps;
         }
 
-        // ===== Red arc ring at hero feet =====
+        // ===== Arc ring at hero feet — tinted by the blended elements (red when none) =====
         if (!this.barbSpinArcMesh && this.mesh) {
             const ring = MeshBuilder.CreateTorus('barbSpinArcRing', {
                 diameter: 2.5,
@@ -235,8 +273,12 @@ export class Champion extends Enemy {
                 tessellation: 12,
             }, this.scene);
             makeFlatShaded(ring);
+            const arcBase = elems.length > 0
+                ? blendElements(elems)
+                : new Color3(0.8, 0.10, 0.05);
+            this.barbSpinArcBaseColor.copyFrom(arcBase);
             ring.material = createEmissiveMaterial('barbSpinArcRingMat',
-                new Color3(0.8, 0.10, 0.05), 0.9, this.scene);
+                arcBase, 0.9, this.scene);
             ring.position = this.position.clone();
             ring.position.y = 0.1;
             ring.scaling = new Vector3(0.3, 1.0, 0.3);
@@ -1449,14 +1491,16 @@ export class Champion extends Enemy {
             // Keep the ring under the hero's current world position
             this.barbSpinArcMesh.position.x = this.position.x;
             this.barbSpinArcMesh.position.z = this.position.z;
-            // Fade by lowering emissive intensity over time
+            // Fade toward black in whatever base hue the ring was seeded with
+            // (blended element color, or red when no elements). barbSpinArcColor
+            // is reused (set, not allocated) to keep this per-frame path alloc-free.
             const mat = this.barbSpinArcMesh.material as StandardMaterial | null;
             if (mat) {
-                const intensity = 0.9 * (1 - t);
+                const k = 1 - t;
                 this.barbSpinArcColor.set(
-                    0.8 * (1 - t * 0.5) * intensity,
-                    0.10 * intensity,
-                    0.05 * intensity,
+                    this.barbSpinArcBaseColor.r * k,
+                    this.barbSpinArcBaseColor.g * k,
+                    this.barbSpinArcBaseColor.b * k,
                 );
                 mat.emissiveColor = this.barbSpinArcColor;
                 mat.alpha = 1 - t;
@@ -1467,12 +1511,20 @@ export class Champion extends Enemy {
             }
         }
 
-        // Stop the blood trail when the spin ends
+        // Stop the axe trails when the spin ends (blood + every elemental ribbon).
         if (this.barbSpinBloodPs && this.spinAttackTimer <= 0) {
             this.barbSpinBloodPs.stop();
             const ps = this.barbSpinBloodPs;
             this.barbSpinBloodPs = null;
             setTimeout(() => ps.dispose(), 400);
+        }
+        if (this.barbSpinElemPs.length > 0 && this.spinAttackTimer <= 0) {
+            const list = this.barbSpinElemPs;
+            this.barbSpinElemPs = [];
+            for (const ps of list) {
+                ps.stop();
+                setTimeout(() => ps.dispose(), 400);
+            }
         }
     }
 
@@ -1647,6 +1699,11 @@ export class Champion extends Enemy {
             this.barbSpinBloodPs.dispose();
             this.barbSpinBloodPs = null;
         }
+        for (const ps of this.barbSpinElemPs) {
+            ps.stop();
+            ps.dispose();
+        }
+        this.barbSpinElemPs = [];
         if (this.barbSpinArcMesh) {
             this.barbSpinArcMesh.dispose();
             this.barbSpinArcMesh = null;
@@ -1771,6 +1828,7 @@ export class Champion extends Enemy {
      * Call once per frame with the set of active power elements.
      */
     public updateElementVisuals(activeElements: Set<string>): void {
+        this.activeElementSnapshot = Array.from(activeElements);
         if (!this.mesh) return;
         const anchor = this.getWeaponAnchor();
         if (!anchor) return;
