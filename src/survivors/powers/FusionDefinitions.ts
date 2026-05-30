@@ -6,7 +6,8 @@ import {
     ChampionType,
 } from './PowerDefinitions';
 import { makeFusionDef, fusionId } from './FusionFactory';
-import { MAGE_ULTIMATES } from './ultimates/MageUltimates';
+import { ULTIMATE_DEFS as ALL_ULTIMATE_DEFS } from './UltimateDefinitions';
+export { getUltimateOfferForFusions } from './UltimateDefinitions';
 
 const CLASSES: ChampionType[] = ['barbarian', 'ranger', 'mage'];
 
@@ -28,12 +29,8 @@ export const FUSION_DEFS: Record<string, PowerDefinition> = (() => {
     return out;
 })();
 
-/** Ultimate defs, aggregated from per-class modules (one module per class). */
-export const ULTIMATE_DEFS: Record<string, PowerDefinition> = (() => {
-    const out: Record<string, PowerDefinition> = {};
-    for (const def of MAGE_ULTIMATES) out[def.id] = def;
-    return out;
-})();
+/** Ultimate defs, all 15 (3 classes × 5 elements), from the factory. */
+export const ULTIMATE_DEFS = ALL_ULTIMATE_DEFS;
 
 /** Resolve any power def id across all three tiers. */
 export function getAnyPowerDef(id: string): PowerDefinition | undefined {
