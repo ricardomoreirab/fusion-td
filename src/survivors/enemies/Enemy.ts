@@ -2,7 +2,7 @@ import { Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, Color4, Scene, Pa
 import { Game } from '../../engine/Game';
 import { EnemyType, StatusEffect } from '../GameTypes';
 import { PowerElement } from '../powers/PowerDefinitions';
-import { StatusStacks, STATUS_TUNING } from '../powers/StatusModel';
+import { StatusStacks, STATUS_TUNING, type RichStatusKind } from '../powers/StatusModel';
 
 // One-time per-enemy-class log when a GLB has no recognizable death clip, so the
 // asset's real clip name can be added to the matcher in _findDeathClip().
@@ -961,6 +961,16 @@ export class Enemy {
         this._shatterPrimed = true;
         this._shatterDamage = Math.max(this._shatterDamage, damage);
         this._shatterRadius = Math.max(this._shatterRadius, radius);
+    }
+
+    /** True if this enemy currently has the given rich status (burn/chill/curse/fragile). */
+    public hasRichStatus(kind: RichStatusKind): boolean {
+        return this.statuses.has(kind);
+    }
+
+    /** Consume a rich status and return its reaction burst damage (0 if none). */
+    public detonateRichStatus(kind: RichStatusKind): number {
+        return this.statuses.detonate(kind);
     }
 
     /**
