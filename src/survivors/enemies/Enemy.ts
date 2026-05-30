@@ -199,9 +199,6 @@ export class Enemy {
     protected isStunned: boolean = false;
     protected isConfused: boolean = false;
     protected confusedDirection: Vector3 | null = null;
-    protected burnDamageInterval: number = 0.5; // Seconds between burn damage ticks
-    protected lastBurnDamageTime: number = 0;
-    protected burnDamagePerTick: number = 0;
     protected damageResistance: number = 0;
 
     // CC immunity windows (prevent perma-CC)
