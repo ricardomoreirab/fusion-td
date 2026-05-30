@@ -1524,14 +1524,17 @@ export class SurvivorsGameplayState implements GameState {
             {
                 id:          'haste',
                 name:        'Haste',
-                description: '-5% all power cooldowns',
-                baseCost:    60,
-                costGrowth:  1.7,
-                isCapped:    (_count) => this.playerStats!.powerCooldownMultiplier <= 0.5,
+                description: '-5% power cooldowns & +5% attack speed',
+                baseCost:    75,
+                costGrowth:  1.75,
+                // Uncapped: the cooldown clamps at its 0.5× floor internally, while basic
+                // attack speed keeps scaling — so the item stays buyable for the attack-speed half.
+                isCapped:    () => false,
                 currentValue: () => {
-                    const cur  = this.playerStats!.powerCooldownMultiplier;
-                    const nxt  = Math.max(0.5, cur * 0.95);
-                    return `now ${pctInv(cur)} → ${pctInv(nxt)} cooldown`;
+                    const cd     = this.playerStats!.powerCooldownMultiplier;
+                    const cdNxt  = Math.max(0.5, cd * 0.95);
+                    const atk     = this.playerStats!.basicAttackSpeedMultiplier;
+                    return `cd ${pctInv(cd)} → ${pctInv(cdNxt)} · atk ${pctDelta(atk)} → ${pctDelta(atk * 1.05)}`;
                 },
                 apply: () => {
                     this.playerStats!.incrementPurchase('haste');
@@ -1539,6 +1542,8 @@ export class SurvivorsGameplayState implements GameState {
                         0.5,
                         this.playerStats!.powerCooldownMultiplier * 0.95,
                     );
+                    this.playerStats!.basicAttackSpeedMultiplier *= 1.05;
+                    this.heroController!.updateBasicAttackSpeed(this.playerStats!.basicAttackSpeedMultiplier);
                 },
             },
             {
@@ -1559,23 +1564,6 @@ export class SurvivorsGameplayState implements GameState {
                         0.2,
                         this.playerStats!.damageReductionMultiplier * 0.95,
                     );
-                },
-            },
-            {
-                id:          'quickness',
-                name:        'Quickness',
-                description: '+5% basic attack speed',
-                baseCost:    45,
-                costGrowth:  1.6,
-                isCapped:    () => false,
-                currentValue: () => {
-                    const cur  = this.playerStats!.basicAttackSpeedMultiplier;
-                    return `now ${pctDelta(cur)} → ${pctDelta(cur * 1.05)}`;
-                },
-                apply: () => {
-                    this.playerStats!.incrementPurchase('quickness');
-                    this.playerStats!.basicAttackSpeedMultiplier *= 1.05;
-                    this.heroController!.updateBasicAttackSpeed(this.playerStats!.basicAttackSpeedMultiplier);
                 },
             },
             {

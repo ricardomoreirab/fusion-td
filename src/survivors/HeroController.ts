@@ -303,7 +303,7 @@ export class HeroController {
 
     /**
      * Update the basic attack speed multiplier.
-     * @param multiplier — absolute multiplier (e.g. 1.1 after one Quickness purchase)
+     * @param multiplier — absolute multiplier (e.g. 1.1 after two Haste purchases)
      */
     public updateBasicAttackSpeed(multiplier: number): void {
         this.basicAttack?.updateAttackSpeed(multiplier);

@@ -342,10 +342,14 @@
 .modal-panel--shop {
   width: min(1040px, 96vw);
   max-width: min(1040px, 96vw);
+  /* The 4×2 grid fits without horizontal scroll — hide the stray bottom
+     scrollbar the auto-fit grid used to produce. */
+  overflow-x: hidden;
 }
 .shop-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  /* Fixed 4 columns → 8 items lay out as a clean 4×2 block. */
+  grid-template-columns: repeat(4, 1fr);
   gap: var(--s-2);
 }
 
@@ -446,11 +450,18 @@
   color: #666;
 }
 
-/* Start Next Wave button — full width, centered */
+/* Start Next Wave button — wide but inset from the panel borders so it
+   doesn't crowd the edges. */
 .shop-start-btn {
-  width: 100%;
+  align-self: center;
+  width: calc(100% - var(--s-4) * 2);
   justify-content: center;
   margin-top: var(--s-2);
+}
+
+/* Narrow portrait phones — 2 columns (8 items → 2×4) instead of a cramped 4. */
+@media (max-width: 720px) {
+  .shop-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
 /* Narrow landscape phones — compress grid */

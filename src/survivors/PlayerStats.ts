@@ -62,7 +62,7 @@ export class PlayerStats {
     public powerCooldownMultiplier: number = 1.0;
     /** Multiplier applied to incoming contact damage (Bulwark item; lower = tankier) */
     public damageReductionMultiplier: number = 1.0;
-    /** Multiplier applied to basic attack speed (Quickness item; higher = faster) */
+    /** Multiplier applied to basic attack speed (Haste shop item + attackSpeed run-item; higher = faster) */
     public basicAttackSpeedMultiplier: number = 1.0;
     /** Fraction of damage dealt that is healed back to the hero (lifesteal item). */
     public lifestealPct: number = 0;

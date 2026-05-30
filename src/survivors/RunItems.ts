@@ -70,7 +70,7 @@ export class RunItems {
                 return;
 
             case 'attackSpeed':
-                // Multiplicative composition with the shop's Quickness item (which also writes
+                // Multiplicative composition with the shop's Haste item (which also writes
                 // basicAttackSpeedMultiplier and pushes through heroController.updateBasicAttackSpeed).
                 // On grant we multiply by the per-stack factor and re-publish; subsequent grants
                 // compound naturally.

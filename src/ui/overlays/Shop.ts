@@ -27,7 +27,6 @@ const ITEM_CONFIG: Record<string, { glyph: string; accentColor: string }> = {
     power:     { glyph: '✦',  accentColor: '#ff9030' },
     haste:     { glyph: '⚡', accentColor: '#ffe040' },
     bulwark:   { glyph: '▲',  accentColor: '#60a060' },
-    quickness: { glyph: '»',  accentColor: '#ffcc00' },
     precision: { glyph: '◎',  accentColor: '#ffe680' },
     savagery:  { glyph: '✸',  accentColor: '#ff8040' },
 };
