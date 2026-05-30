@@ -1,4 +1,4 @@
-import { Scene, Vector3, MeshBuilder, Mesh, Color3 } from '@babylonjs/core';
+import { Scene, Vector3, MeshBuilder, Mesh, Color3, StandardMaterial } from '@babylonjs/core';
 import { Champion } from './Champion';
 import { PowerSlotManager } from '../powers/PowerSlotManager';
 import { EnchantmentHitContext, PowerElement } from '../powers/PowerDefinitions';
@@ -6,6 +6,7 @@ import { Enemy } from '../enemies/Enemy';
 import { PlayerStats } from '../PlayerStats';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
 import { acquireProjectile, releaseProjectile } from '../../engine/rendering/ProjectilePool';
+import { blendElements } from '../ElementColors';
 
 // Module-level scratch vectors — safe because update() is not reentrant (frames serialize)
 const _scratchA = new Vector3();
@@ -313,6 +314,14 @@ export class HeroBasicAttack {
     }
 
     private spawnSwingRing(center: Vector3, range: number): void {
+        // Barbarian-only elemental tint: blend the colors of every active power
+        // element. No elements (or non-barbarian) → the classic gold arc.
+        const active = (this.powerSlots && (this.hero as any).championType === 'barbarian')
+            ? Array.from(this.powerSlots.getActiveElements())
+            : [];
+        const elemental = active.length > 0;
+        const tint = elemental ? blendElements(active) : null;
+
         // Thick golden torus on the ground — the main slash arc readout
         const ring = MeshBuilder.CreateTorus(
             'swingRing',
@@ -321,11 +330,23 @@ export class HeroBasicAttack {
         );
         ring.position.copyFrom(center);
         ring.position.y = 0.25;
-        const ringMat = getCachedMaterial(this.scene, 'swingRingMat', m => {
-            m.emissiveColor = new Color3(1, 0.85, 0.4);
-            m.diffuseColor = new Color3(0, 0, 0);
-            m.alpha = 0.9;
-        });
+        let ringMat: StandardMaterial;
+        if (tint) {
+            // Fresh per-swing material so we never mutate the shared cached gold
+            // material in place (it is frozen + shared across concurrent swings).
+            // Disposed in the sweep cleanup below alongside the mesh.
+            ringMat = new StandardMaterial('swingRingMatElem', this.scene);
+            ringMat.emissiveColor = tint.scale(1.1);
+            ringMat.diffuseColor = new Color3(0, 0, 0);
+            ringMat.disableLighting = true;
+            ringMat.alpha = 0.9;
+        } else {
+            ringMat = getCachedMaterial(this.scene, 'swingRingMat', m => {
+                m.emissiveColor = new Color3(1, 0.85, 0.4);
+                m.diffuseColor = new Color3(0, 0, 0);
+                m.alpha = 0.9;
+            });
+        }
         ring.material = ringMat;
         ring.scaling.set(0.7, 0.7, 0.7); // starts a bit smaller
 
@@ -338,11 +359,20 @@ export class HeroBasicAttack {
         arc.position.copyFrom(center);
         arc.position.y = 0.35;
         arc.rotation.x = Math.PI / 2;
-        const arcMat = getCachedMaterial(this.scene, 'swingArcMat', m => {
-            m.emissiveColor = new Color3(1, 0.95, 0.7);
-            m.diffuseColor = new Color3(0, 0, 0);
-            m.alpha = 0.5;
-        });
+        let arcMat: StandardMaterial;
+        if (tint) {
+            arcMat = new StandardMaterial('swingArcMatElem', this.scene);
+            arcMat.emissiveColor = tint.scale(1.25);
+            arcMat.diffuseColor = new Color3(0, 0, 0);
+            arcMat.disableLighting = true;
+            arcMat.alpha = 0.5;
+        } else {
+            arcMat = getCachedMaterial(this.scene, 'swingArcMat', m => {
+                m.emissiveColor = new Color3(1, 0.95, 0.7);
+                m.diffuseColor = new Color3(0, 0, 0);
+                m.alpha = 0.5;
+            });
+        }
         arc.material = arcMat;
 
         const duration = 0.35; // seconds — matches Champion spin duration roughly
@@ -366,6 +396,12 @@ export class HeroBasicAttack {
             if (t >= 1) {
                 ring.dispose();
                 arc.dispose();
+                // Per-swing elemental materials must be freed with their meshes;
+                // the shared cached gold materials must NOT be disposed.
+                if (elemental) {
+                    ringMat.dispose();
+                    arcMat.dispose();
+                }
                 this.scene.onBeforeRenderObservable.remove(observer);
             }
         });
