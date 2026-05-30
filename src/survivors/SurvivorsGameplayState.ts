@@ -14,6 +14,7 @@ import { PowerDrop } from './powers/PowerDrop';
 import { PowerSlotManager, PowerSlot } from './powers/PowerSlotManager';
 import { POWER_DEFS, getPowerByElementAndClass, getPowerMapForClass, PowerElement, ChampionType, PowerDefinition } from './powers/PowerDefinitions';
 import { getFusionFor, getUltimatesForClass } from './powers/FusionDefinitions';
+import { aoeBurst, setCameraShakeHook, resetPowerEffects } from './powers/PowerEffects';
 import { Enemy, HEALTH_BAR_RENDER_GROUP } from './enemies/Enemy';
 import { BasicAttackTarget } from './champions/HeroBasicAttack';
 import { PowerChoiceOverlay, PowerCard } from '../ui/overlays/PowerChoice';
@@ -497,6 +498,13 @@ export class SurvivorsGameplayState implements GameState {
         Enemy.onRewardCallback = (position, reward) => {
             this.damageNumbers?.showReward(position, reward);
         };
+        // Frozen/marked enemies erupt on death (Phase 1a primed the hook).
+        Enemy.onShatterCallback = (position, damage, radius) => {
+            const enemies = this.enemyManager?.getEnemies() ?? [];
+            aoeBurst(this.scene!, enemies, position.x, position.z, { radius, damage, element: 'ice' });
+        };
+        // PowerEffects.cameraShake → the existing HeroController screen shake.
+        setCameraShakeHook((durationS) => this.heroController?.triggerScreenShake(durationS));
 
         // Power slot manager — consults playerStats for damage/cooldown multipliers
         this.powerSlots = new PowerSlotManager(
@@ -928,6 +936,8 @@ export class SurvivorsGameplayState implements GameState {
 
         Enemy.onDamageCallback = null;
         Enemy.onRewardCallback = null;
+        Enemy.onShatterCallback = null;
+        resetPowerEffects();
         this.damageNumbers?.dispose();
         this.damageNumbers = null;
 
