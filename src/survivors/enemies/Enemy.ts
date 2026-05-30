@@ -85,7 +85,10 @@ export class Enemy {
     /** Wired by the gameplay state (a later phase) to a shatter-AoE effect. Fired from
      *  die() when an enemy was shatter-primed. Position is passed by reference — the
      *  consumer must NOT retain the Vector3. */
-    public static onShatterCallback: ((position: Vector3, damage: number, radius: number) => void) | null = null;
+    public static onShatterCallback:
+        | ((position: Vector3, damage: number, radius: number, element: PowerElement,
+            status?: { effect: StatusEffect; durationS: number; strength: number }) => void)
+        | null = null;
 
     protected game: Game;
     protected scene: Scene;
@@ -195,6 +198,8 @@ export class Enemy {
     private _shatterPrimed: boolean = false;
     private _shatterDamage: number = 0;
     private _shatterRadius: number = 0;
+    private _shatterElement: PowerElement = 'ice';
+    private _shatterStatus: { effect: StatusEffect; durationS: number; strength: number } | undefined = undefined;
     protected isFrozen: boolean = false;
     protected isStunned: boolean = false;
     protected isConfused: boolean = false;
@@ -892,7 +897,8 @@ export class Enemy {
             }
 
             case StatusEffect.CHILL: {
-                const chillResult = this.statuses.apply('chill', duration, 0, 1);
+                const chillStacks = Math.max(1, Math.round(strength) || 1);
+                const chillResult = this.statuses.apply('chill', duration, 0, chillStacks);
                 if (chillResult.reachedFreeze) {
                     // Convert to a real Freeze through the normal (immunity-gated) path.
                     this.applyStatusEffect(StatusEffect.FROZEN, STATUS_TUNING.chill.freezeDurationS, 1);
@@ -956,11 +962,18 @@ export class Enemy {
 
     /** Mark this enemy so that on death it emits a shatter AoE (fired via
      *  Enemy.onShatterCallback). Re-priming keeps the larger of the two bursts. */
-    public primeShatter(damage: number, radius: number): void {
+    public primeShatter(
+        damage: number,
+        radius: number,
+        element: PowerElement = 'ice',
+        status?: { effect: StatusEffect; durationS: number; strength: number },
+    ): void {
         if (damage <= 0 || radius <= 0) return;
         this._shatterPrimed = true;
         this._shatterDamage = Math.max(this._shatterDamage, damage);
         this._shatterRadius = Math.max(this._shatterRadius, radius);
+        this._shatterElement = element;
+        this._shatterStatus = status;
     }
 
     /** True if this enemy currently has the given rich status (burn/chill/curse/fragile). */
@@ -1370,7 +1383,7 @@ export class Enemy {
         // Shatter-on-death (e.g. frozen enemies erupting). Fires the static hook
         // wired by the gameplay state; a no-op until a later phase wires it.
         if (this._shatterPrimed && Enemy.onShatterCallback) {
-            Enemy.onShatterCallback(this.position, this._shatterDamage, this._shatterRadius);
+            Enemy.onShatterCallback(this.position, this._shatterDamage, this._shatterRadius, this._shatterElement, this._shatterStatus);
         }
         this._shatterPrimed = false;
 

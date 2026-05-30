@@ -499,9 +499,9 @@ export class SurvivorsGameplayState implements GameState {
             this.damageNumbers?.showReward(position, reward);
         };
         // Frozen/marked enemies erupt on death (Phase 1a primed the hook).
-        Enemy.onShatterCallback = (position, damage, radius) => {
+        Enemy.onShatterCallback = (position, damage, radius, element, status) => {
             const enemies = this.enemyManager?.getEnemies() ?? [];
-            aoeBurst(this.scene!, enemies, position.x, position.z, { radius, damage, element: 'ice' });
+            aoeBurst(this.scene!, enemies, position.x, position.z, { radius, damage, element, status });
         };
         // PowerEffects.cameraShake → the existing HeroController screen shake.
         setCameraShakeHook((durationS) => this.heroController?.triggerScreenShake(durationS));
