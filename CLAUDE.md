@@ -69,7 +69,7 @@ src/
 - `ChampionSelectOverlay.ts` — 3-card champion picker.
 - `PowerChoiceOverlay.ts` — 3-card slow-mo orb pickup choice; subtitles show damage + cooldown delta.
 - `ReplaceSlotOverlay.ts` — secondary slot-replacement prompt.
-- `BetweenWaveShopOverlay.ts` — 9-item between-wave shop; each item shows current attribute value inline.
+- The between-wave shop ("Armory") is a **DOM** overlay at `src/ui/overlays/Shop.ts` (class `BetweenWaveShopOverlay`) — 8 items in a 4×2 grid, each showing its current attribute value inline. (The old Babylon-GUI `src/survivors/ui/BetweenWaveShopOverlay.ts` was deleted.)
 - `EliteIndicators.ts` — off-screen elite arrow indicators.
 - `SurvivorsJoystick.ts` — virtual joystick (mobile).
 - `DamageNumberManager.ts` (in `src/survivors/`) — pooled floating damage/reward numbers.
