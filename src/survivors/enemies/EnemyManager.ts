@@ -14,6 +14,7 @@ import { ShieldEnemy } from './ShieldEnemy';
 import { MiniEnemy } from './MiniEnemy';
 import { PlayerStats } from '../PlayerStats';
 import { makeElite } from './EliteSpawner';
+import { DifficultyTuning } from '../DifficultyTuning';
 import { GameSettings } from '../../shared/GameSettings';
 
 export class EnemyManager {
@@ -23,12 +24,15 @@ export class EnemyManager {
     private compositePath: Vector3[] | null = null;
     private splitHandler: ((e: Event) => void) | null = null;
     private healHandler: ((e: Event) => void) | null = null;
+    private cloneHandler: ((e: Event) => void) | null = null;
 
     // Survivors mode fields
     private heroProvider: {
         getPosition: () => Vector3;
         takeDamage?: (amount: number, sourcePos?: Vector3) => void;
         isAlive?: () => boolean;
+        applyPull?: (towardX: number, towardZ: number, speed: number, durationS: number) => void;
+        applySlow?: (multiplier: number, durationS: number) => void;
     } | null = null;
     private arenaRadius: number = 25;
     private onEliteDeathCallback: (position: Vector3, element: string) => void = () => {};
@@ -111,6 +115,8 @@ export class EnemyManager {
             getPosition: () => Vector3;
             takeDamage?: (amount: number, sourcePos?: Vector3) => void;
             isAlive?: () => boolean;
+            applyPull?: (towardX: number, towardZ: number, speed: number, durationS: number) => void;
+            applySlow?: (multiplier: number, durationS: number) => void;
         },
         arenaRadius: number,
     ): void {
@@ -138,6 +144,49 @@ export class EnemyManager {
             }
         };
         document.addEventListener('enemySplit', this.splitHandler);
+
+        // Listen for boss clone events (from a tier-3/4 MilestoneBoss). Spawns a
+        // weaker twin on the OPPOSITE side of the hero from the origin boss so the
+        // two pincer the player. The clone is linked back to its origin; when it
+        // dies (see update()), the origin enrages.
+        if (this.cloneHandler) {
+            document.removeEventListener('bossClone', this.cloneHandler);
+        }
+        this.cloneHandler = (e: Event) => {
+            const detail = (e as CustomEvent).detail as { origin: MilestoneBoss; tier: number };
+            const origin = detail.origin;
+            if (!this.heroProvider || !origin || !origin.isAlive()) return;
+
+            const heroPos = this.heroProvider.getPosition();
+            const op = origin.getPosition();
+            // Direction hero→away-from-origin = reflect the origin across the hero.
+            let dx = heroPos.x - op.x;
+            let dz = heroPos.z - op.z;
+            let len = Math.hypot(dx, dz);
+            if (len < 0.001) { dx = 1; dz = 0; len = 1; }
+            const spawnDist = Math.max(8, len);
+            let cx = heroPos.x + (dx / len) * spawnDist;
+            let cz = heroPos.z + (dz / len) * spawnDist;
+            // Keep the clone inside the arena.
+            const radial = Math.hypot(cx, cz);
+            const limit = this.arenaRadius - 2;
+            if (radial > limit) { const k = limit / radial; cx *= k; cz *= k; }
+
+            const tier = detail.tier;
+            const assetTier = Math.min(4, Math.max(1, tier));
+            MilestoneBoss.pendingAsset = this.enemyAssets[`boss_tier${assetTier}`] ?? null;
+            // Full-strength identical twin; isClone=true suppresses recursive cloning.
+            const clone = new MilestoneBoss(this.game, new Vector3(cx, 0, cz), [], tier, 1, true);
+            clone.seekTarget = this.heroProvider;
+            clone.setEnrageOrigin(origin);
+            // Mirror the origin's exact max HP so the twin shares the SAME health pool
+            // (also captures any orb-HP / strength scaling the origin already received).
+            const cloneMax = clone.getMaxHealth();
+            if (cloneMax > 0) clone.applyHealthMultiplier(origin.getMaxHealth() / cloneMax);
+            this._registerAsShadowCaster(clone);
+            this.enemies.push(clone);
+        };
+        document.addEventListener('bossClone', this.cloneHandler);
     }
 
     /**
@@ -176,6 +225,16 @@ export class EnemyManager {
             enemy.applyHealthMultiplier(waveMult);
             enemy.applyRewardMultiplier(waveMult);
         }
+    }
+
+    /** Apply the global difficulty multipliers (tankier + harder-hitting) to a
+     *  freshly-constructed enemy. Skips milestone bosses — they derive HP from
+     *  tier and take bossHpMult/bossDamageMult in their own constructor. Compounds
+     *  on top of elite, orb, and wave-scaling multipliers (intentional). */
+    private _applyGlobalDifficulty(enemy: Enemy): void {
+        if (enemy instanceof MilestoneBoss) return;
+        enemy.applyHealthMultiplier(DifficultyTuning.enemyHpMult);
+        enemy.applyDamageMultiplier(DifficultyTuning.enemyDamageMult);
     }
 
     /**
@@ -409,6 +468,10 @@ export class EnemyManager {
         // orb buff and elite scaling.
         this._applyWaveScaling(enemy);
 
+        // Global difficulty rebalance (DifficultyTuning): tankier + harder-hitting
+        // for all non-milestone-boss enemies. Compounds on the above multipliers.
+        this._applyGlobalDifficulty(enemy);
+
         // Quality gating:
         //   low    → scene.shadowsEnabled is off, registration is a no-op anyway.
         //   medium → swarm basics (type='basic') skip registration; everything else casts.
@@ -477,7 +540,14 @@ export class EnemyManager {
                     this.onEliteDeathCallback(enemy.getPosition().clone(), enemy.eliteDropElement);
                 }
                 if (enemy instanceof MilestoneBoss) {
-                    this.onMilestoneBossDeathCallback(enemy.getPosition().clone(), enemy.waveTier);
+                    if (enemy.isClone) {
+                        // A twin died → enrage the origin boss (2× HP/speed/atk-speed).
+                        const origin = enemy.getEnrageOrigin();
+                        if (origin && origin.isAlive()) origin.enrageFromCloneDeath();
+                    } else {
+                        // Real milestone boss → milestone item drop. Clones never drop.
+                        this.onMilestoneBossDeathCallback(enemy.getPosition().clone(), enemy.waveTier);
+                    }
                 }
                 this._removeAt(i);
             }
@@ -615,6 +685,10 @@ export class EnemyManager {
         if (this.healHandler) {
             document.removeEventListener('enemyHeal', this.healHandler);
             this.healHandler = null;
+        }
+        if (this.cloneHandler) {
+            document.removeEventListener('bossClone', this.cloneHandler);
+            this.cloneHandler = null;
         }
     }
 }
