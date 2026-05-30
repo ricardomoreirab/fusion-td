@@ -11,7 +11,7 @@ import { buildArrowMesh } from './ArrowMesh';
 import { StatusEffect } from '../GameTypes';
 import { getReaction } from './StatusReactions';
 import type { Enemy } from '../enemies/Enemy';
-import type { PowerElement } from './PowerDefinitions';
+import type { PowerElement, ChampionType } from './PowerDefinitions';
 import type { RichStatusKind } from './StatusModel';
 
 /** Optional status to apply to every enemy a primitive damages. */
@@ -417,6 +417,22 @@ export function omniVolley(scene: Scene, enemies: Enemy[], x: number, z: number,
     _activeEffects.add(fx);
 }
 
+// ── deliverAutocast — class-aware effect delivery ────────────────────────────
+export function deliverAutocast(
+    ctx: { scene: Scene; heroPosition: { x: number; z: number } },
+    championType: ChampionType,
+    target: Enemy,
+    element: PowerElement,
+    effectAt: (x: number, z: number) => void,
+): void {
+    if (championType === 'ranger') {
+        arrowStrike(ctx.scene, ctx.heroPosition.x, ctx.heroPosition.z, target, element, effectAt);
+    } else {
+        const p = target.getPosition();
+        effectAt(p.x, p.z);
+    }
+}
+
 // ── arrowStrike — ranger-class delivery: fly an arrow to a target, fire onImpact ──
 const ARROW_SPEED = 26;
 const ARROW_MAX_TRAVEL_S = 2.0;
@@ -450,4 +466,33 @@ export function arrowStrike(scene: Scene, fromX: number, fromZ: number, target: 
     });
     fx = { scene, obs: obs!, cleanup: () => { proj.getChildMeshes().forEach(c => c.dispose()); proj.dispose(); } };
     _activeEffects.add(fx);
+}
+
+// ── repeatStrikes — registry-tracked time-staggered repeat ──────────────────
+/** Fire `count` strikes spaced `intervalS` apart (registry-tracked, so it tears
+ *  down cross-run). `onStrike(i)` runs each tick; the first fires immediately. */
+export function repeatStrikes(scene: Scene, count: number, intervalS: number, onStrike: (i: number) => void): void {
+    if (count <= 0) return;
+    let fired = 0;
+    let acc = intervalS; // fire #0 on the first frame
+    let fx: ActiveFx;
+    const obs = scene.onBeforeRenderObservable.add(() => {
+        acc += scene.getEngine().getDeltaTime() / 1000;
+        while (acc >= intervalS && fired < count) {
+            acc -= intervalS;
+            try { onStrike(fired); } catch { /* ignore */ }
+            fired++;
+        }
+        if (fired >= count) endFx(fx);
+    });
+    fx = { scene, obs: obs!, cleanup: () => { /* no mesh; onStrike effects self-manage */ } };
+    _activeEffects.add(fx);
+}
+
+// ── ultimateImpact — FX layer for ultimate casts ─────────────────────────────
+/** The "this is an ultimate" punch: camera shake + an element-tinted screen flash. */
+export function ultimateImpact(element: PowerElement): void {
+    cameraShake(0.4);
+    const c = ELEMENT_COLOR[element];
+    screenFlash(`rgba(${Math.round(c.r * 255)},${Math.round(c.g * 255)},${Math.round(c.b * 255)},0.35)`, 260);
 }

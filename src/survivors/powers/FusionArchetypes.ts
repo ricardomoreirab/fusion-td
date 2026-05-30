@@ -4,7 +4,7 @@
 // SurvivorsGameplayState ensures registration runs before any fusion is cast.
 import { Vector3 } from '@babylonjs/core';
 import { StatusEffect } from '../GameTypes';
-import { dealElementalHit, aoeBurst, chainHit, gatherVortex, persistentZone, omniVolley, arrowStrike } from './PowerEffects';
+import { dealElementalHit, aoeBurst, chainHit, gatherVortex, persistentZone, omniVolley, deliverAutocast } from './PowerEffects';
 import { registerAutocastArchetype, registerPassiveArchetype, archetypeKey } from './FusionArchetypeRegistry';
 import type { Enemy } from '../enemies/Enemy';
 import type { PowerElement, PowerContext, EnchantmentHitContext, ChampionType } from './PowerDefinitions';
@@ -21,20 +21,6 @@ function nearestEnemy(enemies: Enemy[], x: number, z: number, range: number): En
         if (d2 <= bestD2) { bestD2 = d2; best = e; }
     }
     return best;
-}
-
-/** Deliver an autocast fusion effect. Ranger fires an arrow to `target` and runs
- *  `effectAt` at the impact point; every other class runs it directly at the target. */
-function deliverAutocast(
-    ctx: PowerContext, championType: ChampionType, target: Enemy, element: PowerElement,
-    effectAt: (x: number, z: number) => void,
-): void {
-    if (championType === 'ranger') {
-        arrowStrike(ctx.scene, ctx.heroPosition.x, ctx.heroPosition.z, target, element, effectAt);
-    } else {
-        const p = target.getPosition();
-        effectAt(p.x, p.z);
-    }
 }
 
 // ── Frostfire (fire+ice) — Shatter-Burn ─────────────────────────────────────
