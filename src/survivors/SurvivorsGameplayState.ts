@@ -1638,7 +1638,7 @@ export class SurvivorsGameplayState implements GameState {
         const captured = best;
         return {
             position:   captured.getPosition(),
-            takeDamage: (n) => captured.takeDamage(n),
+            takeDamage: (n, element) => captured.takeDamage(n, element),
             isAlive:    () => captured.isAlive(),
         };
     }

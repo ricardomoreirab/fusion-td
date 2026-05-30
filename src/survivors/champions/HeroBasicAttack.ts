@@ -1,7 +1,7 @@
 import { Scene, Vector3, MeshBuilder, Mesh, Color3 } from '@babylonjs/core';
 import { Champion } from './Champion';
 import { PowerSlotManager } from '../powers/PowerSlotManager';
-import { EnchantmentHitContext } from '../powers/PowerDefinitions';
+import { EnchantmentHitContext, PowerElement } from '../powers/PowerDefinitions';
 import { Enemy } from '../enemies/Enemy';
 import { PlayerStats } from '../PlayerStats';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
@@ -13,7 +13,7 @@ const _scratchB = new Vector3();
 
 export interface BasicAttackTarget {
     position: Vector3;
-    takeDamage: (amount: number) => void;
+    takeDamage: (amount: number, element?: PowerElement) => void;
     isAlive: () => boolean;
 }
 
@@ -276,7 +276,7 @@ export class HeroBasicAttack {
      *  Whirlwind ticks so both carry the exact same hit modifiers. */
     private applyHit(e: Enemy, fromPos: Vector3, enemies: Enemy[]): void {
         const dmg = this.effectiveDamage;
-        e.takeDamage(dmg);
+        e.takeDamage(dmg, 'physical');
 
         const lifestealPct = this.playerStats?.lifestealPct ?? 0;
         if (lifestealPct > 0 && this.healCallback) {
@@ -539,7 +539,7 @@ export class HeroBasicAttack {
             }
 
             if (dist < 0.4) {
-                target.takeDamage(capturedDamage);
+                target.takeDamage(capturedDamage, 'physical');
                 if (this.healCallback && this.playerStats && this.playerStats.lifestealPct > 0) {
                     this.healCallback(capturedDamage * this.playerStats.lifestealPct);
                 }
@@ -600,10 +600,12 @@ export class HeroBasicAttack {
             // Flaming Edge DoT, Heavy Strike, Shock Chain) also scale with shop
             // upgrades and the per-card global power bump.
             baseDamage: this.effectiveDamage,
+            element: 'physical',
         };
 
         for (const enc of enchantments) {
             if (enc.slot.def.onHit) {
+                ctx.element = enc.slot.def.element;
                 enc.slot.def.onHit(enemy, enc.level, ctx);
             }
         }

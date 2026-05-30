@@ -20,6 +20,8 @@ export interface PowerContext {
     enemies: Enemy[];
     /** Combined damage multiplier from run perks + shop upgrades */
     damageMultiplier: number;
+    /** Element of the casting power — colors the damage numbers it produces. */
+    element: PowerElement;
 }
 
 /** Called on each basic-attack hit for passive enchantment powers. */
@@ -29,6 +31,8 @@ export interface EnchantmentHitContext {
     enemies: Enemy[];
     /** Base damage of the basic attack (before multipliers). */
     baseDamage: number;
+    /** Element of the active enchantment — colors its proc damage numbers. */
+    element: PowerElement;
 }
 
 export interface PowerDefinition {
@@ -313,7 +317,7 @@ const mageFireDef: PowerDefinition = {
             }
 
             if (dist < 0.5) {
-                target.takeDamage(damage);
+                target.takeDamage(damage, ctx.element);
                 target.applyStatusEffect(StatusEffect.BURNING, 3, 3.0);
                 cleanup();
                 ctx.scene.onBeforeRenderObservable.remove(observer);
@@ -396,7 +400,7 @@ const mageIceDef: PowerDefinition = {
             }
 
             if (dist < 0.4) {
-                target.takeDamage(damage);
+                target.takeDamage(damage, ctx.element);
                 target.applyStatusEffect(StatusEffect.SLOWED, 2, 0.5);
                 proj.dispose();
                 ctx.scene.onBeforeRenderObservable.remove(observer);
@@ -437,7 +441,7 @@ const mageArcaneDef: PowerDefinition = {
             const dx = e.getPosition().x - ctx.heroPosition.x;
             const dz = e.getPosition().z - ctx.heroPosition.z;
             if (Math.hypot(dx, dz) <= radius) {
-                e.takeDamage(damage);
+                e.takeDamage(damage, ctx.element);
             }
         }
 
@@ -560,7 +564,7 @@ const magePhysicalDef: PowerDefinition = {
                 const dx = e.getPosition().x - blade.mesh.position.x;
                 const dz = e.getPosition().z - blade.mesh.position.z;
                 if (Math.hypot(dx, dz) < 0.8) {
-                    e.takeDamage(damage);
+                    e.takeDamage(damage, ctx.element);
                     hitSet.add(e);
                 }
             }
@@ -611,7 +615,7 @@ const mageStormDef: PowerDefinition = {
         const hitSet = new Set<Enemy>();
         let current: Enemy = first;
         hitSet.add(current);
-        current.takeDamage(damage);
+        current.takeDamage(damage, ctx.element);
         hitOrder.push({ from: ctx.heroPosition.clone(), to: current.getPosition().clone() });
 
         for (let chain = 0; chain < maxChains; chain++) {
@@ -626,7 +630,7 @@ const mageStormDef: PowerDefinition = {
             }
             if (!next) break;
             hitOrder.push({ from: current.getPosition().clone(), to: next.getPosition().clone() });
-            next.takeDamage(damage * 0.75);
+            next.takeDamage(damage * 0.75, ctx.element);
             hitSet.add(next);
             current = next;
         }
@@ -732,7 +736,7 @@ const rangerFireDef: PowerDefinition = {
             }
 
             if (dist < 0.5) {
-                explodeFireArrow(proj.position.clone(), damage, aoeRadius, enemies, ctx.scene);
+                explodeFireArrow(proj.position.clone(), damage, aoeRadius, enemies, ctx.scene, ctx.element);
                 cleanup();
                 ctx.scene.onBeforeRenderObservable.remove(observer);
                 return;
@@ -740,20 +744,20 @@ const rangerFireDef: PowerDefinition = {
             proj.position.addInPlace(dirN.scale(Math.min(dist, speed * dt)));
         });
         setTimeout(() => {
-            explodeFireArrow(proj.position.clone(), damage, aoeRadius, enemies, ctx.scene);
+            explodeFireArrow(proj.position.clone(), damage, aoeRadius, enemies, ctx.scene, ctx.element);
             cleanup();
             ctx.scene.onBeforeRenderObservable.remove(observer);
         }, 4000);
     },
 };
 
-function explodeFireArrow(pos: Vector3, damage: number, radius: number, enemies: Enemy[], scene: Scene): void {
+function explodeFireArrow(pos: Vector3, damage: number, radius: number, enemies: Enemy[], scene: Scene, element: PowerElement = 'fire'): void {
     for (const e of enemies) {
         if (!e.isAlive()) continue;
         const dx = e.getPosition().x - pos.x;
         const dz = e.getPosition().z - pos.z;
         if (Math.hypot(dx, dz) <= radius) {
-            e.takeDamage(damage);
+            e.takeDamage(damage, element);
             e.applyStatusEffect(StatusEffect.BURNING, 2.5, 2.5);
         }
     }
@@ -856,7 +860,7 @@ const rangerIceDef: PowerDefinition = {
                 const dx = e.getPosition().x - proj.position.x;
                 const dz = e.getPosition().z - proj.position.z;
                 if (Math.hypot(dx, dz) < 0.6) {
-                    e.takeDamage(damage);
+                    e.takeDamage(damage, ctx.element);
                     e.applyStatusEffect(StatusEffect.SLOWED, 1.5, 0.5);
                     hitEnemies.add(e);
                     pierceCount++;
@@ -961,7 +965,7 @@ const rangerArcaneDef: PowerDefinition = {
             }
 
             if (dist < 0.5) {
-                target.takeDamage(damage);
+                target.takeDamage(damage, ctx.element);
                 cleanup();
                 ctx.scene.onBeforeRenderObservable.remove(observer);
                 return;
@@ -1051,7 +1055,7 @@ const rangerPhysicalDef: PowerDefinition = {
                 const dx = e.getPosition().x - proj.position.x;
                 const dz = e.getPosition().z - proj.position.z;
                 if (Math.hypot(dx, dz) < 0.6) {
-                    e.takeDamage(damage);
+                    e.takeDamage(damage, ctx.element);
                     hitEnemies.add(e);
                 }
             }
@@ -1135,7 +1139,7 @@ const rangerStormDef: PowerDefinition = {
             staticBolt.scaling.x = 0.8 + 0.4 * Math.sin(boltFlicker * 35);
 
             if (!target.isAlive()) {
-                chainLightning(target.getPosition(), damage, allEnemies, target, ctx.scene);
+                chainLightning(target.getPosition(), damage, allEnemies, target, ctx.scene, ctx.element);
                 cleanup();
                 ctx.scene.onBeforeRenderObservable.remove(observer);
                 return;
@@ -1155,8 +1159,8 @@ const rangerStormDef: PowerDefinition = {
             }
 
             if (dist < 0.5) {
-                target.takeDamage(damage);
-                chainLightning(target.getPosition(), damage, allEnemies, target, ctx.scene);
+                target.takeDamage(damage, ctx.element);
+                chainLightning(target.getPosition(), damage, allEnemies, target, ctx.scene, ctx.element);
                 cleanup();
                 ctx.scene.onBeforeRenderObservable.remove(observer);
                 return;
@@ -1170,7 +1174,7 @@ const rangerStormDef: PowerDefinition = {
     },
 };
 
-function chainLightning(fromPos: Vector3, damage: number, enemies: Enemy[], exclude: Enemy, scene: Scene): void {
+function chainLightning(fromPos: Vector3, damage: number, enemies: Enemy[], exclude: Enemy, scene: Scene, element: PowerElement = 'storm'): void {
     const chainRadius = 4;
     const chainDamage = damage * 0.6;
     let origin = fromPos;
@@ -1188,7 +1192,7 @@ function chainLightning(fromPos: Vector3, damage: number, enemies: Enemy[], excl
             if (d2 < nearestDist2) { nearestDist2 = d2; nearest = e; }
         }
         if (!nearest) break;
-        nearest.takeDamage(chainDamage);
+        nearest.takeDamage(chainDamage, element);
         // Jagged arc visual
         const from = origin.clone(); from.y = 1;
         const to = nearest.getPosition().clone(); to.y = 1;
@@ -1268,7 +1272,7 @@ const barbarianArcaneDef: PowerDefinition = {
     description: (lvl) => `On hit: +${Math.round(20 * lvl)}% bonus arcane damage`,
     onHit: (enemy, level, ctx) => {
         const bonusDamage = ctx.baseDamage * 0.20 * level;
-        enemy.takeDamage(bonusDamage);
+        enemy.takeDamage(bonusDamage, ctx.element);
     },
 };
 
@@ -1291,7 +1295,7 @@ const barbarianPhysicalDef: PowerDefinition = {
     description: (lvl) => `+${Math.round(25 * lvl)}% damage and +${(0.3 * lvl).toFixed(1)}u swing reach`,
     onHit: (enemy, level, ctx) => {
         const bonusDamage = ctx.baseDamage * 0.25 * level;
-        enemy.takeDamage(bonusDamage);
+        enemy.takeDamage(bonusDamage, ctx.element);
     },
 };
 
@@ -1328,7 +1332,7 @@ const barbarianStormDef: PowerDefinition = {
                 if (d2 < nearestDist2) { nearestDist2 = d2; nearest = e; }
             }
             if (!nearest) break;
-            nearest.takeDamage(chainDamage);
+            nearest.takeDamage(chainDamage, ctx.element);
             // Jagged arc visual
             const from = origin.clone(); from.y = 1;
             const to = nearest.getPosition().clone(); to.y = 1;

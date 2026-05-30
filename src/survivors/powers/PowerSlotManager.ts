@@ -189,6 +189,7 @@ export class PowerSlotManager {
                 if (!hasTarget) continue; // hold the cooldown, don't fire into empty arena
                 if (slot.def.cast) {
                     if (!ctx) ctx = this.buildContext();
+                    ctx.element = slot.def.element;
                     slot.def.cast(slot.state, ctx);
                 }
                 if (this.onCastCallback) this.onCastCallback(slot);
@@ -209,6 +210,7 @@ export class PowerSlotManager {
             if (!slot) continue;
             if (slot.def.mode !== 'autocast') continue;
             if (!slot.def.cast) continue;
+            ctx.element = slot.def.element;
             slot.def.cast(slot.state, ctx);
             count++;
         }
@@ -272,6 +274,7 @@ export class PowerSlotManager {
             heroPosition: this.heroProvider(),
             enemies: this.enemyProvider(),
             damageMultiplier: this.damageMultiplierProvider(),
+            element: 'physical',
         };
     }
 
