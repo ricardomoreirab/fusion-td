@@ -13,7 +13,7 @@ import { PlayerStats } from './PlayerStats';
 import { PowerDrop } from './powers/PowerDrop';
 import { PowerSlotManager, PowerSlot } from './powers/PowerSlotManager';
 import { POWER_DEFS, getPowerByElementAndClass, getPowerMapForClass, PowerElement, ChampionType, PowerDefinition } from './powers/PowerDefinitions';
-import { getFusionFor, getUltimatesForClass, getFusionsForClass } from './powers/FusionDefinitions';
+import { getFusionFor, getFusionsForClass, getUltimateOfferForFusions } from './powers/FusionDefinitions';
 import { aoeBurst, setCameraShakeHook, resetPowerEffects } from './powers/PowerEffects';
 import './powers/FusionArchetypes'; // registers fusion archetypes at load
 import { Enemy, HEALTH_BAR_RENDER_GROUP } from './enemies/Enemy';
@@ -1250,11 +1250,11 @@ export class SurvivorsGameplayState implements GameState {
         if (maxedFusions.length >= 2) {
             const a = maxedFusions[0];
             const b = maxedFusions[1];
-            const ults = getUltimatesForClass(this.currentChampionType);
-            const cards = ults.map((ult): PowerCard => ({
+            const offer = getUltimateOfferForFusions(this.currentChampionType, a.def, b.def);
+            const cards = offer.map((ult): PowerCard => ({
                 kind: 'ultimate',
                 title: ult.name,
-                subtitle: `ULTIMATE  ·  forge from ${a.def.name} + ${b.def.name}`,
+                subtitle: `ULTIMATE · ${ult.element} · forge from ${a.def.name} + ${b.def.name}`,
                 element: ult.element,
                 onPick: () => {
                     this.powerSlots!.fuse(a.def.id, b.def.id, ult.id);
