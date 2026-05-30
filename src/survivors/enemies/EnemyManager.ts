@@ -20,6 +20,13 @@ import { GameSettings } from '../../shared/GameSettings';
 export class EnemyManager {
     private game: Game;
     private enemies: Enemy[] = [];
+    /** Enemies that have died and are playing their death animation + lingering
+     *  before being cleared. Kept OUT of `enemies[]` so wave-clear (which keys off
+     *  the live enemy count) fires immediately on the last kill. Capped at
+     *  MAX_CORPSES so a mass AOE wipe can't pile up skinned meshes + death-clip
+     *  animatables (the death-animation feature must not become a new freeze source). */
+    private corpses: Enemy[] = [];
+    private static readonly MAX_CORPSES = 16;
     private playerStats: PlayerStats | null = null;
     private compositePath: Vector3[] | null = null;
     private splitHandler: ((e: Event) => void) | null = null;
@@ -277,6 +284,10 @@ export class EnemyManager {
         for (const g of this.shadowGenerators) {
             g.addShadowCaster(mesh as never, true);
         }
+        // Record the generators on the enemy so it removes its mesh from their
+        // renderLists when it is disposed — otherwise disposed enemy meshes
+        // accumulate forever in both per-frame shadow passes (the in-run freeze).
+        enemy.setShadowGenerators(this.shadowGenerators);
     }
 
     /**
@@ -549,8 +560,39 @@ export class EnemyManager {
                         this.onMilestoneBossDeathCallback(enemy.getPosition().clone(), enemy.waveTier);
                     }
                 }
+                // Move the dead enemy out of the live list into the corpse list so it
+                // can play its death animation + linger before being cleared. Removing
+                // it from enemies[] keeps wave-clear (live-count based) immediate.
                 this._removeAt(i);
+                this._beginCorpse(enemy);
             }
+        }
+
+        // Advance lingering corpses (death animation + linger); release finished ones.
+        for (let i = this.corpses.length - 1; i >= 0; i--) {
+            const corpse = this.corpses[i];
+            if (corpse.tickCorpse(deltaTime)) {
+                corpse.disposeCorpse();
+                const last = this.corpses.length - 1;
+                if (i !== last) this.corpses[i] = this.corpses[last];
+                this.corpses.pop();
+            }
+        }
+    }
+
+    /** Track a just-died enemy as a corpse (it already started its death sequence in
+     *  die()). Caps the corpse count so a mass kill can't accumulate skinned meshes +
+     *  death-clip animatables — past the cap the oldest corpse is released immediately. */
+    private _beginCorpse(enemy: Enemy): void {
+        if (!enemy.isCorpse()) {
+            // Defensive: died without a corpse phase — release immediately.
+            enemy.dispose();
+            return;
+        }
+        this.corpses.push(enemy);
+        while (this.corpses.length > EnemyManager.MAX_CORPSES) {
+            const oldest = this.corpses.shift();
+            oldest?.disposeCorpse();
         }
     }
 
@@ -676,6 +718,12 @@ export class EnemyManager {
             enemy.dispose();
         }
         this.enemies = [];
+
+        // Release any lingering corpses (death animation still in progress at teardown).
+        for (const corpse of this.corpses) {
+            corpse.disposeCorpse();
+        }
+        this.corpses = [];
 
         // Remove event listeners
         if (this.splitHandler) {

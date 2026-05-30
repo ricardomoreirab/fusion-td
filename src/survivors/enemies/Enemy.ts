@@ -1,6 +1,10 @@
-import { Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, Color4, Scene, ParticleSystem, Texture, DynamicTexture, Sound, Animation, AnimationGroup, Skeleton } from '@babylonjs/core';
+import { Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, Color4, Scene, ParticleSystem, Texture, DynamicTexture, Sound, Animation, AnimationGroup, Skeleton, ShadowGenerator } from '@babylonjs/core';
 import { Game } from '../../engine/Game';
 import { EnemyType, StatusEffect } from '../GameTypes';
+
+// One-time per-enemy-class log when a GLB has no recognizable death clip, so the
+// asset's real clip name can be added to the matcher in _findDeathClip().
+const _deathClipWarned = new Set<string>();
 
 // Cached health-bar colors — shared across all enemy instances to avoid per-frame
 // allocations. Exported so enemy subclasses that override updateHealthBar() reuse
@@ -123,6 +127,24 @@ export class Enemy {
      *  climb across waves). Subclasses register them via
      *  `this.glbSkeletons = inst.skeletons`. */
     protected glbSkeletons: Skeleton[] = [];
+
+    /** ShadowGenerators this enemy's mesh was registered into (set by EnemyManager
+     *  at spawn via setShadowGenerators). _releaseMeshAndAnimations removes the mesh
+     *  from each renderList right before disposing it — Babylon never prunes a
+     *  disposed mesh from a ShadowGenerator renderList, so without this every
+     *  spawned enemy permanently bloats both per-frame shadow passes (the primary
+     *  in-run freeze). */
+    private _shadowGenerators: ShadowGenerator[] = [];
+
+    /** Death-sequence ("corpse") state. On death the enemy plays its GLB death clip
+     *  (or shrinks away if the asset has none), lingers `corpseLingerS`, then frees
+     *  its mesh. EnemyManager owns the corpse list + per-frame tick + final release. */
+    protected glbDeathAnim: AnimationGroup | null = null;
+    /** Seconds a corpse lingers AFTER its death clip finishes before being cleared. */
+    protected corpseLingerS: number = 1.0;
+    private corpseTimeRemaining: number = 0;
+    private corpseHasDeathClip: boolean = false;
+    private corpseBaseScale: number = 1;
 
     // Elemental properties
     protected enemyType: EnemyType = EnemyType.NORMAL;
@@ -1171,8 +1193,19 @@ export class Enemy {
             try { ag.dispose(); } catch (_) { /* already disposed */ }
         }
         this.glbAnimationGroups.length = 0;
+        this.glbDeathAnim = null;
 
         if (this.mesh) {
+            // Remove the mesh (+ descendants) from every shadow renderList it was
+            // registered into BEFORE disposing it. Babylon's ObjectRenderer only
+            // SKIPS disposed meshes in a renderList — it never splices them out — so
+            // without this each spawned enemy permanently grows both per-frame shadow
+            // passes (refreshRate=1) for the whole run: the steady, worsens-over-time
+            // freeze. Bounds each renderList to live enemies + lingering corpses.
+            for (const g of this._shadowGenerators) {
+                try { g.removeShadowCaster(this.mesh, true); } catch (_) { /* not registered */ }
+            }
+
             // Dispose per-instance materials (cloned via instantiateModelsToScene
             // with cloneMaterials=true) but NOT their textures. The textures are
             // shared with the source AssetContainer — disposing them was nulling
@@ -1202,7 +1235,14 @@ export class Enemy {
     }
 
     /**
-     * Handle enemy death
+     * Handle enemy death.
+     *
+     * The mesh is NOT freed here. Instead the enemy enters a short "corpse" phase:
+     * its GLB death clip plays (or it shrinks away if the asset has no death clip),
+     * it lingers `corpseLingerS`, then EnemyManager calls disposeCorpse() to release
+     * the mesh/skeleton/animation-groups/shadow-casters. EnemyManager owns the corpse
+     * list (so wave-clear, which keys off live enemy count, is not stalled) and caps
+     * the number of simultaneous corpses so a mass kill can't pile up skinned meshes.
      */
     protected die(): void {
         if (!this.alive) return;
@@ -1212,31 +1252,127 @@ export class Enemy {
         // Tear down any in-progress melee swing.
         this.cancelMeleeAttack();
 
-        // Create death effect
+        // Create death effect (particle burst + reward float text + sound). Runs
+        // while the mesh is still present so subclass effects that read it work.
         this.createDeathEffect();
 
-        // If a hit-flash is mid-window, restore original emissives now — once the
-        // mesh is gone update() stops ticking and the restore would never fire,
-        // leaving any SHARED (cached) material stuck on HIT_TINT for other enemies.
+        // Restore any mid-flash emissive now so a SHARED (cached) material isn't left
+        // stuck on HIT_TINT for other enemies (the corpse's own update no longer runs).
         this._restoreFlash();
 
-        // Release the mesh together with its cloned AnimationGroups + per-instance
-        // materials. Disposing the mesh alone leaks both (the wave-N freeze).
-        this._releaseMeshAndAnimations();
-
-        // Remove health bar (handles segments + boss label too)
+        // A corpse shows no HP bar and no status particles — free them immediately.
         this._disposeHealthBarMeshes();
-
-        // Remove status effect particles. dispose(false): keep the shared
-        // status-effect texture (see stopStatusEffectParticles).
         this.statusEffectParticles.forEach(particleSystem => {
             particleSystem.stop();
             particleSystem.dispose(false);
         });
         this.statusEffectParticles.clear();
 
+        // Begin the death animation + linger. Keeps mesh/skeleton/anim alive.
+        this._beginDeathSequence();
+
         // Note: Money reward is handled by the EnemyManager which has access to PlayerStats
         // We don't need to award money here as it's done in EnemyManager.update()
+    }
+
+    /**
+     * Start the corpse phase: stop walk/attack and play the GLB death clip once
+     * (non-looping). When the asset has no death clip the corpse holds its last
+     * frame and shrinks away over the final part of the linger (see tickCorpse).
+     * Sets the total corpse time = death-clip duration + corpseLingerS.
+     */
+    protected _beginDeathSequence(): void {
+        this.corpseBaseScale = this.mesh ? this.mesh.scaling.x : 1;
+
+        if (this.glbAnimationGroups.length > 0) {
+            for (const ag of this.glbAnimationGroups) {
+                try { ag.stop(); } catch (_) { /* already stopped */ }
+            }
+            const death = this._findDeathClip();
+            if (death) {
+                this.glbDeathAnim = death;
+                let dur = 1.0;
+                try {
+                    const ta = death.targetedAnimations[0];
+                    const fps = ta?.animation?.framePerSecond || 60;
+                    const frames = Math.abs(death.to - death.from);
+                    const sr = Math.abs(death.speedRatio || 1);
+                    const est = frames / fps / sr;
+                    if (est > 0.1 && est < 6) dur = est;
+                } catch (_) { /* keep the 1.0s fallback */ }
+                try { death.start(false); } catch (_) { /* ignore */ }
+                this.corpseHasDeathClip = true;
+                this.corpseTimeRemaining = dur + this.corpseLingerS;
+                return;
+            }
+        }
+
+        // No GLB death clip (procedural enemy or asset without one): just linger,
+        // then shrink away over the final part of the window (tickCorpse).
+        this.corpseHasDeathClip = false;
+        this.corpseTimeRemaining = this.corpseLingerS;
+    }
+
+    /** Locate a death/defeat animation clip among the GLB groups by name. Matches
+     *  unambiguous death terms first (all enemy assets use `<prefix>_dead`), then
+     *  weaker fallbacks, so a clip like "fall"/"knock" can't steal the match from a
+     *  real death clip that sorts later. Returns null (with a one-time per-class log
+     *  of the available names) if none match. */
+    private _findDeathClip(): AnimationGroup | null {
+        const strong = (n: string): boolean =>
+            n.includes('dead') || n.includes('death') || n.includes('die') || n.includes('defeat');
+        const weak = (n: string): boolean =>
+            n.includes('collapse') || n.includes('faint') || n.includes('knock') || n.includes('fall');
+
+        for (const ag of this.glbAnimationGroups) {
+            if (strong(ag.name.toLowerCase())) return ag;
+        }
+        for (const ag of this.glbAnimationGroups) {
+            if (weak(ag.name.toLowerCase())) return ag;
+        }
+
+        const cls = this.constructor.name;
+        if (!_deathClipWarned.has(cls)) {
+            _deathClipWarned.add(cls);
+            const avail = this.glbAnimationGroups.map(ag => ag.name).join(', ');
+            console.info(`[death] ${cls}: no death clip found — using shrink fallback (avail: ${avail})`);
+        }
+        return null;
+    }
+
+    /** True once die() has started the corpse phase. */
+    public isCorpse(): boolean {
+        return !this.alive && this.corpseTimeRemaining > 0;
+    }
+
+    /**
+     * Advance the corpse timer one frame. Returns true when the corpse is finished
+     * and should be released (EnemyManager then calls disposeCorpse). For corpses
+     * without a death clip, shrinks the mesh over the last 0.4s so it doesn't pop out.
+     */
+    public tickCorpse(deltaTime: number): boolean {
+        this.corpseTimeRemaining -= deltaTime;
+        if (!this.corpseHasDeathClip && this.mesh && !this.mesh.isDisposed()) {
+            const SHRINK = 0.4;
+            if (this.corpseTimeRemaining < SHRINK) {
+                const k = Math.max(0, this.corpseTimeRemaining / SHRINK);
+                this.mesh.scaling.setAll(this.corpseBaseScale * k);
+            }
+        }
+        return this.corpseTimeRemaining <= 0;
+    }
+
+    /** Release a finished corpse's mesh/skeleton/animation-groups/shadow-casters. */
+    public disposeCorpse(): void {
+        this.corpseTimeRemaining = 0;
+        this._releaseMeshAndAnimations();
+    }
+
+    /** Record the shadow generators this enemy's mesh was registered into, so the
+     *  mesh can be removed from their renderLists when it is disposed. Called by
+     *  EnemyManager when it registers the enemy as a shadow caster. */
+    public setShadowGenerators(generators: ShadowGenerator[]): void {
+        this._shadowGenerators = generators;
     }
 
     /**

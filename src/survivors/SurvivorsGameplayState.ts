@@ -133,6 +133,11 @@ export class SurvivorsGameplayState implements GameState {
     private shadowSourceLight: DirectionalLight | null = null;
     private shadowGenerator: ShadowGenerator | null = null;
     private torchShadowGenerator: ShadowGenerator | null = null;
+    // Per-run env/sky GPU resources — tracked so exit() can dispose them.
+    // cleanupScene() only frees meshes/particles/ADT textures, so these cube
+    // textures + skybox material otherwise leak one set per run.
+    private skyTexture: CubeTexture | null = null;
+    private skyMaterial: BackgroundMaterial | null = null;
 
     // Gameplay systems
     private enemyManager: EnemyManager | null = null;
@@ -673,6 +678,9 @@ export class SurvivorsGameplayState implements GameState {
         skyTex.coordinatesMode = Texture.SKYBOX_MODE;
         skyMat.reflectionTexture = skyTex;
         skydome.material = skyMat;
+        // Track the cloned sky texture + material for disposal in exit().
+        this.skyTexture = skyTex;
+        this.skyMaterial = skyMat;
 
         // (Removed ruinsSpot SpotLight — it didn't cast shadows and was
         // washing out the directional's shadows at world origin where the
@@ -907,6 +915,29 @@ export class SurvivorsGameplayState implements GameState {
 
         this.grass?.dispose();
         this.grass = null;
+
+        // Dispose per-run lights, shadow generators, and env/sky textures. None of
+        // these are meshes / particle systems / ADT textures, so Game.cleanupScene()
+        // does NOT free them — without this they accumulate one set per run on the
+        // persistent (never-disposed) scene. Each leaked ShadowGenerator keeps
+        // rendering a full shadow map every frame (refreshRate=1), the dominant
+        // "later runs freeze worse" cost. Dispose each generator BEFORE the light it
+        // references; disposing the torch generator does NOT touch the shared
+        // heroTorch light (only its per-run generator).
+        this.shadowGenerator?.dispose();
+        this.shadowGenerator = null;
+        this.torchShadowGenerator?.dispose();
+        this.torchShadowGenerator = null;
+        this.shadowSourceLight?.dispose();
+        this.shadowSourceLight = null;
+        if (this.scene?.environmentTexture) {
+            this.scene.environmentTexture.dispose();
+            this.scene.environmentTexture = null;
+        }
+        this.skyTexture?.dispose();
+        this.skyTexture = null;
+        this.skyMaterial?.dispose();
+        this.skyMaterial = null;
 
         this.scene = null;
         this.timeScale = 1.0;
@@ -1655,12 +1686,21 @@ export class SurvivorsGameplayState implements GameState {
         // every frame. If they grow across waves, we have a leak (the most
         // likely cause given the rAF gap is outside our update tick).
         const scene = this.scene;
+        // shadowRL = directional/torch shadow-map renderList sizes. These must track
+        // the LIVE enemy count (+ a few lingering corpses), NOT climb monotonically —
+        // a steady climb means dead-enemy meshes are leaking into the shadow passes.
+        // lights must stay flat (3) across menu→play→gameOver→play; a climb means a
+        // per-run light leak. Both are the confirmed freeze sources.
+        const shadowRL = (g: ShadowGenerator | null): number | string =>
+            g?.getShadowMap()?.renderList?.length ?? '?';
         const sceneInfo = scene
             ? ` · ps=${scene.particleSystems.length}` +
               ` anim=${(scene as unknown as { _activeAnimatables?: unknown[] })._activeAnimatables?.length ?? '?'}` +
               ` meshes=${scene.meshes.length}` +
               ` materials=${scene.materials.length}` +
-              ` textures=${scene.textures.length}`
+              ` textures=${scene.textures.length}` +
+              ` lights=${scene.lights.length}` +
+              ` shadowRL=${shadowRL(this.shadowGenerator)}/${shadowRL(this.torchShadowGenerator)}`
             : '';
         console.error(`[freeze:${kind}] ${durationMs}ms at t=${tRun}s · wave ${wave} · ${enemies} enemies${overlayStr}${sceneInfo}`);
     }
