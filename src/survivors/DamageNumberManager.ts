@@ -1,6 +1,7 @@
 import { Vector3, Mesh, MeshBuilder, StandardMaterial, DynamicTexture, Scene, Color3 } from '@babylonjs/core';
 import { Game } from '../engine/Game';
-import { ElementType } from './GameTypes';
+import { PowerElement } from './powers/PowerDefinitions';
+import { ELEMENT_HEX } from './ElementColors';
 
 /**
  * Pre-allocated reusable damage-number slot. We keep N of these alive for the
@@ -98,11 +99,11 @@ export class DamageNumberManager {
     public showDamage(
         position: Vector3,
         damage: number,
-        elementType: ElementType = ElementType.NONE,
+        element?: PowerElement,
         isCrit: boolean = false,
     ): void {
         const slot = this.acquireSlot();
-        const color = isCrit ? '#FFD000' : this.getColorForElement(elementType);
+        const color = isCrit ? '#FFD000' : this.getColorForElement(element);
         const fontSize = isCrit ? 90 : 70;
         const text = isCrit ? `${Math.round(damage)}!` : Math.round(damage).toString();
         this.drawText(slot, text, color, fontSize);
@@ -184,14 +185,8 @@ export class DamageNumberManager {
         }
     }
 
-    private getColorForElement(elementType: ElementType): string {
-        switch (elementType) {
-            case ElementType.FIRE: return '#FF6633';
-            case ElementType.WATER: return '#3399FF';
-            case ElementType.WIND: return '#99FF66';
-            case ElementType.EARTH: return '#CC9933';
-            default: return '#FFFFFF';
-        }
+    private getColorForElement(element?: PowerElement): string {
+        return element ? ELEMENT_HEX[element] : '#FFFFFF';
     }
 
     public dispose(): void {
