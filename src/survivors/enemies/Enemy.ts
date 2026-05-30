@@ -1036,8 +1036,11 @@ export class Enemy {
     protected createStatusEffectParticles(effect: StatusEffect): void {
         if (!this.mesh) return;
         
-        // Stop any existing particles for this effect
-        this.stopStatusEffectParticles(effect);
+        // Idempotent: keep a running ParticleSystem instead of dispose+recreate on every
+        // status re-apply (Frostfire etc. refresh BURNING/CHILL each cast). Recreating the
+        // system per apply churns GPU buffers across many enemies = a per-frame hitch. It
+        // persists until the status expires (stopStatusEffectParticles is called on expiry).
+        if (this.statusEffectParticles.has(effect)) return;
         
         // Create a new particle system
         const particleSystem = new ParticleSystem(`${effect}Particles`, 20, this.scene);
