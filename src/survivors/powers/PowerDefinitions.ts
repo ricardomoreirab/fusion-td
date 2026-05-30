@@ -312,7 +312,7 @@ const mageFireDef: PowerDefinition = {
 
             // Trail particle
             if (lastTrailTime >= 0.05) {
-                spawnTrailParticle(ctx.scene, proj.position.clone(), trailColor, 0.18, 0.3);
+                spawnTrailParticle(ctx.scene, proj.position, trailColor, 0.18, 0.3);
                 lastTrailTime = 0;
             }
 
@@ -395,7 +395,7 @@ const mageIceDef: PowerDefinition = {
 
             // Trail particle
             if (lastTrailTime >= 0.05) {
-                spawnTrailParticle(ctx.scene, proj.position.clone(), trailColor, 0.08, 0.3);
+                spawnTrailParticle(ctx.scene, proj.position, trailColor, 0.08, 0.3);
                 lastTrailTime = 0;
             }
 
@@ -553,7 +553,7 @@ const magePhysicalDef: PowerDefinition = {
             if (blade.lastTrail === undefined) blade.lastTrail = 0;
             blade.lastTrail += tickDt;
             if (blade.lastTrail >= 0.1) {
-                spawnTrailParticle(ctx.scene, blade.mesh.position.clone(), sparkleColor, 0.1, 0.25);
+                spawnTrailParticle(ctx.scene, blade.mesh.position, sparkleColor, 0.1, 0.25);
                 blade.lastTrail = 0;
             }
         }
@@ -732,7 +732,7 @@ const rangerFireDef: PowerDefinition = {
 
             // Trail
             if (lastTrailTime >= 0.05) {
-                spawnTrailParticle(ctx.scene, proj.position.clone(), trailColor, 0.14, 0.3);
+                spawnTrailParticle(ctx.scene, proj.position, trailColor, 0.14, 0.3);
                 lastTrailTime = 0;
             }
 
@@ -852,7 +852,7 @@ const rangerIceDef: PowerDefinition = {
 
             // Trail
             if (lastTrailTime >= 0.05) {
-                spawnTrailParticle(ctx.scene, proj.position.clone(), trailColor, 0.1, 0.3);
+                spawnTrailParticle(ctx.scene, proj.position, trailColor, 0.1, 0.3);
                 lastTrailTime = 0;
             }
 
@@ -961,7 +961,7 @@ const rangerArcaneDef: PowerDefinition = {
 
             // Trail
             if (lastTrailTime >= 0.05) {
-                spawnTrailParticle(ctx.scene, proj.position.clone(), trailColor, 0.12, 0.3);
+                spawnTrailParticle(ctx.scene, proj.position, trailColor, 0.12, 0.3);
                 lastTrailTime = 0;
             }
 
@@ -1047,7 +1047,7 @@ const rangerPhysicalDef: PowerDefinition = {
 
             // Subtle silver trail
             if (lastTrailTime >= 0.05) {
-                spawnTrailParticle(ctx.scene, proj.position.clone(), trailColor, 0.12, 0.2);
+                spawnTrailParticle(ctx.scene, proj.position, trailColor, 0.12, 0.2);
                 lastTrailTime = 0;
             }
 
@@ -1155,7 +1155,7 @@ const rangerStormDef: PowerDefinition = {
 
             // Trail
             if (lastTrailTime >= 0.05) {
-                spawnTrailParticle(ctx.scene, proj.position.clone(), trailColor, 0.13, 0.25);
+                spawnTrailParticle(ctx.scene, proj.position, trailColor, 0.13, 0.25);
                 lastTrailTime = 0;
             }
 

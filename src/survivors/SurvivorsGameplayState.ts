@@ -795,7 +795,8 @@ export class SurvivorsGameplayState implements GameState {
             // unintended "fading" mid-arena that some receivers can show.
             shadow.frustumEdgeFalloff = 0;
             const shadowMap = shadow.getShadowMap();
-            if (shadowMap) shadowMap.refreshRate = 1;
+            // refreshRate 2: shadow map every other frame (top-down: imperceptible, ~halves shadow cost)
+            if (shadowMap) shadowMap.refreshRate = 2;
             this.shadowGenerator = shadow;
 
             for (const m of scene.meshes) {

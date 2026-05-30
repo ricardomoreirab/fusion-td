@@ -490,14 +490,12 @@ export class EnemyManager {
         // for all non-milestone-boss enemies. Compounds on the above multipliers.
         this._applyGlobalDifficulty(enemy);
 
-        // Quality gating:
+        // Shadow caster gating: basic swarm enemies never register as shadow casters
+        // on any quality level — they're the bulk of spawns and their shadows are visual noise.
         //   low    → scene.shadowsEnabled is off, registration is a no-op anyway.
-        //   medium → swarm basics (type='basic') skip registration; everything else casts.
-        //   high   → everything casts.
-        // The scene-level flag (set in SurvivorsGameplayState) handles low; this
-        // gate only matters for medium.
+        //   medium/high → basics skipped; everything else casts.
         const quality = GameSettings.getGraphicsQuality();
-        const skipShadow = quality === 'medium' && type === 'basic';
+        const skipShadow = type === 'basic';
         if (!skipShadow) this._registerAsShadowCaster(enemy);
 
         this.enemies.push(enemy);

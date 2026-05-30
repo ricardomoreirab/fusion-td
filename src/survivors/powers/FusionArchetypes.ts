@@ -7,7 +7,7 @@ import { StatusEffect } from '../GameTypes';
 import { dealElementalHit, aoeBurst, chainHit, gatherVortex, persistentZone, omniVolley, deliverAutocast } from './PowerEffects';
 import { registerAutocastArchetype, registerPassiveArchetype, archetypeKey } from './FusionArchetypeRegistry';
 import type { Enemy } from '../enemies/Enemy';
-import type { PowerElement, PowerContext, EnchantmentHitContext, ChampionType } from './PowerDefinitions';
+import type { PowerElement, PowerContext, EnchantmentHitContext } from './PowerDefinitions';
 
 /** Nearest live enemy to a point within `range` (or null). */
 function nearestEnemy(enemies: Enemy[], x: number, z: number, range: number): Enemy | null {
