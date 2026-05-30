@@ -141,6 +141,17 @@ export class PowerSlotManager {
         return true;
     }
 
+    /** DEV/TEST ONLY (?test fusion cycler): replace all 4 slots with `def` at max
+     *  level, disposing prior slot data and running init per slot. */
+    public debugEquipAllMaxed(def: PowerDefinition): void {
+        for (let i = 0; i < this.slots.length; i++) {
+            this.disposeSlotData(this.slots[i]);
+            const slot: PowerSlot = { def, state: { level: def.maxLevel, cooldownRemaining: 0 } };
+            this.slots[i] = slot;
+            if (def.init) def.init(slot.state, this.buildContext());
+        }
+    }
+
     /** Register a callback fired every time a power-slot's cast() executes. */
     public setOnCast(fn: (slot: PowerSlot) => void): void {
         this.onCastCallback = fn;

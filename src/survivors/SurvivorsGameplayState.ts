@@ -13,7 +13,7 @@ import { PlayerStats } from './PlayerStats';
 import { PowerDrop } from './powers/PowerDrop';
 import { PowerSlotManager, PowerSlot } from './powers/PowerSlotManager';
 import { POWER_DEFS, getPowerByElementAndClass, getPowerMapForClass, PowerElement, ChampionType, PowerDefinition } from './powers/PowerDefinitions';
-import { getFusionFor, getUltimatesForClass } from './powers/FusionDefinitions';
+import { getFusionFor, getUltimatesForClass, getFusionsForClass } from './powers/FusionDefinitions';
 import { aoeBurst, setCameraShakeHook, resetPowerEffects } from './powers/PowerEffects';
 import './powers/FusionArchetypes'; // registers fusion archetypes at load
 import { Enemy, HEALTH_BAR_RENDER_GROUP } from './enemies/Enemy';
@@ -194,6 +194,12 @@ export class SurvivorsGameplayState implements GameState {
     // Run tracking for game-over summary
     private runStartTime: number = 0;
     private currentChampionType: ChampionType = 'mage';
+
+    // DEV ?test fusion cycler
+    private testMode = false;
+    private testFusions: PowerDefinition[] = [];
+    private testFusionIndex = 0;
+    private testLabelEl: HTMLDivElement | null = null;
 
     // Diagnostic: freeze detectors to localize random hitches. longtask catches
     // main-thread blocks; the rAF-delta watcher catches GPU stalls (e.g. shader
@@ -681,12 +687,21 @@ export class SurvivorsGameplayState implements GameState {
                 kbInfo.event.preventDefault?.(); // stop the browser from scrolling
             }
             else if (key === 'escape') this.hud?.togglePause();
+            else if (this.testMode && key === ']') this.cycleTestFusion();
         });
 
         // Overlays
         this.powerChoice     = new PowerChoiceOverlay(this.gameUI!.layer('overlay'));
         this.replaceSlotOverlay = new ReplaceSlotOverlay(this.gameUI!.layer('overlay'));
         this.shopOverlay     = new BetweenWaveShopOverlay(this.gameUI!.layer('overlay'));
+
+        // DEV: ?test → start with each fusion archetype maxed in all 4 slots; ] cycles.
+        this.testMode = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('test');
+        if (this.testMode) {
+            this.testFusions = getFusionsForClass(this.currentChampionType);
+            this.testFusionIndex = 0;
+            this.applyTestFusion();
+        }
 
         // Define shop items (applied directly via playerStats + heroController)
         this.shopItems = this.buildShopItems();
@@ -941,6 +956,10 @@ export class SurvivorsGameplayState implements GameState {
         Enemy.onRewardCallback = null;
         Enemy.onShatterCallback = null;
         resetPowerEffects();
+        if (this.testLabelEl) { this.testLabelEl.remove(); this.testLabelEl = null; }
+        this.testMode = false;
+        this.testFusions = [];
+        this.testFusionIndex = 0;
         this.damageNumbers?.dispose();
         this.damageNumbers = null;
 
@@ -1745,6 +1764,30 @@ export class SurvivorsGameplayState implements GameState {
         };
         this.rafFreezeDetectorId = requestAnimationFrame(tick);
         console.info('[freeze-detector] rAF-delta watcher active');
+    }
+
+    private cycleTestFusion(): void {
+        if (this.testFusions.length === 0) return;
+        this.testFusionIndex = (this.testFusionIndex + 1) % this.testFusions.length;
+        this.applyTestFusion();
+    }
+
+    private applyTestFusion(): void {
+        if (!this.powerSlots || this.testFusions.length === 0) return;
+        const def = this.testFusions[this.testFusionIndex];
+        this.powerSlots.debugEquipAllMaxed(def);
+        this.showTestLabel(`[TEST ${this.testFusionIndex + 1}/${this.testFusions.length}] ${def.name} — press ] for next`);
+    }
+
+    private showTestLabel(text: string): void {
+        if (typeof document === 'undefined') return;
+        if (!this.testLabelEl) {
+            const el = document.createElement('div');
+            el.style.cssText = 'position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:99999;background:rgba(0,0,0,0.72);color:#ffd24d;font:bold 14px monospace;padding:6px 12px;border-radius:6px;pointer-events:none;';
+            document.body.appendChild(el);
+            this.testLabelEl = el;
+        }
+        this.testLabelEl.textContent = text;
     }
 
     private logFreeze(kind: string, durationMs: number): void {

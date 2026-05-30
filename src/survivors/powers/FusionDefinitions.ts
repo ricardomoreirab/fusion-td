@@ -55,3 +55,10 @@ export function getFusionFor(idA: string, idB: string): PowerDefinition | null {
 export function getUltimatesForClass(type: ChampionType): PowerDefinition[] {
     return Object.values(ULTIMATE_DEFS).filter(d => d.championType === type);
 }
+
+/** All tier-2 fusions for a class, sorted by id — stable order for the dev ?test cycle. */
+export function getFusionsForClass(type: ChampionType): PowerDefinition[] {
+    return Object.values(FUSION_DEFS)
+        .filter(d => d.championType === type)
+        .sort((a, b) => a.id.localeCompare(b.id));
+}
