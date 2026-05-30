@@ -473,11 +473,13 @@ const mageArcaneDef: PowerDefinition = {
                 ctx.scene,
             ) as Mesh;
             particle.position.copyFrom(startPos);
-            const pMat = new StandardMaterial(`arcaneNova_pMat_${i}_${Math.random()}`, ctx.scene);
-            pMat.emissiveColor = purpleColor;
-            pMat.diffuseColor = new Color3(0, 0, 0);
-            pMat.alpha = 0.85;
-            particle.material = pMat;
+            particle.material = getCachedMaterial(ctx.scene, 'arcaneNova_pMat', m => {
+                m.emissiveColor = purpleColor;
+                m.diffuseColor = new Color3(0, 0, 0);
+                m.disableLighting = true;
+                m.alpha = 0.85;
+            });
+            particle.visibility = 0.85;
 
             const outDir = new Vector3(Math.cos(angle), 0, Math.sin(angle));
             const duration = 0.35;
@@ -488,11 +490,10 @@ const mageArcaneDef: PowerDefinition = {
                 elapsed += dt;
                 const t = Math.min(elapsed / duration, 1);
                 particle.position.addInPlace(outDir.scale(outSpeed * dt));
-                pMat.alpha = 0.85 * (1 - t);
+                particle.visibility = 0.85 * (1 - t);
                 particle.scaling.setAll(1 - t * 0.5);
                 if (t >= 1) {
-                    particle.dispose();
-                    pMat.dispose();
+                    particle.dispose(); // keeps the cached/shared material
                     ctx.scene.onBeforeRenderObservable.remove(pObs);
                 }
             });

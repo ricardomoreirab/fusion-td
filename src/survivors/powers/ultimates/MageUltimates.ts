@@ -1,4 +1,4 @@
-import { MeshBuilder, Color3, StandardMaterial } from '@babylonjs/core';
+import { MeshBuilder, Color3 } from '@babylonjs/core';
 import { getCachedMaterial } from '../../../engine/rendering/MaterialCache';
 import { StatusEffect } from '../../GameTypes';
 import type { Scene } from '@babylonjs/core';
@@ -11,22 +11,25 @@ const ALL_ELEMENTS: PowerDefinition['elements'] = ['fire', 'ice', 'arcane', 'phy
 function spawnShockRing(scene: Scene, x: number, z: number, maxRadius: number, color: Color3, lifeS: number): void {
     const ring = MeshBuilder.CreateTorus('ult_ring', { diameter: maxRadius * 2, thickness: 0.3, tessellation: 36 }, scene);
     ring.position.set(x, 0.3, z);
-    const mat = new StandardMaterial('ult_ring_mat_' + Math.random(), scene);
-    mat.emissiveColor = color;
-    mat.diffuseColor = new Color3(0, 0, 0);
-    mat.alpha = 0.85;
-    ring.material = mat;
+    // Cache by colour (bounded set). A Math.random() name defeated the cache and
+    // recompiled a shader per ring; fade via mesh.visibility, not the frozen mat's alpha.
+    ring.material = getCachedMaterial(scene, `ult_ring_mat_${color.r.toFixed(2)}_${color.g.toFixed(2)}_${color.b.toFixed(2)}`, m => {
+        m.emissiveColor = color;
+        m.diffuseColor = new Color3(0, 0, 0);
+        m.disableLighting = true;
+        m.alpha = 0.85;
+    });
     ring.scaling.setAll(0.1);
+    ring.visibility = 0.85;
     let elapsed = 0;
     const obs = scene.onBeforeRenderObservable.add(() => {
         const dt = scene.getEngine().getDeltaTime() / 1000;
         elapsed += dt;
         const t = Math.min(elapsed / lifeS, 1);
         ring.scaling.setAll(0.1 + 0.9 * t);
-        mat.alpha = 0.85 * (1 - t);
+        ring.visibility = 0.85 * (1 - t);
         if (t >= 1) {
-            ring.dispose();
-            mat.dispose();
+            ring.dispose(); // keeps the cached/shared material
             scene.onBeforeRenderObservable.remove(obs);
         }
     });

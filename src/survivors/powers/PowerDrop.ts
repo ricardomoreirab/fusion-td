@@ -1,4 +1,4 @@
-import { Scene, Vector3, Mesh, MeshBuilder, StandardMaterial, Color3 } from '@babylonjs/core';
+import { Scene, Vector3, Mesh, MeshBuilder, Color3 } from '@babylonjs/core';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
 import { ELEMENT_COLOR as ELEMENT_COLORS } from '../ElementColors';
 
@@ -24,10 +24,6 @@ export class PowerDrop {
     private opts: PowerDropOpts;
     private alive: boolean = true;
     private heroProvider: () => Vector3;
-    /** Per-pickup flash material (unique, NOT cached). Tracked so dispose() can
-     *  free it — mesh.dispose() does not dispose materials, and the orb's base
-     *  material is a SHARED cached instance that must not be disposed. */
-    private flashMat: StandardMaterial | null = null;
 
     constructor(
         scene: Scene,
@@ -85,25 +81,19 @@ export class PowerDrop {
      */
     private playPickupFlash(): void {
         const col = ELEMENT_COLORS[this.element as keyof typeof ELEMENT_COLORS] ?? new Color3(1, 1, 1);
-        const flashMat = new StandardMaterial('orbFlash_' + Math.random(), this.scene);
-        flashMat.emissiveColor = col.scale(2);  // bright burst
-        this.flashMat = flashMat;               // tracked for disposal
-        // Temporarily replace material for the flash
-        this.mesh.material = flashMat;
+        // Cache the flash material by element (bounded). A Math.random() name recompiled
+        // a shader per pickup. The cached material is shared/frozen — never disposed here.
+        this.mesh.material = getCachedMaterial(this.scene, `orbFlash_${this.element}`, m => {
+            m.emissiveColor = col.scale(2);  // bright burst
+            m.disableLighting = true;
+        });
         this.mesh.scaling.setAll(2.2);          // pop-out scale
-        // No setTimeout needed — we dispose right after, the flash is just the last frame render
     }
 
     public dispose(): void {
         this.alive = false;
         if (!this.mesh.isDisposed()) {
             this.mesh.dispose();
-        }
-        // Free the per-pickup flash material (the shared base material is left
-        // alone). mesh.dispose() above does not dispose materials.
-        if (this.flashMat) {
-            this.flashMat.dispose();
-            this.flashMat = null;
         }
     }
 }
