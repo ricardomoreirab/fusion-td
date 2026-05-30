@@ -82,6 +82,10 @@ export class Enemy {
      */
     public static onDamageCallback: ((position: Vector3, damage: number, isCrit: boolean, element?: PowerElement) => void) | null = null;
     public static onRewardCallback: ((position: Vector3, reward: number) => void) | null = null;
+    /** Wired by the gameplay state (a later phase) to a shatter-AoE effect. Fired from
+     *  die() when an enemy was shatter-primed. Position is passed by reference — the
+     *  consumer must NOT retain the Vector3. */
+    public static onShatterCallback: ((position: Vector3, damage: number, radius: number) => void) | null = null;
 
     protected game: Game;
     protected scene: Scene;
@@ -188,6 +192,9 @@ export class Enemy {
     /** Rich-status stack model (burn/chill/curse/fragile). Legacy CC (slow/
      *  freeze/stun) still lives in activeStatusEffects above. */
     protected statuses: StatusStacks = new StatusStacks();
+    private _shatterPrimed: boolean = false;
+    private _shatterDamage: number = 0;
+    private _shatterRadius: number = 0;
     protected isFrozen: boolean = false;
     protected isStunned: boolean = false;
     protected isConfused: boolean = false;
@@ -949,7 +956,16 @@ export class Enemy {
                 break;
         }
     }
-    
+
+    /** Mark this enemy so that on death it emits a shatter AoE (fired via
+     *  Enemy.onShatterCallback). Re-priming keeps the larger of the two bursts. */
+    public primeShatter(damage: number, radius: number): void {
+        if (damage <= 0 || radius <= 0) return;
+        this._shatterPrimed = true;
+        this._shatterDamage = Math.max(this._shatterDamage, damage);
+        this._shatterRadius = Math.max(this._shatterRadius, radius);
+    }
+
     /**
      * Remove a status effect
      * @param effect The status effect to remove
@@ -1343,6 +1359,13 @@ export class Enemy {
         // Create death effect (particle burst + reward float text + sound). Runs
         // while the mesh is still present so subclass effects that read it work.
         this.createDeathEffect();
+
+        // Shatter-on-death (e.g. frozen enemies erupting). Fires the static hook
+        // wired by the gameplay state; a no-op until a later phase wires it.
+        if (this._shatterPrimed && Enemy.onShatterCallback) {
+            Enemy.onShatterCallback(this.position, this._shatterDamage, this._shatterRadius);
+        }
+        this._shatterPrimed = false;
 
         // Restore any mid-flash emissive now so a SHARED (cached) material isn't left
         // stuck on HIT_TINT for other enemies (the corpse's own update no longer runs).
