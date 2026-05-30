@@ -1,13 +1,6 @@
 import { Scene, Vector3, Mesh, MeshBuilder, StandardMaterial, Color3 } from '@babylonjs/core';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
-
-const ELEMENT_COLORS: Record<string, Color3> = {
-    fire:     new Color3(1, 0.4, 0),
-    ice:      new Color3(0.3, 0.7, 1),
-    arcane:   new Color3(0.8, 0.3, 1),
-    physical: new Color3(0.9, 0.9, 0.9),
-    storm:    new Color3(0.8, 0.8, 1),
-};
+import { ELEMENT_COLOR as ELEMENT_COLORS } from '../ElementColors';
 
 export interface PowerDropOpts {
     pickupRadius: number;
@@ -52,7 +45,7 @@ export class PowerDrop {
         this.mesh.position.copyFrom(position);
         this.mesh.position.y = 0.6;
         this.mesh.material = getCachedMaterial(scene, 'powerOrbMat_' + element, m => {
-            m.emissiveColor = ELEMENT_COLORS[element] ?? new Color3(1, 1, 1);
+            m.emissiveColor = ELEMENT_COLORS[element as keyof typeof ELEMENT_COLORS] ?? new Color3(1, 1, 1);
         });
     }
 
@@ -91,7 +84,7 @@ export class PowerDrop {
      * The mesh will already be disposed by then; the short animation fires and forgets.
      */
     private playPickupFlash(): void {
-        const col = ELEMENT_COLORS[this.element] ?? new Color3(1, 1, 1);
+        const col = ELEMENT_COLORS[this.element as keyof typeof ELEMENT_COLORS] ?? new Color3(1, 1, 1);
         const flashMat = new StandardMaterial('orbFlash_' + Math.random(), this.scene);
         flashMat.emissiveColor = col.scale(2);  // bright burst
         this.flashMat = flashMat;               // tracked for disposal
