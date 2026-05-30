@@ -202,6 +202,8 @@ export class SurvivorsGameplayState implements GameState {
     private longTaskObserver: PerformanceObserver | null = null;
     private rafFreezeDetectorId: number | null = null;
     private lastRafTimestamp: number = 0;
+    private _rafWasHiddenSinceTick: boolean = false;
+    private _visibilityHandler: (() => void) | null = null;
 
     // PERMANENT resource-leak watchdog (NOT a diagnostic to be removed). Every past
     // freeze was the same class of bug: a transient-FX material/texture orphaned into
@@ -1716,11 +1718,21 @@ export class SurvivorsGameplayState implements GameState {
         //    expected frames pass between rAF ticks (200ms gap @ 60fps ≈ 12 dropped frames).
         const FREEZE_THRESHOLD_MS = 200;
         this.lastRafTimestamp = performance.now();
+        // Track when the tab goes hidden so we don't misreport a backgrounded-tab
+        // rAF pause as a "freeze" (the browser pauses rAF when the tab is hidden).
+        this._visibilityHandler = () => { if (typeof document !== 'undefined' && document.hidden) this._rafWasHiddenSinceTick = true; };
+        if (typeof document !== 'undefined') document.addEventListener('visibilitychange', this._visibilityHandler);
         const tick = (now: number): void => {
             const delta = now - this.lastRafTimestamp;
             if (delta > FREEZE_THRESHOLD_MS) {
-                this.logFreeze('rAF-gap', Math.round(delta));
+                if (this._rafWasHiddenSinceTick || (typeof document !== 'undefined' && document.hidden)) {
+                    // rAF was paused because the tab was hidden/backgrounded — NOT a real
+                    // main-thread stall. Don't log it as a freeze.
+                } else {
+                    this.logFreeze('rAF-gap', Math.round(delta));
+                }
             }
+            this._rafWasHiddenSinceTick = false;
             this.lastRafTimestamp = now;
             // Stop scheduling if the detector was cancelled.
             if (this.rafFreezeDetectorId === null) return;
@@ -1819,6 +1831,10 @@ export class SurvivorsGameplayState implements GameState {
         if (this.rafFreezeDetectorId !== null) {
             cancelAnimationFrame(this.rafFreezeDetectorId);
             this.rafFreezeDetectorId = null;
+        }
+        if (this._visibilityHandler && typeof document !== 'undefined') {
+            document.removeEventListener('visibilitychange', this._visibilityHandler);
+            this._visibilityHandler = null;
         }
     }
 
