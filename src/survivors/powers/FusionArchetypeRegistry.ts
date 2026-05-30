@@ -2,13 +2,13 @@
 // makeFusionDef (also Babylon-free) consults this at cast/hit time; the Babylon
 // implementations register themselves at startup from FusionArchetypes.ts. Keeping
 // this module Babylon-free preserves FusionFactory's node-only unit-testability.
-import type { PowerRuntimeState, PowerContext, EnchantmentHitContext, PowerElement } from './PowerDefinitions';
+import type { PowerRuntimeState, PowerContext, EnchantmentHitContext, PowerElement, ChampionType } from './PowerDefinitions';
 
 const ELEMENT_ORDER: PowerElement[] = ['fire', 'ice', 'arcane', 'physical', 'storm'];
 
 /** Autocast archetype: deliver the fusion's effect. `damage` is the fully-scaled
  *  per-cast damage (damageFor × multipliers) the archetype should base hits on. */
-export type AutocastArchetype = (state: PowerRuntimeState, ctx: PowerContext, damage: number) => void;
+export type AutocastArchetype = (state: PowerRuntimeState, ctx: PowerContext, damage: number, championType: ChampionType) => void;
 /** Passive (enchantment) archetype: triggered on each basic-attack hit. */
 export type PassiveArchetype = (enemy: import('../enemies/Enemy').Enemy, level: number, ctx: EnchantmentHitContext) => void;
 

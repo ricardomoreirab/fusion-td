@@ -7,6 +7,7 @@ import type { Observer } from '@babylonjs/core';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
 import { acquireProjectile, releaseProjectile } from '../../engine/rendering/ProjectilePool';
 import { ELEMENT_COLOR } from '../ElementColors';
+import { buildArrowMesh } from './ArrowMesh';
 import { StatusEffect } from '../GameTypes';
 import { getReaction } from './StatusReactions';
 import type { Enemy } from '../enemies/Enemy';
@@ -413,5 +414,40 @@ export function omniVolley(scene: Scene, enemies: Enemy[], x: number, z: number,
     fx = { scene, obs: obs!, cleanup: () => {
         for (const s of shots) { if (!s.done) { s.done = true; releaseProjectile('fx_volley', s.mesh); } }
     } };
+    _activeEffects.add(fx);
+}
+
+// ── arrowStrike — ranger-class delivery: fly an arrow to a target, fire onImpact ──
+const ARROW_SPEED = 26;
+const ARROW_MAX_TRAVEL_S = 2.0;
+
+/** Fire an arrow from (fromX,fromZ) toward `target`; on impact (or target death /
+ *  timeout) call onImpact(x,z) exactly once. The arrow mesh (cached material by
+ *  element) is disposed on impact, and the flight observer is torn down cross-run
+ *  via the active-effect registry. onImpact is NOT called on cross-run teardown. */
+export function arrowStrike(scene: Scene, fromX: number, fromZ: number, target: Enemy, element: PowerElement, onImpact: (x: number, z: number) => void): void {
+    const proj = buildArrowMesh(scene, `fx_arrow_${element}`, ELEMENT_COLOR[element]);
+    proj.position.set(fromX, 1, fromZ);
+    let elapsed = 0;
+    let fired = false;
+    let fx: ActiveFx;
+    const fire = (x: number, z: number) => { if (fired) return; fired = true; try { onImpact(x, z); } catch { /* ignore */ } };
+    const obs = scene.onBeforeRenderObservable.add(() => {
+        const dt = scene.getEngine().getDeltaTime() / 1000;
+        elapsed += dt;
+        const tp = target.isAlive() ? target.getPosition() : null;
+        if (tp) {
+            const dx = tp.x - proj.position.x, dz = tp.z - proj.position.z;
+            const dist = Math.hypot(dx, dz);
+            if (dist > 0.001) proj.rotation.y = Math.atan2(dx, dz);
+            if (dist < 0.6 || elapsed >= ARROW_MAX_TRAVEL_S) { fire(proj.position.x, proj.position.z); endFx(fx); return; }
+            const step = Math.min(dist, ARROW_SPEED * dt);
+            proj.position.x += (dx / dist) * step;
+            proj.position.z += (dz / dist) * step;
+        } else {
+            fire(proj.position.x, proj.position.z); endFx(fx);
+        }
+    });
+    fx = { scene, obs: obs!, cleanup: () => { proj.getChildMeshes().forEach(c => c.dispose()); proj.dispose(); } };
     _activeEffects.add(fx);
 }

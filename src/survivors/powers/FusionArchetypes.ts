@@ -4,10 +4,10 @@
 // SurvivorsGameplayState ensures registration runs before any fusion is cast.
 import { Vector3 } from '@babylonjs/core';
 import { StatusEffect } from '../GameTypes';
-import { dealElementalHit, aoeBurst, chainHit, gatherVortex, persistentZone, omniVolley } from './PowerEffects';
+import { dealElementalHit, aoeBurst, chainHit, gatherVortex, persistentZone, omniVolley, arrowStrike } from './PowerEffects';
 import { registerAutocastArchetype, registerPassiveArchetype, archetypeKey } from './FusionArchetypeRegistry';
 import type { Enemy } from '../enemies/Enemy';
-import type { PowerElement, PowerContext, EnchantmentHitContext } from './PowerDefinitions';
+import type { PowerElement, PowerContext, EnchantmentHitContext, ChampionType } from './PowerDefinitions';
 
 /** Nearest live enemy to a point within `range` (or null). */
 function nearestEnemy(enemies: Enemy[], x: number, z: number, range: number): Enemy | null {
@@ -21,6 +21,20 @@ function nearestEnemy(enemies: Enemy[], x: number, z: number, range: number): En
         if (d2 <= bestD2) { bestD2 = d2; best = e; }
     }
     return best;
+}
+
+/** Deliver an autocast fusion effect. Ranger fires an arrow to `target` and runs
+ *  `effectAt` at the impact point; every other class runs it directly at the target. */
+function deliverAutocast(
+    ctx: PowerContext, championType: ChampionType, target: Enemy, element: PowerElement,
+    effectAt: (x: number, z: number) => void,
+): void {
+    if (championType === 'ranger') {
+        arrowStrike(ctx.scene, ctx.heroPosition.x, ctx.heroPosition.z, target, element, effectAt);
+    } else {
+        const p = target.getPosition();
+        effectAt(p.x, p.z);
+    }
 }
 
 // ── Frostfire (fire+ice) — Shatter-Burn ─────────────────────────────────────
@@ -39,13 +53,13 @@ function applyFrostfire(scene: PowerContext['scene'], enemies: Enemy[], target: 
         { effect: StatusEffect.BURNING, durationS: 2, strength: damage * 0.1 });
 }
 
-registerAutocastArchetype(archetypeKey('fire', 'ice'), (_state, ctx, damage) => {
+registerAutocastArchetype(archetypeKey('fire', 'ice'), (_state, ctx, damage, championType) => {
     const target = nearestEnemy(ctx.enemies, ctx.heroPosition.x, ctx.heroPosition.z, FROSTFIRE_RANGE);
     if (!target) return;
-    applyFrostfire(ctx.scene, ctx.enemies, target, damage, ctx.element);
-    // Small frost-fire splash around the impact for feel + minor AoE.
-    const p = target.getPosition();
-    aoeBurst(ctx.scene, ctx.enemies, p.x, p.z, { radius: 1.8, damage: damage * 0.4, element: ctx.element });
+    deliverAutocast(ctx, championType, target, ctx.element, (x, z) => {
+        applyFrostfire(ctx.scene, ctx.enemies, target, damage, ctx.element);
+        aoeBurst(ctx.scene, ctx.enemies, x, z, { radius: 1.8, damage: damage * 0.4, element: ctx.element });
+    });
 });
 
 registerPassiveArchetype(archetypeKey('fire', 'ice'), (enemy, level, ctx: EnchantmentHitContext) => {
@@ -61,9 +75,12 @@ function applyTempest(scene: PowerContext['scene'], enemies: Enemy[], target: En
     target.applyStatusEffect(StatusEffect.BURNING, 3, damage * 0.2); // plant/refresh a burn stack
     dealElementalHit(scene, enemies, target, damage, 'storm');       // storm → detonates burn (overload)
 }
-registerAutocastArchetype(archetypeKey('fire', 'storm'), (_state, ctx, damage) => {
-    const t = nearestEnemy(ctx.enemies, ctx.heroPosition.x, ctx.heroPosition.z, 12);
-    if (t) applyTempest(ctx.scene, ctx.enemies, t, damage);
+registerAutocastArchetype(archetypeKey('fire', 'storm'), (_state, ctx, damage, championType) => {
+    const target = nearestEnemy(ctx.enemies, ctx.heroPosition.x, ctx.heroPosition.z, 12);
+    if (!target) return;
+    deliverAutocast(ctx, championType, target, ctx.element, () => {
+        applyTempest(ctx.scene, ctx.enemies, target, damage);
+    });
 });
 registerPassiveArchetype(archetypeKey('fire', 'storm'), (enemy, level, ctx: EnchantmentHitContext) => {
     applyTempest(ctx.scene, ctx.enemies, enemy, ctx.baseDamage * (0.3 + 0.2 * level));
@@ -71,14 +88,15 @@ registerPassiveArchetype(archetypeKey('fire', 'storm'), (enemy, level, ctx: Ench
 
 // ── Rimecaster (ice+arcane) — Glacial Vortex ────────────────────────────────
 // A gravity well that pulls enemies in, chilling (→ freeze) them, then implodes.
-registerAutocastArchetype(archetypeKey('ice', 'arcane'), (_state, ctx, damage) => {
-    const t = nearestEnemy(ctx.enemies, ctx.heroPosition.x, ctx.heroPosition.z, 12);
-    if (!t) return;
-    const p = t.getPosition();
-    gatherVortex(ctx.scene, ctx.enemies, p.x, p.z, {
-        radius: 4, durationS: 1.4, pull: 0.9, tickDamage: damage * 0.2, tickIntervalS: 0.2,
-        element: ctx.element, status: { effect: StatusEffect.CHILL, durationS: 1.5, strength: 2 },
-        finalBurst: damage * 0.9,
+registerAutocastArchetype(archetypeKey('ice', 'arcane'), (_state, ctx, damage, championType) => {
+    const target = nearestEnemy(ctx.enemies, ctx.heroPosition.x, ctx.heroPosition.z, 12);
+    if (!target) return;
+    deliverAutocast(ctx, championType, target, ctx.element, (x, z) => {
+        gatherVortex(ctx.scene, ctx.enemies, x, z, {
+            radius: 4, durationS: 1.4, pull: 0.9, tickDamage: damage * 0.2, tickIntervalS: 0.2,
+            element: ctx.element, status: { effect: StatusEffect.CHILL, durationS: 1.5, strength: 2 },
+            finalBurst: damage * 0.9,
+        });
     });
 });
 registerPassiveArchetype(archetypeKey('ice', 'arcane'), (enemy, level, ctx: EnchantmentHitContext) => {
@@ -97,10 +115,14 @@ registerPassiveArchetype(archetypeKey('ice', 'arcane'), (enemy, level, ctx: Ench
 
 // ── Molten Edge (fire+physical) — Magma Trail ───────────────────────────────
 // Leaves a burning lava pool on the ground.
-registerAutocastArchetype(archetypeKey('fire', 'physical'), (_state, ctx, damage) => {
-    persistentZone(ctx.scene, ctx.enemies, ctx.heroPosition.x, ctx.heroPosition.z, {
-        radius: 3, durationS: 3, tickIntervalS: 0.5, tickDamage: damage * 0.25,
-        element: 'fire', status: { effect: StatusEffect.BURNING, durationS: 2, strength: damage * 0.1 },
+registerAutocastArchetype(archetypeKey('fire', 'physical'), (_state, ctx, damage, championType) => {
+    const target = nearestEnemy(ctx.enemies, ctx.heroPosition.x, ctx.heroPosition.z, 12);
+    if (!target) return;
+    deliverAutocast(ctx, championType, target, 'fire', (x, z) => {
+        persistentZone(ctx.scene, ctx.enemies, x, z, {
+            radius: 3, durationS: 3, tickIntervalS: 0.5, tickDamage: damage * 0.25,
+            element: 'fire', status: { effect: StatusEffect.BURNING, durationS: 2, strength: damage * 0.1 },
+        });
     });
 });
 registerPassiveArchetype(archetypeKey('fire', 'physical'), (enemy, level, ctx: EnchantmentHitContext) => {
@@ -118,10 +140,14 @@ registerPassiveArchetype(archetypeKey('fire', 'physical'), (enemy, level, ctx: E
 // ── Voltaic Rune (arcane+storm) — Arc Split ─────────────────────────────────
 // Chain lightning that forks into two each hop, applying Fragile (amp) to every
 // enemy it touches.
-registerAutocastArchetype(archetypeKey('arcane', 'storm'), (_state, ctx, damage) => {
-    chainHit(ctx.scene, ctx.enemies, new Vector3(ctx.heroPosition.x, 1, ctx.heroPosition.z), {
-        hops: 4, radius: 5, damage, element: 'storm', falloff: 0.8, split: true,
-        status: { effect: StatusEffect.FRAGILE, durationS: 3, strength: 0 },
+registerAutocastArchetype(archetypeKey('arcane', 'storm'), (_state, ctx, damage, championType) => {
+    const target = nearestEnemy(ctx.enemies, ctx.heroPosition.x, ctx.heroPosition.z, 12);
+    if (!target) return;
+    deliverAutocast(ctx, championType, target, 'storm', (x, z) => {
+        chainHit(ctx.scene, ctx.enemies, new Vector3(x, 1, z), {
+            hops: 4, radius: 5, damage, element: 'storm', falloff: 0.8, split: true,
+            status: { effect: StatusEffect.FRAGILE, durationS: 3, strength: 0 },
+        });
     });
 });
 registerPassiveArchetype(archetypeKey('arcane', 'storm'), (enemy, level, ctx: EnchantmentHitContext) => {
@@ -135,10 +161,14 @@ registerPassiveArchetype(archetypeKey('arcane', 'storm'), (enemy, level, ctx: En
 
 // ── Runeblade (arcane+physical) — Rune Burst ────────────────────────────────
 // A burst of rune-shots fired outward in all directions, applying Fragile.
-registerAutocastArchetype(archetypeKey('arcane', 'physical'), (_state, ctx, damage) => {
-    omniVolley(ctx.scene, ctx.enemies, ctx.heroPosition.x, ctx.heroPosition.z, {
-        count: 6, speed: 16, damage: damage * 0.7, element: ctx.element,
-        status: { effect: StatusEffect.FRAGILE, durationS: 3, strength: 0 },
+registerAutocastArchetype(archetypeKey('arcane', 'physical'), (_state, ctx, damage, championType) => {
+    const target = nearestEnemy(ctx.enemies, ctx.heroPosition.x, ctx.heroPosition.z, 12);
+    if (!target) return;
+    deliverAutocast(ctx, championType, target, ctx.element, (x, z) => {
+        omniVolley(ctx.scene, ctx.enemies, x, z, {
+            count: 6, speed: 16, damage: damage * 0.7, element: ctx.element,
+            status: { effect: StatusEffect.FRAGILE, durationS: 3, strength: 0 },
+        });
     });
 });
 registerPassiveArchetype(archetypeKey('arcane', 'physical'), (enemy, level, ctx: EnchantmentHitContext) => {

@@ -131,7 +131,7 @@ export function makeFusionDef(a: PowerDefinition, b: PowerDefinition): PowerDefi
     } else {
         def.cast = (state, ctx) => {
             const arch = getAutocastArchetype(archKey);
-            if (arch) { arch(state, ctx, def.damageFor(state) * ctx.damageMultiplier); return; }
+            if (arch) { arch(state, ctx, def.damageFor(state) * ctx.damageMultiplier, classType); return; }
             // Fallback (un-migrated pair): run both parents at the fusion damage bump.
             const subs = ensureSubStates(state, ctx);
             const synthCtx: PowerContext = { ...ctx, damageMultiplier: ctx.damageMultiplier * FUSION_DMG };
