@@ -9,6 +9,7 @@ import type {
     PowerElement,
     ChampionType,
 } from './PowerDefinitions';
+import { archetypeKey, getAutocastArchetype, getPassiveArchetype } from './FusionArchetypeRegistry';
 
 /** Each parent effect hits this much harder inside a fusion. */
 export const FUSION_DMG = 1.25;
@@ -62,6 +63,7 @@ export function makeFusionDef(a: PowerDefinition, b: PowerDefinition): PowerDefi
     const classType = a.championType ?? classOfBaseId(a.id);
     const id = fusionId(classType, a.element, b.element);
     const [e1, e2] = sortElems(a.element, b.element);
+    const archKey = archetypeKey(a.element, b.element);
     const name = FUSION_NAMES[`${e1}_${e2}`] ?? `${a.name} + ${b.name}`;
     const parents = [a, b];
 
@@ -118,6 +120,9 @@ export function makeFusionDef(a: PowerDefinition, b: PowerDefinition): PowerDefi
 
     if (a.mode === 'passive') {
         def.onHit = (enemy, level, ctx: EnchantmentHitContext) => {
+            const arch = getPassiveArchetype(archKey);
+            if (arch) { arch(enemy, level, ctx); return; }
+            // Fallback (un-migrated pair): run both parents + the flat fusion bonus.
             for (const p of parents) p.onHit?.(enemy, level, ctx);
             enemy.takeDamage(ctx.baseDamage * FUSION_PASSIVE_BONUS * level);
         };
@@ -125,6 +130,9 @@ export function makeFusionDef(a: PowerDefinition, b: PowerDefinition): PowerDefi
             parents.reduce((sum, p) => sum + (p.rangeBonus ? p.rangeBonus(level) : 0), 0);
     } else {
         def.cast = (state, ctx) => {
+            const arch = getAutocastArchetype(archKey);
+            if (arch) { arch(state, ctx, def.damageFor(state) * ctx.damageMultiplier); return; }
+            // Fallback (un-migrated pair): run both parents at the fusion damage bump.
             const subs = ensureSubStates(state, ctx);
             const synthCtx: PowerContext = { ...ctx, damageMultiplier: ctx.damageMultiplier * FUSION_DMG };
             for (const p of parents) {
