@@ -1506,7 +1506,11 @@ export class Champion extends Enemy {
                 mat.alpha = 1 - t;
             }
             if (this.barbSpinArcTimer <= 0) {
-                this.barbSpinArcMesh.dispose();
+                // dispose(false, true): this arc-ring owns a UNIQUE per-spin
+                // emissive material (animated each frame above), so it cannot be
+                // cached — free the material + textures with the mesh, else one
+                // StandardMaterial is orphaned into scene.materials every spin.
+                this.barbSpinArcMesh.dispose(false, true);
                 this.barbSpinArcMesh = null;
             }
         }
@@ -1705,7 +1709,7 @@ export class Champion extends Enemy {
         }
         this.barbSpinElemPs = [];
         if (this.barbSpinArcMesh) {
-            this.barbSpinArcMesh.dispose();
+            this.barbSpinArcMesh.dispose(false, true);
             this.barbSpinArcMesh = null;
         }
         if (this.barbFootDustPs) {
@@ -1713,6 +1717,20 @@ export class Champion extends Enemy {
             this.barbFootDustPs.dispose();
             this.barbFootDustPs = null;
         }
+        // Free per-element weapon decorations: meshes AND their unique emissive
+        // materials. The decoration meshes are children of the weapon anchor, so a
+        // recursive mesh.dispose() during die()/teardown frees the meshes but NOT
+        // their materials (the procedural-hero die() path deliberately skips
+        // child-material disposal at Champion.ts ~1752). Without this, ~12-17
+        // materials leak per run onto the never-disposed shared scene.
+        for (const meshes of this.elementDecorations.values()) {
+            for (const m of meshes) {
+                const mat = m.material;
+                try { if (!m.isDisposed()) m.dispose(); } catch (_) { /* already disposed */ }
+                try { mat?.dispose(); } catch (_) { /* already disposed */ }
+            }
+        }
+        this.elementDecorations.clear();
         if (this.flashHitRedRestoreTimer !== null) {
             clearTimeout(this.flashHitRedRestoreTimer);
             this.flashHitRedRestoreTimer = null;

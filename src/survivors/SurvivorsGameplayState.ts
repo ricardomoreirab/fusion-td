@@ -31,6 +31,9 @@ import { ItemDrop } from './ItemDrop';
 import { DifficultyTuning } from './DifficultyTuning';
 import { createProceduralGrass } from '../engine/rendering/ProceduralGrass';
 import { GameSettings, bladeCountForQuality } from '../shared/GameSettings';
+import { clearMaterialCache, getMaterialCacheSize } from '../engine/rendering/MaterialCache';
+import { clearProjectilePools } from '../engine/rendering/ProjectilePool';
+import { formatBuckets } from '../engine/rendering/resourceBudget';
 
 /**
  * Module-level cache for champion GLBs. Loaded on demand inside enter() (not at
@@ -197,6 +200,25 @@ export class SurvivorsGameplayState implements GameState {
     private longTaskObserver: PerformanceObserver | null = null;
     private rafFreezeDetectorId: number | null = null;
     private lastRafTimestamp: number = 0;
+
+    // PERMANENT resource-leak watchdog (NOT a diagnostic to be removed). Every past
+    // freeze was the same class of bug: a transient-FX material/texture orphaned into
+    // a per-frame-walked scene list, growing until a frame stalls for seconds. This
+    // turns that silent monotonic growth into a loud, self-naming alarm at each wave
+    // clear (when the arena is empty, so the only legit growth is the bounded FX
+    // cache). See checkResourceBudget() / resourceBudget.ts.
+    private resourceBaselineMaterials: number = 0;
+    private resourceBaselineTextures: number = 0;
+    private resourceWaveSamples: { wave: number; materials: number; textures: number }[] = [];
+    // Generous slack over baseline for the BOUNDED set of cached FX material variants
+    // (swing tints, ability rings, element decorations…) so the normal cache never
+    // false-alarms — only a genuine per-action orphan does.
+    private static readonly RESOURCE_CACHE_BUDGET: number = 80;
+    // A per-wave climb above this (after an initial warmup) flags a slow leak before
+    // it ever reaches the absolute ceiling. Set above the worst legit single-wave
+    // bump (equipping two new elements ≈ +12 cached FX materials) so only a genuine
+    // per-action orphan (which adds dozens/wave) trips it.
+    private static readonly RESOURCE_PER_WAVE_TOLERANCE: number = 20;
 
     // Floating damage / reward text
     private damageNumbers: DamageNumberManager | null = null;
@@ -552,6 +574,12 @@ export class SurvivorsGameplayState implements GameState {
 
         // Survivors-mode: manual wave start after the shop
         this.waveManager.setOnWaveCleared(() => {
+            // Resource-leak watchdog: at wave clear the arena is empty (live enemies
+            // ≈ 0), so any scene.materials/textures growth above the bounded FX-cache
+            // budget is orphaned resources — the exact class of bug behind every past
+            // freeze. Checked here, before the shop opens, so a regression is caught
+            // (and its culprit named) the very wave it starts leaking.
+            this.checkResourceBudget(this.waveManager?.getCurrentWave() ?? 0);
             this.openShop();
         });
 
@@ -584,6 +612,12 @@ export class SurvivorsGameplayState implements GameState {
             this.heroController?.applyAttackHitsInRadius(center, radius);
         });
         this.abilityManager.prewarmAbilityEffects();
+
+        // Snapshot the post-setup scene resource counts as the watchdog baseline.
+        // Everything that legitimately persists for the whole run (hero, arena,
+        // grass, prewarmed cached FX materials) exists by now; later growth at
+        // wave-clear time is measured against this floor.
+        this.captureResourceBaseline();
 
         // Map class-specific ultimate IDs → GLB clip + duration so the hero plays
         // the right animation when the player presses an ultimate button. The clip
@@ -953,6 +987,16 @@ export class SurvivorsGameplayState implements GameState {
         this.skyTexture = null;
         this.skyMaterial?.dispose();
         this.skyMaterial = null;
+
+        // Free the cross-run GPU resource pools. By now every survivors mesh that
+        // referenced these (hero, enemies, drops, projectiles) has been disposed
+        // above, so disposing the shared materials + pooled meshes is safe — and it
+        // bounds cross-run growth to a single run even if a future caller ever
+        // introduces an unbounded cache key. Cached materials are recompiled (and
+        // re-prewarmed) on the next run start. ProjectilePool reassigns materials on
+        // acquire, so clearing the cache never leaves a pooled mesh on a dead material.
+        clearMaterialCache();
+        clearProjectilePools();
 
         this.scene = null;
         this.timeScale = 1.0;
@@ -1706,6 +1750,56 @@ export class SurvivorsGameplayState implements GameState {
               ` shadowRL=${shadowRL(this.shadowGenerator)}/${shadowRL(this.torchShadowGenerator)}`
             : '';
         console.error(`[freeze:${kind}] ${durationMs}ms at t=${tRun}s · wave ${wave} · ${enemies} enemies${overlayStr}${sceneInfo}`);
+    }
+
+    /** Snapshot the post-setup scene resource counts as the leak-watchdog floor. */
+    private captureResourceBaseline(): void {
+        const s = this.scene;
+        if (!s) return;
+        this.resourceBaselineMaterials = s.materials.length;
+        this.resourceBaselineTextures = s.textures.length;
+        this.resourceWaveSamples = [];
+        console.info(
+            `[resource-watchdog] baseline materials=${this.resourceBaselineMaterials} ` +
+            `textures=${this.resourceBaselineTextures} (ceiling ` +
+            `${this.resourceBaselineMaterials + SurvivorsGameplayState.RESOURCE_CACHE_BUDGET})`,
+        );
+    }
+
+    /**
+     * Standing leak guard, run at every wave clear (arena empty → live enemies ≈ 0).
+     * Materials/textures above the baseline+cache budget, or a sustained per-wave
+     * climb, means a transient FX is orphaning resources into a scene list. On a
+     * breach it buckets that list by name-prefix and logs the largest buckets, so the
+     * offending allocation site NAMES ITSELF (e.g. "swingRingMatElem×42") — the next
+     * regression is attributed instantly instead of being a silent multi-second freeze.
+     */
+    private checkResourceBudget(wave: number): void {
+        const s = this.scene;
+        if (!s) return;
+        const materials = s.materials.length;
+        const textures = s.textures.length;
+        const prev = this.resourceWaveSamples[this.resourceWaveSamples.length - 1];
+        this.resourceWaveSamples.push({ wave, materials, textures });
+
+        const ceiling = this.resourceBaselineMaterials + SurvivorsGameplayState.RESOURCE_CACHE_BUDGET;
+        const grewVsPrev = prev ? materials - prev.materials : 0;
+        const overCeiling = materials > ceiling;
+        const slowClimb = wave >= 3 && grewVsPrev > SurvivorsGameplayState.RESOURCE_PER_WAVE_TOLERANCE;
+        if (!overCeiling && !slowClimb) return;
+
+        const matBuckets = formatBuckets(s.materials.map(m => m.name));
+        const texBuckets = formatBuckets(s.textures.map(t => t.name));
+        console.error(
+            `[resource-watchdog] LEAK SUSPECTED at wave ${wave} cleared: ` +
+            `materials=${materials} (baseline ${this.resourceBaselineMaterials}, ceiling ${ceiling}, ` +
+            `Δprev ${grewVsPrev >= 0 ? '+' : ''}${grewVsPrev}) · textures=${textures} · ` +
+            `cacheKeys=${getMaterialCacheSize()}\n` +
+            `  top material prefixes: ${matBuckets}\n` +
+            `  top texture prefixes:  ${texBuckets}\n` +
+            `  (arena is empty at wave clear, so growth above the cache budget = orphaned ` +
+            `resources; the largest bucket names the leaking allocation site.)`,
+        );
     }
 
     private stopLongTaskObserver(): void {

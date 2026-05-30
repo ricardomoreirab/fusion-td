@@ -410,7 +410,7 @@ export class AbilityManager {
         fireball.animations = [descentAnim];
 
         this.scene.beginAnimation(fireball, 0, 12, false, 1, () => {
-            fireball.dispose();
+            fireball.dispose(false, true);
 
             const ring = MeshBuilder.CreateTorus('meteorRing', {
                 diameter: 0.5, thickness: 0.3, tessellation: 16
@@ -432,7 +432,7 @@ export class AbilityManager {
                 { frame: 20, value: 0 }
             ]);
             ring.animations = [expandAnim, fadeAnim];
-            this.scene.beginAnimation(ring, 0, 20, false, 1, () => ring.dispose());
+            this.scene.beginAnimation(ring, 0, 20, false, 1, () => ring.dispose(false, true));
 
             const ps = new ParticleSystem('meteorImpact', 60, this.scene);
             ps.emitter = new Vector3(position.x, position.y + 0.5, position.z);
@@ -508,7 +508,7 @@ export class AbilityManager {
             { frame: 30, value: 0 }
         ]);
         ring.animations = [expandAnim, fadeAnim];
-        this.scene.beginAnimation(ring, 0, 30, false, 1, () => ring.dispose());
+        this.scene.beginAnimation(ring, 0, 30, false, 1, () => ring.dispose(false, true));
 
         const ps = new ParticleSystem('frostParticles', 100, this.scene);
         ps.emitter = center;
@@ -756,7 +756,7 @@ export class AbilityManager {
             { frame: 10, value: 0.0 },
         ]);
         ring.animations = [expandAnim, fadeAnim];
-        this.scene.beginAnimation(ring, 0, 10, false, 1, () => ring.dispose());
+        this.scene.beginAnimation(ring, 0, 10, false, 1, () => ring.dispose(false, true));
     }
 
     /** Brief dust streak at the dash origin for barbarian. */
@@ -891,7 +891,7 @@ export class AbilityManager {
             { frame: 15, value: 0.0 },
         ]);
         ring.animations = [expandAnim, fadeAnim];
-        this.scene.beginAnimation(ring, 0, 15, false, 1, () => ring.dispose());
+        this.scene.beginAnimation(ring, 0, 15, false, 1, () => ring.dispose(false, true));
     }
 
     // ========================================================================
@@ -981,7 +981,7 @@ export class AbilityManager {
                         Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT);
                     fade.setKeys([{ frame: 0, value: 0.7 }, { frame: 12, value: 0 }]);
                     ring.animations = [fade];
-                    this.scene.beginAnimation(ring, 0, 12, false, 1, () => ring.dispose());
+                    this.scene.beginAnimation(ring, 0, 12, false, 1, () => ring.dispose(false, true));
                 }
                 setTimeout(() => { try { ps.dispose(); } catch { /* ignore */ } }, 700);
             },
@@ -1024,7 +1024,7 @@ export class AbilityManager {
         let observer: any = null;
         observer = this.scene.onBeforeRenderObservable.add(() => {
             if (arrow.isDisposed() || !target.isAlive()) {
-                if (!arrow.isDisposed()) arrow.dispose();
+                if (!arrow.isDisposed()) arrow.dispose(false, true);
                 this.scene.onBeforeRenderObservable.remove(observer);
                 return;
             }
@@ -1036,7 +1036,7 @@ export class AbilityManager {
             const dist = Math.hypot(dx, dy, dz);
             if (dist < 0.4) {
                 target.takeDamage(damage);
-                arrow.dispose();
+                arrow.dispose(false, true);
                 this.scene.onBeforeRenderObservable.remove(observer);
                 return;
             }
@@ -1050,7 +1050,7 @@ export class AbilityManager {
         });
         // Safety: dispose after 3s of flight
         setTimeout(() => {
-            if (!arrow.isDisposed()) arrow.dispose();
+            if (!arrow.isDisposed()) arrow.dispose(false, true);
             this.scene.onBeforeRenderObservable.remove(observer);
         }, 3000);
     }
@@ -1116,7 +1116,7 @@ export class AbilityManager {
             if (dist < 0.5) {
                 // AOE explosion on impact
                 const impactPos = arrow.position.clone();
-                arrow.dispose();
+                arrow.dispose(false, true);
                 this.scene.onBeforeRenderObservable.remove(observer);
                 this.triggerExplosion(impactPos, damage, aoeRadius);
                 return;
@@ -1158,7 +1158,7 @@ export class AbilityManager {
             { frame: 12, value: 0.0 },
         ]);
         ring.animations = [expandAnim, fadeAnim];
-        this.scene.beginAnimation(ring, 0, 12, false, 1, () => ring.dispose());
+        this.scene.beginAnimation(ring, 0, 12, false, 1, () => ring.dispose(false, true));
 
         // Particle burst
         const ps = new ParticleSystem('expBurst', 40, this.scene);
@@ -1263,7 +1263,7 @@ export class AbilityManager {
 
             bolt.material = createEmissiveMaterial(`boltMat_${i}`, lightningColor, 0.9, this.scene);
             (bolt.material as StandardMaterial).alpha = 0.9;
-            setTimeout(() => bolt.dispose(), 300);
+            setTimeout(() => bolt.dispose(false, true), 300);
         }
 
         for (const pos of positions) {
@@ -1273,7 +1273,7 @@ export class AbilityManager {
             flash.position = new Vector3(pos.x, pos.y + 1.5, pos.z);
             flash.material = createEmissiveMaterial('flashMat', lightningColor, 1.0, this.scene);
             (flash.material as StandardMaterial).alpha = 0.8;
-            setTimeout(() => flash.dispose(), 200);
+            setTimeout(() => flash.dispose(false, true), 200);
         }
 
         if (positions.length > 0) {
@@ -1339,7 +1339,7 @@ export class AbilityManager {
             { frame: 30, value: 0 }
         ]);
         ring.animations = [expandAnim, fadeAnim];
-        this.scene.beginAnimation(ring, 0, 30, false, 1, () => ring.dispose());
+        this.scene.beginAnimation(ring, 0, 30, false, 1, () => ring.dispose(false, true));
     }
 
     private activateGoldRush(): boolean {
@@ -1412,7 +1412,7 @@ export class AbilityManager {
                 { frame: 30, value: 7 }
             ]);
             flash.animations = [fadeAnim, riseAnim];
-            this.scene.beginAnimation(flash, 0, 30, false, 1, () => flash.dispose());
+            this.scene.beginAnimation(flash, 0, 30, false, 1, () => flash.dispose(false, true));
         }
     }
 
@@ -1473,12 +1473,52 @@ export class AbilityManager {
             warmups.push(ps);
         }
 
+        // === Mesh-material shader variants ===
+        // Babylon caches compiled Effects by shader DEFINES, not by color — so
+        // compiling one material per define-set here means the first in-combat FX
+        // of each kind finds its program already built, with no synchronous
+        // first-use compile hitch (the ~1.4s first-elemental-swing stall).
+        //   - litFx:     lit emissive, specular-black  → spin arc-ring, weapon element
+        //                decorations, and every ability ring/flash/arrow (createEmissiveMaterial).
+        //   - elemSwing: disableLighting emissive       → the barbarian elemental swing ring/arc
+        //                (every per-tint swingRingMatElem_* / swingArcMatElem_* reuses this program).
+        //   - the two gold swing materials are pre-created into the shared cache here
+        //     (verbatim keys), so the first non-elemental swing reuses them already compiled.
+        const litFx = createEmissiveMaterial('prewarmLitFx', new Color3(1, 0.5, 0.2), 0.9, scene);
+        const elemSwing = new StandardMaterial('prewarmElemSwing', scene);
+        elemSwing.emissiveColor = new Color3(1, 0.5, 0.5);
+        elemSwing.diffuseColor = new Color3(0, 0, 0);
+        elemSwing.disableLighting = true;
+        elemSwing.alpha = 0.9;
+        const goldRing = getCachedMaterial(scene, 'swingRingMat', m => {
+            m.emissiveColor = new Color3(1, 0.85, 0.4); m.diffuseColor = new Color3(0, 0, 0); m.alpha = 0.9;
+        });
+        const goldArc = getCachedMaterial(scene, 'swingArcMat', m => {
+            m.emissiveColor = new Color3(1, 0.95, 0.7); m.diffuseColor = new Color3(0, 0, 0); m.alpha = 0.5;
+        });
+        const meshWarmups: Mesh[] = [];
+        for (const mat of [litFx, elemSwing, goldRing, goldArc]) {
+            const torus = MeshBuilder.CreateTorus('prewarmFxMesh', { diameter: 1, thickness: 0.2, tessellation: 12 }, scene);
+            torus.position.copyFrom(farAway);
+            torus.material = mat;
+            torus.alwaysSelectAsActiveMesh = true; // else frustum-culled → never compiled
+            meshWarmups.push(torus);
+        }
+
         // Force a render so shaders compile now, before any ability is triggered.
         scene.render();
 
         for (const ps of warmups) {
             ps.stop();
             ps.dispose();
+        }
+        // Dispose the warmup meshes. The two throwaway materials (litFx, elemSwing)
+        // are freed with them; the gold swing materials are cached/shared and MUST
+        // survive (the first real swing reuses them already compiled).
+        for (const m of meshWarmups) {
+            const mat = m.material;
+            m.dispose();
+            if (mat === litFx || mat === elemSwing) mat?.dispose();
         }
     }
 
