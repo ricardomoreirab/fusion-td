@@ -3,6 +3,7 @@
 // getCachedMaterial with a bounded (element) key; transient meshes fade via
 // mesh.visibility and are disposed with the observer removed; projectiles pool.
 import { Scene, Vector3, Color3, MeshBuilder } from '@babylonjs/core';
+import type { Observer } from '@babylonjs/core';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
 import { acquireProjectile, releaseProjectile } from '../../engine/rendering/ProjectilePool';
 import { ELEMENT_COLOR } from '../ElementColors';
@@ -21,6 +22,20 @@ export interface EffectStatus {
 
 const RICH_KINDS: RichStatusKind[] = ['burn', 'chill', 'curse', 'fragile'];
 
+// ── active-effect registry ───────────────────────────────────────────────────
+// Lets resetPowerEffects() tear down any IN-FLIGHT effect (render observer + mesh)
+// at run exit, so a long-lived effect can't bleed damage or orphan a mesh/material
+// into the next run on the persistent scene (the project's historic freeze class).
+interface ActiveFx { scene: Scene; obs: Observer<Scene>; cleanup: () => void; }
+const _activeEffects = new Set<ActiveFx>();
+
+/** End an effect: drop it from the registry, remove its observer, run cleanup. Idempotent. */
+function endFx(fx: ActiveFx): void {
+    if (!_activeEffects.delete(fx)) return; // already ended
+    fx.scene.onBeforeRenderObservable.remove(fx.obs);
+    try { fx.cleanup(); } catch { /* mesh/material may already be disposed */ }
+}
+
 // ── leak-safe shared visual: expanding, fading ring ─────────────────────────
 /** Expanding ground ring that fades and self-disposes. Cached frozen material
  *  per element; faded via mesh.visibility (never the shared material's alpha). */
@@ -34,16 +49,16 @@ function spawnExpandingRing(scene: Scene, x: number, z: number, maxRadius: numbe
         m.alpha = 0.8; // <1 so the frozen material renders in the transparent pass
     });
     let elapsed = 0;
+    let fx: ActiveFx;
     const obs = scene.onBeforeRenderObservable.add(() => {
         elapsed += scene.getEngine().getDeltaTime() / 1000;
         const t = Math.min(elapsed / lifeS, 1);
         ring.scaling.set(maxRadius * t, 1, maxRadius * t); // diameter 2 → grows to 2·maxRadius·t
         ring.visibility = 1 - t;
-        if (t >= 1) {
-            ring.dispose(); // default dispose(false,false): keeps the cached/shared material
-            scene.onBeforeRenderObservable.remove(obs);
-        }
+        if (t >= 1) endFx(fx);
     });
+    fx = { scene, obs: obs!, cleanup: () => ring.dispose() }; // dispose(false,false) keeps the cached material
+    _activeEffects.add(fx);
 }
 
 function applyStatus(e: Enemy, status: EffectStatus | undefined): void {
@@ -62,7 +77,7 @@ export function dealElementalHit(scene: Scene, enemies: Enemy[], target: Enemy, 
         const reaction = getReaction(element, kind);
         if (!reaction) continue;
         if (reaction.kind === 'overload') {
-            const burst = target.detonateRichStatus('burn');
+            const burst = target.detonateRichStatus(kind);
             if (burst > 0) {
                 const p = target.getPosition();
                 aoeBurst(scene, enemies, p.x, p.z, { radius: 2.5, damage: burst, element: 'fire' });
@@ -134,6 +149,9 @@ export function screenFlash(colorCss: string, durationMs = 220): void {
 
 /** Tear down all PowerEffects host hooks + the flash overlay (call from exit()). */
 export function resetPowerEffects(): void {
+    // Tear down any in-flight effect so it can't bleed into the next run.
+    for (const fx of Array.from(_activeEffects)) endFx(fx);
+    _activeEffects.clear();
     _cameraShakeHook = null;
     _hitstopHook = null;
     if (_flashEl) { _flashEl.remove(); _flashEl = null; }
@@ -147,11 +165,14 @@ function spawnBolt(scene: Scene, from: Vector3, to: Vector3, element: PowerEleme
     lines.color = ELEMENT_COLOR[element];
     lines.isPickable = false;
     let elapsed = 0;
+    let fx: ActiveFx;
     const obs = scene.onBeforeRenderObservable.add(() => {
         elapsed += scene.getEngine().getDeltaTime() / 1000;
         lines.alpha = Math.max(0, 1 - elapsed / lifeS);
-        if (elapsed >= lifeS) { lines.dispose(); scene.onBeforeRenderObservable.remove(obs); }
+        if (elapsed >= lifeS) endFx(fx);
     });
+    fx = { scene, obs: obs!, cleanup: () => lines.dispose() };
+    _activeEffects.add(fx);
 }
 
 export interface ChainOpts {
@@ -228,6 +249,7 @@ export function gatherVortex(scene: Scene, enemies: Enemy[], x: number, z: numbe
     });
     let elapsed = 0;
     let tickAcc = 0;
+    let fx: ActiveFx;
     const obs = scene.onBeforeRenderObservable.add(() => {
         const dt = scene.getEngine().getDeltaTime() / 1000;
         elapsed += dt;
@@ -252,10 +274,11 @@ export function gatherVortex(scene: Scene, enemies: Enemy[], x: number, z: numbe
             if (opts.finalBurst && opts.finalBurst > 0) {
                 aoeBurst(scene, enemies, x, z, { radius: opts.radius, damage: opts.finalBurst, element: opts.element });
             }
-            orb.dispose();
-            scene.onBeforeRenderObservable.remove(obs);
+            endFx(fx);
         }
     });
+    fx = { scene, obs: obs!, cleanup: () => orb.dispose() };
+    _activeEffects.add(fx);
 }
 
 // ── persistentZone — lingering hazard field, optionally creeping ────────────
@@ -292,6 +315,7 @@ export function persistentZone(scene: Scene, enemies: Enemy[], x: number, z: num
     const r2 = opts.radius * opts.radius;
     let elapsed = 0;
     let tickAcc = 0;
+    let fx: ActiveFx;
     const obs = scene.onBeforeRenderObservable.add(() => {
         const dt = scene.getEngine().getDeltaTime() / 1000;
         elapsed += dt;
@@ -319,11 +343,10 @@ export function persistentZone(scene: Scene, enemies: Enemy[], x: number, z: num
                 }
             }
         }
-        if (elapsed >= opts.durationS) {
-            disc.dispose();
-            scene.onBeforeRenderObservable.remove(obs);
-        }
+        if (elapsed >= opts.durationS) endFx(fx);
     });
+    fx = { scene, obs: obs!, cleanup: () => disc.dispose() };
+    _activeEffects.add(fx);
 }
 
 // ── omniVolley — multi-directional projectile spray (pooled) ────────────────
@@ -357,6 +380,7 @@ export function omniVolley(scene: Scene, enemies: Enemy[], x: number, z: number,
         });
         shots.push({ mesh, vx: Math.cos(ang) * opts.speed, vz: Math.sin(ang) * opts.speed, t: 0, done: false });
     }
+    let fx: ActiveFx;
     const obs = scene.onBeforeRenderObservable.add(() => {
         const dt = scene.getEngine().getDeltaTime() / 1000;
         let liveCount = 0;
@@ -384,6 +408,10 @@ export function omniVolley(scene: Scene, enemies: Enemy[], x: number, z: number,
                 liveCount++;
             }
         }
-        if (liveCount === 0) scene.onBeforeRenderObservable.remove(obs);
+        if (liveCount === 0) endFx(fx);
     });
+    fx = { scene, obs: obs!, cleanup: () => {
+        for (const s of shots) { if (!s.done) { s.done = true; releaseProjectile('fx_volley', s.mesh); } }
+    } };
+    _activeEffects.add(fx);
 }
