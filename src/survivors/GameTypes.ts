@@ -35,4 +35,10 @@ export enum StatusEffect {
     STUNNED = 'stunned',
     PUSHED = 'pushed',
     CONFUSED = 'confused',
+    /** Stacking soft-CC; at threshold it converts to FROZEN (see StatusModel). */
+    CHILL = 'chill',
+    /** Drains a fraction of max HP per second (mark-for-death). */
+    CURSE = 'curse',
+    /** Stacking amplifier: raises incoming direct damage. */
+    FRAGILE = 'fragile',
 }
