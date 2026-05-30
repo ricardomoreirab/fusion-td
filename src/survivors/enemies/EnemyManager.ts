@@ -1,6 +1,6 @@
 import { Vector3, Scene, ShadowGenerator } from '@babylonjs/core';
 import { Game } from '../../engine/Game';
-import { Enemy } from './Enemy';
+import { Enemy, resetDeathBurstBudget } from './Enemy';
 import { BasicEnemy } from './BasicEnemy';
 import { FastEnemy } from './FastEnemy';
 import { TankEnemy } from './TankEnemy';
@@ -731,6 +731,11 @@ export class EnemyManager {
             corpse.disposeCorpse();
         }
         this.corpses = [];
+
+        // Reset the module-level death-burst budget so a death effect whose
+        // release setTimeout is still pending at teardown can't carry a non-zero
+        // count into the next run (which would suppress early poofs next time).
+        resetDeathBurstBudget();
 
         // Remove event listeners
         if (this.splitHandler) {

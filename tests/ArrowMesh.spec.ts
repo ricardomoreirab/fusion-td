@@ -9,10 +9,11 @@ import { getMaterialCacheSize, clearMaterialCache } from '../src/engine/renderin
 // forever in the never-evicted module cache. Telemetry signature: scene
 // `materials` grew monotonically (5x over a run) while `meshes` stayed flat.
 //
-// NOTE on the harness: under NullEngine, getCachedMaterial recreates on every
-// call because StandardMaterial.isReady() is always false without a GPU. So we
-// assert on the cache *Map size* (distinct keys), which is the true root-cause
-// variable — independent of the isReady() recreation churn.
+// NOTE: getCachedMaterial now keys its cache by presence only. (It previously
+// gated on `mat.isReady() === false`, which is ALWAYS true when isReady() is
+// called with no mesh — a real, browser-affecting leak, not a NullEngine quirk;
+// see tests/MaterialCache.spec.ts.) We assert on the cache *Map size* (distinct
+// keys) here; MaterialCache.spec.ts covers the scene.materials growth invariant.
 
 const engine = new NullEngine();
 const scene = new Scene(engine);

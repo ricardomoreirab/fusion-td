@@ -553,14 +553,31 @@ export class FastEnemy extends Enemy {
         this.game.getAssetManager().playSound('enemyDeath');
     }
 
-    /**
-     * Clean up ghost trail meshes in addition to base cleanup
-     */
-    public dispose(): void {
+    /** Free the procedural ghost-trail meshes AND their per-instance materials.
+     *  Ghosts are NOT parented to this.mesh, so the base mesh dispose never
+     *  reaches them; dispose(false, true) also frees the uniquely-named
+     *  'fastGhostMat' that default dispose() would strand in scene.materials.
+     *  No-op on the GLB path (ghostTrails is empty there). */
+    private disposeGhostTrails(): void {
         for (const ghost of this.ghostTrails) {
-            if (!ghost.isDisposed()) ghost.dispose();
+            if (!ghost.isDisposed()) ghost.dispose(false, true);
         }
         this.ghostTrails = [];
+    }
+
+    /** In-combat death path. The base die() → corpse → disposeCorpse only frees
+     *  this.mesh + its children; the unparented ghost trails would otherwise leak
+     *  (mesh + material) on every kill. */
+    protected die(): void {
+        this.disposeGhostTrails();
+        super.die();
+    }
+
+    /**
+     * Clean up ghost trail meshes in addition to base cleanup (teardown path).
+     */
+    public dispose(): void {
+        this.disposeGhostTrails();
         super.dispose();
     }
 }

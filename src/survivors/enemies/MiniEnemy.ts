@@ -1,6 +1,6 @@
 import { Vector3, MeshBuilder, StandardMaterial, Color3, Color4, ParticleSystem, Texture, Mesh, AssetContainer, AnimationGroup, TransformNode, Quaternion } from '@babylonjs/core';
 import { Game } from '../../engine/Game';
-import { Enemy, HEALTH_COLOR_GREEN, HEALTH_COLOR_YELLOW, HEALTH_COLOR_RED } from './Enemy';
+import { Enemy, HEALTH_COLOR_GREEN, HEALTH_COLOR_YELLOW, HEALTH_COLOR_RED, tryAcquireDeathBurst, releaseDeathBurst } from './Enemy';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../engine/rendering/LowPolyMaterial';
 import { PALETTE } from '../../engine/rendering/StyleConstants';
 
@@ -277,6 +277,15 @@ export class MiniEnemy extends Enemy {
 
     protected createDeathEffect(): void {
         if (!this.mesh) return;
+
+        // Cap concurrent death-burst particle systems (mass-AoE-kill spike guard).
+        // Past the cap, skip only the poof — sound + gold reward still happen.
+        if (!tryAcquireDeathBurst()) {
+            this.game.getAssetManager().playSound('enemyDeath');
+            this.showGoldRewardText(this.position.clone());
+            return;
+        }
+
         const ps = new ParticleSystem('miniDeathParticles', 20, this.scene);
         ps.emitter = this.position.clone();
         (ps.emitter as Vector3).y += 0.3;
@@ -298,7 +307,7 @@ export class MiniEnemy extends Enemy {
         ps.maxEmitPower = 2;
         ps.start();
         this.game.getAssetManager().playSound('enemyDeath');
-        setTimeout(() => { ps.stop(); setTimeout(() => ps.dispose(), 500); }, 500);
+        setTimeout(() => { ps.stop(); setTimeout(() => { ps.dispose(); releaseDeathBurst(); }, 500); }, 500);
 
         // Gold reward float
         this.showGoldRewardText(this.position.clone());

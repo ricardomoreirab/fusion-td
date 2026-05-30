@@ -570,7 +570,10 @@ export class SplittingEnemy extends Enemy {
 
             if (t >= 1.0) {
                 this.scene.onBeforeRenderObservable.remove(observer);
-                ring.dispose();
+                // dispose(false, true): free the per-split, uniquely-named ringMat
+                // too. Default dispose() leaves it stranded in scene.materials
+                // forever — one leaked StandardMaterial per SplittingEnemy death.
+                ring.dispose(false, true);
             }
         });
     }

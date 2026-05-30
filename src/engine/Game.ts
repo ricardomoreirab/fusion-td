@@ -115,38 +115,14 @@ export class Game {
             // Start with the menu state
             this.stateManager.changeState('menu');
             
-            // Start the render loop
-            this.engine.runRenderLoop(() => {
-                // Update the current state. update() can trigger a state
-                // change (hero death → gameOver) which synchronously runs
-                // exit()+enter() and tears the scene down.
-                // Wrap update so a per-frame throw (e.g. a bad enemy/boss spawn) is
-                // logged with its stack and the loop survives, instead of escaping
-                // the rAF callback and leaving a frozen/black canvas.
-                try {
-                    this.stateManager.update(this.engine.getDeltaTime() / 1000);
-                } catch (err) {
-                    logLoopError('update', err);
-                }
-
-                // If a state transition happened this frame, skip the render.
-                // Half-disposed asset references (skeleton bone-matrix texture,
-                // material textures, etc.) would otherwise crash mid-render.
-                // Render resumes cleanly on the next rAF.
-                if (this.skipRenderThisFrame) {
-                    this.skipRenderThisFrame = false;
-                    return;
-                }
-
-                try {
-                    this.scene.render();
-                } catch (err) {
-                    // Surface (don't just warn) so a recurring render-phase throw —
-                    // which during survivors leaves the near-black clearColor on screen,
-                    // i.e. an "all black" frame — is diagnosable with a stack trace.
-                    logLoopError('render', err);
-                }
-            });
+            // Start the single, permanent render loop. It is installed ONCE here
+            // and never replaced — pause()/resume() only toggle _isPaused. This
+            // keeps the update/render try/catch guards and the skipRenderThisFrame
+            // state-transition guard active for the ENTIRE session. (Previously
+            // pause/resume swapped in bare loops that dropped both guards, so a
+            // hero-death frame after any pause rendered a half-disposed scene and
+            // the throw escaped the rAF callback → permanent black canvas.)
+            this.engine.runRenderLoop(() => this.frameTick());
         }, (progress: number) => {
             // Update loading progress
             const loadingBar = document.getElementById('loadingBar');
@@ -154,6 +130,42 @@ export class Game {
                 loadingBar.style.width = `${progress * 100}%`;
             }
         });
+    }
+
+    /**
+     * The one and only render-loop body, installed once in start() and never
+     * replaced. pause()/resume() merely flip _isPaused; the guards below stay
+     * live for the whole session.
+     *
+     *  - update() is skipped while paused (the scene keeps drawing for the pause
+     *    UI). A throw is logged via logLoopError, never escaping the rAF.
+     *  - update() can synchronously change state (hero death → gameOver), which
+     *    runs exit()+enter() and tears the scene down. skipRenderThisFrame then
+     *    suppresses this frame's render so we don't draw a half-disposed scene
+     *    (skeleton bone-matrix texture, material textures, etc.). Render resumes
+     *    cleanly on the next rAF.
+     *  - a render-phase throw is surfaced (not swallowed) so a recurring black
+     *    frame is diagnosable with a stack trace, and the loop survives it.
+     */
+    private frameTick(): void {
+        if (!this._isPaused) {
+            try {
+                this.stateManager.update(this.engine.getDeltaTime() / 1000);
+            } catch (err) {
+                logLoopError('update', err);
+            }
+        }
+
+        if (this.skipRenderThisFrame) {
+            this.skipRenderThisFrame = false;
+            return;
+        }
+
+        try {
+            this.scene.render();
+        } catch (err) {
+            logLoopError('render', err);
+        }
     }
 
     public resize(): void {
@@ -377,24 +389,18 @@ export class Game {
             system.stop();
         });
         
-        // Keep rendering the scene for UI, but stop game updates
-        console.log('Setting up UI-only render loop');
-        this.engine.stopRenderLoop();
-        
-        // Create a new render loop that ONLY renders the scene without updates
-        this.engine.runRenderLoop(() => {
-            // Only render the scene, no game state updates
-            this.scene.render();
-        });
-        
-        // Show the pause screen last, after the render loop is set up
+        // No render-loop swap: the single permanent loop installed in start()
+        // keeps rendering every frame, and _isPaused (set above) makes frameTick()
+        // skip the game update while still drawing the scene + pause UI.
+
+        // Show the pause screen.
         try {
             if (this.pauseScreen) {
                 console.log('Showing pause screen');
                 this.pauseScreen.show();
-                
-                // Force a render to ensure the pause screen appears immediately
-                this.scene.render();
+
+                // Force one render so the pause screen appears on this same tick.
+                try { this.scene.render(); } catch (err) { logLoopError('render', err); }
             }
         } catch (error) {
             console.error("Error showing pause screen:", error);
@@ -434,21 +440,10 @@ export class Game {
             system.start();
         });
         
-        // Restart the render loop with game updates
-        console.log('Restarting full game render loop');
-        this.engine.stopRenderLoop();
-        
-        // Create a new render loop that updates game state and renders
-        this.engine.runRenderLoop(() => {
-            if (!this._isPaused) {
-                // Only update the state if not paused (double-check)
-                this.stateManager.update(this.engine.getDeltaTime() / 1000);
-            }
-            
-            // Always render the scene
-            this.scene.render();
-        });
-        
+        // No render-loop swap: the single permanent loop keeps running; clearing
+        // _isPaused (above) re-enables the game update inside frameTick().
+        console.log('Resumed full game update in the permanent render loop');
+
         // Dispatch a custom event that the game was resumed
         const resumeEvent = new CustomEvent('gameResumed');
         document.dispatchEvent(resumeEvent);

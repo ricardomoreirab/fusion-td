@@ -1,6 +1,6 @@
 import { Vector3, MeshBuilder, StandardMaterial, Color3, Color4, ParticleSystem, Mesh, AssetContainer, AnimationGroup, TransformNode, Quaternion } from '@babylonjs/core';
 import { Game } from '../../engine/Game';
-import { Enemy, getStatusEffectTexture, HEALTH_COLOR_GREEN, HEALTH_COLOR_YELLOW, HEALTH_COLOR_RED } from './Enemy';
+import { Enemy, getStatusEffectTexture, HEALTH_COLOR_GREEN, HEALTH_COLOR_YELLOW, HEALTH_COLOR_RED, tryAcquireDeathBurst, releaseDeathBurst } from './Enemy';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../engine/rendering/LowPolyMaterial';
 import { PALETTE } from '../../engine/rendering/StyleConstants';
 
@@ -599,6 +599,13 @@ export class BasicEnemy extends Enemy {
     protected createDeathEffect(): void {
         if (!this.mesh) return;
 
+        // Cap concurrent death-burst particle systems (mass-AoE-kill spike guard).
+        // Past the cap, skip only the poof — the death sound still plays.
+        if (!tryAcquireDeathBurst()) {
+            this.game.getAssetManager().playSound('enemyDeath');
+            return;
+        }
+
         // Create a simple explosion effect
         const particleSystem = new ParticleSystem('deathParticles', 50, this.scene);
 
@@ -644,11 +651,15 @@ export class BasicEnemy extends Enemy {
         // Play sound effect
         this.game.getAssetManager().playSound('enemyDeath');
 
-        // Stop and dispose after 1 second
+        // Stop and dispose after 1 second. dispose(false) preserves the SHARED
+        // status-effect texture (getStatusEffectTexture) — default dispose()
+        // passes disposeTexture=true and would destroy the singleton out from
+        // under other enemies' live status particles, forcing a sync re-create.
         setTimeout(() => {
             particleSystem.stop();
             setTimeout(() => {
-                particleSystem.dispose();
+                particleSystem.dispose(false);
+                releaseDeathBurst();
             }, 1000);
         }, 1000);
     }
