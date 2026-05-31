@@ -127,7 +127,7 @@ const TORCH_INTENSITY = 1.8;   // tuned for the grass shader's (1-d/r)² falloff
 const TORCH_RANGE     = 9;
 
 /** Seconds shaved off every ability on cooldown for each monster killed. */
-const KILL_COOLDOWN_REDUCTION = 0.1;
+const KILL_COOLDOWN_REDUCTION = 0.5;
 
 export class SurvivorsGameplayState implements GameState {
     private game: Game;

@@ -261,7 +261,7 @@ export class AbilityManager {
 
     /**
      * Shave `seconds` off every ability currently on cooldown — the kill-fueled
-     * refund (each monster killed calls this with 0.1s). Ready abilities are left
+     * refund (each monster killed calls this with 0.5s). Ready abilities are left
      * untouched; a cooldown that reaches 0 clamps and flips to ready. Discrete
      * per-kill, so it is independent of frame time / slow-mo.
      */
