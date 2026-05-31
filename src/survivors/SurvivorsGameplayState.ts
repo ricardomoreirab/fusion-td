@@ -10,6 +10,7 @@ import { SurvivorsJoystick } from './ui/SurvivorsJoystick';
 import { EnemyManager } from './enemies/EnemyManager';
 import { WaveManager } from './WaveManager';
 import { PlayerStats } from './PlayerStats';
+import { LevelSystem } from './LevelSystem';
 import { PowerDrop } from './powers/PowerDrop';
 import { PowerSlotManager, PowerSlot } from './powers/PowerSlotManager';
 import { POWER_DEFS, getPowerByElementAndClass, getPowerMapForClass, PowerElement, ChampionType, PowerDefinition } from './powers/PowerDefinitions';
@@ -153,6 +154,16 @@ export class SurvivorsGameplayState implements GameState {
     private enemyManager: EnemyManager | null = null;
     private waveManager: WaveManager | null = null;
     private playerStats: PlayerStats | null = null;
+    // XP / leveling — replaces the gold Armory shop. Gold income folds into XP;
+    // each level-up pushes +0.5%/level onto every attribute (see applyLevelBonuses).
+    private levelSystem: LevelSystem | null = null;
+    /** Hero base max HP captured at run start — XP scales max HP off this. */
+    private baseMaxHealth = 0;
+    /** How much max-HP bonus has already been pushed to the hero (delta-applied). */
+    private appliedMaxHpBonus = 0;
+    /** Seconds remaining in the post-wave breather before auto-advancing (shop removed). */
+    private waveBreatherRemaining = 0;
+    private static readonly WAVE_BREATHER_SECONDS = 2;
     private powerSlots: PowerSlotManager | null = null;
     private abilityManager: AbilityManager | null = null;
 
@@ -440,6 +451,16 @@ export class SurvivorsGameplayState implements GameState {
         // ---------- Gameplay systems ----------
 
         this.playerStats = new PlayerStats(heroHp, 100);
+
+        // XP / leveling replaces the gold shop. Gold income is folded into XP via the
+        // sink; each level-up pushes +0.5%/level onto every attribute. Establish the
+        // level-1 baseline now (b=0 → neutral multipliers): heroController exists
+        // (created just above) and runPerks is at defaults this early in the run.
+        this.levelSystem = new LevelSystem();
+        this.baseMaxHealth = heroHp;
+        this.appliedMaxHpBonus = 0;
+        this.playerStats.setXpSink((amount) => this.awardXp(amount));
+        this.applyLevelBonuses();
 
         // Install the global crit provider — every Enemy.takeDamage() reads from it.
         // Cleared in exit() so the menu / non-survivors flows never crit.
@@ -992,6 +1013,10 @@ export class SurvivorsGameplayState implements GameState {
         this.powerSlots = null;
 
         this.abilityManager = null;
+
+        this.levelSystem = null;
+        this.appliedMaxHpBonus = 0;
+        this.waveBreatherRemaining = 0;
 
         this.shopOverlay?.close();
         this.shopOverlay = null;
@@ -1551,6 +1576,60 @@ export class SurvivorsGameplayState implements GameState {
             (slotIndex) => this.powerSlots!.replaceSlot(slotIndex, newPowerId),
             () => this.playerStats!.addGold(25),
         );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // XP / leveling
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /** Feed XP and, on any level-up, push the new attribute bonuses + show feedback. */
+    private awardXp(amount: number): void {
+        if (!this.levelSystem) return;
+        const ups = this.levelSystem.addXp(amount);
+        if (ups > 0) {
+            this.applyLevelBonuses();
+            this.showLevelUpFeedback(this.levelSystem.getLevel());
+        }
+    }
+
+    /**
+     * Write the level bonus onto the same PlayerStats multiplier fields the shop
+     * used to mutate. Idempotent (SETS, never accumulates) so it is correct after a
+     * multi-level grant. Perks live on the separate runPerks layer and still stack
+     * multiplicatively on top.
+     */
+    private applyLevelBonuses(): void {
+        if (!this.playerStats || !this.levelSystem) return;
+        const b = this.levelSystem.getBonusFraction();
+        const ps = this.playerStats;
+        ps.moveSpeedMultiplier        = 1 + b;
+        ps.attackRangeMultiplier      = 1 + b;
+        ps.basicAttackSpeedMultiplier = 1 + b;
+        ps.powerDamageMultiplier      = 1 + b;
+        ps.powerCooldownMultiplier    = 1 - b; // lower = faster
+        ps.damageReductionMultiplier  = 1 - b; // lower = tankier
+        ps.critChance                 = b;
+        ps.critDamageMultiplier       = 1.5 * (1 + b);
+
+        // Max HP: scale off base, apply only the delta to the hero (and heal it).
+        const targetBonus = Math.round(this.baseMaxHealth * b);
+        const delta = targetBonus - this.appliedMaxHpBonus;
+        if (delta !== 0 && this.heroController) {
+            this.heroController.addMaxHealth(delta);
+            if (delta > 0) this.heroController.heal(delta);
+            this.appliedMaxHpBonus = targetBonus;
+        }
+
+        // Re-push the multipliers that are PUSHED (not pulled live), combined with runPerks.
+        this.heroController?.updateMoveSpeed(ps.moveSpeedMultiplier * this.runPerks.moveSpeedMultiplier);
+        this.heroController?.updateBasicAttackRange(ps.attackRangeMultiplier * this.runPerks.attackRangeMultiplier);
+        this.heroController?.updateBasicAttackSpeed(ps.basicAttackSpeedMultiplier);
+    }
+
+    /** Lightweight, allocation-free level-up feedback (flash the XP bar + log). */
+    private showLevelUpFeedback(level: number): void {
+        console.log(`[xp] LEVEL UP → Lv ${level}`);
+        // XP-bar flash wired in once the HUD bar exists (HeroHud.flashXpBar).
     }
 
     // ─────────────────────────────────────────────────────────────────────────
