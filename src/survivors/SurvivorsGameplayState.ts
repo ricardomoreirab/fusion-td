@@ -138,6 +138,11 @@ export class SurvivorsGameplayState implements GameState {
     private shadowSourceLight: DirectionalLight | null = null;
     private shadowGenerator: ShadowGenerator | null = null;
     private torchShadowGenerator: ShadowGenerator | null = null;
+    // After this wave clears, enemies stop casting shadows: the hordes grow large
+    // enough that the per-caster shadow-map cost outweighs the visual detail. The
+    // hero keeps its directional shadow. Idempotent guard so we only flip once.
+    private static readonly ENEMY_SHADOW_CUTOFF_WAVE = 5;
+    private enemyShadowsDisabled = false;
     // Per-run env/sky GPU resources — tracked so exit() can dispose them.
     // cleanupScene() only frees meshes/particles/ADT textures, so these cube
     // textures + skybox material otherwise leak one set per run.
@@ -317,6 +322,16 @@ export class SurvivorsGameplayState implements GameState {
             if (p) p.catch(err => console.error(`Enemy GLB preload failed (${type}):`, err));
         }
 
+        // DEV ?test: skip champion select and auto-start so an unattended stress
+        // pass is fully deterministic (no canvas-coordinate clicking needed).
+        // ?test&champ=<barbarian|ranger|mage> picks the class (defaults to barbarian).
+        const testParams = typeof window !== 'undefined'
+            ? new URLSearchParams(window.location.search) : null;
+        if (testParams?.has('test')) {
+            void this.startRun(testParams.get('champ') || 'barbarian');
+            return;
+        }
+
         this.championSelect.show(championOptions, (type) => { void this.startRun(type); });
     }
 
@@ -436,6 +451,8 @@ export class SurvivorsGameplayState implements GameState {
         this.enemyManager = new EnemyManager(this.game);
         this.enemyManager.setPlayerStats(this.playerStats);
         // Wire the shadow generator so bosses + elites auto-register as casters.
+        // Reset per run: enemy shadows start on and get cut off after wave 5.
+        this.enemyShadowsDisabled = false;
         this.enemyManager.setShadowGenerators([this.shadowGenerator, this.torchShadowGenerator]);
         // Cache the last known hero position so the provider stays null-safe even
         // when an enemy attack kills the hero mid-frame: HeroController.takeDamage
@@ -599,7 +616,12 @@ export class SurvivorsGameplayState implements GameState {
             // budget is orphaned resources — the exact class of bug behind every past
             // freeze. Checked here, before the shop opens, so a regression is caught
             // (and its culprit named) the very wave it starts leaking.
-            this.checkResourceBudget(this.waveManager?.getCurrentWave() ?? 0);
+            const clearedWave = this.waveManager?.getCurrentWave() ?? 0;
+            this.checkResourceBudget(clearedWave);
+            this.maybeDisableEnemyShadows(clearedWave);
+            // DEV ?test: skip the between-wave Armory and auto-advance so every
+            // wave runs unattended — surfacing the freeze across the whole run.
+            if (this.testMode) { this.waveManager?.startNextWave(); return; }
             this.openShop();
         });
 
@@ -700,12 +722,12 @@ export class SurvivorsGameplayState implements GameState {
         this.replaceSlotOverlay = new ReplaceSlotOverlay(this.gameUI!.layer('overlay'));
         this.shopOverlay     = new BetweenWaveShopOverlay(this.gameUI!.layer('overlay'));
 
-        // DEV: ?test → start with each fusion archetype maxed in all 4 slots; ] cycles.
+        // DEV: ?test → no powers equipped at start; add them on demand with \ (stress)
+        //      or cycle archetypes with ]. testFusions stays primed for both.
         this.testMode = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('test');
         if (this.testMode) {
             this.testFusions = getFusionsForClass(this.currentChampionType);
             this.testFusionIndex = 0;
-            this.applyTestFusion();
             if (this.heroController) this.heroController.debugInvulnerable = true; // survive the stress horde
         }
 
@@ -1232,6 +1254,10 @@ export class SurvivorsGameplayState implements GameState {
         // overlay guards so the penalty triggers on physical collection even in
         // the rare case an overlay is already up and the choice flow is skipped.
         this.enemyManager?.addOrbHpBonus(0.08);
+
+        // DEV ?test: never raise the "Choose a Power" overlay — it would block an
+        // unattended stress pass. Powers are force-equipped via the \ stress key.
+        if (this.testMode) return;
 
         if (!this.powerSlots || !this.powerChoice || !this.playerStats) return;
         if (this.powerChoice.isOpen() || this.replaceSlotOverlay?.isOpen()) return;
@@ -1901,6 +1927,23 @@ export class SurvivorsGameplayState implements GameState {
      * offending allocation site NAMES ITSELF (e.g. "swingRingMatElem×42") — the next
      * regression is attributed instantly instead of being a silent multi-second freeze.
      */
+    /**
+     * After ENEMY_SHADOW_CUTOFF_WAVE clears, stop enemies from casting shadows.
+     * Later waves spawn ever-larger hordes, and each shadow caster adds shadow-map
+     * render cost the small low-poly silhouettes don't justify. Clearing the
+     * EnemyManager's generator list makes every future spawn skip shadow-caster
+     * registration; the hero keeps its directional shadow. Called from the
+     * wave-cleared callback, where the arena is empty so no live caster needs
+     * removing — all dead enemies have already been pruned from the renderLists.
+     */
+    private maybeDisableEnemyShadows(clearedWave: number): void {
+        if (this.enemyShadowsDisabled) return;
+        if (clearedWave < SurvivorsGameplayState.ENEMY_SHADOW_CUTOFF_WAVE) return;
+        this.enemyShadowsDisabled = true;
+        this.enemyManager?.setShadowGenerators([]);
+        console.log(`[shadows] enemy shadow-casting disabled after wave ${clearedWave} (horde-scale perf trade-off)`);
+    }
+
     private checkResourceBudget(wave: number): void {
         const s = this.scene;
         if (!s) return;

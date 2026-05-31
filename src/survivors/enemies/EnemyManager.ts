@@ -378,6 +378,19 @@ export class EnemyManager {
             }
         }
 
+        // Register every warmup mesh as a shadow caster so the generators' DEPTH
+        // shader gets compiled below. A ShadowGenerator renders casters through its
+        // OWN skinned depth effect — a SEPARATE program from the material's main
+        // shader (compiled in step 4). Without this, the first shadow-map render of
+        // each new shadow-casting type (tanks/bosses/healers/shields/splitters/minis
+        // + every elite; basics skip shadows) compiles the bone-skinning depth shader
+        // on the main thread — the freeze "when a new enemy type / elite appears".
+        // Milestone bosses register into BOTH generators (directional + torch), so
+        // they otherwise stall twice. _registerAsShadowCaster also records the
+        // generators on each enemy, so the e.dispose() below removes the warmup mesh
+        // from every renderList (no stale disposed-mesh refs left behind).
+        for (const e of warmup) this._registerAsShadowCaster(e);
+
         this.game.getScene().render();
 
         // 4) Force shader compilation to COMPLETE before we dispose. The render()
@@ -408,11 +421,25 @@ export class EnemyManager {
         }
         await Promise.all(compilePromises);
 
+        // 5) Compile each shadow generator's DEPTH effect for every caster variant now.
+        // forceCompilationAsync iterates the generator's renderList (populated above) and
+        // compiles the skinned depth shader for each mesh — frustum-independent, so the
+        // far-away warmup meshes are fine. Awaited like the material compiles so the
+        // GLSL→GPU compile finishes behind the loading screen, not on first combat.
+        let shadowCompiles = 0;
+        for (const g of this.shadowGenerators) {
+            shadowCompiles++;
+            await g.forceCompilationAsync().catch((err) => {
+                console.warn('[prewarm] shadow depth compile failed:', err);
+            });
+        }
+
         for (const e of warmup) e.dispose();
         const variantCount = warmup.length;
         const glbKeysAvailable = Object.keys(this.enemyAssets);
         console.info(
-            `[prewarm] ${variantCount} variants + ${compilePromises.length} shaders compiled in ` +
+            `[prewarm] ${variantCount} variants + ${compilePromises.length} material shaders + ` +
+            `${shadowCompiles} shadow-depth passes compiled in ` +
             `${Math.round(performance.now() - t0)}ms ` +
             `(GLB assets: ${glbKeysAvailable.length === 0 ? 'NONE — only procedural fallbacks' : glbKeysAvailable.join(', ')})`,
         );
