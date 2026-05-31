@@ -2,24 +2,23 @@ import { PlayerStats } from './PlayerStats';
 import { HeroController } from './HeroController';
 
 /** Identifiers for the four milestone-boss items. */
-export type ItemId = 'lifesteal' | 'multishotCleave' | 'knockback' | 'attackSpeed';
+export type ItemId = 'extraLife' | 'multishotCleave' | 'knockback' | 'attackSpeed';
 
 /** Which item drops at which boss tier (waveNumber / 5). Missing tiers drop nothing. */
 const ITEM_BY_TIER: Record<number, ItemId> = {
-    1: 'lifesteal',        // wave 5
+    1: 'extraLife',        // wave 5
     2: 'multishotCleave',  // wave 10
     3: 'knockback',        // wave 15
     4: 'attackSpeed',      // wave 20
 };
 
 /** Per-stack tuning constants — see spec for rationale. Adjust here, not at call sites. */
-const LIFESTEAL_PCT_PER_STACK   = 0.05; // 5% of damage healed per stack
 const KNOCKBACK_UNITS_PER_STACK = 1.0;  // world units pushed per hit per stack
 const ATTACK_SPEED_FACTOR       = 2.0;  // multiplier applied once per stack
 
 export class RunItems {
     private stacks: Record<ItemId, number> = {
-        lifesteal: 0,
+        extraLife: 0,
         multishotCleave: 0,
         knockback: 0,
         attackSpeed: 0,
@@ -53,11 +52,22 @@ export class RunItems {
         this.applyEffect(id);
     }
 
+    /**
+     * Consume one Extra Life charge (called after a revive fires) so the HUD slot,
+     * which reads getStacks('extraLife'), empties. The HeroController owns the
+     * gameplay-side charge counter and decrements it independently on revive.
+     */
+    public consumeExtraLife(): void {
+        if (this.stacks.extraLife > 0) this.stacks.extraLife--;
+    }
+
     private applyEffect(id: ItemId): void {
         const n = this.stacks[id];
         switch (id) {
-            case 'lifesteal':
-                this.stats.lifestealPct = LIFESTEAL_PCT_PER_STACK * n;
+            case 'extraLife':
+                // One revive charge per stack. The HeroController owns the death-
+                // interception; we just hand it the charge.
+                this.heroController.addReviveCharge();
                 return;
 
             case 'multishotCleave':

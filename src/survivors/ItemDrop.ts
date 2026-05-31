@@ -4,7 +4,7 @@ import { ItemId } from './RunItems';
 
 /** Visual color per item — matches the HUD slot color so the link reads. */
 const ITEM_COLORS: Record<ItemId, Color3> = {
-    lifesteal:       new Color3(1.0, 0.15, 0.25),   // red
+    extraLife:       new Color3(0.27, 0.88, 0.35),  // green
     multishotCleave: new Color3(1.0, 0.85, 0.30),   // gold
     knockback:       new Color3(0.30, 0.65, 1.0),   // blue
     attackSpeed:     new Color3(1.0, 1.0, 0.55),    // yellow-white

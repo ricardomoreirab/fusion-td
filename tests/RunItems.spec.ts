@@ -12,6 +12,7 @@ function makeRunItems() {
     const stats = new PlayerStats();
     const heroController = {
         updateBasicAttackSpeed: vi.fn(),
+        addReviveCharge: vi.fn(),
     } as unknown as ConstructorParameters<typeof RunItems>[2];
     const items = new RunItems(stats, 'barbarian', heroController);
     return { stats, heroController, items };
@@ -19,7 +20,7 @@ function makeRunItems() {
 
 describe('RunItems.itemForTier', () => {
     it('maps tiers 1-4 to the spec items', () => {
-        expect(RunItems.itemForTier(1)).toBe('lifesteal');
+        expect(RunItems.itemForTier(1)).toBe('extraLife');
         expect(RunItems.itemForTier(2)).toBe('multishotCleave');
         expect(RunItems.itemForTier(3)).toBe('knockback');
         expect(RunItems.itemForTier(4)).toBe('attackSpeed');
@@ -33,19 +34,35 @@ describe('RunItems.itemForTier', () => {
     });
 });
 
-describe('RunItems.grant — lifesteal', () => {
-    it('starts at 0 and grows 5% per stack', () => {
-        const { stats, items } = makeRunItems();
-        expect(stats.lifestealPct).toBe(0);
+describe('RunItems.grant — extraLife', () => {
+    it('grants a revive charge to the hero per stack and tracks the stack count', () => {
+        const { heroController, items } = makeRunItems();
+        const addReviveCharge = (heroController as unknown as {
+            addReviveCharge: ReturnType<typeof vi.fn>;
+        }).addReviveCharge;
 
-        items.grant('lifesteal');
-        expect(stats.lifestealPct).toBeCloseTo(0.05, 5);
+        expect(items.getStacks('extraLife')).toBe(0);
 
-        items.grant('lifesteal');
-        expect(stats.lifestealPct).toBeCloseTo(0.10, 5);
+        items.grant('extraLife');
+        expect(items.getStacks('extraLife')).toBe(1);
+        expect(addReviveCharge).toHaveBeenCalledTimes(1);
 
-        items.grant('lifesteal');
-        expect(stats.lifestealPct).toBeCloseTo(0.15, 5);
+        items.grant('extraLife');
+        expect(items.getStacks('extraLife')).toBe(2);
+        expect(addReviveCharge).toHaveBeenCalledTimes(2);
+    });
+
+    it('consumeExtraLife decrements the HUD-facing stack, never below 0', () => {
+        const { items } = makeRunItems();
+        items.grant('extraLife');
+        expect(items.getStacks('extraLife')).toBe(1);
+
+        items.consumeExtraLife();
+        expect(items.getStacks('extraLife')).toBe(0);
+
+        // Idempotent at 0 — a stray consume can't underflow.
+        items.consumeExtraLife();
+        expect(items.getStacks('extraLife')).toBe(0);
     });
 });
 
@@ -100,7 +117,7 @@ describe('RunItems.grant — attackSpeed', () => {
 describe('RunItems.hasItem / getStacks', () => {
     it('reflects grants', () => {
         const { items } = makeRunItems();
-        const id: ItemId = 'lifesteal';
+        const id: ItemId = 'extraLife';
         expect(items.hasItem(id)).toBe(false);
         expect(items.getStacks(id)).toBe(0);
         items.grant(id);

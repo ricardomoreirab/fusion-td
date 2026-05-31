@@ -46,6 +46,16 @@ export class HeroController {
     private isDead: boolean = false;
     private onDeathCallback: () => void = () => {};
 
+    // Extra Life (wave-5 boss item): each charge turns the next lethal hit into a
+    // full-HP revive plus a timed invulnerability shield instead of death.
+    private reviveCharges: number = 0;
+    private shieldTimer: number = 0; // seconds of post-revive invulnerability remaining
+    private static readonly REVIVE_SHIELD_SECONDS = 5;
+    /** Fired when a revive triggers (gameplay layer spawns the shield VFX + HUD sync). */
+    private onReviveCallback: () => void = () => {};
+    /** Fired when the post-revive shield expires (gameplay layer removes the bubble). */
+    private onShieldEndCallback: () => void = () => {};
+
     // Move speed multiplier (from Swiftness shop purchases)
     private moveSpeedMultiplier: number = 1.0;
 
@@ -262,15 +272,40 @@ export class HeroController {
 
     public takeDamage(amount: number, sourcePos?: Vector3): void {
         if (this.isDead) return;
-        if (this.isInvulnerable || this.debugInvulnerable) return;
+        if (this.isInvulnerable || this.shieldTimer > 0 || this.debugInvulnerable) return;
         this.currentHealth -= amount;
         if (this.currentHealth <= 0) {
+            // Extra Life: spend a charge to revive at full HP with a timed shield
+            // instead of dying. The shield gate above blocks further hits this frame.
+            if (this.reviveCharges > 0) {
+                this.reviveCharges--;
+                this.currentHealth = this.maxHealth;
+                this.shieldTimer = HeroController.REVIVE_SHIELD_SECONDS;
+                this.onReviveCallback();
+                return;
+            }
             this.currentHealth = 0;
             this.isDead = true;
             this.onDeathCallback();
             return;
         }
         this.triggerHitReaction(sourcePos);
+    }
+
+    /** Grant one Extra Life revive charge (called by RunItems on item pickup). */
+    public addReviveCharge(): void {
+        this.reviveCharges++;
+    }
+
+    /** Register the revive / shield-end hooks (gameplay layer drives the VFX + HUD). */
+    public setOnRevive(onRevive: () => void, onShieldEnd: () => void): void {
+        this.onReviveCallback = onRevive;
+        this.onShieldEndCallback = onShieldEnd;
+    }
+
+    /** True while the post-revive invulnerability shield is active. */
+    public hasActiveShield(): boolean {
+        return this.shieldTimer > 0;
     }
 
     public getHealthRatio(): number {
@@ -421,6 +456,15 @@ export class HeroController {
 
     public update(deltaTime: number): void {
         this.elapsedTime += deltaTime;
+
+        // ── Post-revive invulnerability shield ─────────────────────────────
+        if (this.shieldTimer > 0) {
+            this.shieldTimer -= deltaTime;
+            if (this.shieldTimer <= 0) {
+                this.shieldTimer = 0;
+                this.onShieldEndCallback();
+            }
+        }
 
         // ── Dash override (Space-bar mobility) ─────────────────────────────
         // When active, position is driven by interpolation between start/target;

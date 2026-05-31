@@ -1,4 +1,4 @@
-import { Scene, Vector3, Color3, Color4, DirectionalLight, AssetContainer, LoadAssetContainerAsync, CubeTexture, Texture, MeshBuilder, Mesh, BackgroundMaterial, ShadowGenerator, KeyboardEventTypes } from '@babylonjs/core';
+import { Scene, Vector3, Color3, Color4, DirectionalLight, AssetContainer, LoadAssetContainerAsync, CubeTexture, Texture, MeshBuilder, Mesh, BackgroundMaterial, ShadowGenerator, KeyboardEventTypes, Observer } from '@babylonjs/core';
 import '@babylonjs/loaders/glTF';
 import { AdvancedDynamicTexture } from '@babylonjs/gui';
 import { Game } from '../engine/Game';
@@ -107,13 +107,13 @@ function loadAsset(
 
 /** Float-text labels and colors for item pickups (mirror the HUD slot colors). */
 const ITEM_DISPLAY_NAMES: Record<ItemId, string> = {
-    lifesteal: 'Lifesteal',
+    extraLife: 'Extra Life',
     multishotCleave: 'Multishot',
     knockback: 'Knockback',
     attackSpeed: 'Attack Speed',
 };
 const ITEM_FLOAT_COLOR: Record<ItemId, string> = {
-    lifesteal: '#ff2a40',
+    extraLife: '#46e05a',
     multishotCleave: '#ffd84a',
     knockback: '#4ea7ff',
     attackSpeed: '#fff080',
@@ -176,6 +176,12 @@ export class SurvivorsGameplayState implements GameState {
     // Item drops (from milestone bosses)
     private runItems: RunItems | null = null;
     private itemDrops: ItemDrop[] = [];
+
+    // Extra Life revive shield — translucent bubble that follows the hero for the
+    // post-revive invulnerability window. Tracked so it can be removed on shield
+    // expiry and on exit().
+    private reviveShieldMesh: Mesh | null = null;
+    private reviveShieldObs: Observer<Scene> | null = null;
 
     // Contact damage radius (hero bounding circle)
     private readonly heroRadius: number = 0.6;
@@ -448,6 +454,20 @@ export class SurvivorsGameplayState implements GameState {
         this.heroController.setOnDeath(() => {
             this.buildAndSendRunSummary();
         });
+
+        // Extra Life: a lethal hit revives the hero at full HP behind a 5s shield
+        // instead of ending the run. Spawn the shield bubble + feedback and empty
+        // the HUD item slot; remove the bubble when the shield expires.
+        this.heroController.setOnRevive(
+            () => {
+                if (this.damageNumbers && this.hero) {
+                    this.damageNumbers.showText(this.hero.getPosition(), 'EXTRA LIFE!', '#46e05a', 64);
+                }
+                this.runItems?.consumeExtraLife();
+                this.spawnReviveShield();
+            },
+            () => this.removeReviveShield(),
+        );
 
         // ---------- Gameplay systems ----------
 
@@ -978,6 +998,47 @@ export class SurvivorsGameplayState implements GameState {
         setTimeout(() => { this.timeScale = 1.0; }, 300);
     }
 
+    /**
+     * Spawn the Extra Life revive shield: a translucent green bubble that follows
+     * the hero for the invulnerability window. Material is cached by a bounded key
+     * and the mesh is freed (cached material untouched) in removeReviveShield().
+     */
+    private spawnReviveShield(): void {
+        if (!this.scene || !this.hero) return;
+        this.removeReviveShield(); // idempotent guard
+        const scene = this.scene;
+        const hero = this.hero;
+        const bubble = MeshBuilder.CreateSphere('reviveShield', { diameter: 3.2, segments: 12 }, scene);
+        bubble.isPickable = false;
+        bubble.material = getCachedMaterial(scene, 'reviveShieldMat', m => {
+            m.emissiveColor = new Color3(0.27, 0.88, 0.45);
+            m.diffuseColor = new Color3(0, 0, 0);
+            m.disableLighting = true;
+            m.alpha = 0.26;
+            m.backFaceCulling = false;
+        });
+        const p0 = hero.getPosition();
+        bubble.position.set(p0.x, p0.y + 1.2, p0.z);
+        this.reviveShieldObs = scene.onBeforeRenderObservable.add(() => {
+            const p = hero.getPosition();
+            bubble.position.set(p.x, p.y + 1.2, p.z);
+            bubble.rotation.y += 0.03; // slow shimmer spin
+        });
+        this.reviveShieldMesh = bubble;
+    }
+
+    /** Remove the revive shield bubble + its follow observer (idempotent). */
+    private removeReviveShield(): void {
+        if (this.reviveShieldObs && this.scene) {
+            this.scene.onBeforeRenderObservable.remove(this.reviveShieldObs);
+        }
+        this.reviveShieldObs = null;
+        if (this.reviveShieldMesh) {
+            this.reviveShieldMesh.dispose(); // cached material is shared — leave it
+            this.reviveShieldMesh = null;
+        }
+    }
+
     /** Gather end-of-run stats and transition to game-over. */
     private buildAndSendRunSummary(): void {
         const timeSurvivedSec = (performance.now() - this.runStartTime) / 1000;
@@ -1012,6 +1073,8 @@ export class SurvivorsGameplayState implements GameState {
         for (const d of this.itemDrops) d.dispose();
         this.itemDrops = [];
         this.runItems = null;
+
+        this.removeReviveShield();
 
         this.championSelect?.close();
         this.championSelect = null;
