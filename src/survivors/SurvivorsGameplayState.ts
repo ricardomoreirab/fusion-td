@@ -1701,11 +1701,11 @@ export class SurvivorsGameplayState implements GameState {
         if (!this.playerStats || !this.levelSystem) return;
         const b = this.levelSystem.getBonusFraction(); // crit-chance rate: +0.5%/level
         const g = b * 2;                                // most attributes: doubled (+1%/level)
-        const gp = g * 2;                               // power + attack speed: doubled again (+2%/level)
+        const gp = g * 2;                               // power: doubled again (+2%/level)
         const ps = this.playerStats;
         ps.moveSpeedMultiplier        = 1 + g;
         ps.attackRangeMultiplier      = 1 + g;
-        ps.basicAttackSpeedMultiplier = 1 + gp; // attack speed scaling 2× stronger
+        ps.basicAttackSpeedMultiplier = 1 + g; // back to +1%/level — the 2× bump was too strong past lvl 50
         ps.powerDamageMultiplier      = 1 + gp; // power damage scaling 2× stronger
         ps.powerCooldownMultiplier    = Math.max(0.05, 1 - gp); // power fire rate 2× stronger (lower = faster), floored so it never hits 0
         ps.damageReductionMultiplier  = 1 - g; // lower = tankier
