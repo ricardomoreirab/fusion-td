@@ -1701,7 +1701,10 @@ export class SurvivorsGameplayState implements GameState {
         if (!this.playerStats || !this.levelSystem) return;
         const b = this.levelSystem.getBonusFraction(); // crit-chance rate: +0.5%/level
         const g = b * 2;                                // most attributes: doubled (+1%/level)
-        const gp = g * 2;                               // power: doubled again (+2%/level)
+        // Power scaling with diminishing returns: ≈+2%/level early (matches g*2 for
+        // small b), but each level's marginal gain shrinks, saturating near +90% so
+        // it isn't overpowered at high levels. gp = 1 - e^(-4b) ≈ 4b when b is small.
+        const gp = 1 - Math.exp(-4 * b);
         const ps = this.playerStats;
         ps.moveSpeedMultiplier        = 1 + g;
         ps.attackRangeMultiplier      = 1 + g;
