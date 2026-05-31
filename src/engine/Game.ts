@@ -148,6 +148,12 @@ export class Game {
      *    frame is diagnosable with a stack trace, and the loop survives it.
      */
     private frameTick(): void {
+        // [freeze:frame] instrument — measures the time ACTUALLY SPENT in our
+        // per-frame work (logic + render). Unlike the rAF-gap detector, this is
+        // immune to a browser-paused rAF (backgrounding/unfocus): if our code is
+        // the stall it fires and names update-vs-render; if it never fires while
+        // rAF-gaps still log, the "freeze" is paused rAF, not our compute.
+        const t0 = performance.now();
         if (!this._isPaused) {
             try {
                 this.stateManager.update(this.engine.getDeltaTime() / 1000);
@@ -155,16 +161,25 @@ export class Game {
                 logLoopError('update', err);
             }
         }
+        const tAfterUpdate = performance.now();
 
+        let rendered = false;
         if (this.skipRenderThisFrame) {
             this.skipRenderThisFrame = false;
-            return;
+        } else {
+            rendered = true;
+            try {
+                this.scene.render();
+            } catch (err) {
+                logLoopError('render', err);
+            }
         }
 
-        try {
-            this.scene.render();
-        } catch (err) {
-            logLoopError('render', err);
+        const total = performance.now() - t0;
+        if (total > 80) {
+            const updateMs = Math.round(tAfterUpdate - t0);
+            const renderMs = rendered ? Math.round(performance.now() - tAfterUpdate) : 0;
+            console.error(`[freeze:frame] ${Math.round(total)}ms (update=${updateMs}ms render=${renderMs}ms)`);
         }
     }
 

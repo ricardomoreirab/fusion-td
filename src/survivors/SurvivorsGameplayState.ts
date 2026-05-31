@@ -1821,7 +1821,13 @@ export class SurvivorsGameplayState implements GameState {
               ` lights=${scene.lights.length}` +
               ` shadowRL=${shadowRL(this.shadowGenerator)}/${shadowRL(this.torchShadowGenerator)}`
             : '';
-        console.error(`[freeze:${kind}] ${durationMs}ms at t=${tRun}s · wave ${wave} · ${enemies} enemies${overlayStr}${sceneInfo}`);
+        // hidden/focus classify an rAF-gap: hidden=true → tab backgrounded;
+        // hidden=false focus=false → window unfocused (rAF throttled, NOT a hang);
+        // hidden=false focus=true → genuinely foreground (cross-check [freeze:frame]).
+        const vis = (typeof document !== 'undefined')
+            ? ` · hidden=${document.hidden} focus=${typeof document.hasFocus === 'function' ? document.hasFocus() : '?'}`
+            : '';
+        console.error(`[freeze:${kind}] ${durationMs}ms at t=${tRun}s · wave ${wave} · ${enemies} enemies${overlayStr}${vis}${sceneInfo}`);
     }
 
     /** Snapshot the post-setup scene resource counts as the leak-watchdog floor. */
