@@ -688,6 +688,7 @@ export class SurvivorsGameplayState implements GameState {
             }
             else if (key === 'escape') this.hud?.togglePause();
             else if (this.testMode && key === ']') this.cycleTestFusion();
+            else if (this.testMode && key === '\\') this.stressLoad();
         });
 
         // Overlays
@@ -1771,6 +1772,28 @@ export class SurvivorsGameplayState implements GameState {
         if (this.testFusions.length === 0) return;
         this.testFusionIndex = (this.testFusionIndex + 1) % this.testFusions.length;
         this.applyTestFusion();
+    }
+
+    /** DEV ?test STRESS button (\\ key): equip 4 DIFFERENT fusion archetypes (all
+     *  effect types firing) and spawn a 30-enemy horde (some elite → orbs drop).
+     *  Repeat to ramp load. Watch [freeze:frame] (real per-frame compute) + the
+     *  per-spawn cost logs to find the bottleneck. */
+    private stressLoad(): void {
+        if (!this.powerSlots) return;
+        if (this.testFusions.length > 0) {
+            this.powerSlots.debugEquipManyMaxed(this.testFusions.slice(0, 4));
+        }
+        const types = ['basic', 'fast', 'tank', 'healer', 'splitting', 'shield'];
+        const elems = ['fire', 'ice', 'arcane', 'physical', 'storm'];
+        let n = 0;
+        for (let i = 0; i < 30; i++) {
+            const t = types[i % types.length];
+            const elite = (i % 4 === 0) ? elems[Math.floor(i / 4) % elems.length] : undefined;
+            if (this.enemyManager?.spawnSurvivorsEnemy(t, elite)) n++;
+        }
+        const total = this.enemyManager?.getEnemies().length ?? 0;
+        console.info(`[stress] +${n} enemies (total ${total}); 4 diverse fusions equipped. Watch [freeze:frame].`);
+        this.showTestLabel(`[STRESS] +${n} enemies (total ${total}) · 4 diverse fusions · press \\ for more`);
     }
 
     private applyTestFusion(): void {

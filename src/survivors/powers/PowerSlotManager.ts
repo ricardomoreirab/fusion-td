@@ -152,6 +152,20 @@ export class PowerSlotManager {
         }
     }
 
+    /** DEV/TEST: fill slots 0..N with DIFFERENT defs (each maxed), disposing prior
+     *  slot data + running init. Used by the ?test stress button to fire several
+     *  distinct effect types at once. */
+    public debugEquipManyMaxed(defs: PowerDefinition[]): void {
+        if (defs.length === 0) return;
+        for (let i = 0; i < this.slots.length; i++) {
+            const def = defs[i % defs.length];
+            this.disposeSlotData(this.slots[i]);
+            const slot: PowerSlot = { def, state: { level: def.maxLevel, cooldownRemaining: 0 } };
+            this.slots[i] = slot;
+            if (def.init) def.init(slot.state, this.buildContext());
+        }
+    }
+
     /** Register a callback fired every time a power-slot's cast() executes. */
     public setOnCast(fn: (slot: PowerSlot) => void): void {
         this.onCastCallback = fn;
