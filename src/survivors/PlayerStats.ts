@@ -77,6 +77,13 @@ export class PlayerStats {
     /** How many times each shop item has been purchased */
     public purchaseCounts: Record<string, number> = {};
 
+    /** Optional sink: every gold-income amount is mirrored here (folded into XP). */
+    private xpSink: ((amount: number) => void) | null = null;
+    /** Route gold income into the XP/level system. Set once by SurvivorsGameplayState. */
+    public setXpSink(cb: ((amount: number) => void) | null): void {
+        this.xpSink = cb;
+    }
+
     public getPurchaseCount(itemId: string): number {
         return this.purchaseCounts[itemId] ?? 0;
     }
@@ -146,6 +153,7 @@ export class PlayerStats {
             this.money += amount;
         }
         this.totalMoneyEarned += amount;
+        this.xpSink?.(amount); // gold income folds into XP
     }
 
     /**
