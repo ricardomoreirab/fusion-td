@@ -1636,10 +1636,14 @@ export class SurvivorsGameplayState implements GameState {
         this.heroController?.updateBasicAttackSpeed(ps.basicAttackSpeedMultiplier);
     }
 
-    /** Lightweight, allocation-free level-up feedback (flash the level pill + log). */
+    /** Lightweight, allocation-free level-up feedback (flash the level pill + log
+     *  + float an in-world 'LEVEL UP!' at the hero, mirroring item-pickup text). */
     private showLevelUpFeedback(level: number): void {
         console.log(`[xp] LEVEL UP → Lv ${level}`);
         this.hud?.flashXpBar();
+        if (this.damageNumbers && this.hero) {
+            this.damageNumbers.showText(this.hero.getPosition(), 'LEVEL UP!', '#ffd84a', 64);
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────

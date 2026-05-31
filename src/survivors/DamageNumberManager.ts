@@ -24,8 +24,19 @@ interface DamageNumberSlot {
 }
 
 const POOL_SIZE = 24;
-const TEX_WIDTH = 160;
-const TEX_HEIGHT = 80;
+// Canvas resolution per pooled number. Sized generously so long strings
+// ("LEVEL UP!") and large crit numbers are never clipped; drawText() auto-shrinks
+// the font as a final safety net for anything still wider than the canvas.
+const TEX_WIDTH = 384;
+const TEX_HEIGHT = 160;
+// Billboard plane world size. Kept at a constant 0.009375 world-units-per
+// texture-pixel (TEX_WIDTH * 0.009375 = PLANE_WIDTH, same for height) so text
+// renders at the EXACT same apparent size as the original 160×80 / 1.5×0.75
+// setup — we only added canvas margin around the text, we did not rescale it.
+const PLANE_WIDTH = 3.6;
+const PLANE_HEIGHT = 1.5;
+// Pixels kept clear around the text (also absorbs the stroke spread).
+const TEXT_PAD = 10;
 
 export class DamageNumberManager {
     private scene: Scene;
@@ -46,7 +57,7 @@ export class DamageNumberManager {
             material.useAlphaFromDiffuseTexture = true;
             material.backFaceCulling = false;
 
-            const mesh = MeshBuilder.CreatePlane(`dmgNum${i}`, { width: 1.5, height: 0.75 }, this.scene);
+            const mesh = MeshBuilder.CreatePlane(`dmgNum${i}`, { width: PLANE_WIDTH, height: PLANE_HEIGHT }, this.scene);
             mesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
             mesh.material = material;
             mesh.setEnabled(false);
@@ -85,9 +96,22 @@ export class DamageNumberManager {
     private drawText(slot: DamageNumberSlot, text: string, color: string, fontSize: number): void {
         const ctx = slot.texture.getContext() as CanvasRenderingContext2D;
         ctx.clearRect(0, 0, TEX_WIDTH, TEX_HEIGHT);
-        ctx.font = `bold ${fontSize}px Arial`;
+
+        // Fit the requested font to the canvas so text is NEVER clipped: cap by
+        // height first, then shrink to fit the width for long strings / huge crits.
+        const maxW = TEX_WIDTH - TEXT_PAD * 2;
+        const maxH = TEX_HEIGHT - TEXT_PAD * 2;
+        let size = Math.min(fontSize, maxH);
+        ctx.font = `bold ${size}px Arial`;
+        const measured = ctx.measureText(text).width + 5; // + stroke spread
+        if (measured > maxW) {
+            size = Math.max(8, Math.floor((size * maxW) / measured));
+            ctx.font = `bold ${size}px Arial`;
+        }
+
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
+        ctx.lineJoin = 'round';
         ctx.strokeStyle = 'black';
         ctx.lineWidth = 5;
         ctx.strokeText(text, TEX_WIDTH / 2, TEX_HEIGHT / 2);
