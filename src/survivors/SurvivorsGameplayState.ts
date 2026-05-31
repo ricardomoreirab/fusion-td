@@ -126,6 +126,9 @@ const ITEM_FLOAT_COLOR: Record<ItemId, string> = {
 const TORCH_INTENSITY = 1.8;   // tuned for the grass shader's (1-d/r)² falloff
 const TORCH_RANGE     = 9;
 
+/** Seconds shaved off every ability on cooldown for each monster killed. */
+const KILL_COOLDOWN_REDUCTION = 0.1;
+
 export class SurvivorsGameplayState implements GameState {
     private game: Game;
     private scene: Scene | null = null;
@@ -546,6 +549,8 @@ export class SurvivorsGameplayState implements GameState {
         };
         Enemy.onRewardCallback = (position, reward) => {
             this.damageNumbers?.showReward(position, reward);
+            // Each monster killed refunds a flat slice of every ability cooldown.
+            this.abilityManager?.reduceAllCooldowns(KILL_COOLDOWN_REDUCTION);
         };
         // Frozen/marked enemies erupt on death (Phase 1a primed the hook).
         Enemy.onShatterCallback = (position, damage, radius, element, status) => {
