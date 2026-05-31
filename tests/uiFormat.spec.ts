@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cooldownFraction, waveLabel, goldLabel } from '../src/ui/format';
+import { cooldownFraction, waveLabel, levelLabel } from '../src/ui/format';
 
 describe('cooldownFraction', () => {
   it('clamps to 0..1', () => {
@@ -27,8 +27,8 @@ describe('waveLabel', () => {
   });
 });
 
-describe('goldLabel', () => {
-  it('prefixes the coin glyph', () => {
-    expect(goldLabel(240)).toBe('◯ 240');
+describe('levelLabel', () => {
+  it('prefixes the LV tag', () => {
+    expect(levelLabel(23)).toBe('LV 23');
   });
 });

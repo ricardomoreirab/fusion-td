@@ -1244,7 +1244,7 @@ export class SurvivorsGameplayState implements GameState {
             }
             this.hud.update(
                 this.heroController.getHealth(),
-                this.playerStats.getGold(),
+                { level: this.levelSystem?.getLevel() ?? 1, progress: this.levelSystem?.getProgress() ?? 0 },
                 this.powerSlots.getSlots(),
                 dt,
                 waveInfo,
@@ -1634,10 +1634,10 @@ export class SurvivorsGameplayState implements GameState {
         this.heroController?.updateBasicAttackSpeed(ps.basicAttackSpeedMultiplier);
     }
 
-    /** Lightweight, allocation-free level-up feedback (flash the XP bar + log). */
+    /** Lightweight, allocation-free level-up feedback (flash the level pill + log). */
     private showLevelUpFeedback(level: number): void {
         console.log(`[xp] LEVEL UP → Lv ${level}`);
-        // XP-bar flash wired in once the HUD bar exists (HeroHud.flashXpBar).
+        this.hud?.flashXpBar();
     }
 
     // ─────────────────────────────────────────────────────────────────────────

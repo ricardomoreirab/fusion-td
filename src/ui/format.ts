@@ -20,7 +20,7 @@ export function waveLabel(info?: WaveInfo): string {
   return `WAVE ${info.wave} CLEARED`;
 }
 
-/** Gold pill text. */
-export function goldLabel(gold: number): string {
-  return `◯ ${gold}`;
+/** Level pill text. */
+export function levelLabel(level: number): string {
+  return `LV ${level}`;
 }

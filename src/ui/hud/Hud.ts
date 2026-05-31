@@ -7,7 +7,7 @@ import { el } from '../dom';
 import { makePill, PillController } from '../primitives/Pill';
 import { makeIconSlot, IconSlotController } from '../primitives/IconSlot';
 import { flashClass, onTap } from '../interaction';
-import { cooldownFraction, waveLabel, goldLabel, WaveInfo } from '../format';
+import { cooldownFraction, waveLabel, levelLabel, WaveInfo } from '../format';
 
 // Copied verbatim from HeroHud.ts — keep in sync until HeroHud is deleted.
 const ELEMENT_GLYPH: Record<string, string> = {
@@ -47,7 +47,7 @@ export class Hud {
   private root: HTMLDivElement;
   private hpPill: PillController;
   private wavePill: PillController;
-  private goldPill: PillController;
+  private levelPill: PillController;
 
   private powerSlots: IconSlotController[] = [];
   private itemSlots: Record<ItemId, IconSlotController | null> = {
@@ -67,7 +67,7 @@ export class Hud {
 
   // diff trackers
   private prevHp = -1;
-  private prevGold = -1;
+  private prevLevel = -1;
   private prevWaveInProgress = false;
 
   constructor(gameUI: GameUI, abilityManager?: AbilityManager, game?: Game) {
@@ -78,12 +78,12 @@ export class Hud {
     this.root = el('div', { class: 'hud' });
     gameUI.layer('hud').appendChild(this.root);
 
-    // Top bar: [HP | wave | gold]
+    // Top bar: [HP | wave | level] — the level pill carries the XP-progress fill.
     const topBar = el('div', { class: 'hud__topbar' });
     this.hpPill = makePill('hp');
     this.wavePill = makePill('wave');
-    this.goldPill = makePill('gold');
-    topBar.append(this.hpPill.root, this.wavePill.root, this.goldPill.root);
+    this.levelPill = makePill('level');
+    topBar.append(this.hpPill.root, this.wavePill.root, this.levelPill.root);
     this.root.appendChild(topBar);
 
     // Bottom-left cluster: 4 power slots + 4 item slots.
@@ -131,7 +131,7 @@ export class Hud {
     }
     this.root.appendChild(bottomRight);
 
-    // Pause button (top-right, left of gold).
+    // Pause button (top-right, left of the level pill).
     const pauseBtn = el('div', { class: 'hud__pause frame frame--lite interactive', attrs: { role: 'button' } });
     this.pauseIcon = el('div', { class: 'hud__pause-icon', text: '⏸' });
     pauseBtn.appendChild(this.pauseIcon);
@@ -170,7 +170,7 @@ export class Hud {
 
   update(
     hp: { current: number; max: number },
-    gold: number,
+    xp: { level: number; progress: number },
     slots: (PowerSlot | null)[],
     deltaTime = 0,
     waveInfo?: WaveInfo,
@@ -183,11 +183,12 @@ export class Hud {
     }
     this.prevHp = hp.current;
 
-    this.goldPill.setText(goldLabel(gold));
-    if (this.prevGold >= 0 && gold > this.prevGold) {
-      flashClass(this.goldPill.root, 'pill--pulse');
+    this.levelPill.setText(levelLabel(xp.level));
+    this.levelPill.setFill(xp.progress);
+    if (this.prevLevel >= 0 && xp.level > this.prevLevel) {
+      flashClass(this.levelPill.root, 'pill--pulse');
     }
-    this.prevGold = gold;
+    this.prevLevel = xp.level;
 
     this.wavePill.setText(waveLabel(waveInfo));
     if (waveInfo && this.prevWaveInProgress && !waveInfo.inProgress) {
@@ -261,6 +262,9 @@ export class Hud {
       this.lowHpTime = 0;
     }
   }
+
+  /** Flash the level pill on level-up (called by the gameplay state). */
+  flashXpBar(): void { flashClass(this.levelPill.root, 'pill--pulse'); }
 
   // Stubs completed in later tasks (kept so the API exists from the start).
   pulseItem(id: ItemId): void { this.itemPulse[id] = true; }

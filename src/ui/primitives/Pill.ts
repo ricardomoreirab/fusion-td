@@ -1,21 +1,21 @@
 import { el } from '../dom';
 
-export type PillKind = 'hp' | 'wave' | 'gold';
+export type PillKind = 'hp' | 'wave' | 'level';
 
 export interface PillController {
   root: HTMLDivElement;
   /** Set the displayed text. */
   setText(text: string): void;
-  /** For the HP pill only — set the fill ratio 0..1. */
+  /** For fill-carrying pills (HP, level/XP) — set the fill ratio 0..1. */
   setFill(ratio: number): void;
 }
 
-/** A light-forged capsule (HP / wave / gold). The HP variant carries a fill bar. */
+/** A light-forged capsule (HP / wave / level). The HP and level variants carry a fill bar. */
 export function makePill(kind: PillKind): PillController {
   const root = el('div', { class: `pill pill--${kind} frame frame--lite interactive` });
 
   let fill: HTMLDivElement | null = null;
-  if (kind === 'hp') {
+  if (kind === 'hp' || kind === 'level') {
     fill = el('div', { class: 'pill__fill' });
     root.appendChild(fill);
   }
