@@ -154,7 +154,8 @@ export class SurvivorsGameplayState implements GameState {
     private waveManager: WaveManager | null = null;
     private playerStats: PlayerStats | null = null;
     // XP / leveling — replaces the gold Armory shop. Gold income folds into XP;
-    // each level-up pushes +0.5%/level onto every attribute (see applyLevelBonuses).
+    // each level-up pushes +1%/level onto every attribute except crit chance
+    // (which stays +0.5%/level) — see applyLevelBonuses.
     private levelSystem: LevelSystem | null = null;
     /** Hero base max HP captured at run start — XP scales max HP off this. */
     private baseMaxHealth = 0;
@@ -450,7 +451,8 @@ export class SurvivorsGameplayState implements GameState {
         this.playerStats = new PlayerStats(heroHp, 100);
 
         // XP / leveling replaces the gold shop. Gold income is folded into XP via the
-        // sink; each level-up pushes +0.5%/level onto every attribute. Establish the
+        // sink; each level-up pushes +1%/level onto every attribute (crit chance
+        // stays +0.5%/level). Establish the
         // level-1 baseline now (b=0 → neutral multipliers): heroController exists
         // (created just above) and runPerks is at defaults this early in the run.
         this.levelSystem = new LevelSystem();
@@ -1610,19 +1612,20 @@ export class SurvivorsGameplayState implements GameState {
      */
     private applyLevelBonuses(): void {
         if (!this.playerStats || !this.levelSystem) return;
-        const b = this.levelSystem.getBonusFraction();
+        const b = this.levelSystem.getBonusFraction(); // crit-chance rate: +0.5%/level
+        const g = b * 2;                                // every other attribute: doubled (+1%/level)
         const ps = this.playerStats;
-        ps.moveSpeedMultiplier        = 1 + b;
-        ps.attackRangeMultiplier      = 1 + b;
-        ps.basicAttackSpeedMultiplier = 1 + b;
-        ps.powerDamageMultiplier      = 1 + b;
-        ps.powerCooldownMultiplier    = 1 - b; // lower = faster
-        ps.damageReductionMultiplier  = 1 - b; // lower = tankier
-        ps.critChance                 = b;
-        ps.critDamageMultiplier       = 1.5 * (1 + b);
+        ps.moveSpeedMultiplier        = 1 + g;
+        ps.attackRangeMultiplier      = 1 + g;
+        ps.basicAttackSpeedMultiplier = 1 + g;
+        ps.powerDamageMultiplier      = 1 + g;
+        ps.powerCooldownMultiplier    = 1 - g; // lower = faster
+        ps.damageReductionMultiplier  = 1 - g; // lower = tankier
+        ps.critChance                 = b;     // NOT doubled — kept at +0.5%/level
+        ps.critDamageMultiplier       = 1.5 * (1 + g);
 
         // Max HP: scale off base, apply only the delta to the hero (and heal it).
-        const targetBonus = Math.round(this.baseMaxHealth * b);
+        const targetBonus = Math.round(this.baseMaxHealth * g);
         const delta = targetBonus - this.appliedMaxHpBonus;
         if (delta !== 0 && this.heroController) {
             this.heroController.addMaxHealth(delta);

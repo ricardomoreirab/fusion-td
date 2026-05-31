@@ -77,7 +77,7 @@ Still under `src/survivors/`:
 - `src/survivors/ui/OffscreenEnemyIndicators.ts` — off-screen elite arrow indicators.
 - `src/survivors/DamageNumberManager.ts` — pooled floating damage/reward numbers.
 
-**Progression:** attributes grow automatically via the **XP/leveling system** (`src/survivors/LevelSystem.ts`) — each level grants +0.5% to every attribute (cap level 100). It **replaced the gold Armory shop**; `src/ui/overlays/Shop.ts` was deleted.
+**Progression:** attributes grow automatically via the **XP/leveling system** (`src/survivors/LevelSystem.ts`) — each level grants +1% to every attribute except crit chance (which stays +0.5%/level) (cap level 100). It **replaced the gold Armory shop**; `src/ui/overlays/Shop.ts` was deleted.
 
 > The legacy Babylon-GUI `src/survivors/ui/{HeroHud,ChampionSelectOverlay,PowerChoiceOverlay,ReplaceSlotOverlay}.ts` were **deleted** (superseded by the DOM versions above). Don't resurrect them — edit `src/ui/**`.
 

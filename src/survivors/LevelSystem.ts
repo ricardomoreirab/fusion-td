@@ -1,15 +1,19 @@
 /**
  * LevelSystem — pure-logic hero leveling (no Babylon, no PlayerStats import, so it
  * is unit-testable). The gameplay state owns the instance and wires its effects:
- * on each level-up it pushes the +0.5%/level attribute bonus onto PlayerStats and
- * shows feedback. XP is fed from the former gold-income stream (kills + wave/perfect
+ * on each level-up it pushes the per-level attribute bonus onto PlayerStats —
+ * applyLevelBonuses doubles this system's rate to +1%/level for every attribute
+ * except crit chance, which stays at the +0.5%/level returned here — and shows
+ * feedback. XP is fed from the former gold-income stream (kills + wave/perfect
  * bonuses) via PlayerStats.setXpSink. See
  * docs/superpowers/specs/2026-05-31-xp-leveling-system-design.md.
  */
 export interface XpConfig {
   /** Hard level cap. */
   maxLevel: number;
-  /** Bonus fraction added per level: 0.005 = +0.5% per level (≈+50% at level 100). */
+  /** Bonus fraction added per level: 0.005 = +0.5% per level. This is the crit-
+   *  chance rate; applyLevelBonuses doubles it (+1%/level, ≈+100% at level 100)
+   *  for every other attribute. */
   bonusPerLevel: number;
   /** XP needed to go from level 1 → 2. */
   curveBase: number;
