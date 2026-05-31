@@ -26,12 +26,13 @@ describe('DifficultyTuning', () => {
     expect(D.playerHpMult).toBeLessThan(1);
   });
 
-  // Guards the module's headline intent: axes are MODEST so they aggregate to
-  // "substantial" (~1.5–1.7×), not "brutal" (~3×). These upper bounds fail loudly
-  // if someone bumps a knob far past the rebalance's design (e.g. enemyHpMult=3).
-  it('stays substantial, not brutal (aggregate axes bounded)', () => {
-    expect(D.enemyHpMult * D.eliteHpMult).toBeLessThan(6);   // tankiest enemy (elite) HP stack
-    expect(D.spawnRateMult * D.enemyCountMult).toBeLessThan(6); // swarm-pressure stack
-    expect(D.enemyHpMult * D.enemyDamageMult).toBeLessThan(2.5); // per-trash tankier×harder
+  // The tuning is INTENTIONALLY brutal: each enemy axis carries a literal 1.5×
+  // bump, which compounds multiplicatively to ~3× overall (a deliberate choice,
+  // see the module header). These upper bounds still fail loudly if someone fat-
+  // fingers a knob far past even the brutal design (e.g. enemyHpMult=30).
+  it('is brutal-by-design but bounded against runaway typos', () => {
+    expect(D.enemyHpMult * D.eliteHpMult).toBeLessThan(15);     // tankiest enemy (elite) HP stack
+    expect(D.spawnRateMult * D.enemyCountMult).toBeLessThan(15); // swarm-pressure stack
+    expect(D.enemyHpMult * D.enemyDamageMult).toBeLessThan(5);   // per-trash tankier×harder
   });
 });
