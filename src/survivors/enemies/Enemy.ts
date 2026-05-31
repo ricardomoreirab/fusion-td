@@ -82,6 +82,10 @@ export class Enemy {
      */
     public static onDamageCallback: ((position: Vector3, damage: number, isCrit: boolean, element?: PowerElement) => void) | null = null;
     public static onRewardCallback: ((position: Vector3, reward: number) => void) | null = null;
+    /** Fired exactly once per kill from base die() — independent of the visual
+     *  death-effect path (which several subclasses override without calling super).
+     *  Used for kill-driven gameplay like the cooldown refund. Position by reference. */
+    public static onKillCallback: ((position: Vector3) => void) | null = null;
     /** Wired by the gameplay state (a later phase) to a shatter-AoE effect. Fired from
      *  die() when an enemy was shatter-primed. Position is passed by reference — the
      *  consumer must NOT retain the Vector3. */
@@ -1375,6 +1379,11 @@ export class Enemy {
         if (!this.alive) return;
 
         this.alive = false;
+
+        // Kill hook — fires once per death from the authoritative kill path, NOT from
+        // createDeathEffect (which BasicEnemy/ShieldEnemy/HealerEnemy override without
+        // calling super, so a reward-float-coupled hook would miss most kills).
+        if (Enemy.onKillCallback) Enemy.onKillCallback(this.position);
 
         // Tear down any in-progress melee swing.
         this.cancelMeleeAttack();

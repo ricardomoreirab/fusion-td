@@ -569,7 +569,11 @@ export class SurvivorsGameplayState implements GameState {
         };
         Enemy.onRewardCallback = (position, reward) => {
             this.damageNumbers?.showReward(position, reward);
-            // Each monster killed refunds a flat slice of every ability cooldown.
+        };
+        // Each monster killed refunds a flat slice of every ability cooldown. Wired
+        // to the kill hook (fires once per death from base die()) rather than the
+        // reward float, which several enemy subclasses skip.
+        Enemy.onKillCallback = () => {
             this.abilityManager?.reduceAllCooldowns(KILL_COOLDOWN_REDUCTION);
         };
         // Frozen/marked enemies erupt on death (Phase 1a primed the hook).
@@ -1099,6 +1103,7 @@ export class SurvivorsGameplayState implements GameState {
 
         Enemy.onDamageCallback = null;
         Enemy.onRewardCallback = null;
+        Enemy.onKillCallback = null;
         Enemy.onShatterCallback = null;
         resetPowerEffects();
         if (this.testLabelEl) { this.testLabelEl.remove(); this.testLabelEl = null; }
