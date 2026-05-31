@@ -64,15 +64,22 @@ src/
 ### Manual ultimates
 - `src/survivors/abilities/AbilityManager.ts` — Meteor Strike (45s, click-to-target), Frost Nova (30s, instant), and per-champion class ults. `triggerFrostNova()`, `triggerMeteorAtNearest()`. Constructed with `(game, enemyManager)`.
 
-### Survivors UI (in `src/survivors/ui/`)
-- `HeroHud.ts` — HP bar, gold, 4 power-slot icons with cooldown sweeps, 4-item lifesteal/etc row, ultimate buttons with countdown text, low-HP red vignette pulse.
-- `ChampionSelectOverlay.ts` — 3-card champion picker.
-- `PowerChoiceOverlay.ts` — 3-card slow-mo orb pickup choice; subtitles show damage + cooldown delta.
-- `ReplaceSlotOverlay.ts` — secondary slot-replacement prompt.
-- The between-wave shop ("Armory") is a **DOM** overlay at `src/ui/overlays/Shop.ts` (class `BetweenWaveShopOverlay`) — 8 items in a 4×2 grid, each showing its current attribute value inline. (The old Babylon-GUI `src/survivors/ui/BetweenWaveShopOverlay.ts` was deleted.)
-- `EliteIndicators.ts` — off-screen elite arrow indicators.
-- `SurvivorsJoystick.ts` — virtual joystick (mobile).
-- `DamageNumberManager.ts` (in `src/survivors/`) — pooled floating damage/reward numbers.
+### Survivors UI — migrated to **DOM** (in `src/ui/`)
+The HUD and overlays were migrated off Babylon-GUI to DOM (see `docs/superpowers/plans/2026-05-29-dom-ui-foundation-and-hud.md`). The live UI is:
+- `src/ui/hud/Hud.ts` (class `Hud`) — **THE in-game HUD**. HP pill, wave pill, **level pill (`LV n` + XP-progress fill)**, 4 power-slot icons with cooldown sweeps, 4-item row, ultimate buttons, low-HP vignette. Built from `src/ui/primitives/` (`Pill`, `IconSlot`), styled by `src/ui/styles/components.css`; pill text via `src/ui/format.ts`.
+- `src/ui/overlays/ChampionSelect.ts` — 3-card champion picker.
+- `src/ui/overlays/PowerChoice.ts` — 3-card slow-mo orb pickup choice; subtitles show damage + cooldown delta.
+- `src/ui/overlays/ReplaceSlot.ts` — secondary slot-replacement prompt.
+- `src/ui/overlays/Leaderboard.ts` — shared leaderboard modal.
+
+Still under `src/survivors/`:
+- `src/survivors/ui/SurvivorsJoystick.ts` — virtual joystick (mobile).
+- `src/survivors/ui/OffscreenEnemyIndicators.ts` — off-screen elite arrow indicators.
+- `src/survivors/DamageNumberManager.ts` — pooled floating damage/reward numbers.
+
+**Progression:** attributes grow automatically via the **XP/leveling system** (`src/survivors/LevelSystem.ts`) — each level grants +0.5% to every attribute (cap level 100). It **replaced the gold Armory shop**; `src/ui/overlays/Shop.ts` was deleted.
+
+> The legacy Babylon-GUI `src/survivors/ui/{HeroHud,ChampionSelectOverlay,PowerChoiceOverlay,ReplaceSlotOverlay}.ts` were **deleted** (superseded by the DOM versions above). Don't resurrect them — edit `src/ui/**`.
 
 ### Shared cross-state UI (in `src/shared/ui/`)
 - `HudStyle.ts` — pill + frame factories, press/flash/pulse helpers.

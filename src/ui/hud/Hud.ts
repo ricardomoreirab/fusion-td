@@ -9,7 +9,7 @@ import { makeIconSlot, IconSlotController } from '../primitives/IconSlot';
 import { flashClass, onTap } from '../interaction';
 import { cooldownFraction, waveLabel, levelLabel, WaveInfo } from '../format';
 
-// Copied verbatim from HeroHud.ts — keep in sync until HeroHud is deleted.
+// Glyph/colour maps for the HUD (originally from the now-deleted Babylon-GUI HeroHud).
 const ELEMENT_GLYPH: Record<string, string> = {
   fire: '🔥', ice: '◆', arcane: '◉', physical: '➤', storm: '⚡',
 };
