@@ -21,7 +21,6 @@ import { Enemy, HEALTH_BAR_RENDER_GROUP } from './enemies/Enemy';
 import { BasicAttackTarget } from './champions/HeroBasicAttack';
 import { PowerChoiceOverlay, PowerCard } from '../ui/overlays/PowerChoice';
 import { ReplaceSlotOverlay } from '../ui/overlays/ReplaceSlot';
-import { BetweenWaveShopOverlay, ShopItem } from '../ui/overlays/Shop';
 import { Hud } from '../ui/hud/Hud';
 import { GameUI } from '../ui/GameUI';
 import { OffscreenEnemyIndicators } from './ui/OffscreenEnemyIndicators';
@@ -254,10 +253,8 @@ export class SurvivorsGameplayState implements GameState {
     private gameUI: GameUI | null = null;
     private powerChoice: PowerChoiceOverlay | null = null;
     private replaceSlotOverlay: ReplaceSlotOverlay | null = null;
-    private shopOverlay: BetweenWaveShopOverlay | null = null;
     private offscreenIndicators: OffscreenEnemyIndicators | null = null;
     private championSelect: ChampionSelectOverlay | null = null;
-    private shopItems: ShopItem[] = [];
 
     constructor(game: Game) {
         this.game = game;
@@ -640,10 +637,18 @@ export class SurvivorsGameplayState implements GameState {
             const clearedWave = this.waveManager?.getCurrentWave() ?? 0;
             this.checkResourceBudget(clearedWave);
             this.maybeDisableEnemyShadows(clearedWave);
-            // DEV ?test: skip the between-wave Armory and auto-advance so every
-            // wave runs unattended — surfacing the freeze across the whole run.
+            // Calibration log: read in a ?test run to tune XP_CONFIG so level 100
+            // lands near wave 30 (see the XP spec §6).
+            if (this.levelSystem) {
+                console.log(`[xp] wave=${clearedWave} level=${this.levelSystem.getLevel()} ` +
+                    `progress=${Math.round(this.levelSystem.getProgress() * 100)}% ` +
+                    `totalXp=${Math.round(this.levelSystem.getTotalXp())}`);
+            }
+            // No shop (XP replaced it): auto-advance after a short breather so the run
+            // flows. The slow-mo orb power-choice still provides the only real pause.
+            // ?test advances immediately for a fully unattended stress pass.
             if (this.testMode) { this.waveManager?.startNextWave(); return; }
-            this.openShop();
+            this.waveBreatherRemaining = SurvivorsGameplayState.WAVE_BREATHER_SECONDS;
         });
 
         // Override spawn fn: spawn enemies at arena perimeter
@@ -741,7 +746,6 @@ export class SurvivorsGameplayState implements GameState {
         // Overlays
         this.powerChoice     = new PowerChoiceOverlay(this.gameUI!.layer('overlay'));
         this.replaceSlotOverlay = new ReplaceSlotOverlay(this.gameUI!.layer('overlay'));
-        this.shopOverlay     = new BetweenWaveShopOverlay(this.gameUI!.layer('overlay'));
 
         // DEV: ?test → no powers equipped at start; add them on demand with \ (stress)
         //      or cycle archetypes with ]. testFusions stays primed for both.
@@ -751,9 +755,6 @@ export class SurvivorsGameplayState implements GameState {
             this.testFusionIndex = 0;
             if (this.heroController) this.heroController.debugInvulnerable = true; // survive the stress horde
         }
-
-        // Define shop items (applied directly via playerStats + heroController)
-        this.shopItems = this.buildShopItems();
 
         // Off-screen enemy indicators (all tiers)
         this.offscreenIndicators = new OffscreenEnemyIndicators(
@@ -1018,9 +1019,6 @@ export class SurvivorsGameplayState implements GameState {
         this.appliedMaxHpBonus = 0;
         this.waveBreatherRemaining = 0;
 
-        this.shopOverlay?.close();
-        this.shopOverlay = null;
-
         this.replaceSlotOverlay?.close();
         this.replaceSlotOverlay = null;
 
@@ -1135,6 +1133,17 @@ export class SurvivorsGameplayState implements GameState {
 
         this.heroController.update(dt);
         if (this.hero) this.hero.update(dt);
+
+        // Between-wave breather → auto-advance (shop removed). Uses raw wall-clock
+        // deltaTime; only ticks here because update() returns early while any blocking
+        // overlay is open (so it never advances mid power-choice).
+        if (this.waveBreatherRemaining > 0) {
+            this.waveBreatherRemaining -= deltaTime;
+            if (this.waveBreatherRemaining <= 0) {
+                this.waveBreatherRemaining = 0;
+                this.waveManager?.startNextWave();
+            }
+        }
 
         // Keep the procedural-grass shader's torch uniforms in sync with the
         // real heroTorch PointLight. When the torch is off (intensity 0), the
@@ -1263,8 +1272,7 @@ export class SurvivorsGameplayState implements GameState {
     private isPausedForOverlay(): boolean {
         return !!(
             this.powerChoice?.isOpen() ||
-            this.replaceSlotOverlay?.isOpen() ||
-            this.shopOverlay?.isOpen()
+            this.replaceSlotOverlay?.isOpen()
         );
     }
 
@@ -1633,191 +1641,6 @@ export class SurvivorsGameplayState implements GameState {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Between-wave shop
-    // ─────────────────────────────────────────────────────────────────────────
-
-    private openShop(): void {
-        if (!this.shopOverlay || !this.playerStats) return;
-        this.shopOverlay.show(
-            this.shopItems,
-            () => this.playerStats!.getGold(),
-            (id) => this.playerStats!.getPurchaseCount(id),
-            (amount) => this.playerStats!.spendGold(amount),
-            () => {
-                // Player pressed "Start Next Wave"
-                this.waveManager?.startNextWave();
-            },
-        );
-    }
-
-    private buildShopItems(): ShopItem[] {
-        // Format multiplier as a percentage delta vs the 1.0 baseline (e.g., 1.15 -> "+15%").
-        const pctDelta = (mult: number): string => {
-            const pct = (mult - 1) * 100;
-            return `${pct >= 0 ? '+' : ''}${pct.toFixed(0)}%`;
-        };
-        const pctInv = (mult: number): string => {
-            // For multipliers where lower = better (cooldown, damage taken).
-            const pct = (1 - mult) * 100;
-            return `${pct >= 0 ? '-' : '+'}${Math.abs(pct).toFixed(0)}%`;
-        };
-
-        return [
-            {
-                id:          'vitality',
-                name:        'Vitality',
-                description: '+20 max HP, heal +20',
-                baseCost:    30,
-                costGrowth:  1.5,
-                isCapped:    () => false,
-                currentValue: () => {
-                    const cur  = this.heroController?.getHealth().max ?? 0;
-                    return `now ${cur} → ${cur + 20} HP`;
-                },
-                apply: () => {
-                    this.playerStats!.incrementPurchase('vitality');
-                    this.playerStats!.bonusMaxHealth += 20;
-                    this.heroController!.addMaxHealth(20);
-                    this.heroController!.heal(20);
-                },
-            },
-            {
-                id:          'swiftness',
-                name:        'Swiftness',
-                description: '+5% move speed',
-                baseCost:    40,
-                costGrowth:  1.6,
-                isCapped:    () => false,
-                currentValue: () => {
-                    const cur  = this.playerStats!.moveSpeedMultiplier;
-                    return `now ${pctDelta(cur)} → ${pctDelta(cur * 1.05)}`;
-                },
-                apply: () => {
-                    this.playerStats!.incrementPurchase('swiftness');
-                    this.playerStats!.moveSpeedMultiplier *= 1.05;
-                    this.heroController!.updateMoveSpeed(
-                        this.playerStats!.moveSpeedMultiplier * this.runPerks.moveSpeedMultiplier,
-                    );
-                },
-            },
-            {
-                id:          'reach',
-                name:        'Reach',
-                description: '+5% basic attack range',
-                baseCost:    35,
-                costGrowth:  1.55,
-                isCapped:    () => false,
-                currentValue: () => {
-                    const cur  = this.playerStats!.attackRangeMultiplier;
-                    return `now ${pctDelta(cur)} → ${pctDelta(cur * 1.05)}`;
-                },
-                apply: () => {
-                    this.playerStats!.incrementPurchase('reach');
-                    this.playerStats!.attackRangeMultiplier *= 1.05;
-                    this.heroController!.updateBasicAttackRange(
-                        this.playerStats!.attackRangeMultiplier * this.runPerks.attackRangeMultiplier,
-                    );
-                },
-            },
-            {
-                id:          'power',
-                name:        'Power',
-                description: '+5% all power damage',
-                baseCost:    50,
-                costGrowth:  1.7,
-                isCapped:    () => false,
-                currentValue: () => {
-                    const cur  = this.playerStats!.powerDamageMultiplier;
-                    return `now ${pctDelta(cur)} → ${pctDelta(cur * 1.05)}`;
-                },
-                apply: () => {
-                    this.playerStats!.incrementPurchase('power');
-                    this.playerStats!.powerDamageMultiplier *= 1.05;
-                },
-            },
-            {
-                id:          'haste',
-                name:        'Haste',
-                description: '-5% power cooldowns & +5% attack speed',
-                baseCost:    75,
-                costGrowth:  1.75,
-                // Uncapped: the cooldown clamps at its 0.5× floor internally, while basic
-                // attack speed keeps scaling — so the item stays buyable for the attack-speed half.
-                isCapped:    () => false,
-                currentValue: () => {
-                    const cd     = this.playerStats!.powerCooldownMultiplier;
-                    const cdNxt  = Math.max(0.5, cd * 0.95);
-                    const atk     = this.playerStats!.basicAttackSpeedMultiplier;
-                    return `cd ${pctInv(cd)} → ${pctInv(cdNxt)} · atk ${pctDelta(atk)} → ${pctDelta(atk * 1.05)}`;
-                },
-                apply: () => {
-                    this.playerStats!.incrementPurchase('haste');
-                    this.playerStats!.powerCooldownMultiplier = Math.max(
-                        0.5,
-                        this.playerStats!.powerCooldownMultiplier * 0.95,
-                    );
-                    this.playerStats!.basicAttackSpeedMultiplier *= 1.05;
-                    this.heroController!.updateBasicAttackSpeed(this.playerStats!.basicAttackSpeedMultiplier);
-                },
-            },
-            {
-                id:          'bulwark',
-                name:        'Bulwark',
-                description: '-5% contact damage taken',
-                baseCost:    45,
-                costGrowth:  1.5,
-                isCapped:    () => this.playerStats!.damageReductionMultiplier <= 0.2,
-                currentValue: () => {
-                    const cur  = this.playerStats!.damageReductionMultiplier;
-                    const nxt  = Math.max(0.2, cur * 0.95);
-                    return `now ${pctInv(cur)} → ${pctInv(nxt)} damage taken`;
-                },
-                apply: () => {
-                    this.playerStats!.incrementPurchase('bulwark');
-                    this.playerStats!.damageReductionMultiplier = Math.max(
-                        0.2,
-                        this.playerStats!.damageReductionMultiplier * 0.95,
-                    );
-                },
-            },
-            {
-                id:          'precision',
-                name:        'Precision',
-                description: '+1% critical strike chance',
-                baseCost:    55,
-                costGrowth:  1.65,
-                isCapped:    () => this.playerStats!.critChance >= 1.0,
-                currentValue: () => {
-                    const cur = this.playerStats!.critChance * 100;
-                    const nxt = Math.min(100, cur + 1);
-                    return `now ${cur.toFixed(0)}% → ${nxt.toFixed(0)}% crit`;
-                },
-                apply: () => {
-                    this.playerStats!.incrementPurchase('precision');
-                    this.playerStats!.critChance = Math.min(1.0, this.playerStats!.critChance + 0.01);
-                },
-            },
-            {
-                id:          'savagery',
-                name:        'Savagery',
-                description: '+5% critical strike damage',
-                baseCost:    55,
-                costGrowth:  1.65,
-                isCapped:    () => false,
-                currentValue: () => {
-                    const cur = this.playerStats!.critDamageMultiplier;
-                    const nxt = cur + 0.05;
-                    return `now ${cur.toFixed(2)}× → ${nxt.toFixed(2)}× crit dmg`;
-                },
-                apply: () => {
-                    this.playerStats!.incrementPurchase('savagery');
-                    this.playerStats!.critDamageMultiplier += 0.05;
-                },
-            },
-        ];
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
     // Private helpers
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -1950,7 +1773,6 @@ export class SurvivorsGameplayState implements GameState {
         const wave = this.waveManager?.getCurrentWave() ?? 0;
         const enemies = this.enemyManager?.getEnemies().length ?? 0;
         const overlays: string[] = [];
-        if (this.shopOverlay?.isOpen()) overlays.push('shop');
         if (this.powerChoice?.isOpen()) overlays.push('powerChoice');
         if (this.replaceSlotOverlay?.isOpen()) overlays.push('replaceSlot');
         const overlayStr = overlays.length ? ` · overlay=[${overlays.join(',')}]` : '';
