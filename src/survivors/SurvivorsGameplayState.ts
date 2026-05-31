@@ -976,7 +976,8 @@ export class SurvivorsGameplayState implements GameState {
         const timeSurvivedSec = (performance.now() - this.runStartTime) / 1000;
         const waveReached = this.waveManager?.getCurrentWave() ?? 0;
         const kills = this.playerStats?.getTotalKills() ?? 0;
-        const goldCollected = this.playerStats?.getTotalMoneyEarned() ?? 0;
+        const goldCollected = this.playerStats?.getTotalMoneyEarned() ?? 0; // == total XP earned now
+        const levelReached = this.levelSystem?.getLevel() ?? 1;
 
         const finalLoadout = (this.powerSlots?.getSlots() ?? [])
             .filter((s): s is NonNullable<typeof s> => s !== null)
@@ -987,6 +988,7 @@ export class SurvivorsGameplayState implements GameState {
             timeSurvivedSec,
             kills,
             goldCollected,
+            levelReached,
             finalLoadout,
             championType: this.currentChampionType,
         };

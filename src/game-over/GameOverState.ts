@@ -14,7 +14,10 @@ export interface SurvivorsRunSummary {
     waveReached: number;
     timeSurvivedSec: number;
     kills: number;
+    /** Total XP earned over the run (gold income folds into XP). */
     goldCollected: number;
+    /** Hero level reached (XP/leveling system). */
+    levelReached: number;
     finalLoadout: { name: string; level: number; icon: string; tier?: string }[];
     championType?: string;
 }
@@ -101,9 +104,10 @@ export class GameOverState implements GameState {
             };
 
             addRow('Wave Reached', s.waveReached);
+            addRow('Level Reached', s.levelReached);
             addRow('Time Survived', timeStr);
             addRow('Enemies Slain', s.kills);
-            addRow('Gold Collected', s.goldCollected);
+            addRow('XP Earned', s.goldCollected);
 
             const tierBadge = (t?: string) => (t === 'ultimate' ? '✪ ' : t === 'fusion' ? '✦ ' : '');
             const loadoutStr = s.finalLoadout.length > 0
