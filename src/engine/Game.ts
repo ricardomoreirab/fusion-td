@@ -510,4 +510,21 @@ export class Game {
     public setTimeScale(scale: number): void {
         this._timeScale = Math.max(0.5, Math.min(3, scale));
     }
+
+    /** Show the full-screen loading overlay (reused for per-run prewarm). */
+    public showLoadingScreen(label?: string): void {
+        const el = document.getElementById('loadingScreen');
+        if (!el) return;
+        el.style.display = ''; // revert the inline 'none' → CSS default (flex)
+        if (label) {
+            const lbl = el.querySelector('.ktg-loading-label');
+            if (lbl) lbl.textContent = label;
+        }
+    }
+
+    /** Hide the loading overlay. */
+    public hideLoadingScreen(): void {
+        const el = document.getElementById('loadingScreen');
+        if (el) el.style.display = 'none';
+    }
 } 

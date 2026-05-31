@@ -354,6 +354,18 @@ export class EnemyManager {
             warmup.push(new MilestoneBoss(this.game, farAway, [], tier));
         }
 
+        // Elite treatments: makeElite adds per-element aura/glow/spike meshes+materials
+        // (cached by element) that otherwise compile on the FIRST elite spawn in combat
+        // — the ~500ms freeze. Warm one elite per element here; the frustum + compile +
+        // dispose steps below cover their (parented) child meshes automatically.
+        const ELITE_PREWARM_ELEMENTS = ['fire', 'ice', 'arcane', 'physical', 'storm'];
+        for (const el of ELITE_PREWARM_ELEMENTS) {
+            BasicEnemy.pendingAsset = this.enemyAssets['basic_elite'] ?? this.enemyAssets['basic'] ?? null;
+            const e = new BasicEnemy(this.game, farAway, []);
+            makeElite(e, el, this.game.getScene());
+            warmup.push(e);
+        }
+
         // 3) Force frustum inclusion. Babylon culls anything outside the camera
         // before drawing — the far-away warmup meshes would normally be skipped,
         // so the shader compile (the whole point of the prewarm) never happens.

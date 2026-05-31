@@ -14,7 +14,7 @@ import { PowerDrop } from './powers/PowerDrop';
 import { PowerSlotManager, PowerSlot } from './powers/PowerSlotManager';
 import { POWER_DEFS, getPowerByElementAndClass, getPowerMapForClass, PowerElement, ChampionType, PowerDefinition } from './powers/PowerDefinitions';
 import { getFusionFor, getFusionsForClass, getUltimateOfferForFusions } from './powers/FusionDefinitions';
-import { aoeBurst, setCameraShakeHook, resetPowerEffects } from './powers/PowerEffects';
+import { aoeBurst, gatherVortex, persistentZone, omniVolley, setCameraShakeHook, resetPowerEffects } from './powers/PowerEffects';
 import './powers/FusionArchetypes'; // registers fusion archetypes at load
 import { Enemy, HEALTH_BAR_RENDER_GROUP } from './enemies/Enemy';
 import { BasicAttackTarget } from './champions/HeroBasicAttack';
@@ -324,6 +324,9 @@ export class SurvivorsGameplayState implements GameState {
     private async startRun(championType: string): Promise<void> {
         if (!this.scene || !this.ui || !this.map) return;
 
+        this.game.showLoadingScreen('Warming up the arena…');
+        await new Promise<void>(res => requestAnimationFrame(() => requestAnimationFrame(() => res())));
+
         // The pre-game flow (main menu + champion select) is all DOM, so the
         // canvas never received keyboard focus — WASD would be dead until the
         // player clicked the scene. Focus it now that the run is starting.
@@ -629,6 +632,7 @@ export class SurvivorsGameplayState implements GameState {
             this.heroController?.applyAttackHitsInRadius(center, radius);
         });
         this.abilityManager.prewarmAbilityEffects();
+        this.prewarmPowerEffects();
 
         // Snapshot the post-setup scene resource counts as the watchdog baseline.
         // Everything that legitimately persists for the whole run (hero, arena,
@@ -715,6 +719,27 @@ export class SurvivorsGameplayState implements GameState {
             this.heroController.getCamera(),
             () => this.enemyManager?.getEnemies() ?? [],
         );
+
+        this.game.hideLoadingScreen();
+    }
+
+    /** Prewarm the power-FX shaders (ring/vortex/zone/volley per element) so the
+     *  first fusion/ultimate cast in combat doesn't cold-compile. Fires each
+     *  no-target primitive once per element at the hero, renders, then tears them
+     *  all down via resetPowerEffects(). */
+    private prewarmPowerEffects(): void {
+        if (!this.scene || !this.hero) return;
+        const scene = this.scene;
+        const p = this.hero.getPosition();
+        const elems: PowerElement[] = ['fire', 'ice', 'arcane', 'physical', 'storm'];
+        for (const el of elems) {
+            aoeBurst(scene, [], p.x, p.z, { radius: 1, damage: 0, element: el, ringLifeS: 0.05 });
+            gatherVortex(scene, [], p.x, p.z, { radius: 1, durationS: 0.05, pull: 0, tickDamage: 0, element: el });
+            persistentZone(scene, [], p.x, p.z, { radius: 1, durationS: 0.05, tickIntervalS: 0.05, tickDamage: 0, element: el });
+            omniVolley(scene, [], p.x, p.z, { count: 2, speed: 4, damage: 0, element: el, lifeS: 0.05 });
+        }
+        scene.render(); // kick shader compilation for the spawned FX meshes
+        resetPowerEffects(); // dispose all the just-spawned prewarm FX + observers
     }
 
     /** Ported from the BabylonJS playground ancient-ruins scene — drops in a warm
