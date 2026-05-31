@@ -625,7 +625,8 @@ const magePhysicalDef: PowerDefinition = {
         if (blades.length === 0) return;
 
         const orbitRadius = (state.data!['orbitRadius'] as number) ?? magePhysicalDef.baseRange;
-        const rotateSpeed = 2.5;
+        // Mage Whirling Blades spin 3× faster than the base orbit speed.
+        const rotateSpeed = 7.5;
         const sparkleColor = new Color3(0.8, 0.8, 1.0);
 
         for (const blade of blades) {
@@ -651,7 +652,8 @@ const magePhysicalDef: PowerDefinition = {
         // attack rate the old autocast used), preserving the ~4 dmg / 0.25s balance.
         let hitTimer = (state.data!['hitTimer'] as number) ?? 0;
         hitTimer += dt;
-        if (hitTimer >= magePhysicalDef.cooldownFor(state)) {
+        // 3× more damage ticks: fire the sweep three times as often as the base cadence.
+        if (hitTimer >= magePhysicalDef.cooldownFor(state) / 3) {
             hitTimer = 0;
             const damage = magePhysicalDef.damageFor(state) * ctx.damageMultiplier;
             const hitSet = new Set<Enemy>();

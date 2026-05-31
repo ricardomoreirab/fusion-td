@@ -396,20 +396,53 @@ export class AbilityManager {
     }
 
     // ========================================================================
-    // Mage: Meteor Strike — 100 damage in radius 4
+    // Mage: Meteor Strike — a barrage of 5 meteors, 100 damage each in radius 4
     // ========================================================================
 
+    private static readonly METEOR_COUNT = 5;
+
     private activateMeteor(position: Vector3): boolean {
+        const scatter = 4; // how far the secondary meteors land from the target (u)
+
+        for (let i = 0; i < AbilityManager.METEOR_COUNT; i++) {
+            // First meteor lands dead-on the target; the rest scatter on a ring
+            // around it so the barrage blankets the area.
+            let target: Vector3;
+            if (i === 0) {
+                target = position.clone();
+            } else {
+                const angle = (i / (AbilityManager.METEOR_COUNT - 1)) * Math.PI * 2 + Math.random() * 0.6;
+                const dist = scatter * (0.5 + Math.random() * 0.5);
+                target = new Vector3(
+                    position.x + Math.cos(angle) * dist,
+                    position.y,
+                    position.z + Math.sin(angle) * dist,
+                );
+            }
+            // Stagger impacts so they rain in rather than landing as one. Each
+            // strike re-queries live enemies at its own impact time, so movement
+            // and earlier kills are accounted for.
+            const delayMs = i * 120;
+            if (delayMs === 0) {
+                this.strikeMeteorAt(target);
+            } else {
+                setTimeout(() => {
+                    try { this.strikeMeteorAt(target); } catch { /* run ended */ }
+                }, delayMs);
+            }
+        }
+        return true;
+    }
+
+    /** Damage every enemy within radius 4 of `center` and play one falling-meteor VFX. */
+    private strikeMeteorAt(center: Vector3): void {
         const radius = 4;
         const damage = 100;
-
-        const enemies = this.enemyManager.getEnemiesInRange(position, radius);
+        const enemies = this.enemyManager.getEnemiesInRange(center, radius);
         for (const enemy of enemies) {
             enemy.takeDamage(damage);
         }
-
-        this.createMeteorVisual(position, radius);
-        return true;
+        this.createMeteorVisual(center, radius);
     }
 
     private createMeteorVisual(position: Vector3, radius: number): void {
@@ -555,36 +588,41 @@ export class AbilityManager {
     }
 
     // ========================================================================
-    // Barbarian: Whirlwind — 5s spin AOE every 0.3s, radius 5, 18 dmg/tick
+    // Barbarian: Whirlwind — 5s spin AOE every 0.3s, radius 7, 18 dmg/tick
     // ========================================================================
 
     private activateWhirlwind(): boolean {
         const heroPos = this.getHeroPosition();
         if (!heroPos) return false;
 
-        // Vortex dust PS — swirling tan particles around the hero, rising up.
-        // Emitter is a Vector3 we update each frame via an onBeforeRender hook
-        // so the PS tracks the hero's actual position.
+        // Hurricane reach — double the barbarian's basic-attack range (3.5u → 7u).
+        const radius = 7;
+
+        // ── Storm updraft ───────────────────────────────────────────────────
+        // A tall, fast column of pale storm-grey debris spiralling upward — the
+        // airborne body of the hurricane. Emitter is a Vector3 we move each frame
+        // so the PS tracks the hero.
         const vortexEmitter = heroPos.clone();
-        const vortexPs = new ParticleSystem('whirlwindVortex', 80, this.scene);
+        const vortexPs = new ParticleSystem('whirlwindVortex', 240, this.scene);
         vortexPs.emitter = vortexEmitter;
-        vortexPs.minEmitBox = new Vector3(-1.2, 0, -1.2);
-        vortexPs.maxEmitBox = new Vector3(1.2, 0.2, 1.2);
-        vortexPs.color1 = new Color4(0.75, 0.62, 0.42, 1);
-        vortexPs.color2 = new Color4(0.55, 0.42, 0.28, 1);
-        vortexPs.colorDead = new Color4(0.20, 0.15, 0.10, 0);
-        vortexPs.minSize = 0.10;
-        vortexPs.maxSize = 0.28;
-        vortexPs.minLifeTime = 0.35;
-        vortexPs.maxLifeTime = 0.65;
-        vortexPs.emitRate = 220;
+        vortexPs.minEmitBox = new Vector3(-radius * 0.5, 0, -radius * 0.5);
+        vortexPs.maxEmitBox = new Vector3(radius * 0.5, 0.3, radius * 0.5);
+        vortexPs.color1 = new Color4(0.85, 0.90, 0.97, 0.9); // pale storm white
+        vortexPs.color2 = new Color4(0.55, 0.62, 0.72, 0.8); // grey-blue
+        vortexPs.colorDead = new Color4(0.30, 0.34, 0.40, 0);
+        vortexPs.minSize = 0.08;
+        vortexPs.maxSize = 0.30;
+        vortexPs.minLifeTime = 0.6;
+        vortexPs.maxLifeTime = 1.2;
+        vortexPs.emitRate = 420;
         vortexPs.blendMode = ParticleSystem.BLENDMODE_STANDARD;
-        // Tangential / upward emission so the swarm reads as a rising swirl
-        vortexPs.direction1 = new Vector3(-3, 1.2, -3);
-        vortexPs.direction2 = new Vector3(3, 2.4, 3);
-        vortexPs.minEmitPower = 2;
-        vortexPs.maxEmitPower = 4;
-        vortexPs.gravity = new Vector3(0, 1.2, 0); // positive — debris rises
+        // Wide tangential spread + strong updraft so the swarm reads as a tall,
+        // churning funnel rather than a flat ground swirl.
+        vortexPs.direction1 = new Vector3(-5, 3.0, -5);
+        vortexPs.direction2 = new Vector3(5, 6.0, 5);
+        vortexPs.minEmitPower = 3;
+        vortexPs.maxEmitPower = 6;
+        vortexPs.gravity = new Vector3(0, 3.0, 0); // strong updraft → tall column
         vortexPs.start();
 
         const emitterObs = this.scene.onBeforeRenderObservable.add(() => {
@@ -592,6 +630,70 @@ export class AbilityManager {
             if (!pos) return;
             vortexEmitter.copyFrom(pos);
             vortexEmitter.y += 0.2;
+        });
+
+        // ── Funnel cloud ────────────────────────────────────────────────────
+        // A vertical stack of rings that flares wide at the top and narrows at the
+        // base, spinning fast and swaying on a helix so it reads as a hurricane
+        // funnel from the top-down camera. Dedicated meshes (NOT the pooled ground
+        // rings) sharing ONE cached material; the meshes are disposed in onEnd and
+        // the shared material is preserved (clearMaterialCache frees it on teardown).
+        const FUNNEL_RINGS = 7;
+        const FUNNEL_HEIGHT = 4.5;
+        const funnelLife = 5.0;
+        const funnelMat = getCachedMaterial(this.scene, 'hurricaneFunnelMat', m => {
+            m.emissiveColor = new Color3(0.7, 0.85, 1.0); // pale storm-blue
+            m.diffuseColor = new Color3(0, 0, 0);
+            m.alpha = 0.5;
+            m.backFaceCulling = false;
+        });
+        const funnelRings: Mesh[] = [];
+        for (let i = 0; i < FUNNEL_RINGS; i++) {
+            const ring = MeshBuilder.CreateTorus(
+                `hurricaneRing${i}`,
+                { diameter: 1.0, thickness: 0.06, tessellation: 20 },
+                this.scene,
+            ) as Mesh;
+            ring.material = funnelMat;
+            ring.isPickable = false;
+            ring.visibility = 0;
+            funnelRings.push(ring);
+        }
+
+        let funnelT = 0;
+        const funnelObs = this.scene.onBeforeRenderObservable.add(() => {
+            const pos = this.getHeroPosition();
+            if (!pos) return;
+            const dt = this.scene.getEngine().getDeltaTime() / 1000;
+            funnelT += dt;
+            const spin = funnelT * 7.0; // fast rotation (rad/s)
+            // Envelope: spin up over 0.4s, taper out over the last 0.6s.
+            const fadeIn = Math.min(funnelT / 0.4, 1);
+            const fadeOut = Math.min(Math.max((funnelLife - funnelT) / 0.6, 0), 1);
+            const envelope = fadeIn * fadeOut;
+            for (let i = 0; i < FUNNEL_RINGS; i++) {
+                const f = i / (FUNNEL_RINGS - 1);          // 0 base → 1 top
+                const ring = funnelRings[i];
+                // Funnel profile: narrow at the base, flaring wide at the top,
+                // with a per-ring turbulent pulse (phase-offset by height).
+                const ringScale = radius * (0.25 + 0.95 * f) *
+                    (1 + 0.08 * Math.sin(funnelT * 9 + i * 1.7));
+                // Helix sway — higher rings drift further off the axis.
+                const drift = 0.18 * radius * f;
+                const driftAngle = spin * 0.5 + f * 2.2;
+                ring.position.set(
+                    pos.x + Math.cos(driftAngle) * drift,
+                    pos.y + 0.2 + f * FUNNEL_HEIGHT,
+                    pos.z + Math.sin(driftAngle) * drift,
+                );
+                ring.scaling.set(ringScale, 1, ringScale);
+                ring.rotation.y = spin + i * 0.4;
+                ring.rotation.x = 0.12 * Math.sin(funnelT * 4 + i);
+                ring.rotation.z = 0.12 * Math.cos(funnelT * 4 + i);
+                // Wispier toward the top; fade with the global envelope. visibility
+                // is per-mesh so the shared cached material is never mutated.
+                ring.visibility = envelope * (0.7 - 0.4 * f);
+            }
         });
 
         this.activeEffects.push({
@@ -602,7 +704,6 @@ export class AbilityManager {
             tick: () => {
                 const pos = this.getHeroPosition();
                 if (!pos) return;
-                const radius = 5;
                 if (this.meleeAoeHit) {
                     // Each tick hits exactly like the basic attack — full damage
                     // plus crit / lifesteal / knockback / element enchantments —
@@ -628,6 +729,12 @@ export class AbilityManager {
             },
             onEnd: () => {
                 this.scene.onBeforeRenderObservable.remove(emitterObs);
+                this.scene.onBeforeRenderObservable.remove(funnelObs);
+                // Dispose the funnel meshes; the cached material is shared and
+                // preserved (freed by clearMaterialCache on run teardown).
+                for (const r of funnelRings) {
+                    try { r.dispose(); } catch { /* ignore */ }
+                }
                 try { vortexPs.stop(); } catch { /* ignore */ }
                 setTimeout(() => {
                     try { vortexPs.dispose(); } catch { /* ignore */ }
