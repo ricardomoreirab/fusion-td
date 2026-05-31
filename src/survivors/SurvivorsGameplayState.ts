@@ -1701,16 +1701,17 @@ export class SurvivorsGameplayState implements GameState {
         if (!this.playerStats || !this.levelSystem) return;
         const b = this.levelSystem.getBonusFraction(); // crit-chance rate: +0.5%/level
         const g = b * 2;                                // most attributes: doubled (+1%/level)
-        // Power scaling with diminishing returns: ≈+2%/level early (matches g*2 for
-        // small b), but each level's marginal gain shrinks, saturating near +90% so
-        // it isn't overpowered at high levels. gp = 1 - e^(-4b) ≈ 4b when b is small.
-        const gp = 1 - Math.exp(-4 * b);
+        // Power scaling with diminishing returns: each level's marginal gain shrinks
+        // and saturates so it isn't overpowered at high levels. gp = 1 - e^(-4b);
+        // halved here (0.5×) per balance pass. Attack speed is likewise halved.
+        const gp = (1 - Math.exp(-4 * b)) * 0.5;
+        const gAtk = g * 0.5;                          // attack speed scaling halved (+0.5%/level)
         const ps = this.playerStats;
         ps.moveSpeedMultiplier        = 1 + g;
         ps.attackRangeMultiplier      = 1 + g;
-        ps.basicAttackSpeedMultiplier = 1 + g; // back to +1%/level — the 2× bump was too strong past lvl 50
-        ps.powerDamageMultiplier      = 1 + gp; // power damage scaling 2× stronger
-        ps.powerCooldownMultiplier    = Math.max(0.05, 1 - gp); // power fire rate 2× stronger (lower = faster), floored so it never hits 0
+        ps.basicAttackSpeedMultiplier = 1 + gAtk; // halved per balance pass
+        ps.powerDamageMultiplier      = 1 + gp;   // power damage (halved, diminishing)
+        ps.powerCooldownMultiplier    = Math.max(0.05, 1 - gp); // power fire rate (halved, diminishing); floored so it never hits 0
         ps.damageReductionMultiplier  = 1 - g; // lower = tankier
         ps.critChance                 = b;     // NOT doubled — kept at +0.5%/level
         ps.critDamageMultiplier       = 1.5 * (1 + g);
