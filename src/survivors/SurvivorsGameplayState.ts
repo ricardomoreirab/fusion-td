@@ -1537,6 +1537,20 @@ export class SurvivorsGameplayState implements GameState {
 
     /** Card C: a random run perk. */
     private buildPerkCard(): PowerCard {
+        // ~30% of the time the perk slot becomes a Heal card: selecting it
+        // restores 10% of max HP (capped at full). Flat roll regardless of
+        // current HP — simplest, and shows up across every orb-pickup path
+        // since buildPerkCard also pads the fusion/late-game rows.
+        if (this.heroController && Math.random() < 0.3) {
+            const hero = this.heroController;
+            return {
+                kind: 'perk',
+                title: '+10% Heal',
+                subtitle: 'Restore 10% HP',
+                onPick: () => hero.heal(hero.getMaxHealth() * 0.1),
+            };
+        }
+
         const perks = [
             { title: '+5% Damage', apply: () => { this.runPerks.damageMultiplier *= 1.05; } },
             {

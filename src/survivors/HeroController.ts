@@ -308,16 +308,23 @@ export class HeroController {
         return this.shieldTimer > 0;
     }
 
+    /** Restore HP (capped at max). No-op while dead. Used by the Heal power-choice card. */
+    public heal(amount: number): void {
+        if (this.isDead || amount <= 0) return;
+        this.currentHealth = Math.min(this.maxHealth, this.currentHealth + amount);
+    }
+
+    /** Maximum HP (for percentage-of-max heals). */
+    public getMaxHealth(): number {
+        return this.maxHealth;
+    }
+
     public getHealthRatio(): number {
         return Math.max(0, this.currentHealth / this.maxHealth);
     }
 
     public getHealth(): { current: number; max: number } {
         return { current: this.currentHealth, max: this.maxHealth };
-    }
-
-    public heal(amount: number): void {
-        this.currentHealth = Math.min(this.maxHealth, this.currentHealth + amount);
     }
 
     /** Apply full basic-attack hits to all enemies within `radius` of `center`.
