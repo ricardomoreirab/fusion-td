@@ -143,5 +143,24 @@ export function makeFusionDef(a: PowerDefinition, b: PowerDefinition): PowerDefi
         };
     }
 
+    // Forward the persistent per-frame tick to any parent that defines one (e.g.
+    // Whirling Blades' orbiting blades). Symmetric with init/dispose: it runs every
+    // frame for the fusion — independent of cast/archetype, which only fire on
+    // cooldown — so continuous parent effects animate and scale with the fusion's
+    // level (sub.level is synced so blade count tracks level-ups), exactly as the
+    // standalone base power does.
+    if (parents.some(p => p.tick)) {
+        def.tick = (state, ctx, dt) => {
+            const subs = ensureSubStates(state, ctx);
+            const synthCtx: PowerContext = { ...ctx, damageMultiplier: ctx.damageMultiplier * FUSION_DMG };
+            for (const p of parents) {
+                if (!p.tick) continue;
+                const sub = subs[p.id];
+                sub.level = state.level;
+                p.tick(sub, synthCtx, dt);
+            }
+        };
+    }
+
     return def;
 }

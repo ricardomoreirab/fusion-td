@@ -123,6 +123,34 @@ describe('makeFusionDef — parent lifecycle (init/dispose)', () => {
     });
 });
 
+describe('makeFusionDef — persistent tick forwarding (Whirling Blades in a fusion)', () => {
+    it('forwards tick to a tick-bearing parent on its own sub-state, syncing the level', () => {
+        const tickA = vi.fn();
+        const a: PowerDefinition = { ...fakeAutocast('mage_physical', 'physical', 0.25, 4), tick: tickA };
+        const b = fakeAutocast('mage_fire', 'fire', 1.4, 14);
+        const f = makeFusionDef(a, b);
+        const state = { level: 3, cooldownRemaining: 0 };
+        const ctx = { scene: {} as never, heroPosition: {} as never, enemies: [], damageMultiplier: 1 };
+
+        expect(f.tick).toBeTypeOf('function');
+        f.tick?.(state, ctx, 0.016);
+
+        expect(tickA).toHaveBeenCalledTimes(1);
+        const [sub, , dt] = tickA.mock.calls[0];
+        // Parent tick runs on its OWN sub-state, not the fusion's state...
+        expect(sub).not.toBe(state);
+        // ...whose level tracks the fusion's (so blade count scales with level-ups)...
+        expect(sub.level).toBe(3);
+        // ...and gets the real frame delta forwarded.
+        expect(dt).toBe(0.016);
+    });
+
+    it('omits tick entirely when neither parent has one', () => {
+        const f = makeFusionDef(fakeAutocast('mage_fire', 'fire', 1.4, 14), fakeAutocast('mage_ice', 'ice', 1.2, 9));
+        expect(f.tick).toBeUndefined();
+    });
+});
+
 describe('makeFusionDef — guards', () => {
     it('throws when the two parents have different modes', () => {
         const a = fakeAutocast('mage_fire', 'fire', 1.4, 14);

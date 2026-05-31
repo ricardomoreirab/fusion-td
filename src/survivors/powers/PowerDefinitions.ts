@@ -1,4 +1,4 @@
-import { Scene, Vector3, MeshBuilder, Color3, StandardMaterial, Mesh } from '@babylonjs/core';
+import { Scene, Vector3, MeshBuilder, Color3, StandardMaterial, Mesh, VertexData } from '@babylonjs/core';
 import { Enemy } from '../enemies/Enemy';
 import { StatusEffect } from '../GameTypes';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
@@ -64,6 +64,13 @@ export interface PowerDefinition {
     init?: (state: PowerRuntimeState, ctx: PowerContext) => void;
     /** Required for autocast; omitted for passive powers. */
     cast?: (state: PowerRuntimeState, ctx: PowerContext) => void;
+    /**
+     * Persistent per-frame update, called EVERY frame regardless of cooldown or
+     * whether any enemy is in range, and never triggers the hero attack animation.
+     * Used by always-on effects like Whirling Blades' orbiting blades. `dt` is the
+     * real frame delta in seconds.
+     */
+    tick?: (state: PowerRuntimeState, ctx: PowerContext, dt: number) => void;
     /** Required for passive enchantments; called on each basic-attack hit. */
     onHit?: (enemy: Enemy, level: number, ctx: EnchantmentHitContext) => void;
     /** For passive powers that add range to the melee swing (Heavy Strike). */
@@ -504,6 +511,94 @@ const mageArcaneDef: PowerDefinition = {
 // ─────────────────────────────────────────────────────────────────────────────
 // Whirling Blades — persistent orbiting blades
 // ─────────────────────────────────────────────────────────────────────────────
+type WhirlingBlade = { mesh: Mesh; angle: number; lastTrail?: number };
+
+/** Blade count: 2 at level 1, +1 per level thereafter. */
+function whirlingBladeCount(level: number): number {
+    return level + 1;
+}
+
+// Shuriken (throwing-star) geometry — a flat N-pointed star in the XZ plane with a
+// little thickness, that spins around its own vertical axis as it orbits the hero.
+const SHURIKEN_POINTS = 4;       // 4-pointed ninja star
+const SHURIKEN_OUTER = 0.42;     // tip radius
+const SHURIKEN_INNER = 0.16;     // valley radius between tips
+const SHURIKEN_HALF_THICK = 0.05;
+const SHURIKEN_SPIN = 16;        // rad/s self-spin (fast, reads as a thrown star)
+
+/**
+ * Build a solid N-pointed star mesh lying flat in the XZ plane (thickness along Y).
+ * Vertices: a top rim + bottom rim of 2N points (alternating outer tip / inner valley)
+ * plus a top & bottom center; triangulated as two fans joined by side walls.
+ */
+function createShurikenMesh(name: string, scene: Scene): Mesh {
+    const rim = SHURIKEN_POINTS * 2;
+    const positions: number[] = [];
+    const indices: number[] = [];
+    const ring = (y: number) => {
+        for (let i = 0; i < rim; i++) {
+            const ang = (i / rim) * Math.PI * 2;
+            const r = i % 2 === 0 ? SHURIKEN_OUTER : SHURIKEN_INNER;
+            positions.push(Math.cos(ang) * r, y, Math.sin(ang) * r);
+        }
+    };
+    ring(SHURIKEN_HALF_THICK);    // top rim: indices 0..rim-1
+    ring(-SHURIKEN_HALF_THICK);   // bottom rim: indices rim..2*rim-1
+    const topCenter = positions.length / 3; positions.push(0, SHURIKEN_HALF_THICK, 0);
+    const botCenter = positions.length / 3; positions.push(0, -SHURIKEN_HALF_THICK, 0);
+    for (let i = 0; i < rim; i++) {
+        const a = i, b = (i + 1) % rim;
+        indices.push(topCenter, a, b);                // top face fan
+        indices.push(botCenter, rim + b, rim + a);    // bottom face fan (reversed)
+        indices.push(a, b, rim + b);                  // side wall
+        indices.push(a, rim + b, rim + a);
+    }
+    const mesh = new Mesh(name, scene);
+    const vd = new VertexData();
+    vd.positions = positions;
+    vd.indices = indices;
+    const normals: number[] = [];
+    VertexData.ComputeNormals(positions, indices, normals);
+    vd.normals = normals;
+    vd.applyToMesh(mesh);
+    return mesh;
+}
+
+/**
+ * Reconcile the live blade meshes to `desired`: spawn/dispose as needed and re-space
+ * the survivors evenly around the orbit. Cheap no-op when the count already matches,
+ * so tick() can call it every frame to react to level-ups (which only bump
+ * state.level and never re-run init).
+ */
+function ensureWhirlingBlades(state: PowerRuntimeState, scene: Scene, desired: number): WhirlingBlade[] {
+    if (!state.data) state.data = {};
+    let blades = state.data['blades'] as WhirlingBlade[] | undefined;
+    if (!blades) { blades = []; state.data['blades'] = blades; }
+    if (blades.length === desired) return blades;
+
+    const bladeMat = getCachedMaterial(scene, 'whirling_blade_mat', m => {
+        m.emissiveColor = new Color3(0.78, 0.80, 0.86); // steel sheen
+        m.diffuseColor = new Color3(0.25, 0.27, 0.32);
+        // Procedural star: render both faces so a flipped winding can never make a
+        // tip vanish as it spins edge-on to the camera.
+        m.backFaceCulling = false;
+    });
+    while (blades.length < desired) {
+        const blade = createShurikenMesh(`wbBlade_${blades.length}`, scene);
+        blade.material = bladeMat;
+        blades.push({ mesh: blade, angle: 0 });
+    }
+    while (blades.length > desired) {
+        const extra = blades.pop();
+        try { extra?.mesh.dispose(); } catch { /* ignore */ }
+    }
+    // Re-space evenly (only runs when the count changed, i.e. on level-up).
+    for (let i = 0; i < blades.length; i++) {
+        blades[i].angle = (i / blades.length) * Math.PI * 2;
+    }
+    return blades;
+}
+
 const magePhysicalDef: PowerDefinition = {
     id: 'mage_physical',
     name: 'Whirling Blades',
@@ -517,59 +612,62 @@ const magePhysicalDef: PowerDefinition = {
     cooldownFor: (s) => magePhysicalDef.baseCooldown * Math.pow(0.92, s.level - 1),
     damageFor:   (s) => magePhysicalDef.baseDamage  * Math.pow(1.25, s.level - 1),
     init: (state, ctx) => {
-        const bladeCount = state.level >= 3 ? 3 : 2;
-        const blades: { mesh: ReturnType<typeof MeshBuilder.CreateBox>; angle: number }[] = [];
-        const bladeMat = getCachedMaterial(ctx.scene, 'whirling_blade_mat', m => {
-            m.emissiveColor = new Color3(0.7, 0.7, 0.9);
-        });
-        for (let i = 0; i < bladeCount; i++) {
-            const blade = MeshBuilder.CreateBox(`wbBlade_${i}`, { width: 0.2, height: 0.1, depth: 0.6 }, ctx.scene);
-            blade.material = bladeMat;
-            blades.push({ mesh: blade, angle: (i / bladeCount) * Math.PI * 2 });
-        }
-        if (!state.data) state.data = {};
-        state.data['blades'] = blades;
-        state.data['orbitRadius'] = magePhysicalDef.baseRange;
+        ensureWhirlingBlades(state, ctx.scene, whirlingBladeCount(state.level));
+        state.data!['orbitRadius'] = magePhysicalDef.baseRange;
     },
-    cast: (state, ctx) => {
-        if (!state.data) return;
-        const blades = state.data['blades'] as { mesh: ReturnType<typeof MeshBuilder.CreateBox>; angle: number; lastTrail?: number }[] | undefined;
-        if (!blades) return;
+    // Persistent passive: the blades orbit the hero EVERY frame (smooth, always-on,
+    // no enemy required) and never play the hero attack animation. Damage is applied
+    // on a level-scaled cadence so the always-on spin doesn't multiply DPS by framerate.
+    tick: (state, ctx, dt) => {
+        // Reconcile blade count to the current level every frame (cheap when unchanged),
+        // so a level-up adds a blade without re-running init.
+        const blades = ensureWhirlingBlades(state, ctx.scene, whirlingBladeCount(state.level));
+        if (blades.length === 0) return;
 
-        const orbitRadius = (state.data['orbitRadius'] as number) ?? magePhysicalDef.baseRange;
+        const orbitRadius = (state.data!['orbitRadius'] as number) ?? magePhysicalDef.baseRange;
         const rotateSpeed = 2.5;
-        const tickDt = ctx.scene.getEngine().getDeltaTime() / 1000;
-        const damage = magePhysicalDef.damageFor(state) * ctx.damageMultiplier;
         const sparkleColor = new Color3(0.8, 0.8, 1.0);
 
         for (const blade of blades) {
-            blade.angle += rotateSpeed * tickDt;
+            blade.angle += rotateSpeed * dt;
             blade.mesh.position.set(
                 ctx.heroPosition.x + Math.cos(blade.angle) * orbitRadius,
                 1.0,
                 ctx.heroPosition.z + Math.sin(blade.angle) * orbitRadius,
             );
+            // Spin the shuriken fast around its own vertical axis (like a thrown star),
+            // independent of its slower orbit around the hero.
+            blade.mesh.rotation.y += SHURIKEN_SPIN * dt;
             // Sparkle trail every ~0.1s
             if (blade.lastTrail === undefined) blade.lastTrail = 0;
-            blade.lastTrail += tickDt;
+            blade.lastTrail += dt;
             if (blade.lastTrail >= 0.1) {
                 spawnTrailParticle(ctx.scene, blade.mesh.position, sparkleColor, 0.1, 0.25);
                 blade.lastTrail = 0;
             }
         }
 
-        const hitSet = new Set<Enemy>();
-        for (const blade of blades) {
-            for (const e of ctx.enemies) {
-                if (!e.isAlive() || hitSet.has(e)) continue;
-                const dx = e.getPosition().x - blade.mesh.position.x;
-                const dz = e.getPosition().z - blade.mesh.position.z;
-                if (Math.hypot(dx, dz) < 0.8) {
-                    e.takeDamage(damage, ctx.element);
-                    hitSet.add(e);
+        // Damage cadence: one sweep per cooldownFor(state) seconds (the same per-level
+        // attack rate the old autocast used), preserving the ~4 dmg / 0.25s balance.
+        let hitTimer = (state.data!['hitTimer'] as number) ?? 0;
+        hitTimer += dt;
+        if (hitTimer >= magePhysicalDef.cooldownFor(state)) {
+            hitTimer = 0;
+            const damage = magePhysicalDef.damageFor(state) * ctx.damageMultiplier;
+            const hitSet = new Set<Enemy>();
+            for (const blade of blades) {
+                for (const e of ctx.enemies) {
+                    if (!e.isAlive() || hitSet.has(e)) continue;
+                    const dx = e.getPosition().x - blade.mesh.position.x;
+                    const dz = e.getPosition().z - blade.mesh.position.z;
+                    if (Math.hypot(dx, dz) < 0.8) {
+                        e.takeDamage(damage, ctx.element);
+                        hitSet.add(e);
+                    }
                 }
             }
         }
+        state.data!['hitTimer'] = hitTimer;
     },
     dispose: (state) => {
         const blades = state.data?.['blades'] as { mesh: { dispose: () => void } }[] | undefined;

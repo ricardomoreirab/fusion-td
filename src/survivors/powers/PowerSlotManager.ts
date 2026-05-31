@@ -202,6 +202,14 @@ export class PowerSlotManager {
         let targetChecked = false;
         for (const slot of this.slots) {
             if (!slot) continue;
+            // Persistent per-frame powers (e.g. Whirling Blades) update every frame —
+            // independent of cooldown or whether an enemy is in range — and never
+            // trigger the hero attack animation.
+            if (slot.def.tick) {
+                if (!ctx) ctx = this.buildContext();
+                ctx.element = slot.def.element;
+                slot.def.tick(slot.state, ctx, deltaTime);
+            }
             // Skip passive enchantments — they have no cast loop
             if (slot.def.mode === 'passive') continue;
             slot.state.cooldownRemaining -= deltaTime;
@@ -216,8 +224,10 @@ export class PowerSlotManager {
                     if (!ctx) ctx = this.buildContext();
                     ctx.element = slot.def.element;
                     slot.def.cast(slot.state, ctx);
+                    // Only a real cast drives the special-attack animation — a slot with
+                    // no cast() (a pure tick power) must not retrigger it every cooldown.
+                    if (this.onCastCallback) this.onCastCallback(slot);
                 }
-                if (this.onCastCallback) this.onCastCallback(slot);
                 slot.state.cooldownRemaining = slot.def.cooldownFor(slot.state) * cooldownMult;
             }
         }
