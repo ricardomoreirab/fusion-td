@@ -702,6 +702,7 @@ export class SurvivorsGameplayState implements GameState {
             this.testFusions = getFusionsForClass(this.currentChampionType);
             this.testFusionIndex = 0;
             this.applyTestFusion();
+            if (this.heroController) this.heroController.debugInvulnerable = true; // survive the stress horde
         }
 
         // Define shop items (applied directly via playerStats + heroController)

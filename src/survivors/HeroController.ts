@@ -256,9 +256,13 @@ export class HeroController {
         setTimeout(() => { ps.stop(); setTimeout(() => ps.dispose(), 500); }, 80);
     }
 
+    /** DEV ?test: when true, the hero ignores all damage (set by test mode so a
+     *  stress horde can't kill you). Separate from the transient dash i-frame flag. */
+    public debugInvulnerable: boolean = false;
+
     public takeDamage(amount: number, sourcePos?: Vector3): void {
         if (this.isDead) return;
-        if (this.isInvulnerable) return;
+        if (this.isInvulnerable || this.debugInvulnerable) return;
         this.currentHealth -= amount;
         if (this.currentHealth <= 0) {
             this.currentHealth = 0;
