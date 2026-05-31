@@ -426,8 +426,24 @@ export class EnemyManager {
         // compiles the skinned depth shader for each mesh — frustum-independent, so the
         // far-away warmup meshes are fine. Awaited like the material compiles so the
         // GLSL→GPU compile finishes behind the loading screen, not on first combat.
+        //
+        // CRITICAL: Babylon's forceCompilation (shadowGenerator.js) does an UNGUARDED
+        // `subMeshes.push(...mesh.subMeshes)` over the whole renderList. addShadowCaster(_, true)
+        // registers the GLB enemy ROOT nodes too, and those are geometry-less
+        // (subMeshes === undefined), so the spread throws "subMeshes is not iterable" — which
+        // aborts the depth-shader prewarm. The compile then happens COLD on the first in-combat
+        // shadow render of a skinned enemy → a multi-second main-thread freeze (worst on a cold
+        // GPU shader cache, e.g. a freshly deployed origin). The per-frame render path IS guarded,
+        // so this only ever bit the prewarm. Drop the geometry-less entries (they cast no shadow)
+        // so the spread is safe and the real skinned depth shaders actually compile here.
         let shadowCompiles = 0;
         for (const g of this.shadowGenerators) {
+            const sm = g.getShadowMap();
+            if (sm?.renderList) {
+                sm.renderList = sm.renderList.filter(
+                    (m) => Array.isArray(m.subMeshes) && m.subMeshes.length > 0,
+                );
+            }
             shadowCompiles++;
             await g.forceCompilationAsync().catch((err) => {
                 console.warn('[prewarm] shadow depth compile failed:', err);
