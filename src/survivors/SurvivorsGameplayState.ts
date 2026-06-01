@@ -813,6 +813,9 @@ export class SurvivorsGameplayState implements GameState {
             else if (key === 'escape') this.hud?.togglePause();
             else if (this.testMode && key === ']') this.cycleTestFusion();
             else if (this.testMode && key === '\\') this.stressLoad();
+            else if (this.testMode && (key === '1' || key === '2' || key === '3' || key === '4')) {
+                this.spawnTestBoss(Number(key));
+            }
         });
 
         // Overlays
@@ -1939,6 +1942,33 @@ export class SurvivorsGameplayState implements GameState {
         const total = this.enemyManager?.getEnemies().length ?? 0;
         console.info(`[stress] +${n} enemies (total ${total}); 4 diverse fusions equipped. Watch [freeze:frame].`);
         this.showTestLabel(`[STRESS] +${n} enemies (total ${total}) · 4 diverse fusions · press \\ for more`);
+    }
+
+    /**
+     * DEV ?test boss spawner (keys 1-4): drop one milestone boss of the given tier
+     * (1=lava, 2=wraith, 3=helcurt, 4=bane) at a ring point near the hero, off-wave.
+     * Tiers 1-3 play their entrance cinematic first; tier 4 has no entrance asset.
+     */
+    private spawnTestBoss(tier: number): void {
+        if (!this.enemyManager || !this.hero) return;
+        const heroPos = this.hero.getPosition();
+        const arenaRadius = this.map?.getArenaRadius() ?? 20;
+        const theta = Math.random() * Math.PI * 2;
+        const r = arenaRadius + 2;
+        const spawnPos = new Vector3(
+            heroPos.x + Math.cos(theta) * r,
+            0,
+            heroPos.z + Math.sin(theta) * r,
+        );
+        this.showTestLabel(`[TEST] spawn tier-${tier} boss — keys 1/2/3/4`);
+
+        if (tier >= 1 && tier <= 3 && this.bossEntrance?.hasEntrance(tier) && !this.bossEntrance.isActive()) {
+            void this.bossEntrance.play(tier, spawnPos, heroPos.clone()).then(() => {
+                this.enemyManager?.spawnSurvivorsEnemy('boss', undefined, 1, spawnPos, tier);
+            });
+        } else if (!this.bossEntrance?.isActive()) {
+            this.enemyManager.spawnSurvivorsEnemy('boss', undefined, 1, spawnPos, tier);
+        }
     }
 
     private applyTestFusion(): void {

@@ -467,7 +467,7 @@ export class EnemyManager {
      * scales HP/damage in place of spawning multiple bosses (set by WaveManager when
      * the wave config asks for more than one boss).
      */
-    public spawnSurvivorsEnemy(type: string, eliteElement?: string, bossStrengthMultiplier: number = 1, spawnPosOverride?: Vector3): Enemy | null {
+    public spawnSurvivorsEnemy(type: string, eliteElement?: string, bossStrengthMultiplier: number = 1, spawnPosOverride?: Vector3, bossTierOverride?: number): Enemy | null {
         if (!this.heroProvider) return null;
 
         // Diagnostic: any single spawn taking >50ms is suspicious. Logs the type
@@ -509,8 +509,9 @@ export class EnemyManager {
                              enemy = new TankEnemy(this.game, spawnPos, []); break;
             case 'boss': {
                 const currentWave = this.waveManager?.getCurrentWave() ?? 0;
-                if (currentWave > 0 && currentWave % 5 === 0) {
-                    const tier = currentWave / 5;
+                // bossTierOverride lets the dev test keys spawn an explicit tier off-wave.
+                const tier = bossTierOverride ?? (currentWave > 0 && currentWave % 5 === 0 ? currentWave / 5 : 0);
+                if (tier > 0) {
                     // Stage tier-specific GLB (cap at tier4 asset for tier 5+).
                     const assetTier = Math.min(4, Math.max(1, tier));
                     MilestoneBoss.pendingAsset = this.enemyAssets[`boss_tier${assetTier}`] ?? null;
