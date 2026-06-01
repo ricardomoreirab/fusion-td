@@ -1,5 +1,5 @@
 import {
-  Scene, Vector3, FreeCamera, AssetContainer, AnimationGroup, Mesh, TransformNode, Quaternion, Skeleton,
+  Scene, Vector3, FreeCamera, AssetContainer, AnimationGroup, Mesh, TransformNode, Quaternion, Skeleton, Material,
 } from '@babylonjs/core';
 import { Game } from '../engine/Game';
 
@@ -43,6 +43,8 @@ export class BossEntranceCinematic {
   private assets: Partial<Record<number, AssetContainer>> = {};
 
   private active = false;
+  /** True between play() and materials-ready: frozen, but the pan is held. */
+  private warmingUp = false;
   private elapsed = 0;
   private resolveFn: (() => void) | null = null;
 
@@ -91,16 +93,21 @@ export class BossEntranceCinematic {
     const camera = this.getCamera();
     if (!asset || !camera) return Promise.resolve();
 
-    // Build + verify the model FIRST. Only once it is confirmed on-screen do we
-    // commit active=true + the camera snapshot — so a failure can never strand
-    // the camera panning over an empty stage (it resolves as a clean no-op and
-    // the boss spawns normally).
+    // Build + verify the model FIRST. A failure here can never strand the camera
+    // panning over an empty stage — we no-op cleanly and the boss spawns normally.
     if (!this.instantiate(asset, spawnPos, heroPos)) {
       this.disposeModel();
       return Promise.resolve();
     }
 
+    // Freeze IMMEDIATELY (active=true) so the milestone wave can't be flagged clear
+    // while the boss spawn is deferred, then HOLD the pan (warmingUp) until the cloned
+    // PBR materials compile to readiness. Under scene.blockMaterialDirtyMechanism a
+    // runtime-cloned material otherwise never reports isReady → the renderer SILENTLY
+    // SKIPS the mesh → invisible (the "camera pans but nothing shows" cause). The
+    // compile hides inside the freeze; the pan begins the moment the model can render.
     this.active = true;
+    this.warmingUp = true;
     this.elapsed = 0;
 
     this.savedPos.copyFrom(camera.position);
@@ -113,7 +120,34 @@ export class BossEntranceCinematic {
       spawnPos.z + FRAME_OFFSET.z,
     );
 
+    void this.compileModelMaterials().then(() => { this.warmingUp = false; });
     return new Promise<void>(resolve => { this.resolveFn = resolve; });
+  }
+
+  /**
+   * Compile every unique cloned material to readiness (awaited forceCompilationAsync,
+   * the project's proven prewarm pattern), racing a 3s cap so a stuck compile can
+   * never soft-lock the run.
+   */
+  private async compileModelMaterials(): Promise<void> {
+    if (!this.holder) return;
+    const meshes = this.holder.getChildMeshes(false) as Mesh[];
+    const seen = new Set<Material>();
+    const jobs: Promise<unknown>[] = [];
+    for (const m of meshes) {
+      const mat = m.material;
+      if (!mat || seen.has(mat)) continue;
+      seen.add(mat);
+      jobs.push(mat.forceCompilationAsync(m).catch(e => console.warn('[entrance] compile failed', mat.name, e)));
+    }
+    await Promise.race([
+      Promise.all(jobs),
+      new Promise<void>(res => setTimeout(res, 3000)),
+    ]);
+    // post-compile readiness (remove once confirmed)
+    for (const m of meshes) {
+      if (m.material) console.log('[entrance-diag] post-compile', m.name, 'matReady=', m.material.isReady(m));
+    }
   }
 
   /**
@@ -122,6 +156,13 @@ export class BossEntranceCinematic {
    * reported via the return value so play() can no-op cleanly.
    */
   private instantiate(asset: AssetContainer, spawnPos: Vector3, heroPos: Vector3): boolean {
+    // Temporarily unblock the dirty mechanism so the freshly-cloned materials get
+    // their submesh effects PREPARED on assignment. The scene runs with
+    // blockMaterialDirtyMechanism=true (perf), under which a runtime-cloned material's
+    // markAsDirty is a no-op → its submesh never flags for an effect → isReady stays
+    // false → invisible. Restored in finally so no other material is affected.
+    const prevBlock = this.scene.blockMaterialDirtyMechanism;
+    this.scene.blockMaterialDirtyMechanism = false;
     try {
       const holder = new Mesh('bossEntranceRoot', this.scene);
       holder.position.copyFrom(spawnPos);
@@ -164,7 +205,6 @@ export class BossEntranceCinematic {
         m.setEnabled(true);
         m.isVisible = true;
         m.alwaysSelectAsActiveMesh = true; // defeat frustum culling on the static skinned rig
-        m.material?.forceCompilation?.(m);
       }
       holder.alwaysSelectAsActiveMesh = true;
 
@@ -214,6 +254,8 @@ export class BossEntranceCinematic {
     } catch (e) {
       console.error('[entrance] instantiate threw', e);
       return false;
+    } finally {
+      this.scene.blockMaterialDirtyMechanism = prevBlock;
     }
   }
 
@@ -222,6 +264,11 @@ export class BossEntranceCinematic {
     if (!this.active) return;
     const camera = this.getCamera();
     if (!camera) { this.finish(); return; }
+
+    // Hold the frozen frame (no camera move, no clock advance) until the model's
+    // materials have compiled — so the pan never reveals an un-rendered (invisible)
+    // model. A brief dramatic "everything stops" beat, then the camera glides.
+    if (this.warmingUp) return;
 
     this.elapsed += Math.min(deltaTime, MAX_FRAME_DELTA_S);
 
@@ -253,6 +300,7 @@ export class BossEntranceCinematic {
     }
     this.disposeModel();
     this.active = false;
+    this.warmingUp = false;
     this.elapsed = 0;
     const r = this.resolveFn;
     this.resolveFn = null;
@@ -285,6 +333,7 @@ export class BossEntranceCinematic {
     }
     this.disposeModel();
     this.active = false;
+    this.warmingUp = false;
     this.resolveFn = null;
   }
 }
