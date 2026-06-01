@@ -223,11 +223,16 @@ export class BossEntranceCinematic {
         (root as TransformNode).position.y += feetOffset;
       }
 
-      // Play the dramatic "city_action" pose, looped for the cinematic's duration.
+      // Play the IN-PLACE "city_idle" pose, looped for the cinematic's duration.
+      // NOT "city_action": that clip is a full fly-in entrance (root motion of
+      // ~37 units, authored for its own baked camera) — under our static spotlight
+      // camera it flings the rig off-screen. city_idle holds the boss at the spawn
+      // point (≤0.17u motion), which is what a camera-pan reveal wants.
       for (const ag of inst.animationGroups) ag.stop();
-      const action = inst.animationGroups.find(ag => ag.name.toLowerCase().includes('action'))
+      const pose = inst.animationGroups.find(ag => ag.name.toLowerCase().includes('idle'))
+        ?? inst.animationGroups.find(ag => ag.name.toLowerCase().includes('action'))
         ?? inst.animationGroups[0];
-      if (action) action.start(true);
+      if (pose) pose.start(true);
 
       // --- ENTRANCE-DIAG (remove once confirmed) ---
       const cam = this.getCamera();
