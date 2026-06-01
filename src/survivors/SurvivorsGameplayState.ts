@@ -31,6 +31,8 @@ import { DamageNumberManager } from './DamageNumberManager';
 import { RunItems, ItemId } from './RunItems';
 import { ItemDrop } from './ItemDrop';
 import { DifficultyTuning } from './DifficultyTuning';
+import { BossEntranceCinematic } from './BossEntranceCinematic';
+import { entranceTierForWave } from './bossEntranceTier';
 import { createProceduralGrass } from '../engine/rendering/ProceduralGrass';
 import { GameSettings, bladeCountForQuality } from '../shared/GameSettings';
 import { clearMaterialCache, getCachedMaterial, getMaterialCacheSize } from '../engine/rendering/MaterialCache';
@@ -69,6 +71,17 @@ const ENEMY_GLB_PATHS: Partial<Record<string, { dir: string; file: string }>> = 
     boss_tier3:  { dir: 'assets/helcurt-shadowbringer-in-game/source/',    file: 'helcurt_shadowbringer_in_game.glb' },
     boss_tier4:  { dir: 'assets/bane-lord-of-scalding-seas-in-game/source/', file: 'bane_lord_of_scalding_seas_in_game.glb' },
 };
+// Boss-entrance cinematic GLBs (tiers 1-3 → waves 5/10/15). Kept in a SEPARATE
+// registry from ENEMY_GLB_PATHS so they never feed enemy spawn-staging or prewarm —
+// they are only ever consumed by BossEntranceCinematic.
+const BOSS_ENTRANCE_GLB_PATHS: Partial<Record<string, { dir: string; file: string }>> = {
+    entrance1: { dir: 'assets/thamuz-lord-lava-entrance/source/',      file: 'thamuz_lord_lava_entrance.glb' },
+    entrance2: { dir: 'assets/thamuz-lord-of-wraith-entrance/source/', file: 'thamuz_lord_of_wraith_entrance.glb' },
+    entrance3: { dir: 'assets/helcurt-shadowbringer-entrance/source/', file: 'helcurt_shadowbringer_entrance.glb' },
+};
+function loadBossEntranceAsset(tier: number, scene: Scene): Promise<AssetContainer> | null {
+    return loadAsset(BOSS_ENTRANCE_GLB_PATHS, `entrance${tier}`, scene);
+}
 function loadChampionAsset(championType: string, scene: Scene): Promise<AssetContainer> | null {
     return loadAsset(CHAMPION_GLB_PATHS, championType, scene);
 }
@@ -188,6 +201,9 @@ export class SurvivorsGameplayState implements GameState {
 
     // Time scale (0.2 during power-choice overlay, 1.0 otherwise)
     private timeScale: number = 1.0;
+    private bossEntrance: BossEntranceCinematic | null = null;
+    /** Absolute wave whose boss-entrance cinematic already played (re-entry guard). */
+    private bossEntrancePlayedWave: number = -1;
 
     // Run perks accumulated from orb-choice Card C
     private runPerks = {
@@ -338,6 +354,10 @@ export class SurvivorsGameplayState implements GameState {
         for (const type of Object.keys(ENEMY_GLB_PATHS)) {
             const p = loadEnemyAsset(type, this.scene);
             if (p) p.catch(err => console.error(`Enemy GLB preload failed (${type}):`, err));
+        }
+        for (let tier = 1; tier <= 3; tier++) {
+            const p = loadBossEntranceAsset(tier, this.scene);
+            if (p) p.catch(err => console.error(`Boss entrance GLB preload failed (tier ${tier}):`, err));
         }
 
         // DEV ?test: skip champion select and auto-start so an unattended stress
@@ -545,6 +565,23 @@ export class SurvivorsGameplayState implements GameState {
         // actually finished compiling on the GPU driver thread.
         await this.enemyManager.prewarmEnemyTypes();
 
+        // Boss-entrance cinematic — construct + load the tier-1/2/3 entrance GLBs.
+        // The camera accessor is read lazily each frame so it always sees the live
+        // hero camera. Preloaded in enter(), so these awaits are usually cache hits.
+        this.bossEntrance = new BossEntranceCinematic(this.game, () => this.heroController?.getCamera() ?? null);
+        const entranceAssets: Partial<Record<number, AssetContainer>> = {};
+        for (let tier = 1; tier <= 3; tier++) {
+            const p = loadBossEntranceAsset(tier, this.scene);
+            if (!p) continue;
+            try {
+                entranceAssets[tier] = await p;
+            } catch (err) {
+                console.error(`Boss entrance GLB failed to load (tier ${tier}):`, err);
+            }
+        }
+        this.bossEntrance.setEntranceAssets(entranceAssets);
+        this.bossEntrancePlayedWave = -1;
+
         // BossEnemy.createMesh creates 3 magenta "bossOrbit" wisp spheres at
         // world (0,0,0) (not parented to the boss mesh — positioned in
         // animateParts via world coords). They survive the prewarm dispose
@@ -684,7 +721,11 @@ export class SurvivorsGameplayState implements GameState {
 
         // Override spawn fn: spawn enemies at arena perimeter
         this.waveManager.setSpawnFn((type, eliteElement, bossStrengthMultiplier) => {
-            this.enemyManager!.spawnSurvivorsEnemy(type, eliteElement, bossStrengthMultiplier);
+            if (type === 'boss' && this.shouldPlayBossEntrance()) {
+                void this.spawnBossWithEntrance(bossStrengthMultiplier);
+            } else {
+                this.enemyManager!.spawnSurvivorsEnemy(type, eliteElement, bossStrengthMultiplier);
+            }
         });
 
         // Wire basic-attack target provider to nearest alive enemy
@@ -1124,6 +1165,10 @@ export class SurvivorsGameplayState implements GameState {
         this.enemyManager?.dispose();
         this.enemyManager = null;
 
+        this.bossEntrance?.dispose();
+        this.bossEntrance = null;
+        this.bossEntrancePlayedWave = -1;
+
         this.stopLongTaskObserver();
 
         Enemy.critProvider = null;
@@ -1191,6 +1236,14 @@ export class SurvivorsGameplayState implements GameState {
 
         // True pause while any blocking overlay is open (power choice, replace-slot, shop)
         if (this.isPausedForOverlay()) return;
+
+        // Boss-entrance cinematic owns the frame: advance it on the RAW delta and
+        // freeze everything else (hero/wave/enemies/powers never tick), so the
+        // follow-cam can't fight the cinematic and the wave can't be flagged clear.
+        if (this.bossEntrance?.isActive()) {
+            this.bossEntrance.update(deltaTime);
+            return;
+        }
 
         const dt = deltaTime * this.timeScale;
 
@@ -1697,6 +1750,43 @@ export class SurvivorsGameplayState implements GameState {
      * multi-level grant. Perks live on the separate runPerks layer and still stack
      * multiplicatively on top.
      */
+    /** True when the current wave's boss should get an entrance cinematic. */
+    private shouldPlayBossEntrance(): boolean {
+        if (!this.bossEntrance || !this.waveManager) return false;
+        const wave = this.waveManager.getCurrentWave();
+        const tier = entranceTierForWave(wave);
+        return tier !== null && this.bossEntrance.hasEntrance(tier) && this.bossEntrancePlayedWave !== wave;
+    }
+
+    /**
+     * Play the entrance cinematic, then spawn the real milestone boss exactly where
+     * the camera was looking. Async + fire-and-forget; gameplay is frozen by the
+     * isActive() check in update() for the cinematic's duration.
+     */
+    private async spawnBossWithEntrance(strength: number = 1): Promise<void> {
+        if (!this.bossEntrance || !this.enemyManager || !this.waveManager || !this.hero) return;
+        const wave = this.waveManager.getCurrentWave();
+        const tier = entranceTierForWave(wave);
+        if (tier === null) return;
+        this.bossEntrancePlayedWave = wave;
+
+        const heroPos = this.hero.getPosition();
+        const arenaRadius = this.map?.getArenaRadius() ?? 20;
+        const theta = Math.random() * Math.PI * 2;
+        const r = arenaRadius + 2;
+        const spawnPos = new Vector3(
+            heroPos.x + Math.cos(theta) * r,
+            0,
+            heroPos.z + Math.sin(theta) * r,
+        );
+
+        await this.bossEntrance.play(tier, spawnPos, heroPos.clone());
+
+        // Run may have exited (or torn down) during the ~2.2s cinematic.
+        if (!this.enemyManager) return;
+        this.enemyManager.spawnSurvivorsEnemy('boss', undefined, strength, spawnPos);
+    }
+
     private applyLevelBonuses(): void {
         if (!this.playerStats || !this.levelSystem) return;
         const b = this.levelSystem.getBonusFraction(); // crit-chance rate: +0.5%/level
@@ -1712,7 +1802,7 @@ export class SurvivorsGameplayState implements GameState {
         ps.basicAttackSpeedMultiplier = 1 + gAtk; // halved per balance pass
         ps.powerDamageMultiplier      = 1 + gp;   // power damage (halved, diminishing)
         ps.powerCooldownMultiplier    = Math.max(0.05, 1 - gp); // power fire rate (halved, diminishing); floored so it never hits 0
-        ps.damageReductionMultiplier  = 1 - g; // lower = tankier
+        ps.damageReductionMultiplier  = Math.max(0.30, 1 - g); // lower = tankier; floored at 0.30 → 70% reduction cap
         ps.critChance                 = b;     // NOT doubled — kept at +0.5%/level
         ps.critDamageMultiplier       = 1.5 * (1 + g);
 
