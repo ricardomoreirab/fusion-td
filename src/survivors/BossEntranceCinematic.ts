@@ -12,6 +12,13 @@ const TOTAL_S = GLIDE_IN_S + HOLD_S + GLIDE_OUT_S;
 const BOSS_SCALE = 2.2;                            // match MilestoneBoss model scale
 const FRAME_OFFSET = new Vector3(0, 11, -9);       // camera pose relative to the boss
 const LOOK_HEIGHT = 2;                             // look at the boss/hero chest, not feet
+// Clamp the per-frame clock step. The first render of the (un-prewarmed) 9 MB
+// entrance GLB compiles shaders → a multi-hundred-ms frame stall, which inflates
+// engine.getDeltaTime() on the next tick. Without this cap that single spike would
+// burn the whole ~2.2s cinematic in one frame and dispose the model before its
+// action pose is ever seen. 0.05 = floor of 20 fps; real frames (≤~0.017s) are
+// untouched, so timing stays in sync with the scene-driven skeletal animation.
+const MAX_FRAME_DELTA_S = 0.05;
 
 /** Smoothstep ease (0..1), clamped. */
 function smoothstep(t: number): number {
@@ -148,7 +155,7 @@ export class BossEntranceCinematic {
     const camera = this.getCamera();
     if (!camera) { this.finish(); return; }
 
-    this.elapsed += deltaTime;
+    this.elapsed += Math.min(deltaTime, MAX_FRAME_DELTA_S);
 
     if (this.elapsed < GLIDE_IN_S) {
       const s = smoothstep(this.elapsed / GLIDE_IN_S);
