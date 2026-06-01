@@ -467,7 +467,7 @@ export class EnemyManager {
      * scales HP/damage in place of spawning multiple bosses (set by WaveManager when
      * the wave config asks for more than one boss).
      */
-    public spawnSurvivorsEnemy(type: string, eliteElement?: string, bossStrengthMultiplier: number = 1): Enemy | null {
+    public spawnSurvivorsEnemy(type: string, eliteElement?: string, bossStrengthMultiplier: number = 1, spawnPosOverride?: Vector3): Enemy | null {
         if (!this.heroProvider) return null;
 
         // Diagnostic: any single spawn taking >50ms is suspicious. Logs the type
@@ -475,13 +475,19 @@ export class EnemyManager {
         const spawnStart = performance.now();
 
         const heroPos = this.heroProvider.getPosition();
-        const theta = Math.random() * Math.PI * 2;
-        const r = this.arenaRadius + 2;
-        const spawnPos = new Vector3(
-            heroPos.x + Math.cos(theta) * r,
-            0,
-            heroPos.z + Math.sin(theta) * r,
-        );
+        let spawnPos: Vector3;
+        if (spawnPosOverride) {
+            // Boss-entrance cinematic places the boss exactly where the camera looked.
+            spawnPos = spawnPosOverride.clone();
+        } else {
+            const theta = Math.random() * Math.PI * 2;
+            const r = this.arenaRadius + 2;
+            spawnPos = new Vector3(
+                heroPos.x + Math.cos(theta) * r,
+                0,
+                heroPos.z + Math.sin(theta) * r,
+            );
+        }
 
         // Create enemy at spawn position with empty path. Before each construction, stage
         // any preloaded GLB asset on the per-class static pendingAsset slot so createMesh
