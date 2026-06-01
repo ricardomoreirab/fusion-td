@@ -91,6 +91,15 @@ export class BossEntranceCinematic {
     const camera = this.getCamera();
     if (!asset || !camera) return Promise.resolve();
 
+    // Build + verify the model FIRST. Only once it is confirmed on-screen do we
+    // commit active=true + the camera snapshot — so a failure can never strand
+    // the camera panning over an empty stage (it resolves as a clean no-op and
+    // the boss spawns normally).
+    if (!this.instantiate(asset, spawnPos, heroPos)) {
+      this.disposeModel();
+      return Promise.resolve();
+    }
+
     this.active = true;
     this.elapsed = 0;
 
@@ -104,49 +113,108 @@ export class BossEntranceCinematic {
       spawnPos.z + FRAME_OFFSET.z,
     );
 
-    this.instantiate(asset, spawnPos, heroPos);
     return new Promise<void>(resolve => { this.resolveFn = resolve; });
   }
 
-  private instantiate(asset: AssetContainer, spawnPos: Vector3, heroPos: Vector3): void {
-    const holder = new Mesh('bossEntranceRoot', this.scene);
-    holder.position.copyFrom(spawnPos);
-    // Yaw the model to face the hero.
-    holder.rotation.y = Math.atan2(heroPos.x - spawnPos.x, heroPos.z - spawnPos.z);
-    this.holder = holder;
+  /**
+   * Instantiate + place + start the entrance model. Returns true iff a
+   * renderable model was produced. NEVER throws: any failure is logged and
+   * reported via the return value so play() can no-op cleanly.
+   */
+  private instantiate(asset: AssetContainer, spawnPos: Vector3, heroPos: Vector3): boolean {
+    try {
+      const holder = new Mesh('bossEntranceRoot', this.scene);
+      holder.position.copyFrom(spawnPos);
+      // Yaw the model to face the hero.
+      holder.rotation.y = Math.atan2(heroPos.x - spawnPos.x, heroPos.z - spawnPos.z);
+      this.holder = holder;
 
-    // cloneMaterials=true so dispose(false, true) below frees per-instance materials
-    // AND their cloned textures (the GLB texture-leak rule in CLAUDE.md).
-    const inst = asset.instantiateModelsToScene(name => `entrance_${name}`, true, { doNotInstantiate: true });
-    this.animGroups = inst.animationGroups;
-    this.skeletons = inst.skeletons;
-    this.rootNodes = inst.rootNodes as TransformNode[];
+      // cloneMaterials=true so dispose(false, true) below frees per-instance materials
+      // AND their cloned textures (the GLB texture-leak rule in CLAUDE.md).
+      const inst = asset.instantiateModelsToScene(name => `entrance_${name}`, true, { doNotInstantiate: true });
+      this.animGroups = inst.animationGroups;
+      this.skeletons = inst.skeletons;
+      this.rootNodes = inst.rootNodes as TransformNode[];
 
-    const flip = Quaternion.RotationYawPitchRoll(Math.PI, 0, 0);
-    for (const root of inst.rootNodes) {
-      const tn = root as TransformNode;
-      tn.parent = holder;
-      tn.scaling.scaleInPlace(BOSS_SCALE);
-      if (tn.rotationQuaternion) {
-        tn.rotationQuaternion = flip.multiply(tn.rotationQuaternion);
-      } else {
-        tn.rotation.y += Math.PI;
+      if (this.rootNodes.length === 0) {
+        console.error('[entrance] instantiateModelsToScene returned no rootNodes');
+        return false;
       }
-    }
 
-    // Feet-on-ground offset.
-    holder.computeWorldMatrix(true);
-    const bbox = holder.getHierarchyBoundingVectors(true);
-    const feetOffset = -bbox.min.y;
-    for (const root of inst.rootNodes) {
-      (root as TransformNode).position.y += feetOffset;
-    }
+      const flip = Quaternion.RotationYawPitchRoll(Math.PI, 0, 0);
+      for (const root of inst.rootNodes) {
+        const tn = root as TransformNode;
+        tn.parent = holder;
+        tn.scaling.scaleInPlace(BOSS_SCALE);
+        if (tn.rotationQuaternion) {
+          tn.rotationQuaternion = flip.multiply(tn.rotationQuaternion);
+        } else {
+          tn.rotation.y += Math.PI;
+        }
+      }
 
-    // Play the dramatic "city_action" pose, looped for the cinematic's duration.
-    for (const ag of inst.animationGroups) ag.stop();
-    const action = inst.animationGroups.find(ag => ag.name.toLowerCase().includes('action'))
-      ?? inst.animationGroups[0];
-    if (action) action.start(true);
+      // The entrance rig is a fresh, STATIC, un-prewarmed skinned model that is
+      // never registered as a shadow caster (unlike in-game bosses) and never
+      // moves. Its frustum-cull box is the un-posed BIND pose, so the active-mesh
+      // pass can skip it entirely → invisible. Force-include + force-visible every
+      // cloned mesh (the EnemyManager prewarm's own anti-cull idiom) and compile
+      // the cloned PBR shader up front so it doesn't pop in.
+      const meshes = holder.getChildMeshes(false) as Mesh[];
+      for (const m of meshes) {
+        m.setEnabled(true);
+        m.isVisible = true;
+        m.alwaysSelectAsActiveMesh = true; // defeat frustum culling on the static skinned rig
+        m.material?.forceCompilation?.(m);
+      }
+      holder.alwaysSelectAsActiveMesh = true;
+
+      // Feet-on-ground offset — in its OWN guard so a degenerate/throwing skinned
+      // bind box (151-joint rig, mesh nodes with T=None) can never abort the build
+      // or teleport the model out of frame. Worst case: feet sit at y=0.
+      let feetOffset = 0;
+      try {
+        holder.computeWorldMatrix(true);
+        const rawOffset = -holder.getHierarchyBoundingVectors(true).min.y;
+        if (Number.isFinite(rawOffset) && Math.abs(rawOffset) < 50) feetOffset = rawOffset;
+      } catch (e) {
+        console.warn('[entrance] feet-offset bounding failed; using 0', e);
+      }
+      for (const root of inst.rootNodes) {
+        (root as TransformNode).position.y += feetOffset;
+      }
+
+      // Play the dramatic "city_action" pose, looped for the cinematic's duration.
+      for (const ag of inst.animationGroups) ag.stop();
+      const action = inst.animationGroups.find(ag => ag.name.toLowerCase().includes('action'))
+        ?? inst.animationGroups[0];
+      if (action) action.start(true);
+
+      // --- ENTRANCE-DIAG (remove once confirmed) ---
+      const cam = this.getCamera();
+      const planes = cam ? this.scene.frustumPlanes : null;
+      console.log('[entrance-diag] rootNodes=', inst.rootNodes.length,
+        'meshes=', meshes.length,
+        'skeletons=', inst.skeletons.length, 'bones=', inst.skeletons[0]?.bones.length,
+        'animGroups=', inst.animationGroups.map(a => a.name),
+        'holderPos=', holder.position.asArray(),
+        'feetOffset=', feetOffset);
+      for (const m of meshes) {
+        console.log('[entrance-diag]', m.name,
+          'verts=', m.getTotalVertices(),
+          'enabled=', m.isEnabled(), 'isVisible=', m.isVisible, 'visibility=', m.visibility,
+          'layerMask=0x' + m.layerMask.toString(16),
+          'mat=', m.material?.name, 'matReady=', m.material?.isReady(m),
+          'skeleton=', m.skeleton?.name,
+          'centerWorld=', m.getBoundingInfo().boundingBox.centerWorld.toString(),
+          'inFrustum=', planes ? m.isInFrustum(planes) : 'n/a');
+      }
+      // --- END ENTRANCE-DIAG ---
+
+      return meshes.length > 0;
+    } catch (e) {
+      console.error('[entrance] instantiate threw', e);
+      return false;
+    }
   }
 
   /** Advance the cinematic on the RAW (unscaled) frame delta. */
