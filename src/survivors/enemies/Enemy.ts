@@ -4,6 +4,7 @@ import { EnemyType, StatusEffect } from '../GameTypes';
 import { PowerElement } from '../powers/PowerDefinitions';
 import { StatusStacks, STATUS_TUNING, type RichStatusKind } from '../powers/StatusModel';
 import { type TargetProvider, pickNearestAlive } from './nearestTarget';
+import type { SnapshotEnemy } from '../../net/Protocol';
 
 // One-time per-enemy-class log when a GLB has no recognizable death clip, so the
 // asset's real clip name can be added to the matcher in _findDeathClip().
@@ -1822,4 +1823,95 @@ export class Enemy {
         }
     }
 
+    // ── Co-op guest adapter methods ──────────────────────────────────────────
+    // These are ADDITIVE: they are never called in single-player. The host
+    // builds snapshots, the guest calls applyNetworkState() to drive its
+    // locally-instantiated enemy meshes from the host's authoritative state.
+
+    /**
+     * Returns the current melee FSM state as an integer phase (0..3) and a
+     * 0..1 progress through that phase. Used by the host to pack `flags.meleePhase`
+     * into the snapshot so the guest can mirror the swing telegraph visually.
+     *
+     * Phase mapping: idle=0, windup=1, strike=2, cooldown=3
+     */
+    public getMeleeDisplay(): { phase: number; progress: number } {
+        const phaseMap: Record<typeof this.meleeState, number> = {
+            idle: 0, windup: 1, strike: 2, cooldown: 3,
+        };
+        const phase = phaseMap[this.meleeState];
+        let progress = 0;
+        switch (this.meleeState) {
+            case 'windup':   progress = this.meleeWindupDuration   > 0 ? 1 - this.meleeTimer / this.meleeWindupDuration   : 1; break;
+            case 'strike':   progress = this.meleeStrikeDuration   > 0 ? 1 - this.meleeTimer / this.meleeStrikeDuration   : 1; break;
+            case 'cooldown': progress = this.meleeCooldownDuration > 0 ? 1 - this.meleeTimer / this.meleeCooldownDuration : 1; break;
+        }
+        return { phase, progress: Math.max(0, Math.min(1, progress)) };
+    }
+
+    /**
+     * Drive this enemy from a host-authoritative snapshot entry (guest side only).
+     * Updates position, rotation, health bar, and status flags.
+     * Never called in single-player.
+     *
+     * `s.y` is optional — when absent the position's y is left unchanged so
+     * flying enemies keep their hover height even if the host did not encode y.
+     *
+     * Animation is best-effort: position / rotation / health bar are always
+     * updated; GLB clip selection from flags.meleePhase is a
+     * TODO(coop-m3-scene) once GuestEnemies scene-integration is wired up.
+     */
+    public applyNetworkState(s: SnapshotEnemy): void {
+        if (!this.mesh) return;
+
+        const flags = _unpackEnemyFlagsInline(s.flags);
+
+        // --- Position ---
+        this.position.x = s.x;
+        this.position.z = s.z;
+        if (s.y !== undefined) this.position.y = s.y;
+
+        // --- Mesh sync (mirrors the seek-target update() branch) ---
+        if (!this.mesh.isDisposed()) {
+            this.mesh.position.copyFrom(this.position);
+            this.mesh.rotation.y = s.ry;
+        }
+
+        // --- Health + health bar ---
+        this.health = Math.max(0, s.hp);
+        if (this.healthBarMesh && !this.healthBarMesh.isDisposed() &&
+            this.healthBarBackgroundMesh && !this.healthBarBackgroundMesh.isDisposed()) {
+            this.updateHealthBar();
+        }
+
+        // --- Status flags ---
+        this.isFrozen   = flags.frozen;
+        this.isStunned  = flags.stunned;
+        this.isConfused = flags.confused;
+
+        // --- Animation (best-effort) ---
+        // TODO(coop-m3-scene): drive GLB walk/attack clips from s.anim and
+        // flags.meleePhase once GuestEnemies scene-integration is complete.
+        // Position + rotation already convey the important movement signal.
+        void flags.meleePhase; // suppress unused-variable warning until TODO is done
+    }
+
+}
+
+// Inline flag unpacker used by Enemy.applyNetworkState(). Mirrors
+// unpackEnemyFlags in EnemyFlags.ts to avoid pulling the co-op net module
+// into the base Enemy class (which is imported by every enemy subclass and
+// thus every enemy chunk). EnemyFlags.ts is tiny, so inlining is acceptable.
+function _unpackEnemyFlagsInline(bits: number): {
+    frozen: boolean; stunned: boolean; confused: boolean;
+    flying: boolean; elite: boolean; meleePhase: number;
+} {
+    return {
+        frozen:     (bits & 1) !== 0,
+        stunned:    (bits & (1 << 1)) !== 0,
+        confused:   (bits & (1 << 2)) !== 0,
+        flying:     (bits & (1 << 3)) !== 0,
+        elite:      (bits & (1 << 4)) !== 0,
+        meleePhase: (bits >> 5) & 0b11,
+    };
 }
