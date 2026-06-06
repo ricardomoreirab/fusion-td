@@ -1,9 +1,5 @@
 /// <reference types="@cloudflare/workers-types" />
 
-export interface RoomEnv {
-    // Room needs no bindings of its own today; kept for future use.
-}
-
 const MAX_PEERS = 2;
 
 /**
@@ -13,7 +9,7 @@ const MAX_PEERS = 2;
  * serializeAttachment so it survives DO hibernation.
  */
 export class Room {
-    constructor(private state: DurableObjectState, private env: RoomEnv) {}
+    constructor(private state: DurableObjectState) {}
 
     async fetch(request: Request): Promise<Response> {
         if (request.headers.get('Upgrade') !== 'websocket') {
