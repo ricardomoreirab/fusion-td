@@ -13,6 +13,7 @@ export function redSwapType(type: string, wave: number): string {
         case 'basic':  return 'basic_red';
         case 'fast':   return 'fast_red';
         case 'healer': return 'healer_red';
+        case 'tank':   return 'tank_red';
         default:       return type;
     }
 }

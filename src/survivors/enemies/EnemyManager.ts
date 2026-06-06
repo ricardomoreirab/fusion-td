@@ -15,6 +15,7 @@ import { MiniEnemy } from './MiniEnemy';
 import { RedMeleeMinion } from './RedMeleeMinion';
 import { RedArtilleryCarriage } from './RedArtilleryCarriage';
 import { RedWizard } from './RedWizard';
+import { DragonTurtle } from './DragonTurtle';
 import { redSwapType } from './redSwap';
 import { PlayerStats } from '../PlayerStats';
 import { makeElite } from './EliteSpawner';
@@ -349,6 +350,7 @@ export class EnemyManager {
             { cls: FastEnemy,   key: 'fast_red',         build: () => new RedArtilleryCarriage(this.game, farAway, []) },
             { cls: HealerEnemy, key: 'healer_red',       build: () => new RedWizard(this.game, farAway, []) },
             { cls: HealerEnemy, key: 'healer_red_elite', build: () => new RedWizard(this.game, farAway, []) },
+            { cls: TankEnemy,   key: 'tank_red',         build: () => new DragonTurtle(this.game, farAway, []) },
         ];
         for (const { cls, key, build } of glbVariants) {
             const asset = this.enemyAssets[key];
@@ -540,6 +542,8 @@ export class EnemyManager {
                                enemy = new RedArtilleryCarriage(this.game, spawnPos, []); break;
             case 'healer_red': HealerEnemy.pendingAsset = assetFor('healer_red');
                                enemy = new RedWizard(this.game, spawnPos, []); break;
+            case 'tank_red':   TankEnemy.pendingAsset = assetFor('tank_red');
+                               enemy = new DragonTurtle(this.game, spawnPos, []); break;
             case 'shield':   ShieldEnemy.pendingAsset = assetFor('shield');
                              enemy = new ShieldEnemy(this.game, spawnPos, []); break;
             default:         enemy = new BasicEnemy(this.game, spawnPos, []); break;

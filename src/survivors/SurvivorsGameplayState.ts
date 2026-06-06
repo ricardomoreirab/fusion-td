@@ -67,6 +67,7 @@ const ENEMY_GLB_PATHS: Partial<Record<string, { dir: string; file: string }>> = 
     basic_red:        { dir: 'assets/red-melee-minion/source/',            file: 'red_melee_minion.glb' },
     fast_red:         { dir: 'assets/red-gold-artillery-carriage/source/', file: 'red_gold_artillery_carriage.glb' },
     healer_red:       { dir: 'assets/red-wizard/source/',                  file: 'red_wizard.glb' },
+    tank_red:         { dir: 'assets/dragon-turtle/source/',               file: 'dragon_turtle.glb' },
     basic_red_elite:  { dir: 'assets/red-super-melee-minion/source/',      file: 'red_super_melee_minion.glb' },
     healer_red_elite: { dir: 'assets/red-super-wizard/source/',            file: 'red_super_wizard.glb' },
     // Per-tier milestone-boss GLBs (waves 5/10/15/20). EnemyManager picks the right
