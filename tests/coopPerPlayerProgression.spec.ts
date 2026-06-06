@@ -32,7 +32,7 @@ describe('per-player progression independence', () => {
     // p0 earns 60 gold — exactly xpToNext(1) for default config (curveBase=60)
     p0.s.addMoney(60);
     expect(p0.l.getLevel()).toBe(2);
-    expect(p1.l.totalXp ?? p1.l.getTotalXp()).toBe(0);
+    expect(p1.l.getTotalXp()).toBe(0);
   });
 
   it('clearing the xpSink stops forwarding xp', () => {

@@ -6,7 +6,7 @@ describe('M3 protocol', () => {
   it('round-trips a snapshot', () => {
     const msg: NetMessage = {
       t: 'snapshot', tick: 5, ackSeq: 3, timeScale: 1,
-      heroes: [{ id: 0, x: 1, y: 0, z: 2, ry: 0.5, hp: 90, anim: 1 }],
+      heroes: [{ id: 0, x: 1, y: 0, z: 2, ry: 0.5, hp: 90, anim: 1, dx: 0, dz: 0, alive: true, level: 1, xp: 0 }],
       enemies: [{ id: 7, x: 3, z: -4, ry: 1.2, hp: 20, flags: 0b101, anim: 2 }],
       wave: { n: 3, alive: 12, inProgress: 1, breather: 0 },
     };
