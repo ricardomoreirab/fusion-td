@@ -1266,6 +1266,9 @@ export class SurvivorsGameplayState implements GameState {
                 ry,
                 hp: this.heroController.getHealth().current,
                 anim: 0, // best-effort: 0=idle/walk; detailed anim encoding deferred
+                dx: 0, dz: 0, // real values wired in scene task
+                alive: this.heroController.getHealth().current > 0,
+                level: 1, xp: 0, // real values wired in scene task
             });
         }
         if (this.coopGhost) {
@@ -1273,7 +1276,12 @@ export class SurvivorsGameplayState implements GameState {
             const gry = (this.coopGhost as unknown as { mesh: { rotation: { y: number } } | null }).mesh?.rotation.y ?? 0;
             // Part C: carry the host-tracked guest HP in the snapshot so the guest
             // can apply it as snapshot-authoritative HP instead of computing locally.
-            heroes.push({ id: 1, x: gp.x, y: gp.y, z: gp.z, ry: gry, hp: this.guestHeroHp, anim: 0 });
+            heroes.push({
+                id: 1, x: gp.x, y: gp.y, z: gp.z, ry: gry, hp: this.guestHeroHp, anim: 0,
+                dx: 0, dz: 0, // real values wired in scene task
+                alive: this.guestHeroHp > 0,
+                level: 1, xp: 0, // real values wired in scene task
+            });
         }
 
         // Enemies: pack each live enemy

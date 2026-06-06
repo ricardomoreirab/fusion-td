@@ -19,7 +19,22 @@ export interface HeroStateMsg {
 
 // ── M3: host-authoritative shared enemies ────────────────────────────────────
 
-export interface SnapshotHero { id: 0 | 1; x: number; y: number; z: number; ry: number; hp: number; anim: number }
+export interface SnapshotHero {
+    id: 0 | 1;
+    x: number; y: number; z: number;
+    ry: number;
+    hp: number;
+    anim: number;
+    /** Normalised movement axes from the last input frame ([-1..1]). */
+    dx: number;
+    dz: number;
+    /** Whether the hero is still alive (false = dead/spectating). */
+    alive: boolean;
+    /** Hero level from LevelSystem (1-based). */
+    level: number;
+    /** XP progress within the current level as a 0..1 fraction. */
+    xp: number;
+}
 export interface SnapshotEnemy { id: number; x: number; z: number; y?: number; ry: number; hp: number; flags: number; anim: number }
 export interface SnapshotMsg {
     t: 'snapshot'; tick: number; ackSeq: number; timeScale: number;
