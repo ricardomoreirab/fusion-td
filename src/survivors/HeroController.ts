@@ -103,6 +103,10 @@ export class HeroController {
     private _scratchVel: Vector3 = new Vector3();
     private _scratchCamTarget: Vector3 = new Vector3();
 
+    // Co-op: when set, the camera frames this point (+ height) instead of just
+    // the local hero. Lets a shared/tethered camera reuse the existing lerp/shake.
+    private cameraFocusProvider: (() => { x: number; z: number; height: number }) | null = null;
+
     constructor(
         scene: Scene,
         hero: Champion,
@@ -171,6 +175,10 @@ export class HeroController {
     public setExternalInput(dx: number, dz: number): void {
         this.externalDx = dx;
         this.externalDz = dz;
+    }
+
+    public setCameraFocusProvider(fn: (() => { x: number; z: number; height: number }) | null): void {
+        this.cameraFocusProvider = fn;
     }
 
     public setTargetProvider(fn: () => BasicAttackTarget | null): void {
@@ -575,7 +583,12 @@ export class HeroController {
         }
 
         // Camera follow — position only, rotation is locked at construction.
-        this._scratchCamTarget.set(pos.x, this.cameraHeight, pos.z + this.cameraOffsetZ);
+        // In co-op a focus provider supplies a midpoint + zoomed height; solo
+        // play falls back to the local hero at the constructed height.
+        const focus = this.cameraFocusProvider
+            ? this.cameraFocusProvider()
+            : { x: pos.x, z: pos.z, height: this.cameraHeight };
+        this._scratchCamTarget.set(focus.x, focus.height, focus.z + this.cameraOffsetZ);
         Vector3.LerpToRef(
             this.camera.position,
             this._scratchCamTarget,
