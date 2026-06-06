@@ -172,6 +172,11 @@ export class HeroController {
         });
     }
 
+    /** Expose the inner HeroBasicAttack so co-op wiring can set damageRouter. */
+    public getBasicAttack(): HeroBasicAttack | null {
+        return this.basicAttack;
+    }
+
     public setExternalInput(dx: number, dz: number): void {
         this.externalDx = dx;
         this.externalDz = dz;

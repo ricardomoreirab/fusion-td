@@ -51,6 +51,12 @@ export class HeroBasicAttack {
     // For melee: reference to full enemy list for AOE
     private enemyProvider: (() => Enemy[]) | null = null;
 
+    /**
+     * When set (co-op guest), a hit reports to the host instead of mutating enemy HP.
+     * Return value ignored; the caller still plays local hit VFX (swing ring / arc).
+     */
+    public damageRouter: ((enemy: Enemy, amount: number, element: string) => void) | null = null;
+
     constructor(
         scene: Scene,
         hero: Champion,
@@ -277,7 +283,8 @@ export class HeroBasicAttack {
      *  Whirlwind ticks so both carry the exact same hit modifiers. */
     private applyHit(e: Enemy, fromPos: Vector3, enemies: Enemy[]): void {
         const dmg = this.effectiveDamage;
-        e.takeDamage(dmg, 'physical');
+        if (this.damageRouter) this.damageRouter(e, dmg, 'physical');
+        else e.takeDamage(dmg, 'physical');
 
         const lifestealPct = this.playerStats?.lifestealPct ?? 0;
         if (lifestealPct > 0 && this.healCallback) {
@@ -570,18 +577,23 @@ export class HeroBasicAttack {
             }
 
             if (dist < 0.4) {
-                target.takeDamage(capturedDamage, 'physical');
-                if (this.healCallback && this.playerStats && this.playerStats.lifestealPct > 0) {
-                    this.healCallback(capturedDamage * this.playerStats.lifestealPct);
-                }
-                // Apply enchantments AND knockback on projectile hit — look up the actual
-                // Enemy instance behind the BasicAttackTarget so we have applyKnockback.
+                // Resolve the actual Enemy instance behind the BasicAttackTarget so we
+                // have applyKnockback AND can route damage to the host in co-op.
                 const enemyHit = allEnemies.find(e => {
                     const ep = e.getPosition();
                     const dx = ep.x - target.position.x;
                     const dz = ep.z - target.position.z;
                     return Math.hypot(dx, dz) < 0.5 && e.isAlive();
                 });
+                if (this.damageRouter && enemyHit) {
+                    this.damageRouter(enemyHit, capturedDamage, 'physical');
+                } else {
+                    target.takeDamage(capturedDamage, 'physical');
+                }
+                if (this.healCallback && this.playerStats && this.playerStats.lifestealPct > 0) {
+                    this.healCallback(capturedDamage * this.playerStats.lifestealPct);
+                }
+                // Apply enchantments AND knockback on projectile hit.
                 if (enemyHit) {
                     const knockback = this.playerStats?.knockbackOnHit ?? 0;
                     if (knockback > 0) {
