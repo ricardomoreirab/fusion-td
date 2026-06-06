@@ -822,23 +822,26 @@ export class Enemy {
     /**
      * Resolve the active seek target for this frame.
      *
-     * Single-player path (seekTargets is empty):
-     *   Returns `this.seekTarget` directly — identical to the pre-co-op behavior.
+     * 0/1 providers (single-player or single-provider co-op):
+     *   Returns `this.seekTarget` directly — byte-identical to the pre-M3 behavior
+     *   (no per-frame distance loop).
      *
-     * Co-op host path (seekTargets has 1+ entries):
+     * 2+ providers (co-op host with multiple players):
      *   Delegates to `pickNearestAlive` which walks the array and returns the
      *   closest live provider. The returned object is structurally compatible with
      *   `seekTarget` (both have `getPosition()` returning {x,z,...} and optional
      *   `takeDamage` / `isAlive`). Falls back to null if all providers are dead.
      */
     protected resolveSeekTarget(): typeof this.seekTarget {
-        if (this.seekTargets.length === 0) {
-            // Single-player: unchanged behavior
-            return this.seekTarget;
+        // 2+ providers (co-op host) → nearest alive. 0/1 providers (single-player or
+        // single-provider co-op) → the plain seekTarget field, byte-identical to the
+        // pre-M3 behavior (no per-frame distance loop).
+        if (this.seekTargets.length > 1) {
+            // Co-op: pick nearest alive — cast is safe because TargetProvider is a
+            // structural subset of seekTarget's type (both have getPosition()/{x,z}).
+            return pickNearestAlive(this.position.x, this.position.z, this.seekTargets) as typeof this.seekTarget;
         }
-        // Co-op: pick nearest alive — cast is safe because TargetProvider is a
-        // structural subset of seekTarget's type (both have getPosition()/{x,z}).
-        return pickNearestAlive(this.position.x, this.position.z, this.seekTargets) as typeof this.seekTarget;
+        return this.seekTarget;
     }
 
     /** True while a swing is winding up, striking, or recovering. Subclasses
