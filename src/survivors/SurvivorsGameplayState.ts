@@ -37,9 +37,13 @@ import { clearMaterialCache, getCachedMaterial, getMaterialCacheSize } from '../
 import { clearProjectilePools } from '../engine/rendering/ProjectilePool';
 import { formatBuckets } from '../engine/rendering/resourceBudget';
 import { CoopSession } from './coop/CoopSession';
+import { GuestEnemies } from './coop/GuestEnemies';
 import { computeCameraFocus } from './coop/cameraFocus';
 import { NetClient } from '../net/NetClient';
 import { WebSocketTransport } from '../net/WebSocketTransport';
+import { packEnemyFlags } from '../net/EnemyFlags';
+import type { SpawnMsg, DeathMsg, SnapshotMsg } from '../net/Protocol';
+import { MilestoneBoss } from './enemies/MilestoneBoss';
 
 /**
  * Module-level cache for champion GLBs. Loaded on demand inside enter() (not at
@@ -152,6 +156,12 @@ export class SurvivorsGameplayState implements GameState {
     /** Ghost mesh for the remote teammate (M2: cosmetic, not simulated). */
     private coopGhost: Champion | null = null;
     private coopGhostPending = false;
+    // M3: guest-side render-only enemy registry (null in single-player and host).
+    private guestEnemies: GuestEnemies | null = null;
+    /** Accumulator (seconds) for the host snapshot cadence (~20 Hz). */
+    private _snapshotAccumS = 0;
+    /** Monotonically-increasing snapshot tick counter (debug + ack). */
+    private _snapshotTick = 0;
     /** Scratch velocity for animating the ghost from interpolated pose deltas. */
     private _coopGhostVel = new Vector3();
     private joystick: SurvivorsJoystick | null = null;
@@ -506,6 +516,18 @@ export class SurvivorsGameplayState implements GameState {
                     const transport = await WebSocketTransport.connect(location.origin, code);
                     this.coopSession = new CoopSession(new NetClient(transport), localChamp);
                     console.log(`[coop] connected as ${this.coopSession.role}`);
+                    // M3: wire guest enemy registry OR host spawn/death hooks.
+                    if (this.coopSession.role === 'guest') {
+                        this.guestEnemies = new GuestEnemies(this.game);
+                        this.coopSession.onSpawn = (m) => this.guestEnemies?.spawn(m);
+                        this.coopSession.onDeath = (m) => this.guestEnemies?.death(m.id);
+                    } else {
+                        // host: wire EnemyManager hooks. enemyManager is constructed
+                        // below; store closures — they capture `this` so the actual
+                        // manager reference is resolved at call time, not wiring time.
+                        // We defer the actual setOnEnemySpawned/setOnEnemyDied calls
+                        // until after enemyManager is created (see below).
+                    }
                 } catch (err) {
                     console.error('[coop] connection failed:', err);
                 }
@@ -536,6 +558,15 @@ export class SurvivorsGameplayState implements GameState {
 
         this.enemyManager = new EnemyManager(this.game);
         this.enemyManager.setPlayerStats(this.playerStats);
+        // M3: wire host-side spawn/death hooks now that enemyManager exists.
+        if (this.coopSession?.role === 'host') {
+            this.enemyManager.setOnEnemySpawned((e) => {
+                this.coopSession?.sendSpawn(this.buildSpawnMsg(e));
+            });
+            this.enemyManager.setOnEnemyDied((e) => {
+                this.coopSession?.sendDeath(this.buildDeathMsg(e));
+            });
+        }
         // Wire the shadow generator so bosses + elites auto-register as casters.
         // Reset per run: enemy shadows start on and get cut off after wave 5.
         this.enemyShadowsDisabled = false;
@@ -1090,6 +1121,114 @@ export class SurvivorsGameplayState implements GameState {
         }
     }
 
+    // ── M3 co-op message builders ─────────────────────────────────────────────
+
+    /** Build a SpawnMsg for an enemy that was just spawned by the host. */
+    private buildSpawnMsg(e: Enemy): SpawnMsg {
+        const pos = e.getPosition();
+        const isClone = (e instanceof MilestoneBoss) ? e.isClone : false;
+        const enrageOriginId = isClone
+            ? ((e as MilestoneBoss).getEnrageOrigin()?.id ?? undefined)
+            : undefined;
+        return {
+            t: 'spawn',
+            id: e.id,
+            type: e.netType,
+            x: pos.x,
+            z: pos.z,
+            maxHealth: e.getMaxHealth(),
+            eliteElement: (e.isElite && e.eliteDropElement) ? e.eliteDropElement : undefined,
+            isClone: isClone || undefined,
+            enrageOriginId,
+        };
+    }
+
+    /** Build a DeathMsg for an enemy that just died. */
+    private buildDeathMsg(e: Enemy): DeathMsg {
+        const pos = e.getPosition();
+        const isClone = (e instanceof MilestoneBoss) ? e.isClone : false;
+        return {
+            t: 'death',
+            id: e.id,
+            x: pos.x,
+            z: pos.z,
+            isElite: e.isElite,
+            isClone,
+            reward: e.getReward(),
+            eliteElement: (e.isElite && e.eliteDropElement) ? e.eliteDropElement : undefined,
+        };
+    }
+
+    /** Build a full world snapshot for broadcast to the guest. */
+    private buildSnapshot(): SnapshotMsg {
+        // Heroes: [local hero (id=0), ghost (id=1)]
+        const heroes: SnapshotMsg['heroes'] = [];
+        if (this.hero && this.heroController) {
+            const p = this.hero.getPosition();
+            const ry = (this.hero as unknown as { mesh: { rotation: { y: number } } | null }).mesh?.rotation.y ?? 0;
+            heroes.push({
+                id: 0,
+                x: p.x,
+                y: p.y,
+                z: p.z,
+                ry,
+                hp: this.heroController.getHealth().current,
+                anim: 0, // best-effort: 0=idle/walk; detailed anim encoding deferred
+            });
+        }
+        if (this.coopGhost) {
+            const gp = this.coopGhost.getPosition();
+            const gry = (this.coopGhost as unknown as { mesh: { rotation: { y: number } } | null }).mesh?.rotation.y ?? 0;
+            heroes.push({ id: 1, x: gp.x, y: gp.y, z: gp.z, ry: gry, hp: 0, anim: 0 });
+        }
+
+        // Enemies: pack each live enemy
+        const enemies: SnapshotMsg['enemies'] = [];
+        if (this.enemyManager) {
+            for (const e of this.enemyManager.getEnemies()) {
+                if (!e.isAlive()) continue;
+                const ep = e.getPosition();
+                const eRy = (e as unknown as { mesh: { rotation: { y: number } } | null }).mesh?.rotation.y ?? 0;
+                const md = e.getMeleeDisplay();
+                const flags = packEnemyFlags({
+                    frozen:   (e as unknown as { isFrozen: boolean }).isFrozen  ?? false,
+                    stunned:  (e as unknown as { isStunned: boolean }).isStunned ?? false,
+                    confused: (e as unknown as { isConfused: boolean }).isConfused ?? false,
+                    flying:   e.isEnemyFlying(),
+                    elite:    e.isElite,
+                    meleePhase: md.phase,
+                });
+                enemies.push({
+                    id: e.id,
+                    x: ep.x,
+                    z: ep.z,
+                    ry: eRy,
+                    hp: e.getHealth(),
+                    flags,
+                    anim: md.phase > 0 ? 2 : 1, // 0 idle, 1 walk, 2 attack (rough)
+                });
+            }
+        }
+
+        // Wave state
+        const wave: SnapshotMsg['wave'] = {
+            n: this.waveManager?.getCurrentWave() ?? 0,
+            alive: this.waveManager?.getRemainingEnemiesInWave() ?? 0,
+            inProgress: (this.waveManager?.isWaveInProgress() ? 1 : 0) as 0 | 1,
+            breather: this.waveBreatherRemaining,
+        };
+
+        return {
+            t: 'snapshot',
+            tick: this._snapshotTick,
+            ackSeq: 0, // hero-seq ack deferred to M3-combat
+            timeScale: this.timeScale,
+            heroes,
+            enemies,
+            wave,
+        };
+    }
+
     /** Gather end-of-run stats and transition to game-over. */
     private buildAndSendRunSummary(): void {
         const timeSurvivedSec = (performance.now() - this.runStartTime) / 1000;
@@ -1187,6 +1326,11 @@ export class SurvivorsGameplayState implements GameState {
         this.coopGhost?.dispose();
         this.coopGhost = null;
         this.coopGhostPending = false;
+        // M3: clear guest enemy registry and reset snapshot state.
+        this.guestEnemies?.clear();
+        this.guestEnemies = null;
+        this._snapshotAccumS = 0;
+        this._snapshotTick = 0;
 
         this.hero?.dispose();
         this.hero = null;
@@ -1325,10 +1469,17 @@ export class SurvivorsGameplayState implements GameState {
             }
         }
 
+        // M3: determine the co-op role for this frame. null = single-player (no
+        // coopSession) or before the connection handshake completes. The branch is
+        // checked once and reused below so a connection that completes mid-frame
+        // doesn't mix host + guest paths within the same update() call.
+        const coopRole = this.coopSession?.role ?? null;
+
         // Between-wave breather → auto-advance (shop removed). Uses raw wall-clock
         // deltaTime; only ticks here because update() returns early while any blocking
         // overlay is open (so it never advances mid power-choice).
-        if (this.waveBreatherRemaining > 0) {
+        // Guest: the host drives wave progression — never tick the breather locally.
+        if (coopRole !== 'guest' && this.waveBreatherRemaining > 0) {
             this.waveBreatherRemaining -= deltaTime;
             if (this.waveBreatherRemaining <= 0) {
                 this.waveBreatherRemaining = 0;
@@ -1375,14 +1526,36 @@ export class SurvivorsGameplayState implements GameState {
 
         _measure('hero');
 
-        if (this.waveManager) this.waveManager.update(dt);
-        _measure('wave');
-        if (this.enemyManager) this.enemyManager.update(dt);
-        _measure('enemies');
+        // M3 role split: host/single-player run the full authoritative simulation;
+        // guest skips it entirely and instead applies the latest host snapshot to
+        // the render-only GuestEnemies + own hero HP. This is the keystone guard —
+        // changing this 'if' is the only way enemy/wave simulation runs on a guest.
+        if (coopRole !== 'guest') {
+            // Host / single-player: authoritative simulation (unchanged behavior).
+            if (this.waveManager) this.waveManager.update(dt);
+            _measure('wave');
+            if (this.enemyManager) this.enemyManager.update(dt);
+            _measure('enemies');
 
-        // Contact damage
-        this.applyContactDamage(dt);
-        _measure('contact');
+            // Contact damage
+            this.applyContactDamage(dt);
+            _measure('contact');
+        } else {
+            // Guest: do NOT tick enemyManager / waveManager / breather.
+            // Apply the latest host snapshot to drive the render-only enemies
+            // and update the local wave HUD from the snapshot's wave state.
+            const snap = this.coopSession!.getLatestSnapshot();
+            if (snap) {
+                // Drive render-only enemy positions / HP / flags.
+                if (this.guestEnemies) {
+                    this.guestEnemies.applySnapshot(snap.enemies);
+                }
+                // Guest hero-hp sync: deferred — local heroController prediction
+                // is used as-is. The host is authoritative for enemy positions only;
+                // damage routing (M3-combat) will reconcile health later.
+            }
+            _measure('guestApply');
+        }
 
         // Power auto-fire
         if (this.powerSlots) this.powerSlots.update(dt);
@@ -1446,6 +1619,19 @@ export class SurvivorsGameplayState implements GameState {
         // Off-screen enemy indicators (all tiers)
         if (this.offscreenIndicators) this.offscreenIndicators.update();
         _measure('offscreenInd');
+
+        // B4 — Host snapshot authoring at ~20 Hz. Accumulate raw deltaTime (not dt)
+        // so the cadence is wall-clock based and isn't slowed by slow-mo overlays.
+        // Only runs when we are the host and have an active session.
+        if (coopRole === 'host' && this.coopSession) {
+            this._snapshotAccumS += deltaTime;
+            if (this._snapshotAccumS >= 0.05) {
+                this._snapshotAccumS -= 0.05;
+                const snap = this.buildSnapshot();
+                this.coopSession.sendEnemySnapshot(snap);
+                this._snapshotTick++;
+            }
+        }
 
         if (profile && _times) {
             const totalMs = performance.now() - _t0;
