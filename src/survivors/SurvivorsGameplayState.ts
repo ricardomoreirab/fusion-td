@@ -158,6 +158,9 @@ export class SurvivorsGameplayState implements GameState {
     private coopGhostPending = false;
     // M3: guest-side render-only enemy registry (null in single-player and host).
     private guestEnemies: GuestEnemies | null = null;
+    /** Last wave state received from the host snapshot; drives the guest HUD.
+     *  Null until the first snapshot arrives. Reset to null in exit(). */
+    private _guestWave: { wave: number; enemiesAlive: number; inProgress: boolean } | null = null;
     /** Accumulator (seconds) for the host snapshot cadence (~20 Hz). */
     private _snapshotAccumS = 0;
     /** Monotonically-increasing snapshot tick counter (debug + ack). */
@@ -1329,6 +1332,7 @@ export class SurvivorsGameplayState implements GameState {
         // M3: clear guest enemy registry and reset snapshot state.
         this.guestEnemies?.clear();
         this.guestEnemies = null;
+        this._guestWave = null;
         this._snapshotAccumS = 0;
         this._snapshotTick = 0;
 
@@ -1550,6 +1554,12 @@ export class SurvivorsGameplayState implements GameState {
                 if (this.guestEnemies) {
                     this.guestEnemies.applySnapshot(snap.enemies);
                 }
+                // Mirror the host wave state so the guest HUD shows live info.
+                this._guestWave = {
+                    wave: snap.wave.n,
+                    enemiesAlive: snap.wave.alive,
+                    inProgress: snap.wave.inProgress === 1,
+                };
                 // Guest hero-hp sync: deferred — local heroController prediction
                 // is used as-is. The host is authoritative for enemy positions only;
                 // damage routing (M3-combat) will reconcile health later.
@@ -1600,7 +1610,11 @@ export class SurvivorsGameplayState implements GameState {
         // HUD update — reuse the scratch waveInfo struct.
         if (this.hud && this.powerSlots && this.playerStats) {
             let waveInfo: { wave: number; enemiesAlive: number; inProgress: boolean } | undefined;
-            if (this.waveManager) {
+            if (coopRole === 'guest') {
+                // Guest: read wave state from the latest host snapshot (_guestWave);
+                // the local waveManager is idle and would show 0 permanently.
+                waveInfo = this._guestWave ?? undefined;
+            } else if (this.waveManager) {
                 waveInfo = this._scratchWaveInfo;
                 waveInfo.wave = this.waveManager.getCurrentWave();
                 waveInfo.enemiesAlive = this.waveManager.getRemainingEnemiesInWave() ?? 0;
@@ -1626,7 +1640,7 @@ export class SurvivorsGameplayState implements GameState {
         if (coopRole === 'host' && this.coopSession) {
             this._snapshotAccumS += deltaTime;
             if (this._snapshotAccumS >= 0.05) {
-                this._snapshotAccumS -= 0.05;
+                this._snapshotAccumS = Math.max(0, this._snapshotAccumS - 0.05);
                 const snap = this.buildSnapshot();
                 this.coopSession.sendEnemySnapshot(snap);
                 this._snapshotTick++;

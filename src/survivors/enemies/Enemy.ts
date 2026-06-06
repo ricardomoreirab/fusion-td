@@ -1562,6 +1562,7 @@ export class Enemy {
     public disposeCorpse(): void {
         this.corpseTimeRemaining = 0;
         this._releaseMeshAndAnimations();
+        this._disposeHealthBarMeshes();   // also free the health bar (idempotent; safe after die())
     }
 
     /** Record the shadow generators this enemy's mesh was registered into, so the
