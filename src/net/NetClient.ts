@@ -1,4 +1,4 @@
-import { decode, encode, type NetRole } from './Protocol';
+import { decode, encode, type HeroStateMsg, type NetRole } from './Protocol';
 import type { IncomingMessage, NetTransport } from './NetTransport';
 
 /**
@@ -12,6 +12,7 @@ export class NetClient {
     private rttMs = 0;
 
     onPeerLeft?: () => void;
+    onHeroState?: (msg: HeroStateMsg) => void;
 
     constructor(
         private transport: NetTransport,
@@ -26,6 +27,10 @@ export class NetClient {
 
     get lastRttMs(): number {
         return this.rttMs;
+    }
+
+    sendHeroState(s: Omit<HeroStateMsg, 't'>): void {
+        this.transport.send('tick', encode({ t: 'heroState', ...s }));
     }
 
     sendPing(): void {
@@ -60,6 +65,9 @@ export class NetClient {
             }
             case 'peer-left':
                 this.onPeerLeft?.();
+                break;
+            case 'heroState':
+                this.onHeroState?.(msg);
                 break;
             case 'hello':
                 break;
