@@ -44,7 +44,15 @@ export interface SnapshotMsg {
 
 export interface SpawnMsg { t: 'spawn'; id: number; type: string; x: number; z: number; maxHealth: number; eliteElement?: string; isClone?: boolean; enrageOriginId?: number }
 export interface DeathMsg { t: 'death'; id: number; x: number; z: number; isElite: boolean; isClone: boolean; reward: number; eliteElement?: string }
-export interface DamageReportMsg { t: 'damageReport'; enemyId: number; amount: number; element: string; sourceHeroId: number }
+export interface DamageReportMsg {
+    t: 'damageReport';
+    enemyId: number;
+    amount: number;
+    element: string;
+    sourceHeroId: number;
+    /** Optional CC/status effect to apply on the host when the hit lands. */
+    status?: { kind: string; duration: number; magnitude: number };
+}
 export interface DamageResultMsg { t: 'damageResult'; enemyId: number; amount: number; isCrit: boolean; element: string; x: number; z: number }
 export interface WaveStartMsg { t: 'wave-start'; wave: number }
 export interface WaveClearMsg { t: 'wave-clear'; wave: number }
