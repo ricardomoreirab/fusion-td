@@ -8,14 +8,18 @@ describe('redSwapType', () => {
         expect(redSwapType('healer', RED_SWAP_WAVE - 1)).toBe('healer');
     });
 
-    it('swaps basic/fast/healer to red variants at and after the swap wave', () => {
+    it('swaps basic/fast/healer/tank to red variants at and after the swap wave', () => {
         expect(redSwapType('basic', RED_SWAP_WAVE)).toBe('basic_red');
         expect(redSwapType('fast', 10)).toBe('fast_red');
         expect(redSwapType('healer', 25)).toBe('healer_red');
+        expect(redSwapType('tank', 10)).toBe('tank_red');
+    });
+
+    it('passes the tank through before the swap wave', () => {
+        expect(redSwapType('tank', RED_SWAP_WAVE - 1)).toBe('tank');
     });
 
     it('leaves non-swapped types unchanged at any wave', () => {
-        expect(redSwapType('tank', 20)).toBe('tank');
         expect(redSwapType('boss', 20)).toBe('boss');
         expect(redSwapType('shield', 50)).toBe('shield');
         expect(redSwapType('splitting', 50)).toBe('splitting');
