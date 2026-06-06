@@ -25,6 +25,16 @@ function json(data: unknown, status = 200): Response {
     });
 }
 
+function makeRoomCode(): string {
+    // Unambiguous alphabet: no I/O/0/1.
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    const bytes = new Uint8Array(6);
+    crypto.getRandomValues(bytes);
+    let code = '';
+    for (let i = 0; i < 6; i++) code += alphabet[bytes[i] % alphabet.length];
+    return code;
+}
+
 async function handleGet(env: Env, url: URL): Promise<Response> {
     // null (param absent) → '20'; '' (present but empty) → Number('')=0 → clamped to 1. Clamp to [1, 100].
     const rawLimit = Number(url.searchParams.get('limit') ?? '20');
@@ -80,6 +90,18 @@ async function handlePost(request: Request, env: Env): Promise<Response> {
 export default {
     async fetch(request: Request, env: Env): Promise<Response> {
         const url = new URL(request.url);
+        // --- Co-op room routes (must run before ASSETS fallthrough) ---
+        if (url.pathname === '/room' && request.method === 'POST') {
+            return json({ code: makeRoomCode() }, 200);
+        }
+        const wsMatch = url.pathname.match(/^\/ws\/([A-Z2-9]{6})$/);
+        if (wsMatch) {
+            if (request.headers.get('Upgrade') !== 'websocket') {
+                return new Response('expected websocket', { status: 426 });
+            }
+            const id = env.ROOMS.idFromName(wsMatch[1]);
+            return env.ROOMS.get(id).fetch(request);
+        }
         if (url.pathname === '/api/scores') {
             try {
                 if (request.method === 'GET') return await handleGet(env, url);
