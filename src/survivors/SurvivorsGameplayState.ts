@@ -157,6 +157,17 @@ export class SurvivorsGameplayState implements GameState {
     /** Ghost mesh for the remote teammate (M2: cosmetic, not simulated). */
     private coopGhost: Champion | null = null;
     private coopGhostPending = false;
+    // M3 (Part A): host-authoritative HP tracking for the guest hero.
+    // The host computes contact damage for both heroes; these fields hold the
+    // guest's authoritative HP. Sent to the guest in every snapshot (heroes[1].hp).
+    // Null/zero until the ghost appears and champHpFor resolves the guest's class.
+    private guestHeroHp = 0;
+    private guestHeroMaxHp = 0;
+    private guestHeroAlive = true;
+    // Mutable hero-provider array shared with EnemyManager so the ghost provider
+    // can be pushed in lazily (after the ghost spawns) and existing enemies see it
+    // via their seekTargets reference (EnemyManager assigns the same array object).
+    private _heroProviders: Parameters<EnemyManager['configureSurvivorsMode']>[0] = [];
     // M3: guest-side render-only enemy registry (null in single-player and host).
     private guestEnemies: GuestEnemies | null = null;
     /** Last wave state received from the host snapshot; drives the guest HUD.
@@ -656,32 +667,32 @@ export class SurvivorsGameplayState implements GameState {
         // triggers state.exit() synchronously (nulling this.hero), and the rest of
         // EnemyManager.update would otherwise crash on this.hero!.getPosition().
         const heroPosFallback = new Vector3();
-        this.enemyManager.configureSurvivorsMode(
-            // Single-element array: single-player passes one hero provider.
-            // Co-op adds the ghost provider in a later task; behavior is unchanged here.
-            [
-                {
-                    getPosition: () => {
-                        const p = this.hero?.getPosition();
-                        if (p) { heroPosFallback.copyFrom(p); return p; }
-                        return heroPosFallback;
-                    },
-                    takeDamage: (amount: number, sourcePos?: Vector3) => {
-                        if (!this.heroController) return;
-                        const mult = this.playerStats?.damageReductionMultiplier ?? 1.0;
-                        this.heroController.takeDamage(amount * mult, sourcePos);
-                    },
-                    isAlive: () => !!this.heroController,
-                    applyPull: (towardX: number, towardZ: number, speed: number, durationS: number) => {
-                        this.heroController?.applyPull(towardX, towardZ, speed, durationS);
-                    },
-                    applySlow: (multiplier: number, durationS: number) => {
-                        this.heroController?.applySlow(multiplier, durationS);
-                    },
+        // Build the mutable hero-providers array (stored on `this` so the ghost
+        // provider can be pushed lazily when the co-op ghost spawns). EnemyManager
+        // holds the same array reference via seekTargets, so mutations are visible
+        // to all already-spawned enemies without a re-configure call.
+        this._heroProviders = [
+            {
+                getPosition: () => {
+                    const p = this.hero?.getPosition();
+                    if (p) { heroPosFallback.copyFrom(p); return p; }
+                    return heroPosFallback;
                 },
-            ],
-            this.map.getArenaRadius(),
-        );
+                takeDamage: (amount: number, sourcePos?: Vector3) => {
+                    if (!this.heroController) return;
+                    const mult = this.playerStats?.damageReductionMultiplier ?? 1.0;
+                    this.heroController.takeDamage(amount * mult, sourcePos);
+                },
+                isAlive: () => !!this.heroController,
+                applyPull: (towardX: number, towardZ: number, speed: number, durationS: number) => {
+                    this.heroController?.applyPull(towardX, towardZ, speed, durationS);
+                },
+                applySlow: (multiplier: number, durationS: number) => {
+                    this.heroController?.applySlow(multiplier, durationS);
+                },
+            },
+        ];
+        this.enemyManager.configureSurvivorsMode(this._heroProviders, this.map.getArenaRadius());
 
         // Hand over enemy GLB assets so EnemyManager.spawnSurvivorsEnemy can stage them
         // on the per-class pendingAsset slots before construction. Loaded lazily (await
@@ -1259,7 +1270,9 @@ export class SurvivorsGameplayState implements GameState {
         if (this.coopGhost) {
             const gp = this.coopGhost.getPosition();
             const gry = (this.coopGhost as unknown as { mesh: { rotation: { y: number } } | null }).mesh?.rotation.y ?? 0;
-            heroes.push({ id: 1, x: gp.x, y: gp.y, z: gp.z, ry: gry, hp: 0, anim: 0 });
+            // Part C: carry the host-tracked guest HP in the snapshot so the guest
+            // can apply it as snapshot-authoritative HP instead of computing locally.
+            heroes.push({ id: 1, x: gp.x, y: gp.y, z: gp.z, ry: gry, hp: this.guestHeroHp, anim: 0 });
         }
 
         // Enemies: pack each live enemy
@@ -1406,6 +1419,11 @@ export class SurvivorsGameplayState implements GameState {
         this.coopGhost?.dispose();
         this.coopGhost = null;
         this.coopGhostPending = false;
+        // Part D: reset host-tracked guest-hero HP state and providers array.
+        this.guestHeroHp = 0;
+        this.guestHeroMaxHp = 0;
+        this.guestHeroAlive = true;
+        this._heroProviders = [];
         // M3: clear guest enemy registry and reset snapshot state.
         this.guestEnemies?.clear();
         this.guestEnemies = null;
@@ -1529,6 +1547,18 @@ export class SurvivorsGameplayState implements GameState {
                             { baseHeight: 20, maxHeight: 30, zoomPerUnit: 0.4 },
                         );
                     });
+                    // Part C (Task 9 ghost targeting provider): on the host, push the ghost
+                    // into _heroProviders so enemies target the nearest of both heroes.
+                    // isAlive() returns guestHeroAlive so a dead guest is no longer targeted.
+                    // The _heroProviders array is shared with EnemyManager (same reference),
+                    // so existing enemies pick up the new provider immediately via seekTargets.
+                    if (this.coopSession.role === 'host') {
+                        const ghost = this.coopGhost;
+                        this._heroProviders.push({
+                            getPosition: () => ghost.getPosition(),
+                            isAlive: () => this.guestHeroAlive,
+                        });
+                    }
                 });
             }
             if (this.coopGhost && pose) {
@@ -1637,9 +1667,14 @@ export class SurvivorsGameplayState implements GameState {
                     enemiesAlive: snap.wave.alive,
                     inProgress: snap.wave.inProgress === 1,
                 };
-                // Guest hero-hp sync: deferred — local heroController prediction
-                // is used as-is. The host is authoritative for enemy positions only;
-                // damage routing (M3-combat) will reconcile health later.
+                // Part C: apply this guest hero's authoritative HP from the snapshot.
+                // The guest is hero id=1 in heroes[]. The host computed contact damage
+                // for both heroes so the guest does NOT compute it locally.
+                // heroController is non-null here (update() guards at the top).
+                const guestEntry = snap.heroes.find(h => h.id === 1);
+                if (guestEntry && this.heroController) {
+                    this.heroController.setHealth(guestEntry.hp);
+                }
             }
             _measure('guestApply');
         }
@@ -2378,22 +2413,73 @@ export class SurvivorsGameplayState implements GameState {
         }
     }
 
+    /**
+     * Return the starting (max) HP for a given champion type, matching the same
+     * calculation `startRun` uses for the local hero. Used by the host to
+     * initialise guestHeroMaxHp / guestHeroHp when the ghost's class is known.
+     */
+    private champHpFor(type: string): number {
+        const variants: Record<string, number> = {
+            barbarian: 140,
+            ranger:    90,
+            mage:      80,
+        };
+        const base = variants[type] ?? variants['barbarian'];
+        return Math.round(base * DifficultyTuning.playerHpMult);
+    }
+
     private applyContactDamage(deltaTime: number): void {
         if (!this.hero || !this.enemyManager || !this.heroController) return;
         const heroPos = this.hero.getPosition();
         const reductionMult = this.playerStats?.damageReductionMultiplier ?? 1.0;
+
+        // Host co-op: also track ghost position for guest-hero contact checks below.
+        // Single-player: coopRole is null — the guest block is never entered.
+        const coopRole = this.coopSession?.role ?? null;
+        const ghostPos = (coopRole === 'host' && this.coopGhost && this.guestHeroAlive)
+            ? this.coopGhost.getPosition()
+            : null;
+
+        // Lazily initialise guestHeroMaxHp the first time the ghost exists and
+        // guestHeroMaxHp hasn't been set yet. The ghost's champion type is
+        // available from the remote champ string stored in CoopSession.
+        if (coopRole === 'host' && this.coopGhost && this.guestHeroMaxHp === 0) {
+            const remoteChamp = this.coopSession?.getRemoteChamp() ?? 'barbarian';
+            this.guestHeroMaxHp = this.champHpFor(remoteChamp);
+            this.guestHeroHp    = this.guestHeroMaxHp;
+            this.guestHeroAlive = true;
+        }
+
+        const sumR = this.heroRadius + 0.6;
+        const sumRSq = sumR * sumR;
+
         for (const e of this.enemyManager.getEnemies()) {
             // Hero death inside takeDamage triggers state.exit() synchronously,
             // which nulls heroController. Re-check each iteration.
             if (!this.heroController) return;
             if (!e.isAlive()) continue;
             const ePos = e.getPosition();
-            const dx = ePos.x - heroPos.x;
-            const dz = ePos.z - heroPos.z;
-            const distSq = dx * dx + dz * dz;
-            const sumR = this.heroRadius + 0.6;
-            if (distSq < sumR * sumR) {
+
+            // ── Local hero contact (unchanged behaviour for SP + host) ──────────
+            const ldx = ePos.x - heroPos.x;
+            const ldz = ePos.z - heroPos.z;
+            if (ldx * ldx + ldz * ldz < sumRSq) {
                 this.heroController.takeDamage(e.contactDamagePerSecond * deltaTime * reductionMult, ePos);
+            }
+
+            // ── Guest hero contact (host only) ───────────────────────────────────
+            // Apply contact damage against the ghost position; track HP here;
+            // the authoritative value ships to the guest in every snapshot.
+            if (ghostPos && this.guestHeroAlive) {
+                const gdx = ePos.x - ghostPos.x;
+                const gdz = ePos.z - ghostPos.z;
+                if (gdx * gdx + gdz * gdz < sumRSq) {
+                    const dmg = e.contactDamagePerSecond * deltaTime * reductionMult;
+                    this.guestHeroHp = Math.max(0, this.guestHeroHp - dmg);
+                    if (this.guestHeroHp <= 0) {
+                        this.guestHeroAlive = false;
+                    }
+                }
             }
         }
     }

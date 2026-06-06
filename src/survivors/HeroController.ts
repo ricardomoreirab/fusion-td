@@ -327,6 +327,22 @@ export class HeroController {
         this.currentHealth = Math.min(this.maxHealth, this.currentHealth + amount);
     }
 
+    /**
+     * Snapshot-authoritative HP write from the host (co-op guest side).
+     * Sets currentHealth to the given value (clamped [0, max]) and triggers
+     * the death path if hp reaches 0 — reusing the same flow as takeDamage.
+     * No-op if already dead.
+     */
+    public setHealth(hp: number): void {
+        if (this.isDead) return;
+        this.currentHealth = Math.max(0, Math.min(this.maxHealth, hp));
+        if (this.currentHealth <= 0 && !this.isDead) {
+            this.currentHealth = 0;
+            this.isDead = true;
+            this.onDeathCallback();
+        }
+    }
+
     /** Maximum HP (for percentage-of-max heals). */
     public getMaxHealth(): number {
         return this.maxHealth;
