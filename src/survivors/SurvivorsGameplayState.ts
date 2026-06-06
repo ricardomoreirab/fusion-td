@@ -546,25 +546,29 @@ export class SurvivorsGameplayState implements GameState {
         // EnemyManager.update would otherwise crash on this.hero!.getPosition().
         const heroPosFallback = new Vector3();
         this.enemyManager.configureSurvivorsMode(
-            {
-                getPosition: () => {
-                    const p = this.hero?.getPosition();
-                    if (p) { heroPosFallback.copyFrom(p); return p; }
-                    return heroPosFallback;
+            // Single-element array: single-player passes one hero provider.
+            // Co-op adds the ghost provider in a later task; behavior is unchanged here.
+            [
+                {
+                    getPosition: () => {
+                        const p = this.hero?.getPosition();
+                        if (p) { heroPosFallback.copyFrom(p); return p; }
+                        return heroPosFallback;
+                    },
+                    takeDamage: (amount: number, sourcePos?: Vector3) => {
+                        if (!this.heroController) return;
+                        const mult = this.playerStats?.damageReductionMultiplier ?? 1.0;
+                        this.heroController.takeDamage(amount * mult, sourcePos);
+                    },
+                    isAlive: () => !!this.heroController,
+                    applyPull: (towardX: number, towardZ: number, speed: number, durationS: number) => {
+                        this.heroController?.applyPull(towardX, towardZ, speed, durationS);
+                    },
+                    applySlow: (multiplier: number, durationS: number) => {
+                        this.heroController?.applySlow(multiplier, durationS);
+                    },
                 },
-                takeDamage: (amount: number, sourcePos?: Vector3) => {
-                    if (!this.heroController) return;
-                    const mult = this.playerStats?.damageReductionMultiplier ?? 1.0;
-                    this.heroController.takeDamage(amount * mult, sourcePos);
-                },
-                isAlive: () => !!this.heroController,
-                applyPull: (towardX: number, towardZ: number, speed: number, durationS: number) => {
-                    this.heroController?.applyPull(towardX, towardZ, speed, durationS);
-                },
-                applySlow: (multiplier: number, durationS: number) => {
-                    this.heroController?.applySlow(multiplier, durationS);
-                },
-            },
+            ],
             this.map.getArenaRadius(),
         );
 

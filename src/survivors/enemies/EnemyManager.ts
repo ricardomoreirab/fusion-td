@@ -1,6 +1,7 @@
 import { Vector3, Scene, ShadowGenerator } from '@babylonjs/core';
 import { Game } from '../../engine/Game';
 import { Enemy, resetDeathBurstBudget } from './Enemy';
+import { type TargetProvider, pickNearestAlive } from './nearestTarget';
 import { BasicEnemy } from './BasicEnemy';
 import { FastEnemy } from './FastEnemy';
 import { TankEnemy } from './TankEnemy';
@@ -45,6 +46,10 @@ export class EnemyManager {
         applyPull?: (towardX: number, towardZ: number, speed: number, durationS: number) => void;
         applySlow?: (multiplier: number, durationS: number) => void;
     } | null = null;
+    /** Array version of heroProvider — set by configureSurvivorsMode (Phase 3).
+     *  In single-player this is a single-element array wrapping heroProvider.
+     *  In co-op it contains both heroes' providers so enemies can seek the nearest. */
+    private heroProviders: TargetProvider[] = [];
     private arenaRadius: number = 25;
     private onEliteDeathCallback: (position: Vector3, element: string) => void = () => {};
     private onMilestoneBossDeathCallback: (position: Vector3, waveTier: number) => void = () => {};
@@ -124,19 +129,28 @@ export class EnemyManager {
     }
 
     /**
-     * Configure survivors mode: enemies spawn at arena perimeter and seek the hero.
+     * Configure survivors mode: enemies spawn at arena perimeter and seek the hero(es).
+     *
+     * `heroProviders` is an array of target providers — one in single-player, two in
+     * co-op. Each provider must at minimum satisfy `TargetProvider` (getPosition + optional
+     * isAlive) but may carry the wider hero-provider shape (takeDamage, applyPull, etc.)
+     * which enemies use for contact damage and boss specials. Passing a single-element
+     * array is behavior-identical to the old single-provider API.
      */
     public configureSurvivorsMode(
-        heroProvider: {
-            getPosition: () => Vector3;
+        heroProviders: (TargetProvider & {
             takeDamage?: (amount: number, sourcePos?: Vector3) => void;
-            isAlive?: () => boolean;
             applyPull?: (towardX: number, towardZ: number, speed: number, durationS: number) => void;
             applySlow?: (multiplier: number, durationS: number) => void;
-        },
+        })[],
         arenaRadius: number,
     ): void {
-        this.heroProvider = heroProvider;
+        this.heroProviders = heroProviders;
+        // Keep heroProvider pointing at the first entry for spawn-position / isAlive
+        // guards that still use the wider typed field (getPosition returns Vector3,
+        // takeDamage, applyPull, applySlow). Cast is safe — in practice the providers
+        // passed are always the full hero-provider objects.
+        this.heroProvider = (heroProviders[0] ?? null) as typeof this.heroProvider;
         this.arenaRadius = arenaRadius;
         this.nextEnemyId = 0; // reset per run
 
@@ -154,6 +168,7 @@ export class EnemyManager {
                 const mini = new MiniEnemy(this.game, spawnPos, this.heroProvider ? [] : [...path]);
                 if (this.heroProvider) {
                     mini.seekTarget = this.heroProvider;
+                    mini.seekTargets = this.heroProviders;
                 }
                 this._applyOrbHpBonus(mini);
                 this._registerAsShadowCaster(mini);
@@ -164,9 +179,9 @@ export class EnemyManager {
         document.addEventListener('enemySplit', this.splitHandler);
 
         // Listen for boss clone events (from a tier-3/4 MilestoneBoss). Spawns a
-        // weaker twin on the OPPOSITE side of the hero from the origin boss so the
-        // two pincer the player. The clone is linked back to its origin; when it
-        // dies (see update()), the origin enrages.
+        // weaker twin on the OPPOSITE side of the NEAREST hero from the origin boss
+        // so the two pincer the player. The clone is linked back to its origin; when
+        // it dies (see update()), the origin enrages.
         if (this.cloneHandler) {
             document.removeEventListener('bossClone', this.cloneHandler);
         }
@@ -179,8 +194,14 @@ export class EnemyManager {
             const origin = detail.origin;
             if (!this.heroProvider || !origin || !origin.isAlive()) return;
 
-            const heroPos = this.heroProvider.getPosition();
+            // Use nearest-alive hero for the reflect geometry so the clone spawns
+            // on the opposite side of the closest player from the boss. In single-
+            // player this is always heroProviders[0] (identical to the old behavior).
             const op = origin.getPosition();
+            const nearestProvider = pickNearestAlive(op.x, op.z, this.heroProviders) ?? this.heroProviders[0];
+            const heroPos = nearestProvider?.getPosition() as Vector3;
+            if (!heroPos) return;
+
             // Direction hero→away-from-origin = reflect the origin across the hero.
             let dx = heroPos.x - op.x;
             let dz = heroPos.z - op.z;
@@ -200,6 +221,7 @@ export class EnemyManager {
             // Full-strength identical twin; isClone=true suppresses recursive cloning.
             const clone = new MilestoneBoss(this.game, new Vector3(cx, 0, cz), [], tier, 1, true);
             clone.seekTarget = this.heroProvider;
+            clone.seekTargets = this.heroProviders;
             clone.setEnrageOrigin(origin);
             // Mirror the origin's exact max HP so the twin shares the SAME health pool
             // (also captures any orb-HP / strength scaling the origin already received).
@@ -557,8 +579,10 @@ export class EnemyManager {
             default:         enemy = new BasicEnemy(this.game, spawnPos, []); break;
         }
 
-        // Set seekTarget BEFORE first update so the seek branch runs immediately
+        // Set seekTarget (single-provider, for legacy contact-damage / grab / slow paths)
+        // AND seekTargets (array, for the nearest-of-N resolver) BEFORE first update.
         enemy.seekTarget = this.heroProvider;
+        enemy.seekTargets = this.heroProviders;
 
         // Apply elite treatment if requested
         if (eliteElement) {
