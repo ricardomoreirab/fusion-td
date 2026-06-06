@@ -72,6 +72,16 @@ export class EnemyManager {
      *  The host uses IDs in snapshots so the guest can match scene objects. */
     private nextEnemyId: number = 0;
 
+    // ── M3 host hooks ──────────────────────────────────────────────────────────
+    /** Optional callback: called immediately after each enemy is assigned its id
+     *  and pushed into the live list (all 3 spawn sites: main, mini-split, boss-clone).
+     *  No-op in single-player (never set). Host wires this to send a SpawnMsg. */
+    private onEnemySpawnedCb: ((enemy: Enemy) => void) | null = null;
+    /** Optional callback: called in update() at the moment an enemy transitions to
+     *  dead (before it moves to the corpse list). No-op in single-player.
+     *  Host wires this to send a DeathMsg. */
+    private onEnemyDiedCb: ((enemy: Enemy) => void) | null = null;
+
     /** Compounding HP multiplier applied to every NEW enemy spawn this run.
      *  Multiplied by (1 + 0.08) each time the hero picks up a magical orb
      *  (hidden mechanic — no UI). Geometric rather than additive so it can track
@@ -172,8 +182,11 @@ export class EnemyManager {
                 }
                 this._applyOrbHpBonus(mini);
                 this._registerAsShadowCaster(mini);
+                mini.netType = 'mini';
                 mini.id = this.nextEnemyId++;
                 this.enemies.push(mini);
+                // M3 host hook: notify after id is assigned.
+                if (this.onEnemySpawnedCb) this.onEnemySpawnedCb(mini);
             }
         };
         document.addEventListener('enemySplit', this.splitHandler);
@@ -228,8 +241,11 @@ export class EnemyManager {
             const cloneMax = clone.getMaxHealth();
             if (cloneMax > 0) clone.applyHealthMultiplier(origin.getMaxHealth() / cloneMax);
             this._registerAsShadowCaster(clone);
+            clone.netType = 'boss_milestone';
             clone.id = this.nextEnemyId++;
             this.enemies.push(clone);
+            // M3 host hook: notify after id is assigned.
+            if (this.onEnemySpawnedCb) this.onEnemySpawnedCb(clone);
           } catch (err) {
             console.error('[clone] boss-clone spawn failed (skipped):', err);
           }
@@ -299,6 +315,21 @@ export class EnemyManager {
      */
     public setOnMilestoneBossDeath(fn: (position: Vector3, waveTier: number) => void): void {
         this.onMilestoneBossDeathCallback = fn;
+    }
+
+    /** M3 host hook: register a callback fired immediately after each enemy spawn
+     *  (all 3 sites: main spawnSurvivorsEnemy, mini-split, boss-clone). The enemy
+     *  already has its stable `id` assigned. No-op when not set (single-player). */
+    public setOnEnemySpawned(cb: (enemy: Enemy) => void): void {
+        this.onEnemySpawnedCb = cb;
+    }
+
+    /** M3 host hook: register a callback fired in update() when an enemy's health
+     *  drops to zero — before it is removed from the live list and moved to corpses.
+     *  The enemy is still in the live enemies array when the callback fires.
+     *  No-op when not set (single-player). */
+    public setOnEnemyDied(cb: (enemy: Enemy) => void): void {
+        this.onEnemyDiedCb = cb;
     }
 
     /** Register a preloaded GLB asset for the given enemy type. spawnSurvivorsEnemy
@@ -579,6 +610,13 @@ export class EnemyManager {
             default:         enemy = new BasicEnemy(this.game, spawnPos, []); break;
         }
 
+        // Record the resolved type string on the enemy for the M3 host hook so
+        // buildSpawnMsg can read it without a reverse-lookup. 'boss' resolves to
+        // 'boss_milestone' when a MilestoneBoss was actually created (milestone waves);
+        // that string matches the 'boss_milestone' case in createEnemyOfType.
+        const isMilestoneBoss = enemy instanceof MilestoneBoss;
+        enemy.netType = isMilestoneBoss ? 'boss_milestone' : type;
+
         // Set seekTarget (single-provider, for legacy contact-damage / grab / slow paths)
         // AND seekTargets (array, for the nearest-of-N resolver) BEFORE first update.
         enemy.seekTarget = this.heroProvider;
@@ -611,6 +649,8 @@ export class EnemyManager {
 
         enemy.id = this.nextEnemyId++;
         this.enemies.push(enemy);
+        // M3 host hook: notify after id is assigned and enemy is in the live list.
+        if (this.onEnemySpawnedCb) this.onEnemySpawnedCb(enemy);
         const spawnMs = performance.now() - spawnStart;
         if (spawnMs > 50) {
             console.warn(`[spawn] ${type}${eliteElement ? `:${eliteElement}` : ''} took ${Math.round(spawnMs)}ms`);
@@ -660,6 +700,10 @@ export class EnemyManager {
                 }
                 this._removeAt(i);
             } else if (!enemy.isAlive()) {
+                // M3 host hook: fire before reward/removal so the host can send a
+                // DeathMsg while the enemy is still in the live list (has valid id,
+                // position, isElite, eliteDropElement, isClone, reward).
+                if (this.onEnemyDiedCb) this.onEnemyDiedCb(enemy);
                 if (this.playerStats) {
                     this.playerStats.addMoney(enemy.getReward());
                     this.playerStats.addKill();

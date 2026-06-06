@@ -148,6 +148,12 @@ export class Enemy {
      *  local scene object by ID. Single-player never reads this field. */
     public id: number = -1;
 
+    /** Network type string matching the keys in createEnemyOfType / SpawnMsg.type.
+     *  Set by EnemyManager.spawnSurvivorsEnemy (and the split/clone handlers) right
+     *  after construction, before the host fires onEnemySpawnedCb.
+     *  Defaults to 'basic' as a safe fallback; single-player never reads this. */
+    public netType: string = 'basic';
+
     // Melee-swing tuning (survivors mode). Each subclass overrides these in its
     // constructor; defaults below are tuned for a basic-enemy quick jab.
     // The swing gives the enemy *reach* — without it, passive contactDamagePerSecond
