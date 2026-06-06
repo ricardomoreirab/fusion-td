@@ -1,9 +1,12 @@
 /// <reference types="@cloudflare/workers-types" />
 import { validateScore, type LeaderboardEntry } from '../src/survivors/leaderboardValidation';
 
+export { Room } from './rooms/Room';
+
 interface Env {
     ASSETS: Fetcher;
     DB: D1Database;
+    ROOMS: DurableObjectNamespace;
 }
 
 interface ScoreRow {
