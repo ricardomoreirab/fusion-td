@@ -151,7 +151,6 @@ export class SurvivorsGameplayState implements GameState {
     private coopSession: CoopSession | null = null;
     /** Ghost mesh for the remote teammate (M2: cosmetic, not simulated). */
     private coopGhost: Champion | null = null;
-    private coopGhostChamp: string | null = null;
     private joystick: SurvivorsJoystick | null = null;
     private grass: ReturnType<typeof createProceduralGrass> | null = null;
     private shadowSourceLight: DirectionalLight | null = null;
@@ -1178,9 +1177,8 @@ export class SurvivorsGameplayState implements GameState {
 
         this.coopSession?.dispose();
         this.coopSession = null;
-        (this.coopGhost as unknown as { dispose?: () => void })?.dispose?.();
+        this.coopGhost?.dispose();
         this.coopGhost = null;
-        this.coopGhostChamp = null;
 
         this.hero?.dispose();
         this.hero = null;
@@ -1273,7 +1271,18 @@ export class SurvivorsGameplayState implements GameState {
             if (champ && !this.coopGhost) {
                 this.coopGhost = new Champion(this.game, [], null, champ as 'barbarian' | 'ranger' | 'mage');
                 this.coopGhost.controlMode = 'player'; // no AI; we place it manually
-                this.coopGhostChamp = champ;
+                // Shared/tethered camera: set once. The closure reads both heroes'
+                // live positions each camera frame, so no per-frame re-allocation
+                // and no stale capture.
+                this.heroController!.setCameraFocusProvider(() => {
+                    const self = this.hero!.getPosition();
+                    const mate = this.coopGhost!.getPosition();
+                    return computeCameraFocus(
+                        { x: self.x, z: self.z },
+                        { x: mate.x, z: mate.z },
+                        { baseHeight: 20, maxHeight: 30, zoomPerUnit: 0.4 },
+                    );
+                });
             }
             if (this.coopGhost && pose) {
                 const g = this.coopGhost as unknown as { position: Vector3; mesh: Mesh | null };
@@ -1283,18 +1292,6 @@ export class SurvivorsGameplayState implements GameState {
                     g.mesh.rotation.y = pose.ry;
                 }
                 this.coopGhost.update(dt); // animate limbs/idle without moving it
-            }
-
-            // Shared camera: frame both heroes when the ghost exists.
-            if (this.coopGhost && pose) {
-                this.heroController!.setCameraFocusProvider(() => {
-                    const self = this.hero!.getPosition();
-                    return computeCameraFocus(
-                        { x: self.x, z: self.z },
-                        { x: pose.x, z: pose.z },
-                        { baseHeight: 20, maxHeight: 30, zoomPerUnit: 0.4 },
-                    );
-                });
             }
         }
 
