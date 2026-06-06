@@ -43,6 +43,7 @@ import { NetClient } from '../net/NetClient';
 import { WebSocketTransport } from '../net/WebSocketTransport';
 import { packEnemyFlags } from '../net/EnemyFlags';
 import type { SpawnMsg, DeathMsg, SnapshotMsg } from '../net/Protocol';
+import { validateDamageReport } from './coop/DamageRouter';
 import { MilestoneBoss } from './enemies/MilestoneBoss';
 
 /**
@@ -524,12 +525,88 @@ export class SurvivorsGameplayState implements GameState {
                         this.guestEnemies = new GuestEnemies(this.game);
                         this.coopSession.onSpawn = (m) => this.guestEnemies?.spawn(m);
                         this.coopSession.onDeath = (m) => this.guestEnemies?.death(m.id);
+                        // M3b: guest basic-attack aims at render-only GuestEnemies and
+                        // reports hits to the host instead of mutating enemy HP locally.
+                        // heroController was created synchronously before this block so
+                        // it is always live here.
+                        this.heroController?.setEnemyProvider(
+                            () => this.guestEnemies?.getEnemies() ?? [],
+                        );
+                        this.heroController?.setTargetProvider(() => {
+                            const ge = this.guestEnemies;
+                            if (!ge || !this.hero) return null;
+                            const heroPos = this.hero.getPosition();
+                            let best: import('./enemies/Enemy').Enemy | null = null;
+                            let bestDistSq = Infinity;
+                            for (const e of ge.getEnemies()) {
+                                if (!e.isAlive()) continue;
+                                const dx = e.getPosition().x - heroPos.x;
+                                const dz = e.getPosition().z - heroPos.z;
+                                const dSq = dx * dx + dz * dz;
+                                if (dSq < bestDistSq) { bestDistSq = dSq; best = e; }
+                            }
+                            if (!best) return null;
+                            const captured = best;
+                            return {
+                                position:   captured.getPosition(),
+                                takeDamage: (n, element) => captured.takeDamage(n, element),
+                                isAlive:    () => captured.isAlive(),
+                            };
+                        });
+                        const ba = this.heroController?.getBasicAttack();
+                        if (ba) {
+                            ba.damageRouter = (enemy, amount, element) => {
+                                this.coopSession?.sendDamageReport({
+                                    t: 'damageReport',
+                                    enemyId: enemy.id,
+                                    amount,
+                                    element,
+                                    sourceHeroId: 1,
+                                });
+                            };
+                        }
+                        // Receive authoritative damage results from host and show damage numbers.
+                        this.coopSession.onDamageResult = (m) => {
+                            if (this.damageNumbers) {
+                                this.damageNumbers.showDamage(
+                                    new Vector3(m.x, 0, m.z),
+                                    m.amount,
+                                    m.element as PowerElement | undefined,
+                                    m.isCrit,
+                                );
+                            }
+                        };
                     } else {
                         // host: wire EnemyManager hooks. enemyManager is constructed
                         // below; store closures — they capture `this` so the actual
                         // manager reference is resolved at call time, not wiring time.
                         // We defer the actual setOnEnemySpawned/setOnEnemyDied calls
                         // until after enemyManager is created (see below).
+                        //
+                        // M3b: validate + apply guest damage reports authoritatively.
+                        // Uses closures so enemyManager/coopGhost are resolved at call time.
+                        this.coopSession.onDamageReport = (m) => {
+                            const e = this.enemyManager?.getEnemyById(m.enemyId);
+                            const ep = e ? { x: e.getPosition().x, z: e.getPosition().z } : null;
+                            const ghost = this.coopGhost;
+                            const srcPos = ghost
+                                ? { x: ghost.getPosition().x, z: ghost.getPosition().z }
+                                : undefined;
+                            // maxRangeSq = 144 (12u) — generous for network lag
+                            if (!validateDamageReport(m, ep, 144, srcPos)) return;
+                            if (e) {
+                                e.takeDamage(m.amount, m.element as PowerElement);
+                                this.coopSession?.sendDamageResult({
+                                    t: 'damageResult',
+                                    enemyId: m.enemyId,
+                                    amount: m.amount,
+                                    isCrit: false,
+                                    element: m.element,
+                                    x: e.getPosition().x,
+                                    z: e.getPosition().z,
+                                });
+                            }
+                        };
                     }
                 } catch (err) {
                     console.error('[coop] connection failed:', err);
