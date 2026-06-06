@@ -12,6 +12,10 @@ import type { WaveManager } from '../WaveManager';
 import { HealerEnemy } from './HealerEnemy';
 import { ShieldEnemy } from './ShieldEnemy';
 import { MiniEnemy } from './MiniEnemy';
+import { RedMeleeMinion } from './RedMeleeMinion';
+import { RedArtilleryCarriage } from './RedArtilleryCarriage';
+import { RedWizard } from './RedWizard';
+import { redSwapType } from './redSwap';
 import { PlayerStats } from '../PlayerStats';
 import { makeElite } from './EliteSpawner';
 import { DifficultyTuning } from '../DifficultyTuning';
@@ -339,6 +343,12 @@ export class EnemyManager {
             { cls: SplittingEnemy, key: 'splitting',    build: () => new SplittingEnemy(this.game, farAway, []) },
             { cls: MiniEnemy,      key: 'mini',         build: () => new MiniEnemy(this.game, farAway, []) },
             { cls: ShieldEnemy,    key: 'shield',       build: () => new ShieldEnemy(this.game, farAway, []) },
+            // Wave-10+ red-tier variants — distinct GLBs, so they need their own shader/depth prewarm.
+            { cls: BasicEnemy,  key: 'basic_red',        build: () => new RedMeleeMinion(this.game, farAway, []) },
+            { cls: BasicEnemy,  key: 'basic_red_elite',  build: () => new RedMeleeMinion(this.game, farAway, []) },
+            { cls: FastEnemy,   key: 'fast_red',         build: () => new RedArtilleryCarriage(this.game, farAway, []) },
+            { cls: HealerEnemy, key: 'healer_red',       build: () => new RedWizard(this.game, farAway, []) },
+            { cls: HealerEnemy, key: 'healer_red_elite', build: () => new RedWizard(this.game, farAway, []) },
         ];
         for (const { cls, key, build } of glbVariants) {
             const asset = this.enemyAssets[key];
@@ -493,6 +503,12 @@ export class EnemyManager {
             }
             return this.enemyAssets[baseType] ?? null;
         };
+
+        // Wave-10+ red-tier swap: tougher red variants replace the blue base enemies.
+        // Rewrites the type string so both the asset lookup and the switch below use it.
+        const waveNow = this.waveManager?.getCurrentWave() ?? 0;
+        type = redSwapType(type, waveNow);
+
         let enemy: Enemy;
         switch (type) {
             case 'basic':    BasicEnemy.pendingAsset = assetFor('basic');
@@ -518,6 +534,12 @@ export class EnemyManager {
                              enemy = new SplittingEnemy(this.game, spawnPos, []); break;
             case 'healer':   HealerEnemy.pendingAsset = assetFor('healer');
                              enemy = new HealerEnemy(this.game, spawnPos, []); break;
+            case 'basic_red':  BasicEnemy.pendingAsset = assetFor('basic_red');
+                               enemy = new RedMeleeMinion(this.game, spawnPos, []); break;
+            case 'fast_red':   FastEnemy.pendingAsset = assetFor('fast_red');
+                               enemy = new RedArtilleryCarriage(this.game, spawnPos, []); break;
+            case 'healer_red': HealerEnemy.pendingAsset = assetFor('healer_red');
+                               enemy = new RedWizard(this.game, spawnPos, []); break;
             case 'shield':   ShieldEnemy.pendingAsset = assetFor('shield');
                              enemy = new ShieldEnemy(this.game, spawnPos, []); break;
             default:         enemy = new BasicEnemy(this.game, spawnPos, []); break;
@@ -548,7 +570,7 @@ export class EnemyManager {
         // on any quality level — they're the bulk of spawns and their shadows are visual noise.
         //   low    → scene.shadowsEnabled is off, registration is a no-op anyway.
         //   medium/high → basics skipped; everything else casts.
-        const skipShadow = type === 'basic';
+        const skipShadow = type === 'basic' || type === 'basic_red';
         if (!skipShadow) this._registerAsShadowCaster(enemy);
 
         this.enemies.push(enemy);

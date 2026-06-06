@@ -28,7 +28,7 @@ export class HealerEnemy extends Enemy {
     private glbAttackAnim: AnimationGroup | null = null;
     private glbIdleAnim: AnimationGroup | null = null;
     private glbCurrentAnim: AnimationGroup | null = null;
-    private glbAttackHoldTimer: number = 0;
+    protected glbAttackHoldTimer: number = 0;
     private static readonly GLB_ATTACK_RANGE = 4.0;
     private static readonly GLB_ATTACK_HOLD = 0.6;
     private static readonly GLB_SCALE = 1.4;
@@ -305,22 +305,9 @@ export class HealerEnemy extends Enemy {
         // Get the result from the parent update method
         const result = super.update(deltaTime);
 
-        // Update heal timer and dispatch heal event
-        this.healTimer += deltaTime;
-        if (this.healTimer >= 1.0) {
-            this.healTimer -= 1.0;
-            const healEvent = new CustomEvent('enemyHeal', {
-                detail: {
-                    position: this.position,
-                    radius: 3,
-                    healAmount: 5
-                }
-            });
-            document.dispatchEvent(healEvent);
-
-            // Expanding pulse ring visual at healer's feet
-            this.spawnHealPulseRing();
-        }
+        // Support behavior (heal pulse). Overridable: RedWizard replaces this with
+        // a ranged bolt attack instead of healing.
+        this.performSupportBehavior(deltaTime);
 
         // GLB wizard skips the procedural staff/orb anim — the asset's clips drive it.
         // Facing is handled by Enemy.update's seek-rotation; the GLB roots are pre-rotated
@@ -406,6 +393,30 @@ export class HealerEnemy extends Enemy {
         }
 
         return result;
+    }
+
+    /**
+     * Per-frame support behavior. Base healer: every 1s, dispatch a heal pulse to
+     * nearby allies + spawn the telegraph ring. Subclasses (RedWizard) override this
+     * to do something else entirely (e.g. fire a projectile) without touching the
+     * shared GLB/animation/movement code in update().
+     */
+    protected performSupportBehavior(deltaTime: number): void {
+        this.healTimer += deltaTime;
+        if (this.healTimer >= 1.0) {
+            this.healTimer -= 1.0;
+            const healEvent = new CustomEvent('enemyHeal', {
+                detail: {
+                    position: this.position,
+                    radius: 3,
+                    healAmount: 5
+                }
+            });
+            document.dispatchEvent(healEvent);
+
+            // Expanding pulse ring visual at healer's feet
+            this.spawnHealPulseRing();
+        }
     }
 
     /**
