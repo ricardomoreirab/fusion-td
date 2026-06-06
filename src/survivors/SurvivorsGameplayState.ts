@@ -1260,6 +1260,8 @@ export class SurvivorsGameplayState implements GameState {
         if (this.coopSession && this.hero) {
             const hp = this.hero.getPosition();
             const ry = (this.hero as unknown as { mesh: Mesh | null }).mesh?.rotation.y ?? 0;
+            // NOTE(M3): the per-frame object literal here is intentionally simple for
+            // M2; binary encoding + scratch reuse arrive at M3 (spec §3/§6).
             this.coopSession.sendLocalPose({ x: hp.x, y: hp.y, z: hp.z, ry }, 1);
 
             // Render ~100ms in the past for smooth interpolation.
@@ -1273,10 +1275,12 @@ export class SurvivorsGameplayState implements GameState {
                 this.coopGhost.controlMode = 'player'; // no AI; we place it manually
                 // Shared/tethered camera: set once. The closure reads both heroes'
                 // live positions each camera frame, so no per-frame re-allocation
-                // and no stale capture.
+                // and no stale capture. Null-guarded because the local hero can be
+                // nulled on death while the closure is still registered.
                 this.heroController!.setCameraFocusProvider(() => {
-                    const self = this.hero!.getPosition();
-                    const mate = this.coopGhost!.getPosition();
+                    const self = this.hero?.getPosition();
+                    const mate = this.coopGhost?.getPosition();
+                    if (!self || !mate) return { x: 0, z: 0, height: 20 };
                     return computeCameraFocus(
                         { x: self.x, z: self.z },
                         { x: mate.x, z: mate.z },
@@ -1286,12 +1290,10 @@ export class SurvivorsGameplayState implements GameState {
             }
             if (this.coopGhost && pose) {
                 const g = this.coopGhost as unknown as { position: Vector3; mesh: Mesh | null };
-                g.position.x = pose.x; g.position.y = pose.y; g.position.z = pose.z;
-                if (g.mesh) {
-                    g.mesh.position.copyFromFloats(pose.x, pose.y, pose.z);
-                    g.mesh.rotation.y = pose.ry;
-                }
+                g.position.set(pose.x, pose.y, pose.z);
                 this.coopGhost.update(dt); // animate limbs/idle without moving it
+                // Apply network yaw AFTER update() so movement logic can't overwrite it.
+                if (g.mesh) g.mesh.rotation.y = pose.ry;
             }
         }
 
