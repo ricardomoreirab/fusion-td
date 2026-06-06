@@ -36,6 +36,10 @@ import { GameSettings, bladeCountForQuality } from '../shared/GameSettings';
 import { clearMaterialCache, getCachedMaterial, getMaterialCacheSize } from '../engine/rendering/MaterialCache';
 import { clearProjectilePools } from '../engine/rendering/ProjectilePool';
 import { formatBuckets } from '../engine/rendering/resourceBudget';
+import { CoopSession } from './coop/CoopSession';
+import { computeCameraFocus } from './coop/cameraFocus';
+import { NetClient } from '../net/NetClient';
+import { WebSocketTransport } from '../net/WebSocketTransport';
 
 /**
  * Module-level cache for champion GLBs. Loaded on demand inside enter() (not at
@@ -144,6 +148,10 @@ export class SurvivorsGameplayState implements GameState {
     private map: SurvivorsArena | null = null;
     private hero: Champion | null = null;
     private heroController: HeroController | null = null;
+    private coopSession: CoopSession | null = null;
+    /** Ghost mesh for the remote teammate (M2: cosmetic, not simulated). */
+    private coopGhost: Champion | null = null;
+    private coopGhostChamp: string | null = null;
     private joystick: SurvivorsJoystick | null = null;
     private grass: ReturnType<typeof createProceduralGrass> | null = null;
     private shadowSourceLight: DirectionalLight | null = null;
@@ -476,6 +484,31 @@ export class SurvivorsGameplayState implements GameState {
             },
             () => this.removeReviveShield(),
         );
+
+        // --- Co-op (M2 ghost teammate) ---
+        // ?host  → create a room and host; ?join=CODE → join an existing room.
+        // The ghost is cosmetic in M2: both clients still run their own sim.
+        const coopParams = typeof window !== 'undefined'
+            ? new URLSearchParams(window.location.search) : null;
+        if (coopParams?.has('host') || coopParams?.has('join')) {
+            const localChamp = championType;
+            void (async () => {
+                try {
+                    let code = coopParams.get('join') ?? '';
+                    if (coopParams.has('host')) {
+                        const res = await fetch('/room', { method: 'POST' });
+                        code = (await res.json()).code;
+                        console.log(`[coop] hosting room ${code} — join with ?join=${code}`);
+                    }
+                    if (code.length !== 6) return;
+                    const transport = await WebSocketTransport.connect(location.origin, code);
+                    this.coopSession = new CoopSession(new NetClient(transport), localChamp);
+                    console.log(`[coop] connected as ${this.coopSession.role}`);
+                } catch (err) {
+                    console.error('[coop] connection failed:', err);
+                }
+            })();
+        }
 
         // ---------- Gameplay systems ----------
 
@@ -1143,6 +1176,12 @@ export class SurvivorsGameplayState implements GameState {
         this.heroController?.dispose();
         this.heroController = null;
 
+        this.coopSession?.dispose();
+        this.coopSession = null;
+        (this.coopGhost as unknown as { dispose?: () => void })?.dispose?.();
+        this.coopGhost = null;
+        this.coopGhostChamp = null;
+
         this.hero?.dispose();
         this.hero = null;
 
@@ -1218,6 +1257,46 @@ export class SurvivorsGameplayState implements GameState {
 
         this.heroController.update(dt);
         if (this.hero) this.hero.update(dt);
+
+        // --- Co-op M2 sync: broadcast our pose, render the remote ghost ---
+        if (this.coopSession && this.hero) {
+            const hp = this.hero.getPosition();
+            const ry = (this.hero as unknown as { mesh: Mesh | null }).mesh?.rotation.y ?? 0;
+            this.coopSession.sendLocalPose({ x: hp.x, y: hp.y, z: hp.z, ry }, 1);
+
+            // Render ~100ms in the past for smooth interpolation.
+            const renderT = performance.now() - 100;
+            const champ = this.coopSession.getRemoteChamp();
+            const pose = champ ? this.coopSession.getRemotePose(renderT) : null;
+
+            // Lazily spawn the ghost once we know the teammate's champion.
+            if (champ && !this.coopGhost) {
+                this.coopGhost = new Champion(this.game, [], null, champ as 'barbarian' | 'ranger' | 'mage');
+                this.coopGhost.controlMode = 'player'; // no AI; we place it manually
+                this.coopGhostChamp = champ;
+            }
+            if (this.coopGhost && pose) {
+                const g = this.coopGhost as unknown as { position: Vector3; mesh: Mesh | null };
+                g.position.x = pose.x; g.position.y = pose.y; g.position.z = pose.z;
+                if (g.mesh) {
+                    g.mesh.position.copyFromFloats(pose.x, pose.y, pose.z);
+                    g.mesh.rotation.y = pose.ry;
+                }
+                this.coopGhost.update(dt); // animate limbs/idle without moving it
+            }
+
+            // Shared camera: frame both heroes when the ghost exists.
+            if (this.coopGhost && pose) {
+                this.heroController!.setCameraFocusProvider(() => {
+                    const self = this.hero!.getPosition();
+                    return computeCameraFocus(
+                        { x: self.x, z: self.z },
+                        { x: pose.x, z: pose.z },
+                        { baseHeight: 20, maxHeight: 30, zoomPerUnit: 0.4 },
+                    );
+                });
+            }
+        }
 
         // Between-wave breather → auto-advance (shop removed). Uses raw wall-clock
         // deltaTime; only ticks here because update() returns early while any blocking
