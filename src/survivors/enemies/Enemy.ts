@@ -3,6 +3,7 @@ import { Game } from '../../engine/Game';
 import { EnemyType, StatusEffect } from '../GameTypes';
 import { PowerElement } from '../powers/PowerDefinitions';
 import { StatusStacks, STATUS_TUNING, type RichStatusKind } from '../powers/StatusModel';
+import { type TargetProvider, pickNearestAlive } from './nearestTarget';
 
 // One-time per-enemy-class log when a GLB has no recognizable death clip, so the
 // asset's real clip name can be added to the matcher in _findDeathClip().
@@ -135,6 +136,11 @@ export class Enemy {
     public contactDamagePerSecond: number = 10;
     public isElite: boolean = false;
     public eliteDropElement: string | null = null;
+    /** Co-op multi-target list. When non-empty, `resolveSeekTarget()` uses
+     *  `pickNearestAlive` to select the closest live provider each frame,
+     *  enabling two-hero threat. Set by EnemyManager in co-op mode; left empty
+     *  in single-player so the legacy `seekTarget` path is used unchanged. */
+    public seekTargets: TargetProvider[] = [];
     /** Stable per-run ID assigned by EnemyManager at spawn time.
      *  Defaults to -1 until assigned. Used by the host-authoritative
      *  co-op snapshot so the guest can match a SnapshotEnemy to its
@@ -602,7 +608,9 @@ export class Enemy {
         this._tickFlashHit(deltaTime);
 
         // --- Survivors seek-target branch ---
-        if (this.seekTarget) {
+        // Enter when seekTarget is set (single-player) OR seekTargets is populated
+        // (co-op). The resolveSeekTarget() call below handles both paths.
+        if (this.seekTarget || this.seekTargets.length > 0) {
             // Always tick status effects so slow/freeze/stun/burn still work
             this.updateStatusEffects(deltaTime);
 
@@ -612,15 +620,22 @@ export class Enemy {
                 return false;
             }
 
-            // Fetch the hero position ONCE per frame — Champion.getPosition() clones
-            // a fresh Vector3 on each call, so calling it twice per enemy per frame
-            // (once for the swing tick, once for movement) doubles GC pressure and
-            // eventually triggers a stop-the-world pause that looks like a freeze.
-            const targetPos = this.seekTarget.getPosition();
+            // Resolve the live target for this frame. Single-player: always
+            // this.seekTarget. Co-op: nearest-alive from seekTargets.
+            // If the resolved target is null (all providers dead), bail out to
+            // avoid a null-dereference; single-player can never reach this because
+            // the branch entry above already requires seekTarget != null.
+            const resolvedTarget = this.resolveSeekTarget();
+            if (!resolvedTarget) return false;
+
+            // Fetch the target position ONCE per frame — Champion.getPosition()
+            // clones a fresh Vector3 on each call, so calling it twice per enemy
+            // per frame doubles GC pressure and can trigger a stop-the-world pause.
+            const targetPos = resolvedTarget.getPosition() as Vector3;
 
             // Tick the melee-swing state machine BEFORE movement so we can root
             // the enemy (skip movement) during windup + strike frames.
-            this.updateMeleeAttack(deltaTime, targetPos);
+            this.updateMeleeAttack(deltaTime, targetPos, resolvedTarget);
             const rooted = this.meleeRootDuringSwing &&
                 (this.meleeState === 'windup' || this.meleeState === 'strike');
 
@@ -803,6 +818,28 @@ export class Enemy {
         }
     }
 
+    /**
+     * Resolve the active seek target for this frame.
+     *
+     * Single-player path (seekTargets is empty):
+     *   Returns `this.seekTarget` directly — identical to the pre-co-op behavior.
+     *
+     * Co-op host path (seekTargets has 1+ entries):
+     *   Delegates to `pickNearestAlive` which walks the array and returns the
+     *   closest live provider. The returned object is structurally compatible with
+     *   `seekTarget` (both have `getPosition()` returning {x,z,...} and optional
+     *   `takeDamage` / `isAlive`). Falls back to null if all providers are dead.
+     */
+    protected resolveSeekTarget(): typeof this.seekTarget {
+        if (this.seekTargets.length === 0) {
+            // Single-player: unchanged behavior
+            return this.seekTarget;
+        }
+        // Co-op: pick nearest alive — cast is safe because TargetProvider is a
+        // structural subset of seekTarget's type (both have getPosition()/{x,z}).
+        return pickNearestAlive(this.position.x, this.position.z, this.seekTargets) as typeof this.seekTarget;
+    }
+
     /** True while a swing is winding up, striking, or recovering. Subclasses
      *  with their own attack timing (e.g., MilestoneBoss lunge) can check this. */
     public isMeleeAttacking(): boolean { return this.meleeState !== 'idle'; }
@@ -822,9 +859,10 @@ export class Enemy {
      *  every frame. Damage applies on the FIRST frame of 'strike' if the hero is
      *  still inside meleeHitRange — a clean dodge if you backstep on telegraph.
      *  `heroPos` is passed in (not fetched) to avoid an extra Champion.getPosition
-     *  clone per enemy per frame. */
-    private updateMeleeAttack(deltaTime: number, heroPos: Vector3): void {
-        if (!this.canMeleeAttack() || !this.seekTarget) {
+     *  clone per enemy per frame. `target` is the already-resolved seek target for
+     *  this frame so we don't call resolveSeekTarget() a second time. */
+    private updateMeleeAttack(deltaTime: number, heroPos: Vector3, target: typeof this.seekTarget): void {
+        if (!this.canMeleeAttack() || !target) {
             if (this.meleeState !== 'idle') this.cancelMeleeAttack();
             return;
         }
@@ -856,7 +894,7 @@ export class Enemy {
                     if (distSq <= this.meleeHitRange * this.meleeHitRange) {
                         // Pass this.position by reference — triggerHitReaction only
                         // reads it for direction, never stores or mutates it.
-                        this.seekTarget.takeDamage?.(this.meleeHitDamage, this.position);
+                        target.takeDamage?.(this.meleeHitDamage, this.position);
                     }
                     this.meleeStrikeHasHit = true;
                 }
