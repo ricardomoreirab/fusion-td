@@ -8,9 +8,18 @@ export interface PeerLeftMsg { t: 'peer-left' }
 export interface PingMsg { t: 'ping'; seq: number; sent: number }
 export interface PongMsg { t: 'pong'; seq: number; sent: number }
 
-export type NetMessage = HelloMsg | PeerLeftMsg | PingMsg | PongMsg;
+export interface HeroStateMsg {
+    t: 'heroState';
+    seq: number;
+    x: number; y: number; z: number;
+    ry: number;
+    champ: string;   // 'barbarian' | 'ranger' | 'mage'
+    anim: number;    // 0 idle, 1 run (M2 keeps it minimal)
+}
 
-const KNOWN_TAGS = new Set(['hello', 'peer-left', 'ping', 'pong']);
+export type NetMessage = HelloMsg | PeerLeftMsg | PingMsg | PongMsg | HeroStateMsg;
+
+const KNOWN_TAGS = new Set(['hello', 'peer-left', 'ping', 'pong', 'heroState']);
 
 export function encode(msg: NetMessage): string {
     return JSON.stringify(msg);
