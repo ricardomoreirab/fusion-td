@@ -135,6 +135,11 @@ export class Enemy {
     public contactDamagePerSecond: number = 10;
     public isElite: boolean = false;
     public eliteDropElement: string | null = null;
+    /** Stable per-run ID assigned by EnemyManager at spawn time.
+     *  Defaults to -1 until assigned. Used by the host-authoritative
+     *  co-op snapshot so the guest can match a SnapshotEnemy to its
+     *  local scene object by ID. Single-player never reads this field. */
+    public id: number = -1;
 
     // Melee-swing tuning (survivors mode). Each subclass overrides these in its
     // constructor; defaults below are tuned for a basic-enemy quick jab.

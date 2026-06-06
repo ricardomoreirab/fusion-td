@@ -62,6 +62,11 @@ export class EnemyManager {
      *  class's static pendingAsset slot before constructing the instance. */
     private enemyAssets: Record<string, AssetContainer> = {};
 
+    /** Monotonically-increasing counter assigned to each new enemy as its stable
+     *  per-run `Enemy.id`. Reset to 0 in configureSurvivorsMode (once per run).
+     *  The host uses IDs in snapshots so the guest can match scene objects. */
+    private nextEnemyId: number = 0;
+
     /** Compounding HP multiplier applied to every NEW enemy spawn this run.
      *  Multiplied by (1 + 0.08) each time the hero picks up a magical orb
      *  (hidden mechanic — no UI). Geometric rather than additive so it can track
@@ -133,6 +138,7 @@ export class EnemyManager {
     ): void {
         this.heroProvider = heroProvider;
         this.arenaRadius = arenaRadius;
+        this.nextEnemyId = 0; // reset per run
 
         // Also update the mini-enemy split handler so spawned minis seek the hero too
         if (this.splitHandler) {
@@ -151,6 +157,7 @@ export class EnemyManager {
                 }
                 this._applyOrbHpBonus(mini);
                 this._registerAsShadowCaster(mini);
+                mini.id = this.nextEnemyId++;
                 this.enemies.push(mini);
             }
         };
@@ -199,6 +206,7 @@ export class EnemyManager {
             const cloneMax = clone.getMaxHealth();
             if (cloneMax > 0) clone.applyHealthMultiplier(origin.getMaxHealth() / cloneMax);
             this._registerAsShadowCaster(clone);
+            clone.id = this.nextEnemyId++;
             this.enemies.push(clone);
           } catch (err) {
             console.error('[clone] boss-clone spawn failed (skipped):', err);
@@ -577,6 +585,7 @@ export class EnemyManager {
         const skipShadow = type === 'basic' || type === 'basic_red';
         if (!skipShadow) this._registerAsShadowCaster(enemy);
 
+        enemy.id = this.nextEnemyId++;
         this.enemies.push(enemy);
         const spawnMs = performance.now() - spawnStart;
         if (spawnMs > 50) {
