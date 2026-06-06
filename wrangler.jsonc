@@ -19,5 +19,13 @@
       "database_name": "fusion-td-leaderboard",
       "database_id": "7a3d8834-18bb-467b-abb8-295e2707558d"
     }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "ROOMS", "class_name": "Room" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Room"] }
   ]
 }
