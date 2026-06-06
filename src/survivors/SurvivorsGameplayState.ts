@@ -151,6 +151,9 @@ export class SurvivorsGameplayState implements GameState {
     private coopSession: CoopSession | null = null;
     /** Ghost mesh for the remote teammate (M2: cosmetic, not simulated). */
     private coopGhost: Champion | null = null;
+    private coopGhostPending = false;
+    /** Scratch velocity for animating the ghost from interpolated pose deltas. */
+    private _coopGhostVel = new Vector3();
     private joystick: SurvivorsJoystick | null = null;
     private grass: ReturnType<typeof createProceduralGrass> | null = null;
     private shadowSourceLight: DirectionalLight | null = null;
@@ -1179,6 +1182,7 @@ export class SurvivorsGameplayState implements GameState {
         this.coopSession = null;
         this.coopGhost?.dispose();
         this.coopGhost = null;
+        this.coopGhostPending = false;
 
         this.hero?.dispose();
         this.hero = null;
@@ -1269,31 +1273,51 @@ export class SurvivorsGameplayState implements GameState {
             const champ = this.coopSession.getRemoteChamp();
             const pose = champ ? this.coopSession.getRemotePose(renderT) : null;
 
-            // Lazily spawn the ghost once we know the teammate's champion.
-            if (champ && !this.coopGhost) {
-                this.coopGhost = new Champion(this.game, [], null, champ as 'barbarian' | 'ranger' | 'mage');
-                this.coopGhost.controlMode = 'player'; // no AI; we place it manually
-                // Shared/tethered camera: set once. The closure reads both heroes'
-                // live positions each camera frame, so no per-frame re-allocation
-                // and no stale capture. Null-guarded because the local hero can be
-                // nulled on death while the closure is still registered.
-                this.heroController!.setCameraFocusProvider(() => {
-                    const self = this.hero?.getPosition();
-                    const mate = this.coopGhost?.getPosition();
-                    if (!self || !mate) return { x: 0, z: 0, height: 20 };
-                    return computeCameraFocus(
-                        { x: self.x, z: self.z },
-                        { x: mate.x, z: mate.z },
-                        { baseHeight: 20, maxHeight: 30, zoomPerUnit: 0.4 },
-                    );
+            // Lazily spawn the ghost once we know the teammate's champion. The GLB
+            // asset is REQUIRED: Champion only builds a mesh for barbarian when an
+            // asset is passed, and passing it makes every ghost match the real
+            // hero's GLB look. Loading is async (cached after enter()'s preload).
+            if (champ && !this.coopGhost && !this.coopGhostPending) {
+                this.coopGhostPending = true;
+                const champType = champ as 'barbarian' | 'ranger' | 'mage';
+                const assetP = loadChampionAsset(champType, this.scene!);
+                const ready = assetP ? assetP.catch(() => null) : Promise.resolve(null);
+                void ready.then((asset) => {
+                    this.coopGhostPending = false;
+                    // The run may have ended (exit nulls coopSession) while loading.
+                    if (!this.coopSession || this.coopGhost) return;
+                    this.coopGhost = new Champion(this.game, [], null, champType, asset ?? undefined);
+                    this.coopGhost.controlMode = 'player'; // no AI; placed from network
+                    // Shared/tethered camera: set once; reads both heroes' live
+                    // positions each frame. Null-guarded (hero can be nulled on death).
+                    this.heroController?.setCameraFocusProvider(() => {
+                        const self = this.hero?.getPosition();
+                        const mate = this.coopGhost?.getPosition();
+                        if (!self || !mate) return { x: 0, z: 0, height: 20 };
+                        return computeCameraFocus(
+                            { x: self.x, z: self.z },
+                            { x: mate.x, z: mate.z },
+                            { baseHeight: 20, maxHeight: 30, zoomPerUnit: 0.4 },
+                        );
+                    });
                 });
             }
             if (this.coopGhost && pose) {
                 const g = this.coopGhost as unknown as { position: Vector3; mesh: Mesh | null };
-                g.position.set(pose.x, pose.y, pose.z);
-                this.coopGhost.update(dt); // animate limbs/idle without moving it
-                // Apply network yaw AFTER update() so movement logic can't overwrite it.
-                if (g.mesh) g.mesh.rotation.y = pose.ry;
+                // Estimate velocity from the pose delta (current g.position holds the
+                // previous applied pose) to drive the walk animation, then snap to the
+                // authoritative interpolated pose so position stays exact.
+                if (dt > 1e-4) {
+                    this._coopGhostVel.set((pose.x - g.position.x) / dt, 0, (pose.z - g.position.z) / dt);
+                    this.coopGhost.setPlayerVelocity(this._coopGhostVel);
+                }
+                this.coopGhost.update(dt); // advances walk/idle animation
+                g.position.set(pose.x, pose.y, pose.z); // authoritative position
+                if (g.mesh) {
+                    g.mesh.position.x = pose.x;
+                    g.mesh.position.z = pose.z;
+                    g.mesh.rotation.y = pose.ry; // network yaw, after update()
+                }
             }
         }
 
