@@ -62,6 +62,13 @@ const ENEMY_GLB_PATHS: Partial<Record<string, { dir: string; file: string }>> = 
     splitting:   { dir: 'assets/thunder-fenrir/source/',               file: 'thunder_fenrir.glb' },
     mini:        { dir: 'assets/thunder-fenrir-cab/source/',           file: 'thunder_fenrir_cab.glb' },
     shield:      { dir: 'assets/red-super-melee-minion/source/',       file: 'red_super_melee_minion.glb' },
+    // Wave-10+ red-tier replacements (see redSwap.ts). No red-super-artillery-carriage
+    // asset exists, so an elite red carriage falls back to fast_red automatically.
+    basic_red:        { dir: 'assets/red-melee-minion/source/',            file: 'red_melee_minion.glb' },
+    fast_red:         { dir: 'assets/red-gold-artillery-carriage/source/', file: 'red_gold_artillery_carriage.glb' },
+    healer_red:       { dir: 'assets/red-wizard/source/',                  file: 'red_wizard.glb' },
+    basic_red_elite:  { dir: 'assets/red-super-melee-minion/source/',      file: 'red_super_melee_minion.glb' },
+    healer_red_elite: { dir: 'assets/red-super-wizard/source/',            file: 'red_super_wizard.glb' },
     // Per-tier milestone-boss GLBs (waves 5/10/15/20). EnemyManager picks the right
     // one from MilestoneBoss.waveTier when staging on MilestoneBoss.pendingAsset.
     boss_tier1:  { dir: 'assets/thamuz-lord-lava-in-game/source/',         file: 'thamuz_lord_lava_in_game.glb' },
