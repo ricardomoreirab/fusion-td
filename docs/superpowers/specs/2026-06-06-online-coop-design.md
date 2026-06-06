@@ -43,7 +43,8 @@ The work ships as an incremental **milestone ladder** (M1 echo → M2 ghost team
 | Server role | **Durable Object = byte relay + room registry** (no game logic). Later becomes the matchmaking queue. |
 | Progression | **Independent builds** — each hero has its own level/XP/powers/items. Enemies/waves/arena shared. Each player earns their own XP. |
 | Death | **Spectate → respawn on next wave clear.** Both dead at once → **run over** (co-op game-over). |
-| Transport | One WebSocket per client through the DO. **JSON for M1–M2; binary snapshots introduced at M3** (when shared-enemy volume makes size matter). |
+| Transport | **Abstracted behind a `NetTransport` interface.** Ship M1–M4 on a `WebSocketTransport` through the DO. A `WebRtcTransport` (WS-signaled P2P, unreliable+reliable DataChannels, TURN fallback) is a documented **drop-in** for later — built only on measured latency need or a PvP pivot (see §9.1). |
+| Wire encoding | **JSON for M1–M2; binary snapshots introduced at M3** (when shared-enemy volume makes size matter). |
 | Tick rates | **Input ~30 Hz up, snapshot ~20 Hz down**, guest interpolates over a ~100 ms buffer. Tunable. |
 | Global slow-mo | **De-globalized** in co-op: item-pickup slow-mo dropped (or local-cosmetic only); power-choice overlay becomes per-player & non-blocking; `timeScale` is host-authoritative via snapshot. |
 
@@ -67,13 +68,18 @@ The work ships as an incremental **milestone ladder** (M1 echo → M2 ghost team
 New client module layout (proposed):
 ```
 src/net/
-  NetClient.ts        connection lifecycle, send/recv, role, sequence/ack
+  NetTransport.ts     interface: send(channel, bytes), onMessage(cb), role, close — transport-agnostic
+  WebSocketTransport.ts  NetTransport over one WebSocket through the DO (M1–M4 implementation)
+  WebRtcTransport.ts  (LATER, optional) NetTransport over WebRTC DataChannels, WS-signaled — see §9.1
+  NetClient.ts        connection lifecycle on top of a NetTransport: role, sequence/ack, reconnect
   Protocol.ts         message tags + encode/decode (JSON now, binary later) — PURE, unit-tested
   Snapshot.ts         Snapshot/Input/Event type defs + interpolation buffer — PURE where possible
   HostAuthority.ts    host: authorSnapshot(), applyGuestInput()
   GuestView.ts        guest: applySnapshot() (lerp enemies/heroes/drops), prediction + reconcile
   CameraManager.ts    shared/tethered two-hero framing (also usable in single-player as 1-hero)
 ```
+
+The game layer (`HostAuthority`/`GuestView`/`Protocol`) talks only to `NetTransport`, never to a concrete socket — so the WebSocket→WebRTC swap is invisible above the transport line.
 
 ## 5. Update-loop seam (host vs guest)
 
@@ -107,7 +113,7 @@ The host runs `SurvivorsGameplayState.update(deltaTime)` exactly as today. We ad
 
 ## 6. Wire protocol
 
-Two message kinds over one WebSocket: **tick messages** (last-wins, loss-tolerant) and **reliable events** (sequence-numbered + acked). **Use JSON for M1–M2; introduce binary snapshots (DataView) at M3**, when shared-enemy volume makes size matter. Byte budgets below assume the eventual binary form.
+Two logical **channels**: **tick messages** (`channel:'tick'` — last-wins, loss-tolerant) and **reliable events** (`channel:'event'` — sequence-numbered + acked). `NetTransport.send(channel, bytes)` takes the channel so each transport maps it natively: the `WebSocketTransport` multiplexes both onto its single stream (events carry seq+ack to recover from the shared ordering); a future `WebRtcTransport` maps `tick`→an unreliable+unordered DataChannel and `event`→a reliable+ordered DataChannel (a cleaner fit — no shared head-of-line blocking). The application code is identical either way. **Use JSON for M1–M2; introduce binary snapshots (DataView) at M3**, when shared-enemy volume makes size matter. Byte budgets below assume the eventual binary form.
 
 ### 6.1 GUEST → HOST: `INPUT` (~30 Hz)
 ```ts
@@ -251,6 +257,20 @@ Set `Cache-Control: no-store` on `/room` and `/ws/`.
 
 The DO is a byte relay (near-zero CPU). Rooms are **transient** — no D1 table. Later, matchmaking adds a queue DO (`idFromName('mm-global')`) and `/room` becomes `/queue`; reconnection uses `serializeAttachment` role on re-accept.
 
+### 9.1 Transport rationale & alternatives considered (WebSocket vs WebRTC)
+
+**Decision: WebSocket now, behind a `NetTransport` interface, with WebRTC documented as a drop-in.** Browsers cannot open raw UDP sockets, so "UDP for games" here means **WebRTC DataChannel** (SCTP/DTLS over UDP) or **WebTransport** (QUIC) — and Cloudflare's Workers/DO runtime can natively relay **only WebSocket** (hibernatable). WebRTC is peer-to-peer (needs STUN/TURN + a signaling channel and bypasses the DO data path); WebTransport isn't served by Workers. Routing through the DO is foundational to this design (room identity, observability, future matchmaking), so WebSocket is the practical optimum.
+
+The UDP advantage — no TCP head-of-line blocking on loss — is **largely neutralized here**: this is co-op **PvE** (no PvP fairness to protect), the guest's own hero is **client-side predicted** (input feel is local, untouched by transport latency), and the **~100 ms interpolation buffer** absorbs a single retransmit at 20 Hz. The only real sacrifice is that the two logical channels (§6) share one TCP stream under WebSocket.
+
+**Genuine points in WebRTC's favor (why we keep it as a clean drop-in, not a closed door):**
+- **Two real channels** — `tick` (unreliable+unordered) and `event` (reliable+ordered) become separate DataChannels, eliminating cross-channel head-of-line blocking. This maps to §6 *better* than a single WS.
+- **P2P removes the relay triangle** (guest→edge→host→edge→guest becomes guest↔host direct) — real ms savings for same-region friends.
+
+**Why not build it now:** TURN fallback is mandatory or ~10–20% of friend-pairs (symmetric NAT, corporate/mobile) can't connect — that's a separate product (Cloudflare Realtime TURN) with setup + bandwidth cost, and it re-introduces a relay hop. It also roughly doubles the netcode surface (signaling, ICE, DTLS, channel setup, fallback) and debugging burden, for a payoff that prediction + interpolation already mostly deliver in PvE.
+
+**Trigger to revisit:** a measured, felt latency problem in playtests, a pivot to competitive/PvP, or native (Steam) packaging (where real UDP / GameNetworkingSockets becomes available). Because the game layer only touches `NetTransport`, adding `WebRtcTransport` is additive — it reuses the existing DO WebSocket purely as the **signaling** channel and changes nothing in `HostAuthority`/`GuestView`/`Protocol`.
+
 ## 10. Non-determinism inventory
 
 Host-authority makes **all RNG irrelevant on the guest** — the guest never rolls; it receives results. Only the host's RNG runs.
@@ -291,11 +311,12 @@ The **only** true non-determinism that must cross the wire is **human input** (t
 
 Each rung is independently demoable and de-risks the next. **Each milestone gets its own implementation plan** so M2 (visible teammate) ships without committing to M4.
 
-- **M1 — Echo connection (infra only).** `Room` DO + `wrangler.jsonc` migration + `/room` and `/ws/:code` routes. Client debug page: create room, both browsers connect, relay ping/pong. Leaderboard + assets still work. *Demo: two tabs exchange relayed pings; reconnect logs `peer-left`.*
+- **M1 — Echo connection (infra only).** `Room` DO + `wrangler.jsonc` migration + `/room` and `/ws/:code` routes. Client: the `NetTransport` interface + `WebSocketTransport` implementation (so all later milestones sit on the abstraction), plus a debug page that creates a room, connects both browsers, and relays ping/pong. Leaderboard + assets still work. *Demo: two tabs exchange relayed pings; reconnect logs `peer-left`.*
 - **M2 — Ghost teammate (cosmetic, no shared state).** Both run normal single-player sims; each sends `HeroState` at 20 Hz; each renders the other as an interpolated ghost Champion. Validates wire format, interpolation, second-Champion spawn, and the tethered `CameraManager`. *Demo: your friend's hero walks around your arena.*
 - **M3 — Shared enemies/waves (host world).** Stable enemy IDs; host owns `EnemyManager`/`WaveManager`; guest skips steps 4/6/7/8, applies `SNAPSHOT` + `spawn`/`death`/`damage`; nearest-of-two targeting; host-only contact damage. *Demo: both fight the same waves with consistent HP/positions.*
 - **M4 — Full co-op.** Per-player `PlayerStats`/`LevelSystem`/`PowerSlotManager`; guest input drives host's P2 hero w/ prediction + reconciliation; non-blocking per-player power-choice; independent XP/powers/items; de-globalized slow-mo; spectate→respawn-on-clear; both-dead→`run-over`; 2-column co-op game-over. *Demo: a complete 2-player run.*
 - **M5 — Reconnection & matchmaking-ready.** `serializeAttachment` role recovery on reconnect; "peer-left → pause + rejoin window"; snapshot delta-compression + jitter-buffer tuning; room-join behind an interface so a `/queue` matchmaking DO can replace `/room`. *Demo: drop & rejoin mid-run; stub public queue.*
+- **(Optional, post-M5) — `WebRtcTransport`.** Only if playtests show a felt latency problem or the game pivots to PvP. Implement `NetTransport` over WebRTC DataChannels (`tick`→unreliable/unordered, `event`→reliable/ordered), using the existing DO WebSocket as the signaling channel, with TURN fallback. No changes above the transport line (§9.1). *Demo: same co-op run, P2P data path, WS used only for signaling.*
 
 ## 14. Testing strategy
 
@@ -305,6 +326,7 @@ Each rung is independently demoable and de-risks the next. **Each milestone gets
   - Prediction reconciliation math (snap-vs-lerp threshold).
   - Nearest-of-two target selection (incl. excluding downed hero).
   - Enemy-ID assignment uniqueness across spawn/despawn churn.
+  - A **`FakeTransport`** (in-memory `NetTransport` that loops host↔guest with injectable latency/loss) drives host/guest integration tests with no real network — exercises the interface contract and makes the WebRTC swap testable later.
 - **Local two-tab integration** against `wrangler dev` (DO relay, role assignment, capacity 423, reconnect).
 - **Manual playtest** for prediction feel, camera tether, and balance, starting at M3.
 
