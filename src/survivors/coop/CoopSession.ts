@@ -1,6 +1,6 @@
 import type { NetClient } from '../../net/NetClient';
 import { PoseBuffer, type Pose } from '../../net/Interpolation';
-import type { SnapshotMsg, SpawnMsg, DeathMsg } from '../../net/Protocol';
+import type { SnapshotMsg, SpawnMsg, DeathMsg, DamageReportMsg, DamageResultMsg } from '../../net/Protocol';
 
 /**
  * CoopSession — the M2 game-side glue, kept Babylon-free. Sends the local hero
@@ -16,8 +16,11 @@ export class CoopSession {
     private latestSnapshot: SnapshotMsg | null = null;
 
     // M3: game-layer callbacks wired by SurvivorsGameplayState (guest only)
-    onSpawn?: (msg: SpawnMsg) => void;
-    onDeath?: (msg: DeathMsg) => void;
+    onSpawn?:         (msg: SpawnMsg)         => void;
+    onDeath?:         (msg: DeathMsg)         => void;
+    // M3 combat: host receives damageReport from guest; guest receives damageResult from host
+    onDamageReport?:  (msg: DamageReportMsg)  => void;
+    onDamageResult?:  (msg: DamageResultMsg)  => void;
 
     constructor(
         private client: NetClient,
@@ -30,9 +33,11 @@ export class CoopSession {
         };
 
         // M3 guest-side wiring
-        this.client.onSnapshot = (m) => { this.latestSnapshot = m; };
-        this.client.onSpawn    = (m) => { this.onSpawn?.(m); };
-        this.client.onDeath    = (m) => { this.onDeath?.(m); };
+        this.client.onSnapshot      = (m) => { this.latestSnapshot = m; };
+        this.client.onSpawn         = (m) => { this.onSpawn?.(m); };
+        this.client.onDeath         = (m) => { this.onDeath?.(m); };
+        this.client.onDamageReport  = (m) => { this.onDamageReport?.(m); };
+        this.client.onDamageResult  = (m) => { this.onDamageResult?.(m); };
     }
 
     get role() {
@@ -54,6 +59,16 @@ export class CoopSession {
     /** Host: notify the guest that an enemy has died. */
     sendDeath(m: DeathMsg): void {
         this.client.sendDeath(m);
+    }
+
+    /** Guest: report damage dealt to an enemy (host validates + applies). */
+    sendDamageReport(m: DamageReportMsg): void {
+        this.client.sendDamageReport(m);
+    }
+
+    /** Host: send the authoritative damage result back to the guest (for damage numbers). */
+    sendDamageResult(m: DamageResultMsg): void {
+        this.client.sendDamageResult(m);
     }
 
     // ── M3: guest-side accessor ──────────────────────────────────────────────

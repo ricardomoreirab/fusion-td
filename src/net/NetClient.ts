@@ -1,4 +1,4 @@
-import { decode, encode, type HeroStateMsg, type NetRole, type SnapshotMsg, type SpawnMsg, type DeathMsg } from './Protocol';
+import { decode, encode, type HeroStateMsg, type NetRole, type SnapshotMsg, type SpawnMsg, type DeathMsg, type DamageReportMsg, type DamageResultMsg } from './Protocol';
 import type { IncomingMessage, NetTransport } from './NetTransport';
 
 /**
@@ -15,9 +15,11 @@ export class NetClient {
     onHeroState?: (msg: HeroStateMsg) => void;
 
     // M3: host-authoritative enemy sync hooks
-    onSnapshot?: (msg: SnapshotMsg) => void;
-    onSpawn?:    (msg: SpawnMsg)    => void;
-    onDeath?:    (msg: DeathMsg)    => void;
+    onSnapshot?:      (msg: SnapshotMsg)      => void;
+    onSpawn?:         (msg: SpawnMsg)         => void;
+    onDeath?:         (msg: DeathMsg)         => void;
+    onDamageReport?:  (msg: DamageReportMsg)  => void;
+    onDamageResult?:  (msg: DamageResultMsg)  => void;
 
     constructor(
         private transport: NetTransport,
@@ -48,6 +50,14 @@ export class NetClient {
     }
 
     sendDeath(m: DeathMsg): void {
+        this.transport.send('event', encode(m));
+    }
+
+    sendDamageReport(m: DamageReportMsg): void {
+        this.transport.send('event', encode(m));
+    }
+
+    sendDamageResult(m: DamageResultMsg): void {
         this.transport.send('event', encode(m));
     }
 
@@ -95,6 +105,12 @@ export class NetClient {
                 break;
             case 'death':
                 this.onDeath?.(msg);
+                break;
+            case 'damageReport':
+                this.onDamageReport?.(msg);
+                break;
+            case 'damageResult':
+                this.onDamageResult?.(msg);
                 break;
             case 'hello':
                 break;
