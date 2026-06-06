@@ -34,15 +34,20 @@ export interface DamageResultMsg { t: 'damageResult'; enemyId: number; amount: n
 export interface WaveStartMsg { t: 'wave-start'; wave: number }
 export interface WaveClearMsg { t: 'wave-clear'; wave: number }
 
+/** Guest → host: per-frame player input. seq monotonically increases so the host
+ *  can detect drops. dx/dz are normalised movement axes [-1..1]. buttons is the
+ *  packed InputButtons bitfield (see src/net/InputButtons.ts). */
+export interface InputMsg { t: 'input'; seq: number; dx: number; dz: number; buttons: number }
+
 export type NetMessage =
     | HelloMsg | PeerLeftMsg | PingMsg | PongMsg | HeroStateMsg
     | SnapshotMsg | SpawnMsg | DeathMsg | DamageReportMsg | DamageResultMsg
-    | WaveStartMsg | WaveClearMsg;
+    | WaveStartMsg | WaveClearMsg | InputMsg;
 
 const KNOWN_TAGS = new Set([
     'hello', 'peer-left', 'ping', 'pong', 'heroState',
     'snapshot', 'spawn', 'death', 'damageReport', 'damageResult',
-    'wave-start', 'wave-clear',
+    'wave-start', 'wave-clear', 'input',
 ]);
 
 export function encode(msg: NetMessage): string {
