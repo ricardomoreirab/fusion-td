@@ -779,6 +779,14 @@ export class EnemyManager {
     }
 
     /**
+     * Look up a live enemy by its network id. Linear scan over live enemies —
+     * acceptable for ≤100 enemies (the expected co-op cap).
+     */
+    public getEnemyById(id: number): Enemy | undefined {
+        return this.enemies.find(e => e.id === id);
+    }
+
+    /**
      * Get enemies within a certain range of a position
      */
     public getEnemiesInRange(position: Vector3, range: number): Enemy[] {

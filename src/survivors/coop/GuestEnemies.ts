@@ -74,4 +74,12 @@ export class GuestEnemies {
     count(): number {
         return this.byId.size;
     }
+
+    public getEnemies(): Enemy[] {
+        return [...this.byId.values()];
+    }
+
+    public getById(id: number): Enemy | undefined {
+        return this.byId.get(id);
+    }
 }
