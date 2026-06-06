@@ -16,6 +16,9 @@ export interface BasicAttackTarget {
     position: Vector3;
     takeDamage: (amount: number, element?: PowerElement) => void;
     isAlive: () => boolean;
+    /** The underlying Enemy instance, if available. Used by the co-op guest to
+     *  route damage to the host even when the proximity re-resolve fails. */
+    enemy?: Enemy;
 }
 
 export type BasicAttackMode = 'projectile' | 'melee';
@@ -477,6 +480,7 @@ export class HeroBasicAttack {
             position: virtualTargetPos,
             takeDamage: (amount: number) => target.takeDamage(amount),
             isAlive: () => target.isAlive(),
+            enemy: target.enemy,
         };
         this.spawnProjectile(from, virtualTarget);
     }
@@ -520,6 +524,7 @@ export class HeroBasicAttack {
                 position: e.getPosition(),
                 takeDamage: (amount: number) => e.takeDamage(amount),
                 isAlive: () => e.isAlive(),
+                enemy: e,
             });
         }
         return out;
@@ -585,8 +590,13 @@ export class HeroBasicAttack {
                     const dz = ep.z - target.position.z;
                     return Math.hypot(dx, dz) < 0.5 && e.isAlive();
                 });
-                if (this.damageRouter && enemyHit) {
-                    this.damageRouter(enemyHit, capturedDamage, 'physical');
+                // Co-op guest: always route to host, never mutate local HP.
+                // Use the proximity-resolved enemy; fall back to the Enemy
+                // carried on the target if the proximity find returned null.
+                const hitEnemy = enemyHit ?? target.enemy;
+                if (this.damageRouter) {
+                    if (hitEnemy) this.damageRouter(hitEnemy, capturedDamage, 'physical');
+                    // guest: never local takeDamage on a shared enemy
                 } else {
                     target.takeDamage(capturedDamage, 'physical');
                 }

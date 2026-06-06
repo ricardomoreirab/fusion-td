@@ -562,6 +562,7 @@ export class SurvivorsGameplayState implements GameState {
                                 position:   captured.getPosition(),
                                 takeDamage: (n, element) => captured.takeDamage(n, element),
                                 isAlive:    () => captured.isAlive(),
+                                enemy:      captured,
                             };
                         });
                         const ba = this.heroController?.getBasicAttack();
@@ -2192,6 +2193,7 @@ export class SurvivorsGameplayState implements GameState {
             position:   captured.getPosition(),
             takeDamage: (n, element) => captured.takeDamage(n, element),
             isAlive:    () => captured.isAlive(),
+            enemy:      captured,
         };
     }
 
