@@ -35,4 +35,12 @@ describe('PoseBuffer', () => {
         const out = b.sample(50)!;
         expect(Math.abs(Math.abs(out.ry) - Math.PI)).toBeLessThan(0.15);
     });
+
+    it('caps stored samples at 32 and drops the oldest', () => {
+        const b = new PoseBuffer();
+        for (let i = 0; i < 40; i++) b.push(i, pose(i, 0));
+        // 32 retained (t=8..39); sampling at/under the oldest retained clamps to it.
+        expect(b.sample(0)).toEqual(pose(8, 0));
+        expect(b.sample(8)).toEqual(pose(8, 0));
+    });
 });
