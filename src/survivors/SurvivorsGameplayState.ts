@@ -43,7 +43,7 @@ import { reconcilePosition } from './coop/reconcile';
 import { NetClient } from '../net/NetClient';
 import { WebSocketTransport } from '../net/WebSocketTransport';
 import { packEnemyFlags } from '../net/EnemyFlags';
-import type { SpawnMsg, DeathMsg, SnapshotMsg } from '../net/Protocol';
+import type { SpawnMsg, DeathMsg, SnapshotMsg, CoopHeroSummary, RunOverMsg } from '../net/Protocol';
 import { validateDamageReport } from './coop/DamageRouter';
 import { MilestoneBoss } from './enemies/MilestoneBoss';
 
@@ -247,6 +247,11 @@ export class SurvivorsGameplayState implements GameState {
     /** M4-11: the run has ended (both heroes down / SP death) — guards the game-over
      *  transition so it fires exactly once even if host + guest both detect it. */
     private _runEnded = false;
+    /** M4-12 (host): the guest's most recent hero summary (sent ~every 2s), used to
+     *  aggregate the 2-column game-over without a death-timing race. */
+    private _guestSummary: CoopHeroSummary | null = null;
+    /** M4-12 (guest): accumulator for the periodic hero-summary send. */
+    private _summaryAccumS = 0;
     // Mutable hero-provider array shared with EnemyManager so the ghost provider
     // can be pushed in lazily (after the ghost spawns) and existing enemies see it
     // via their seekTargets reference (EnemyManager assigns the same array object).
@@ -707,6 +712,8 @@ export class SurvivorsGameplayState implements GameState {
                                 );
                             }
                         };
+                        // M4-12: the host owns run-over; render its authoritative 2-column result.
+                        this.coopSession.onRunOver = (m) => this.showCoopGameOver(m);
                         // Now that the guest's spawn/death handlers are wired, ask the
                         // host to re-send the current world so we render enemies that
                         // already existed before we joined (catch-up). The host only
@@ -753,6 +760,8 @@ export class SurvivorsGameplayState implements GameState {
                             for (const e of liveNow) this.coopSession?.sendSpawn(this.buildSpawnMsg(e));
                             console.log(`[coop] guest requested state: catch-up sent ${liveNow.length} live enemy spawns`);
                         };
+                        // M4-12: keep the latest guest hero summary for run-over aggregation.
+                        this.coopSession.onRunSummary = (m) => { this._guestSummary = m.hero; };
                     }
                 } catch (err) {
                     console.error('[coop] connection failed:', err);
@@ -1585,30 +1594,70 @@ export class SurvivorsGameplayState implements GameState {
         }
     }
 
-    /** Gather end-of-run stats and transition to game-over. */
-    private buildAndSendRunSummary(): void {
-        if (this._runEnded) return; // fire exactly once (host + guest may both detect both-dead)
-        this._runEnded = true;
-        const timeSurvivedSec = (performance.now() - this.runStartTime) / 1000;
-        const waveReached = this.waveManager?.getCurrentWave() ?? 0;
-        const kills = this.playerStats?.getTotalKills() ?? 0;
-        const goldCollected = this.playerStats?.getTotalMoneyEarned() ?? 0; // == total XP earned now
-        const levelReached = this.levelSystem?.getLevel() ?? 1;
-
-        const finalLoadout = (this.powerSlots?.getSlots() ?? [])
+    /** Build the LOCAL hero's end-of-run summary (M4-12). id 0 = host, 1 = guest. */
+    private buildLocalHeroSummary(id: number): CoopHeroSummary {
+        const loadout = (this.powerSlots?.getSlots() ?? [])
             .filter((s): s is NonNullable<typeof s> => s !== null)
             .map(s => ({ name: s.def.name, level: s.state.level, icon: s.def.icon, tier: s.def.tier }));
+        return {
+            id,
+            championType: this.currentChampionType,
+            kills: this.playerStats?.getTotalKills() ?? 0,
+            level: this.levelSystem?.getLevel() ?? 1,
+            xp: Math.round(this.playerStats?.getTotalMoneyEarned() ?? 0),
+            wave: this.waveManager?.getCurrentWave() ?? this._guestWave?.wave ?? 0,
+            loadout,
+        };
+    }
+
+    /** Host / single-player run-over: aggregate the per-hero summaries and show the
+     *  game-over. In co-op the host is the SOLE run-over authority — it broadcasts the
+     *  final result so the guest renders the identical 2-column screen (showCoopGameOver).
+     *  The guest never reaches here for run-over (it waits on onRunOver). */
+    private buildAndSendRunSummary(): void {
+        if (this._runEnded) return; // fire exactly once
+        this._runEnded = true;
+        const role = this.coopSession?.role ?? null;
+        const timeSurvivedSec = (performance.now() - this.runStartTime) / 1000;
+        const waveReached = this.waveManager?.getCurrentWave() ?? 0;
+        const localHero = this.buildLocalHeroSummary(role === 'guest' ? 1 : 0);
+
+        const heroes: CoopHeroSummary[] = [localHero];
+        if (role === 'host' && this._guestSummary) heroes.push(this._guestSummary);
+        if (role === 'host') {
+            this.coopSession?.sendRunOver({ t: 'runOver', timeSurvivedSec, waveReached, heroes });
+        }
 
         const summary: SurvivorsRunSummary = {
             waveReached,
             timeSurvivedSec,
-            kills,
-            goldCollected,
-            levelReached,
-            finalLoadout,
+            kills: localHero.kills,
+            goldCollected: localHero.xp,
+            levelReached: localHero.level,
+            finalLoadout: localHero.loadout,
             championType: this.currentChampionType,
+            heroes: heroes.length > 1 ? heroes.slice().sort((a, b) => a.id - b.id) : undefined,
         };
+        const gos = this.game.getStateManager().getState('gameOver') as GameOverState;
+        if (gos) gos.setSurvivorsSummary(summary);
+        this.game.getStateManager().changeState('gameOver');
+    }
 
+    /** Guest run-over (M4-12): render the host's authoritative final result. */
+    private showCoopGameOver(m: RunOverMsg): void {
+        if (this._runEnded) return;
+        this._runEnded = true;
+        const me = m.heroes.find(h => h.id === 1) ?? m.heroes[0];
+        const summary: SurvivorsRunSummary = {
+            waveReached: m.waveReached,
+            timeSurvivedSec: m.timeSurvivedSec,
+            kills: me?.kills ?? 0,
+            goldCollected: me?.xp ?? 0,
+            levelReached: me?.level ?? 1,
+            finalLoadout: me?.loadout ?? [],
+            championType: me?.championType ?? this.currentChampionType,
+            heroes: m.heroes.length > 1 ? m.heroes.slice().sort((a, b) => a.id - b.id) : undefined,
+        };
         const gos = this.game.getStateManager().getState('gameOver') as GameOverState;
         if (gos) gos.setSurvivorsSummary(summary);
         this.game.getStateManager().changeState('gameOver');
@@ -1751,6 +1800,8 @@ export class SurvivorsGameplayState implements GameState {
         this.guestHeroAlive = true;
         this._spectating = false;   // M4-11
         this._runEnded = false;     // M4-11
+        this._guestSummary = null;  // M4-12
+        this._summaryAccumS = 0;    // M4-12
         this._heroProviders = [];
         // M3: clear guest enemy registry and reset snapshot state.
         this.guestEnemies?.clear();
@@ -2085,19 +2136,30 @@ export class SurvivorsGameplayState implements GameState {
                 // The guest is hero id=1 in heroes[]. The host computed contact damage
                 // for both heroes so the guest does NOT compute it locally.
                 // heroController is non-null here (update() guards at the top).
+                // M4-12: stream my hero summary to the host (~every 2s) so it can
+                // aggregate the run-over result without a death-timing race.
+                this._summaryAccumS += deltaTime;
+                if (this._summaryAccumS >= 2) {
+                    this._summaryAccumS = 0;
+                    this.coopSession!.sendRunSummary({ t: 'runSummary', hero: this.buildLocalHeroSummary(1) });
+                }
+
                 const guestEntry = snap.heroes.find(h => h.id === 1);
-                const hostEntry = snap.heroes.find(h => h.id === 0);
                 if (guestEntry && this.heroController) {
                     // M4-11: death / spectate / respawn are driven by the authoritative
-                    // ALIVE FLAG (not hp>0). Both down → run over; I'm down + teammate up
-                    // → spectate; I'm back up while spectating → the host revived me.
+                    // ALIVE FLAG (not hp>0). While dead I spectate (inert) and wait; the
+                    // run-over transition is the host's authoritative RunOverMsg
+                    // (showCoopGameOver), never inferred here. Back up while spectating →
+                    // the host revived me on a wave clear.
                     const meAlive = guestEntry.alive;
-                    const mateAlive = hostEntry?.alive ?? true;
-                    if (!meAlive && !mateAlive) {
-                        this.buildAndSendRunSummary();
-                    } else if (!meAlive && !this._spectating) {
-                        this.enterSpectate();
-                    } else if (meAlive && this._spectating) {
+                    if (!meAlive) {
+                        if (!this._spectating) {
+                            // Push a fresh final summary the instant we die so the host's
+                            // run-over aggregation isn't stale (don't wait for the 2s tick).
+                            this.coopSession!.sendRunSummary({ t: 'runSummary', hero: this.buildLocalHeroSummary(1) });
+                            this.enterSpectate();
+                        }
+                    } else if (this._spectating) {
                         this.respawnLocalHero(guestEntry.x, guestEntry.z);
                     }
 

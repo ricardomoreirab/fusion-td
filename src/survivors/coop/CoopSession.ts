@@ -1,6 +1,6 @@
 import type { NetClient } from '../../net/NetClient';
 import { PoseBuffer, type Pose } from '../../net/Interpolation';
-import type { SnapshotMsg, SpawnMsg, DeathMsg, DamageReportMsg, DamageResultMsg, InputMsg } from '../../net/Protocol';
+import type { SnapshotMsg, SpawnMsg, DeathMsg, DamageReportMsg, DamageResultMsg, InputMsg, RunSummaryMsg, RunOverMsg } from '../../net/Protocol';
 
 /**
  * CoopSession — the M2 game-side glue, kept Babylon-free. Sends the local hero
@@ -30,6 +30,10 @@ export class CoopSession {
     onDamageResult?:  (msg: DamageResultMsg)  => void;
     /** Host: the guest connected and asked for the current world (catch-up). */
     onRequestState?:  () => void;
+    // M4-12: host receives the guest's periodic hero summary; guest receives the
+    // host's authoritative run-over (both heroes) to render the 2-column game-over.
+    onRunSummary?:    (msg: RunSummaryMsg)    => void;
+    onRunOver?:       (msg: RunOverMsg)       => void;
 
     constructor(
         private client: NetClient,
@@ -49,6 +53,8 @@ export class CoopSession {
         this.client.onDamageReport  = (m) => { this.onDamageReport?.(m); };
         this.client.onDamageResult  = (m) => { this.onDamageResult?.(m); };
         this.client.onRequestState  = () => { this.onRequestState?.(); };
+        this.client.onRunSummary    = (m) => { this.onRunSummary?.(m); };
+        this.client.onRunOver       = (m) => { this.onRunOver?.(m); };
         // M4 host-side: keep only the newest guest input (drop out-of-order/stale).
         this.client.onInput = (m) => {
             if (m.seq < this.inputSeq) return; // ignore reordered older frames
@@ -70,6 +76,16 @@ export class CoopSession {
     /** Host: highest guest input seq applied — snapshot ackSeq for reconciliation. */
     getInputAckSeq(): number {
         return this.inputSeq;
+    }
+
+    /** Guest: periodically send my hero summary so the host can aggregate run-over. */
+    sendRunSummary(m: RunSummaryMsg): void {
+        this.client.sendRunSummary(m);
+    }
+
+    /** Host: broadcast the authoritative final result (both heroes) to the guest. */
+    sendRunOver(m: RunOverMsg): void {
+        this.client.sendRunOver(m);
     }
 
     /** Guest: ask the host to re-send the current world (live enemies). */

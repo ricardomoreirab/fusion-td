@@ -68,15 +68,36 @@ export interface InputMsg { t: 'input'; seq: number; dx: number; dz: number; but
  *  connect is broadcast to nobody; the guest must pull state once it has joined. */
 export interface RequestStateMsg { t: 'requestState' }
 
+// ── M4-12: co-op game-over summaries ──────────────────────────────────────────
+/** One hero's end-of-run stats. Shared by the wire + GameOverState UI. */
+export interface CoopHeroSummary {
+    id: number;
+    championType: string;
+    kills: number;
+    level: number;
+    /** Total XP earned over the run (gold income folds into XP). */
+    xp: number;
+    wave: number;
+    loadout: { name: string; level: number; icon: string; tier?: string }[];
+}
+/** Guest → host: the guest's own hero summary, sent periodically so the host always
+ *  holds a recent copy (avoids a death-timing race when aggregating run-over). */
+export interface RunSummaryMsg { t: 'runSummary'; hero: CoopHeroSummary }
+/** Host → guest: the authoritative final result with BOTH heroes — the host is the
+ *  single source of run-over, so both clients render the identical 2-column screen. */
+export interface RunOverMsg { t: 'runOver'; timeSurvivedSec: number; waveReached: number; heroes: CoopHeroSummary[] }
+
 export type NetMessage =
     | HelloMsg | PeerLeftMsg | PingMsg | PongMsg | HeroStateMsg
     | SnapshotMsg | SpawnMsg | DeathMsg | DamageReportMsg | DamageResultMsg
-    | WaveStartMsg | WaveClearMsg | InputMsg | RequestStateMsg;
+    | WaveStartMsg | WaveClearMsg | InputMsg | RequestStateMsg
+    | RunSummaryMsg | RunOverMsg;
 
 const KNOWN_TAGS = new Set([
     'hello', 'peer-left', 'ping', 'pong', 'heroState',
     'snapshot', 'spawn', 'death', 'damageReport', 'damageResult',
     'wave-start', 'wave-clear', 'input', 'requestState',
+    'runSummary', 'runOver',
 ]);
 
 export function encode(msg: NetMessage): string {

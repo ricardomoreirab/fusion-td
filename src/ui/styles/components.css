@@ -524,6 +524,14 @@
 }
 .screen__buttons { display: flex; gap: var(--s-3); flex-wrap: wrap; justify-content: center; margin-top: var(--s-2); }
 
+/* ── Co-op (M4-12): 2-column game-over ─────────────────────── */
+.summary-shared {
+  font-family: var(--ff-display); font-size: var(--fs-200); color: var(--c-gold-hi);
+  letter-spacing: 0.08em; text-transform: uppercase; text-align: center; margin-bottom: var(--s-2);
+}
+.summary-columns { display: flex; gap: var(--s-3); flex-wrap: wrap; justify-content: center; }
+.summary-panel--col { width: min(320px, 92vw); }
+
 /* ── Leaderboard overlay + game-over submit row ──────────── */
 .modal-panel--leaderboard { width: min(460px, 92vw); }
 .lb-header,

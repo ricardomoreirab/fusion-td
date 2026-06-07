@@ -9,6 +9,7 @@ import { makeFrame } from '../ui/primitives/Frame';
 import { GameSettings } from '../shared/GameSettings';
 import { submitScore } from '../survivors/Leaderboard';
 import { LeaderboardOverlay } from '../ui/overlays/Leaderboard';
+import type { CoopHeroSummary } from '../net/Protocol';
 
 export interface SurvivorsRunSummary {
     waveReached: number;
@@ -20,6 +21,9 @@ export interface SurvivorsRunSummary {
     levelReached: number;
     finalLoadout: { name: string; level: number; icon: string; tier?: string }[];
     championType?: string;
+    /** Co-op (M4-12): per-hero summaries. Absent / length 1 in single-player; 2 in
+     *  co-op, where the summary panel renders one column per hero. */
+    heroes?: CoopHeroSummary[];
 }
 
 export class GameOverState implements GameState {
@@ -84,39 +88,38 @@ export class GameOverState implements GameState {
             // ── Live path: survivors run summary ──────────────────────────────
             const s = this.survivorsSummary;
 
+            const coop = !!(s.heroes && s.heroes.length > 1);
             screen.appendChild(el('div', { class: 'screen__title', text: 'DEFEATED' }));
-            screen.appendChild(el('div', { class: 'screen__subtitle', text: 'Your run has ended' }));
-
-            // Stats panel
-            const panel = makeFrame({ variant: 'ornate', class: 'summary-panel' });
-
-            panel.appendChild(el('div', { class: 'summary-header', text: 'RUN SUMMARY' }));
+            screen.appendChild(el('div', { class: 'screen__subtitle', text: coop ? 'Your run has ended' : 'Your run has ended' }));
 
             const mins = Math.floor(s.timeSurvivedSec / 60);
             const secs = Math.floor(s.timeSurvivedSec % 60);
             const timeStr = `${mins}:${secs.toString().padStart(2, '0')}`;
 
-            const addRow = (label: string, value: string | number) => {
-                const row = el('div', { class: 'summary-row' });
-                row.appendChild(el('span', { text: label }));
-                row.appendChild(el('span', { text: String(value) }));
-                panel.appendChild(row);
-            };
-
-            addRow('Wave Reached', s.waveReached);
-            addRow('Level Reached', s.levelReached);
-            addRow('Time Survived', timeStr);
-            addRow('Enemies Slain', s.kills);
-            addRow('XP Earned', s.goldCollected);
-
-            const tierBadge = (t?: string) => (t === 'ultimate' ? '✪ ' : t === 'fusion' ? '✦ ' : '');
-            const loadoutStr = s.finalLoadout.length > 0
-                ? s.finalLoadout.map(p => `${tierBadge(p.tier)}${p.icon} ${p.name} Lv${p.level}`).join('  ')
-                : '(no powers)';
-
-            panel.appendChild(el('div', { class: 'summary-loadout', text: loadoutStr }));
-
-            screen.appendChild(panel);
+            if (coop && s.heroes) {
+                // ── Co-op: one column per hero (M4-12) ────────────────────────
+                screen.appendChild(el('div', { class: 'summary-shared', text: `Wave ${s.waveReached}  •  ${timeStr} survived` }));
+                const cols = el('div', { class: 'summary-columns' });
+                for (const h of s.heroes) cols.appendChild(this.buildHeroPanel(h));
+                screen.appendChild(cols);
+            } else {
+                // ── Single-player: the original single panel ──────────────────
+                const panel = makeFrame({ variant: 'ornate', class: 'summary-panel' });
+                panel.appendChild(el('div', { class: 'summary-header', text: 'RUN SUMMARY' }));
+                const addRow = (label: string, value: string | number) => {
+                    const row = el('div', { class: 'summary-row' });
+                    row.appendChild(el('span', { text: label }));
+                    row.appendChild(el('span', { text: String(value) }));
+                    panel.appendChild(row);
+                };
+                addRow('Wave Reached', s.waveReached);
+                addRow('Level Reached', s.levelReached);
+                addRow('Time Survived', timeStr);
+                addRow('Enemies Slain', s.kills);
+                addRow('XP Earned', s.goldCollected);
+                panel.appendChild(el('div', { class: 'summary-loadout', text: this.loadoutString(s.finalLoadout) }));
+                screen.appendChild(panel);
+            }
         } else {
             // ── Fallback path: TD-era (dead code path) ────────────────────────
             screen.appendChild(el('div', {
@@ -149,6 +152,33 @@ export class GameOverState implements GameState {
         }
 
         overlay.appendChild(screen);
+    }
+
+    private loadoutString(loadout: { name: string; level: number; icon: string; tier?: string }[]): string {
+        const tierBadge = (t?: string) => (t === 'ultimate' ? '✪ ' : t === 'fusion' ? '✦ ' : '');
+        return loadout.length > 0
+            ? loadout.map(p => `${tierBadge(p.tier)}${p.icon} ${p.name} Lv${p.level}`).join('  ')
+            : '(no powers)';
+    }
+
+    /** Co-op (M4-12): one summary column for a single hero. */
+    private buildHeroPanel(h: CoopHeroSummary): HTMLElement {
+        const panel = makeFrame({ variant: 'ornate', class: 'summary-panel summary-panel--col' });
+        const name = h.championType
+            ? h.championType.charAt(0).toUpperCase() + h.championType.slice(1)
+            : `Hero ${h.id + 1}`;
+        panel.appendChild(el('div', { class: 'summary-header', text: `${name}${h.id === 0 ? ' (Host)' : ''}` }));
+        const addRow = (label: string, value: string | number) => {
+            const row = el('div', { class: 'summary-row' });
+            row.appendChild(el('span', { text: label }));
+            row.appendChild(el('span', { text: String(value) }));
+            panel.appendChild(row);
+        };
+        addRow('Level', h.level);
+        addRow('Enemies Slain', h.kills);
+        addRow('XP Earned', h.xp);
+        panel.appendChild(el('div', { class: 'summary-loadout', text: this.loadoutString(h.loadout) }));
+        return panel;
     }
 
     /**

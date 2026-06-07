@@ -1,4 +1,4 @@
-import { decode, encode, type HeroStateMsg, type NetRole, type SnapshotMsg, type SpawnMsg, type DeathMsg, type DamageReportMsg, type DamageResultMsg, type InputMsg } from './Protocol';
+import { decode, encode, type HeroStateMsg, type NetRole, type SnapshotMsg, type SpawnMsg, type DeathMsg, type DamageReportMsg, type DamageResultMsg, type InputMsg, type RunSummaryMsg, type RunOverMsg } from './Protocol';
 import type { IncomingMessage, NetTransport } from './NetTransport';
 
 /**
@@ -23,6 +23,9 @@ export class NetClient {
     onRequestState?:  () => void;
     // M4: guest→host per-frame input (replaces pose-copy hero sync).
     onInput?:         (msg: InputMsg)         => void;
+    // M4-12: co-op game-over summaries.
+    onRunSummary?:    (msg: RunSummaryMsg)    => void;
+    onRunOver?:       (msg: RunOverMsg)        => void;
 
     constructor(
         private transport: NetTransport,
@@ -46,6 +49,15 @@ export class NetClient {
     // M4: guest sends its input each frame on the 'tick' channel (latest-wins).
     sendInput(m: Omit<InputMsg, 't'>): void {
         this.transport.send('tick', encode({ t: 'input', ...m }));
+    }
+
+    // M4-12: reliable 'event' channel for game-over summaries.
+    sendRunSummary(m: RunSummaryMsg): void {
+        this.transport.send('event', encode(m));
+    }
+
+    sendRunOver(m: RunOverMsg): void {
+        this.transport.send('event', encode(m));
     }
 
     // M3 senders
@@ -129,6 +141,12 @@ export class NetClient {
                 break;
             case 'input':
                 this.onInput?.(msg);
+                break;
+            case 'runSummary':
+                this.onRunSummary?.(msg);
+                break;
+            case 'runOver':
+                this.onRunOver?.(msg);
                 break;
             case 'hello':
                 break;
