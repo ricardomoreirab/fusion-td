@@ -1271,6 +1271,7 @@ export class SurvivorsGameplayState implements GameState {
             eliteElement: (e.isElite && e.eliteDropElement) ? e.eliteDropElement : undefined,
             isClone: isClone || undefined,
             enrageOriginId,
+            bossTier: (e instanceof MilestoneBoss) ? e.waveTier : undefined,
         };
     }
 

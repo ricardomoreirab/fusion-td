@@ -36,6 +36,7 @@ export function createEnemyOfType(
     type: string,
     pos: Vector3,
     asset: AssetContainer | null = null,
+    bossTier: number = 1,
 ): Enemy | null {
     switch (type) {
         case 'basic':
@@ -56,8 +57,10 @@ export function createEnemyOfType(
             return new BossEnemy(game, pos, []);
 
         case 'boss_milestone':
-            // Tier not synced → procedural milestone mesh on the guest (tier=1).
-            return new MilestoneBoss(game, pos, [], 1);
+            // Stage the tier-specific GLB (asset resolved for boss_tier<tier> by the
+            // caller) so the guest boss matches the host model instead of procedural.
+            MilestoneBoss.pendingAsset = asset;
+            return new MilestoneBoss(game, pos, [], bossTier);
 
         case 'splitting':
             SplittingEnemy.pendingAsset = asset;

@@ -27,13 +27,16 @@ export class GuestEnemies {
 
     spawn(msg: SpawnMsg): void {
         if (this.byId.has(msg.id)) return;
-        // Elites use a distinct `<type>_elite` GLB on the host (falling back to the
-        // base model) — stage the same so the guest renders the matching model.
+        // Resolve the GLB the host used: milestone bosses → boss_tier<tier>;
+        // elites → <type>_elite (base fallback); else the base model.
         const elite = !!msg.eliteElement;
-        const asset = elite
-            ? (this.assetFor(`${msg.type}_elite`) ?? this.assetFor(msg.type))
-            : this.assetFor(msg.type);
-        const e = createEnemyOfType(this.game, msg.type, new Vector3(msg.x, 0, msg.z), asset);
+        const tier = msg.bossTier ?? 1;
+        const asset = msg.type === 'boss_milestone'
+            ? this.assetFor(`boss_tier${tier}`)
+            : elite
+                ? (this.assetFor(`${msg.type}_elite`) ?? this.assetFor(msg.type))
+                : this.assetFor(msg.type);
+        const e = createEnemyOfType(this.game, msg.type, new Vector3(msg.x, 0, msg.z), asset, tier);
         if (!e) return;
         e.id = msg.id;
         // Apply the elite treatment (1.4× scale, aura, orange HP-bar tier) BEFORE

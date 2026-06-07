@@ -42,7 +42,7 @@ export interface SnapshotMsg {
     wave: { n: number; alive: number; inProgress: 0 | 1; breather: number };
 }
 
-export interface SpawnMsg { t: 'spawn'; id: number; type: string; x: number; z: number; maxHealth: number; eliteElement?: string; isClone?: boolean; enrageOriginId?: number }
+export interface SpawnMsg { t: 'spawn'; id: number; type: string; x: number; z: number; maxHealth: number; eliteElement?: string; isClone?: boolean; enrageOriginId?: number; bossTier?: number }
 export interface DeathMsg { t: 'death'; id: number; x: number; z: number; isElite: boolean; isClone: boolean; reward: number; eliteElement?: string }
 export interface DamageReportMsg {
     t: 'damageReport';
