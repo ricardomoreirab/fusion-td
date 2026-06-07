@@ -1920,6 +1920,13 @@ export class Enemy {
         this._netHpTarget = hp;
 
         // --- Status flags ---
+        // Drive the persistent status particles on the guest from flag transitions, so
+        // shared enemies visibly show frozen/stunned/confused (the guest never ticks the
+        // status system that would otherwise spawn these). start on false→true, stop on
+        // true→false. (burn/slow aren't in the flag set yet — see the share-coverage audit.)
+        this._syncNetStatusParticles(this.isFrozen,   flags.frozen,   StatusEffect.FROZEN);
+        this._syncNetStatusParticles(this.isStunned,  flags.stunned,  StatusEffect.STUNNED);
+        this._syncNetStatusParticles(this.isConfused, flags.confused, StatusEffect.CONFUSED);
         this.isFrozen   = flags.frozen;
         this.isStunned  = flags.stunned;
         this.isConfused = flags.confused;
@@ -1942,6 +1949,12 @@ export class Enemy {
             this.healthBarBackgroundMesh && !this.healthBarBackgroundMesh.isDisposed()) {
             this.updateHealthBar();
         }
+    }
+
+    /** Guest-side: start/stop the persistent status-particle FX from a flag transition. */
+    private _syncNetStatusParticles(was: boolean, now: boolean, effect: StatusEffect): void {
+        if (now && !was) this.createStatusEffectParticles(effect);
+        else if (!now && was) this.stopStatusEffectParticles(effect);
     }
 
     /** Guest-side: switch the GLB clip to attack (anim===2) or walk. No-op for
