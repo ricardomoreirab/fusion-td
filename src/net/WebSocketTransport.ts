@@ -12,6 +12,8 @@ export class WebSocketTransport implements NetTransport {
     private ws: WebSocket;
     private handler: ((m: IncomingMessage) => void) | null = null;
     private backlog: IncomingMessage[] = [];
+    private closeHandler: (() => void) | null = null;
+    private closedByUs = false;
 
     private constructor(ws: WebSocket, role: NetRole) {
         this.ws = ws;
@@ -25,14 +27,29 @@ export class WebSocketTransport implements NetTransport {
             if (this.handler) this.handler(msg);
             else this.backlog.push(msg);
         });
+        // M5-5: surface an unexpected drop (not our own close()) so the game can try
+        // to resume the slot within the Room DO's grace window.
+        ws.addEventListener('close', () => { if (!this.closedByUs) this.closeHandler?.(); });
+    }
+
+    /** M5-5: called once when the socket drops unexpectedly (network / server). */
+    onClose(cb: () => void): void {
+        this.closeHandler = cb;
     }
 
     /**
      * Open a socket to /ws/:code and resolve after the DO's {t:'hello',role}.
      * @param baseUrl e.g. location.origin; ws/wss is derived automatically.
      */
-    static connect(baseUrl: string, code: string): Promise<WebSocketTransport> {
-        const wsUrl = baseUrl.replace(/^http/, 'ws') + `/ws/${code}`;
+    static connect(
+        baseUrl: string,
+        code: string,
+        opts?: { resume?: { role: 'host' | 'guest' } },
+    ): Promise<WebSocketTransport> {
+        // M5-5 reconnect: ?resume=1&role=… asks the Room DO to restore a slot vacated
+        // within its grace window (serializeAttachment) instead of reassigning a role.
+        const q = opts?.resume ? `?resume=1&role=${opts.resume.role}` : '';
+        const wsUrl = baseUrl.replace(/^http/, 'ws') + `/ws/${code}${q}`;
         return new Promise((resolve, reject) => {
             const ws = new WebSocket(wsUrl);
             ws.addEventListener('error', () => reject(new Error('ws error')), { once: true });
@@ -60,6 +77,7 @@ export class WebSocketTransport implements NetTransport {
     }
 
     close(): void {
+        this.closedByUs = true; // a deliberate teardown must not trigger reconnect
         this.ws.close();
     }
 }

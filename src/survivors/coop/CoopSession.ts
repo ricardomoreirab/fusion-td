@@ -30,6 +30,8 @@ export class CoopSession {
     onDamageResult?:  (msg: DamageResultMsg)  => void;
     /** Host: the guest connected and asked for the current world (catch-up). */
     onRequestState?:  () => void;
+    /** M5-6: the relay reported the other peer left (drives the reconnect grace UX). */
+    onPeerLeft?:      () => void;
     // M4-12: host receives the guest's periodic hero summary; guest receives the
     // host's authoritative run-over (both heroes) to render the 2-column game-over.
     onRunSummary?:    (msg: RunSummaryMsg)    => void;
@@ -55,6 +57,7 @@ export class CoopSession {
         this.client.onRequestState  = () => { this.onRequestState?.(); };
         this.client.onRunSummary    = (m) => { this.onRunSummary?.(m); };
         this.client.onRunOver       = (m) => { this.onRunOver?.(m); };
+        this.client.onPeerLeft      = () => { this.onPeerLeft?.(); };
         // M4 host-side: keep only the newest guest input (drop out-of-order/stale).
         this.client.onInput = (m) => {
             if (m.seq < this.inputSeq) return; // ignore reordered older frames

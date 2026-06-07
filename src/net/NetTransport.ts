@@ -16,5 +16,8 @@ export interface NetTransport {
     readonly role: NetRole;
     send(channel: Channel, data: string): void;
     onMessage(cb: (msg: IncomingMessage) => void): void;
+    /** M5-5: fired once on an unexpected drop (not a deliberate close()). Optional —
+     *  the FakeTransport test double doesn't model network loss. */
+    onClose?(cb: () => void): void;
     close(): void;
 }

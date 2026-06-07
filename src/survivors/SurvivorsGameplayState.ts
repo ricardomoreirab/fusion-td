@@ -41,7 +41,8 @@ import { GuestEnemies } from './coop/GuestEnemies';
 import { computeCameraFocus } from './coop/cameraFocus';
 import { reconcilePosition } from './coop/reconcile';
 import { NetClient } from '../net/NetClient';
-import { WebSocketTransport } from '../net/WebSocketTransport';
+import { RoomService, PrivateRoomService } from '../net/RoomService';
+import { ConnectionMachine } from '../net/ConnectionMachine';
 import { packEnemyFlags } from '../net/EnemyFlags';
 import type { SpawnMsg, DeathMsg, SnapshotMsg, CoopHeroSummary, RunOverMsg } from '../net/Protocol';
 import { validateDamageReport } from './coop/DamageRouter';
@@ -232,6 +233,13 @@ export class SurvivorsGameplayState implements GameState {
     private set runItems(v: RunItems | null) { const s = this.local(); if (s) s.items = v; }
 
     private coopSession: CoopSession | null = null;
+    /** M5-4/5: the room code, kept so a future transparent reconnect can resume the
+     *  same room via the RoomService without re-querying matchmaking. */
+    private _roomCode: string | null = null;
+    /** M5-6: drives the peer-disconnect grace countdown + reconnect overlay. Non-null
+     *  only while a disconnect is being waited out. */
+    private _connMachine: ConnectionMachine | null = null;
+    private _reconnectEl: HTMLDivElement | null = null;
     /** Ghost mesh for the remote teammate (M2: cosmetic, not simulated). */
     private coopGhost: Champion | null = null;
     private coopGhostPending = false;
@@ -633,10 +641,13 @@ export class SurvivorsGameplayState implements GameState {
             void (async () => {
                 try {
                     const FIXED_TEST_ROOM = 'TESTER'; // deterministic dev room ([A-Z2-9]{6})
+                    // M5-4: game code talks only to the RoomService interface, so a
+                    // future matchmaking service can replace this without changes here.
+                    const room: RoomService = new PrivateRoomService();
                     let code: string;
                     if (coopParams.has('host')) {
                         code = coopParams.get('host') === 'random'
-                            ? (await (await fetch('/room', { method: 'POST' })).json()).code
+                            ? (await room.createRoom()).code
                             : FIXED_TEST_ROOM;
                         console.log(`[coop] hosting room ${code} — join the other tab with ?join (or ?join=${code})`);
                     } else {
@@ -644,9 +655,14 @@ export class SurvivorsGameplayState implements GameState {
                         code = coopParams.get('join') || FIXED_TEST_ROOM;
                     }
                     if (code.length !== 6) return;
-                    const transport = await WebSocketTransport.connect(location.origin, code);
+                    this._roomCode = code;
+                    const transport = await room.connect(code);
                     this.coopSession = new CoopSession(new NetClient(transport), localChamp);
                     console.log(`[coop] connected as ${this.coopSession.role}`);
+                    // M5-5/6: an unexpected drop of OUR socket, or the relay telling us the
+                    // OTHER peer left, both start the grace-window countdown UX.
+                    transport.onClose?.(() => this.onConnectionLost());
+                    this.coopSession.onPeerLeft = () => this.onConnectionLost();
                     // M3: wire guest enemy registry OR host spawn/death hooks.
                     if (this.coopSession.role === 'guest') {
                         this.guestEnemies = new GuestEnemies(this.game, getCachedEnemyAsset);
@@ -1643,6 +1659,61 @@ export class SurvivorsGameplayState implements GameState {
         this.game.getStateManager().changeState('gameOver');
     }
 
+    // ── Co-op reconnect grace (M5-5/6) ───────────────────────────────────────
+
+    /** A peer dropped (our socket closed, or the relay reported peer-left). Start the
+     *  grace window; _updateReconnect ticks it + shows the countdown, and decides what
+     *  happens on expiry. Idempotent. NOTE: transparent rejoin (resume + session
+     *  re-wire) is deferred — it needs induced-disconnect validation; today the window
+     *  is a graceful "waiting" that ends in host-solo-continue / guest-run-over. */
+    private onConnectionLost(): void {
+        if (!this.coopSession || this._connMachine || this._runEnded) return;
+        this._connMachine = new ConnectionMachine(30);
+        this._connMachine.onPeerLeft(); // connected → reconnecting (30s)
+        console.warn(`[coop] connection lost (room ${this._roomCode ?? '?'}, ${this.coopSession.role}) — grace window started`);
+    }
+
+    /** Per-frame while a disconnect is pending: count down + update the overlay, then
+     *  on expiry continue solo (host) or end the run (guest). Uses wall-clock dt. */
+    private _updateReconnect(deltaTime: number): void {
+        const cm = this._connMachine;
+        if (!cm) return;
+        cm.tick(deltaTime);
+        if (!this._reconnectEl) {
+            const el = document.createElement('div');
+            el.style.cssText =
+                'position:fixed;top:0;left:0;right:0;bottom:0;z-index:99998;display:flex;' +
+                'align-items:center;justify-content:center;background:#0008;color:#fda;' +
+                'font:600 20px/1.4 sans-serif;text-align:center;pointer-events:none';
+            document.body.appendChild(el);
+            this._reconnectEl = el;
+        }
+        const secs = Math.ceil(cm.graceRemaining);
+        const role = this.coopSession?.role;
+        this._reconnectEl.textContent =
+            `Teammate disconnected\nReconnecting… ${secs}s\n${role === 'host' ? '(continuing solo if they don’t return)' : '(run ends if the host doesn’t return)'}`;
+        this._reconnectEl.style.whiteSpace = 'pre-line';
+
+        if (cm.state === 'closed') {
+            this._endReconnect();
+            if (this.coopSession?.role === 'guest') {
+                // The host (authority) is gone — the guest can't simulate alone.
+                this.buildAndSendRunSummary();
+            } else {
+                // Host-solo continue: drop the ghost + stop tracking the departed guest.
+                this.guestHeroAlive = false;
+                this.coopGhost?.dispose();
+                this.coopGhost = null;
+            }
+        }
+    }
+
+    private _endReconnect(): void {
+        this._connMachine = null;
+        this._reconnectEl?.remove();
+        this._reconnectEl = null;
+    }
+
     /** Guest run-over (M4-12): render the host's authoritative final result. */
     private showCoopGameOver(m: RunOverMsg): void {
         if (this._runEnded) return;
@@ -1802,6 +1873,8 @@ export class SurvivorsGameplayState implements GameState {
         this._runEnded = false;     // M4-11
         this._guestSummary = null;  // M4-12
         this._summaryAccumS = 0;    // M4-12
+        this._endReconnect();       // M5-6: tear down any reconnect overlay/FSM
+        this._roomCode = null;
         this._heroProviders = [];
         // M3: clear guest enemy registry and reset snapshot state.
         this.guestEnemies?.clear();
@@ -1897,6 +1970,7 @@ export class SurvivorsGameplayState implements GameState {
         if (this.hero) this.hero.update(dt);
 
         if (this.coopSession) this._updateCoopDebugOverlay(deltaTime);
+        if (this._connMachine) this._updateReconnect(deltaTime); // M5-6 grace countdown
 
         // --- Co-op M2 sync: broadcast our pose, render the remote ghost ---
         if (this.coopSession && this.hero) {
