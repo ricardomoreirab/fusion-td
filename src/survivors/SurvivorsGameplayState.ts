@@ -155,13 +155,64 @@ const TORCH_RANGE     = 9;
 /** Seconds shaved off every ability on cooldown for each monster killed. */
 const KILL_COOLDOWN_REDUCTION = 0.5;
 
+/**
+ * Per-player aggregate (co-op M4, spec §3). The local player is always
+ * `players[localId]`; single-player and the M3 host both run with exactly
+ * `players = [slot0]`. The host gains a `players[1]` (the guest hero, simulated
+ * from InputMsg) when input-authority lands in a later M4 task.
+ *
+ * Only per-player BUILDS live here. Shared systems (enemyManager, waveManager,
+ * arena, camera, drops, damageNumbers) stay flat on the state. The state's
+ * playerStats/levelSystem/heroController/powerSlots/abilityManager/runItems are
+ * get/set accessors over `local().*`, so every existing call-site is untouched
+ * and single-player stays byte-identical.
+ */
+interface PlayerSlot {
+    id: number;
+    isLocal: boolean;
+    stats: PlayerStats | null;
+    level: LevelSystem | null;
+    hero: HeroController | null;
+    powers: PowerSlotManager | null;
+    abilities: AbilityManager | null;
+    items: RunItems | null;
+}
+
+/** Build an empty per-player slot. Its six systems are populated in-place during
+ *  startRun (host/SP) or — once players[1] lands — when the host constructs the
+ *  guest's build. Kept allocation-light: no Babylon objects created here. */
+function makePlayerSlot(id: number, isLocal: boolean): PlayerSlot {
+    return { id, isLocal, stats: null, level: null, hero: null, powers: null, abilities: null, items: null };
+}
+
 export class SurvivorsGameplayState implements GameState {
     private game: Game;
     private scene: Scene | null = null;
     private ui: AdvancedDynamicTexture | null = null;
     private map: SurvivorsArena | null = null;
     private hero: Champion | null = null;
-    private heroController: HeroController | null = null;
+
+    // ── Per-player slots (co-op M4) — see PlayerSlot above. The local player's six
+    //    core systems are reached through the get/set accessors below, so every
+    //    existing `this.heroController` / `this.playerStats` / … call-site is
+    //    unchanged and single-player stays byte-identical. ──────────────────────
+    private players: PlayerSlot[] = [];
+    private localId = 0;
+    /** The local player's slot, or undefined outside a run (between startRun/exit). */
+    private local(): PlayerSlot | undefined { return this.players[this.localId]; }
+    private get heroController(): HeroController | null { return this.local()?.hero ?? null; }
+    private set heroController(v: HeroController | null) { const s = this.local(); if (s) s.hero = v; }
+    private get playerStats(): PlayerStats | null { return this.local()?.stats ?? null; }
+    private set playerStats(v: PlayerStats | null) { const s = this.local(); if (s) s.stats = v; }
+    private get levelSystem(): LevelSystem | null { return this.local()?.level ?? null; }
+    private set levelSystem(v: LevelSystem | null) { const s = this.local(); if (s) s.level = v; }
+    private get powerSlots(): PowerSlotManager | null { return this.local()?.powers ?? null; }
+    private set powerSlots(v: PowerSlotManager | null) { const s = this.local(); if (s) s.powers = v; }
+    private get abilityManager(): AbilityManager | null { return this.local()?.abilities ?? null; }
+    private set abilityManager(v: AbilityManager | null) { const s = this.local(); if (s) s.abilities = v; }
+    private get runItems(): RunItems | null { return this.local()?.items ?? null; }
+    private set runItems(v: RunItems | null) { const s = this.local(); if (s) s.items = v; }
+
     private coopSession: CoopSession | null = null;
     /** Ghost mesh for the remote teammate (M2: cosmetic, not simulated). */
     private coopGhost: Champion | null = null;
@@ -199,6 +250,9 @@ export class SurvivorsGameplayState implements GameState {
     private _lastGuestSnapTick = -1;
     /** Scratch velocity for animating the ghost from interpolated pose deltas. */
     private _coopGhostVel = new Vector3();
+    /** Last remote anim code applied to the ghost — used to fire triggerAttack once
+     *  on the rising edge to 2 (the heroState carries anim every frame). */
+    private _coopGhostLastAnim = 0;
     private joystick: SurvivorsJoystick | null = null;
     private grass: ReturnType<typeof createProceduralGrass> | null = null;
     private shadowSourceLight: DirectionalLight | null = null;
@@ -218,11 +272,10 @@ export class SurvivorsGameplayState implements GameState {
     // Gameplay systems
     private enemyManager: EnemyManager | null = null;
     private waveManager: WaveManager | null = null;
-    private playerStats: PlayerStats | null = null;
+    // playerStats + levelSystem now live in the local PlayerSlot (get/set accessors above).
     // XP / leveling — replaces the gold Armory shop. Gold income folds into XP;
     // each level-up pushes +1%/level onto every attribute except crit chance
     // (which stays +0.5%/level) — see applyLevelBonuses.
-    private levelSystem: LevelSystem | null = null;
     /** Hero base max HP captured at run start — XP scales max HP off this. */
     private baseMaxHealth = 0;
     /** How much max-HP bonus has already been pushed to the hero (delta-applied). */
@@ -230,14 +283,12 @@ export class SurvivorsGameplayState implements GameState {
     /** Seconds remaining in the post-wave breather before auto-advancing (shop removed). */
     private waveBreatherRemaining = 0;
     private static readonly WAVE_BREATHER_SECONDS = 2;
-    private powerSlots: PowerSlotManager | null = null;
-    private abilityManager: AbilityManager | null = null;
+    // powerSlots + abilityManager now live in the local PlayerSlot (accessors above).
 
     // Power drops
     private powerDrops: PowerDrop[] = [];
 
-    // Item drops (from milestone bosses)
-    private runItems: RunItems | null = null;
+    // Item drops (from milestone bosses) — runItems lives in the local PlayerSlot (accessors above).
     private itemDrops: ItemDrop[] = [];
 
     // Extra Life revive shield — translucent bubble that follows the hero for the
@@ -420,6 +471,13 @@ export class SurvivorsGameplayState implements GameState {
     private async startRun(championType: string): Promise<void> {
         if (!this.scene || !this.ui || !this.map) return;
 
+        // Co-op M4: establish the local player's slot BEFORE any per-player system is
+        // constructed below — the playerStats/heroController/… setters write into it.
+        // Single-player + host both run with exactly players=[slot0]; the host's
+        // players[1] (guest hero) is added when input-authority lands.
+        this.localId = 0;
+        this.players = [makePlayerSlot(0, true)];
+
         this.game.showLoadingScreen('Warming up the arena…');
         await new Promise<void>(res => requestAnimationFrame(() => requestAnimationFrame(() => res())));
 
@@ -563,35 +621,13 @@ export class SurvivorsGameplayState implements GameState {
                         this.guestEnemies = new GuestEnemies(this.game, getCachedEnemyAsset);
                         this.coopSession.onSpawn = (m) => { this._coopDbgSpawns++; this.guestEnemies?.spawn(m); };
                         this.coopSession.onDeath = (m) => { this._coopDbgDeaths++; this.guestEnemies?.death(m.id); };
-                        // M3b: guest basic-attack aims at render-only GuestEnemies and
-                        // reports hits to the host instead of mutating enemy HP locally.
-                        // heroController was created synchronously before this block so
-                        // it is always live here.
-                        this.heroController?.setEnemyProvider(
-                            () => this.guestEnemies?.getEnemies() ?? [],
-                        );
-                        this.heroController?.setTargetProvider(() => {
-                            const ge = this.guestEnemies;
-                            if (!ge || !this.hero) return null;
-                            const heroPos = this.hero.getPosition();
-                            let best: import('./enemies/Enemy').Enemy | null = null;
-                            let bestDistSq = Infinity;
-                            for (const e of ge.getEnemies()) {
-                                if (!e.isAlive()) continue;
-                                const dx = e.getPosition().x - heroPos.x;
-                                const dz = e.getPosition().z - heroPos.z;
-                                const dSq = dx * dx + dz * dz;
-                                if (dSq < bestDistSq) { bestDistSq = dSq; best = e; }
-                            }
-                            if (!best) return null;
-                            const captured = best;
-                            return {
-                                position:   captured.getPosition(),
-                                takeDamage: (n, element) => captured.takeDamage(n, element),
-                                isAlive:    () => captured.isAlive(),
-                                enemy:      captured,
-                            };
-                        });
+                        // M3b: guest basic-attack reports hits to the host instead of
+                        // mutating enemy HP locally. The target/enemy providers themselves
+                        // are wired role-aware in startRun (see activeAttackEnemies /
+                        // getNearestEnemy) — they read GuestEnemies at call time, so we do
+                        // NOT set them here (doing so raced with, and was clobbered by,
+                        // startRun's own setTargetProvider/setEnemyProvider once the GLB
+                        // load awaits resolved, leaving the guest unable to acquire a target).
                         const ba = this.heroController?.getBasicAttack();
                         if (ba) {
                             ba.damageRouter = (enemy, amount, element) => {
@@ -828,8 +864,10 @@ export class SurvivorsGameplayState implements GameState {
             }
         });
 
-        // Wire enemy provider and power slots into HeroController for melee AOE + enchantments
-        this.heroController.setEnemyProvider(() => this.enemyManager!.getEnemies());
+        // Wire enemy provider and power slots into HeroController for melee AOE + enchantments.
+        // Role-aware + evaluated per call (see activeAttackEnemies): the co-op guest targets
+        // its render-only registry, the host/SP the authoritative EnemyManager.
+        this.heroController.setEnemyProvider(() => this.activeAttackEnemies());
         this.heroController.setPowerSlots(this.powerSlots);
         // Route the global damage multiplier (shop powerDamageMultiplier × run perk)
         // into the basic attack — without this, weapon damage never scaled with
@@ -1521,6 +1559,11 @@ export class SurvivorsGameplayState implements GameState {
         this.heroController?.dispose();
         this.heroController = null;
 
+        // Co-op M4: drop the per-player slots last (the disposes above ran through
+        // the accessors, writing null into slot0; this releases the slot itself).
+        this.players = [];
+        this.localId = 0;
+
         this.coopSession?.dispose();
         this.coopSession = null;
         this.coopGhost?.dispose();
@@ -1535,6 +1578,7 @@ export class SurvivorsGameplayState implements GameState {
         this.guestEnemies?.clear();
         this.guestEnemies = null;
         this._guestWave = null;
+        this._coopGhostLastAnim = 0;
         this._snapshotAccumS = 0;
         this._snapshotTick = 0;
         this._lastGuestSnapTick = -1;
@@ -1630,7 +1674,11 @@ export class SurvivorsGameplayState implements GameState {
             const ry = (this.hero as unknown as { mesh: Mesh | null }).mesh?.rotation.y ?? 0;
             // NOTE(M3): the per-frame object literal here is intentionally simple for
             // M2; binary encoding + scratch reuse arrive at M3 (spec §3/§6).
-            this.coopSession.sendLocalPose({ x: hp.x, y: hp.y, z: hp.z, ry }, 1);
+            // anim: 2 while a basic-attack clip is playing so the teammate's ghost can
+            // mirror the swing/shot; 1 otherwise (the ghost derives walk/idle from
+            // its interpolated velocity).
+            const heroAttacking = (this.hero as unknown as { isAttackActive?: () => boolean }).isAttackActive?.() ?? false;
+            this.coopSession.sendLocalPose({ x: hp.x, y: hp.y, z: hp.z, ry }, heroAttacking ? 2 : 1);
 
             // Render ~100ms in the past for smooth interpolation.
             const renderT = performance.now() - 100;
@@ -1687,7 +1735,15 @@ export class SurvivorsGameplayState implements GameState {
                     this._coopGhostVel.set((pose.x - g.position.x) / dt, 0, (pose.z - g.position.z) / dt);
                     this.coopGhost.setPlayerVelocity(this._coopGhostVel);
                 }
-                this.coopGhost.update(dt); // advances walk/idle animation
+                // Fire the attack clip once when the remote hero starts attacking
+                // (rising edge to anim 2). update() below lets it play out, then
+                // resumes walk/idle from the interpolated velocity.
+                const ranim = this.coopSession.getRemoteAnim();
+                if (ranim === 2 && this._coopGhostLastAnim !== 2) {
+                    (this.coopGhost as unknown as { triggerAttack?: (t?: Vector3) => void }).triggerAttack?.();
+                }
+                this._coopGhostLastAnim = ranim;
+                this.coopGhost.update(dt); // advances walk/idle/attack animation
                 g.position.set(pose.x, pose.y, pose.z); // authoritative position
                 if (g.mesh) {
                     g.mesh.position.x = pose.x;
@@ -1785,6 +1841,7 @@ export class SurvivorsGameplayState implements GameState {
                         this.guestEnemies.pushSnapshot(snap.enemies, performance.now());
                     }
                     this.guestEnemies.interpolate(performance.now() - 100);
+                    this.guestEnemies.tickVisuals(dt); // ease HP bars between snapshots
                 }
                 // DIAGNOSTIC (guest, ~1/s): is anything within the hero's attack
                 // reach? Reveals whether "not shooting" is no-target-in-range
@@ -2319,12 +2376,31 @@ export class SurvivorsGameplayState implements GameState {
     // Private helpers
     // ─────────────────────────────────────────────────────────────────────────
 
+    /**
+     * The enemy list the local hero's attacks should target. Host/single-player
+     * read the authoritative EnemyManager; the co-op guest reads its render-only
+     * GuestEnemies registry (the host's EnemyManager is empty on the guest).
+     *
+     * Evaluated per call so the role is always current. This is what lets
+     * startRun wire the attack providers ONCE, synchronously, even though the
+     * co-op connection (which sets coopSession.role) resolves asynchronously
+     * later — without it, startRun's setTargetProvider/setEnemyProvider would
+     * race with (and clobber) the guest wiring, leaving the guest unable to
+     * acquire a target (tgt=N) and never firing.
+     */
+    private activeAttackEnemies(): Enemy[] {
+        if (this.coopSession?.role === 'guest') {
+            return this.guestEnemies?.getEnemies() ?? [];
+        }
+        return this.enemyManager?.getEnemies() ?? [];
+    }
+
     private getNearestEnemy(): BasicAttackTarget | null {
-        if (!this.enemyManager || !this.hero) return null;
+        if (!this.hero) return null;
         const heroPos = this.hero.getPosition();
         let best: Enemy | null = null;
         let bestDistSq = Infinity;
-        for (const e of this.enemyManager.getEnemies()) {
+        for (const e of this.activeAttackEnemies()) {
             if (!e.isAlive()) continue;
             const dx = e.getPosition().x - heroPos.x;
             const dz = e.getPosition().z - heroPos.z;
@@ -2619,7 +2695,10 @@ export class SurvivorsGameplayState implements GameState {
             // ── Guest hero contact (host only) ───────────────────────────────────
             // Apply contact damage against the ghost position; track HP here;
             // the authoritative value ships to the guest in every snapshot.
-            if (ghostPos && this.guestHeroAlive) {
+            // Test mode (?test) makes the guest invulnerable too — the host owns
+            // the guest's HP, so this is the guest-side mirror of the local hero's
+            // debugInvulnerable flag (set above when testMode is on).
+            if (ghostPos && this.guestHeroAlive && !this.testMode) {
                 const gdx = ePos.x - ghostPos.x;
                 const gdz = ePos.z - ghostPos.z;
                 if (gdx * gdx + gdz * gdz < sumRSq) {
