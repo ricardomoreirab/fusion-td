@@ -619,6 +619,17 @@ export class SurvivorsGameplayState implements GameState {
                                 });
                             }
                         };
+
+                        // Catch-up: the run may already have live enemies (they
+                        // spawned before this connection resolved, or the guest
+                        // joined mid-run). Emit a spawn for each so the guest's
+                        // GuestEnemies populates — applySnapshot ignores ids with
+                        // no prior spawn event, so without this the guest sees no
+                        // monsters. Future spawns flow through the self-gating
+                        // setOnEnemySpawned hook installed synchronously below.
+                        const liveNow = this.enemyManager?.getEnemies() ?? [];
+                        for (const e of liveNow) this.coopSession?.sendSpawn(this.buildSpawnMsg(e));
+                        console.log(`[coop] host connected: catch-up sent ${liveNow.length} existing enemy spawns`);
                     }
                 } catch (err) {
                     console.error('[coop] connection failed:', err);
@@ -650,15 +661,19 @@ export class SurvivorsGameplayState implements GameState {
 
         this.enemyManager = new EnemyManager(this.game);
         this.enemyManager.setPlayerStats(this.playerStats);
-        // M3: wire host-side spawn/death hooks now that enemyManager exists.
-        if (this.coopSession?.role === 'host') {
-            this.enemyManager.setOnEnemySpawned((e) => {
-                this.coopSession?.sendSpawn(this.buildSpawnMsg(e));
-            });
-            this.enemyManager.setOnEnemyDied((e) => {
-                this.coopSession?.sendDeath(this.buildDeathMsg(e));
-            });
-        }
+        // M3: wire host-side spawn/death hooks. Install them UNCONDITIONALLY and
+        // self-gate inside the callback on coopSession at CALL time. The co-op
+        // connection resolves in a later async IIFE above, so this synchronous
+        // code runs while coopSession is still null — gating the WIRING on it
+        // (as before) silently skipped the hooks, so the host never emitted
+        // spawn events and the guest saw no enemies. In single-player the
+        // callbacks no-op (coopSession is null).
+        this.enemyManager.setOnEnemySpawned((e) => {
+            if (this.coopSession?.role === 'host') this.coopSession.sendSpawn(this.buildSpawnMsg(e));
+        });
+        this.enemyManager.setOnEnemyDied((e) => {
+            if (this.coopSession?.role === 'host') this.coopSession.sendDeath(this.buildDeathMsg(e));
+        });
         // Wire the shadow generator so bosses + elites auto-register as casters.
         // Reset per run: enemy shadows start on and get cut off after wave 5.
         this.enemyShadowsDisabled = false;
