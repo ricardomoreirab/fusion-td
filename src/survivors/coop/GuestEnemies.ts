@@ -1,8 +1,11 @@
-import { Vector3 } from '@babylonjs/core';
+import { Vector3, AssetContainer } from '@babylonjs/core';
 import { Game } from '../../engine/Game';
 import { Enemy } from '../enemies/Enemy';
 import { createEnemyOfType } from '../enemies/createEnemyOfType';
 import type { SnapshotEnemy, SpawnMsg } from '../../net/Protocol';
+
+/** Resolve the preloaded GLB AssetContainer for an enemy type, or null. */
+export type EnemyAssetResolver = (type: string) => AssetContainer | null;
 
 /**
  * Guest-side registry of render-only enemies keyed by stable network id.
@@ -19,11 +22,11 @@ import type { SnapshotEnemy, SpawnMsg } from '../../net/Protocol';
 export class GuestEnemies {
     private byId = new Map<number, Enemy>();
 
-    constructor(private game: Game) {}
+    constructor(private game: Game, private assetFor: EnemyAssetResolver = () => null) {}
 
     spawn(msg: SpawnMsg): void {
         if (this.byId.has(msg.id)) return;
-        const e = createEnemyOfType(this.game, msg.type, new Vector3(msg.x, 0, msg.z));
+        const e = createEnemyOfType(this.game, msg.type, new Vector3(msg.x, 0, msg.z), this.assetFor(msg.type));
         if (!e) return;
         e.id = msg.id;
         // health/maxHealth are protected; cast to any to set host-authoritative values.

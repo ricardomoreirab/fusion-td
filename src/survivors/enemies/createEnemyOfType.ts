@@ -1,4 +1,4 @@
-import { Vector3 } from '@babylonjs/core';
+import { Vector3, AssetContainer } from '@babylonjs/core';
 import { Game } from '../../engine/Game';
 import { Enemy } from './Enemy';
 import { BasicEnemy } from './BasicEnemy';
@@ -17,67 +17,80 @@ import { DragonTurtle } from './DragonTurtle';
 
 /**
  * Construct a concrete Enemy of the given type at a position, for GUEST
- * render-only use. Mirrors the type switch in EnemyManager.spawnSurvivorsEnemy
- * but does NOT register shadows, assign seek targets, apply per-wave scaling,
- * or set pendingAsset (GLB) — the guest drives the instance purely from
- * network state via applyNetworkState().
+ * render-only use. Mirrors the type switch in EnemyManager.spawnSurvivorsEnemy.
  *
- * For 'boss'-typed enemies the host always sends the concrete type after
- * the wave-tier branch ('boss' → BossEnemy for non-milestone waves; the
- * milestone path uses the same 'boss' string but we default to tier 1 so
- * the guest still gets a valid mesh). Use the SpawnMsg.type field, which
- * EnemyManager fills with the resolved type string after redSwapType.
+ * `asset` is the preloaded GLB AssetContainer for this type (from the module
+ * cache, supplied by the caller). It is staged on the SAME static `pendingAsset`
+ * slot the host uses before construction, so `createMesh()` builds the proper
+ * GLB model instead of the procedural fallback. The red-tier variants extend a
+ * base class and read the base's static, so we stage on the base class exactly
+ * like the host does. Pass null to force the procedural mesh.
  *
- * Returns null for an unknown type string; the caller should discard that
- * spawn event.
+ * Does NOT register shadows, assign seek targets, or apply per-wave scaling —
+ * the guest drives the instance purely from network state via applyNetworkState().
+ *
+ * Returns null for an unknown type string; the caller should discard that spawn.
  */
-export function createEnemyOfType(game: Game, type: string, pos: Vector3): Enemy | null {
+export function createEnemyOfType(
+    game: Game,
+    type: string,
+    pos: Vector3,
+    asset: AssetContainer | null = null,
+): Enemy | null {
     switch (type) {
         case 'basic':
+            BasicEnemy.pendingAsset = asset;
             return new BasicEnemy(game, pos, []);
 
         case 'fast':
+            FastEnemy.pendingAsset = asset;
             return new FastEnemy(game, pos, []);
 
         case 'tank':
+            TankEnemy.pendingAsset = asset;
             return new TankEnemy(game, pos, []);
 
         case 'boss':
-            // Non-milestone waves produce a BossEnemy. Milestone waves are sent
-            // with the same 'boss' type by the host; we use tier=1 (Ravager) as a
-            // guest-side default so a valid mesh always exists. The host's snapshot
-            // drives position/HP; the tier-specific specials never fire on the guest.
+            // Non-milestone boss. Tier-specific GLBs aren't carried in SpawnMsg,
+            // so the guest uses the procedural mesh (bosses are rare, wave 5+).
             return new BossEnemy(game, pos, []);
 
-        case 'boss_milestone': {
-            // Explicit milestone type — host may send this to distinguish the tier.
-            // Default to tier 1 for the guest (visual-only, no AI).
+        case 'boss_milestone':
+            // Tier not synced → procedural milestone mesh on the guest (tier=1).
             return new MilestoneBoss(game, pos, [], 1);
-        }
 
         case 'splitting':
+            SplittingEnemy.pendingAsset = asset;
             return new SplittingEnemy(game, pos, []);
 
         case 'healer':
+            HealerEnemy.pendingAsset = asset;
             return new HealerEnemy(game, pos, []);
 
         case 'shield':
+            ShieldEnemy.pendingAsset = asset;
             return new ShieldEnemy(game, pos, []);
 
         case 'mini':
+            MiniEnemy.pendingAsset = asset;
             return new MiniEnemy(game, pos, []);
 
-        // Wave-10+ red-tier variants
+        // Wave-10+ red-tier variants: stage on the base class the leaf extends
+        // (matches EnemyManager.spawnSurvivorsEnemy's asset staging).
         case 'basic_red':
+            BasicEnemy.pendingAsset = asset;
             return new RedMeleeMinion(game, pos, []);
 
         case 'fast_red':
+            FastEnemy.pendingAsset = asset;
             return new RedArtilleryCarriage(game, pos, []);
 
         case 'healer_red':
+            HealerEnemy.pendingAsset = asset;
             return new RedWizard(game, pos, []);
 
         case 'tank_red':
+            TankEnemy.pendingAsset = asset;
             return new DragonTurtle(game, pos, []);
 
         default:

@@ -94,6 +94,15 @@ function loadEnemyAsset(enemyType: string, scene: Scene): Promise<AssetContainer
     return loadAsset(ENEMY_GLB_PATHS, enemyType, scene);
 }
 
+/** Synchronously fetch a preloaded enemy GLB from the module cache (populated by
+ *  enter()'s preload), or null if not cached / no GLB for this type. Lets the
+ *  guest stage the same model the host renders instead of the procedural mesh. */
+function getCachedEnemyAsset(enemyType: string): AssetContainer | null {
+    const path = ENEMY_GLB_PATHS[enemyType];
+    if (!path) return null;
+    return _glbAssets[`${path.dir}${path.file}`] ?? null;
+}
+
 const _glbAssets: Record<string, AssetContainer> = {};
 const _glbAssetPromises: Record<string, Promise<AssetContainer>> = {};
 
@@ -175,6 +184,8 @@ export class SurvivorsGameplayState implements GameState {
     private _guestWave: { wave: number; enemiesAlive: number; inProgress: boolean } | null = null;
     /** Accumulator (seconds) for the host snapshot cadence (~20 Hz). */
     private _snapshotAccumS = 0;
+    /** Throttle for the co-op diagnostic log (guest only). */
+    private _coopDiagAccumS = 0;
     /** Monotonically-increasing snapshot tick counter (debug + ack). */
     private _snapshotTick = 0;
     /** Scratch velocity for animating the ghost from interpolated pose deltas. */
@@ -533,7 +544,7 @@ export class SurvivorsGameplayState implements GameState {
                     console.log(`[coop] connected as ${this.coopSession.role}`);
                     // M3: wire guest enemy registry OR host spawn/death hooks.
                     if (this.coopSession.role === 'guest') {
-                        this.guestEnemies = new GuestEnemies(this.game);
+                        this.guestEnemies = new GuestEnemies(this.game, getCachedEnemyAsset);
                         this.coopSession.onSpawn = (m) => this.guestEnemies?.spawn(m);
                         this.coopSession.onDeath = (m) => this.guestEnemies?.death(m.id);
                         // M3b: guest basic-attack aims at render-only GuestEnemies and
@@ -1684,6 +1695,29 @@ export class SurvivorsGameplayState implements GameState {
                 // Drive render-only enemy positions / HP / flags.
                 if (this.guestEnemies) {
                     this.guestEnemies.applySnapshot(snap.enemies);
+                }
+                // DIAGNOSTIC (guest, ~1/s): is anything within the hero's attack
+                // reach? Reveals whether "not shooting" is no-target-in-range
+                // (enemies converging elsewhere) vs a fire-path bug.
+                this._coopDiagAccumS += deltaTime;
+                if (this._coopDiagAccumS >= 1) {
+                    this._coopDiagAccumS = 0;
+                    const hp = this.hero?.getPosition();
+                    let nearest = Infinity, alive = 0;
+                    for (const e of this.guestEnemies?.getEnemies() ?? []) {
+                        if (!e.isAlive()) continue;
+                        alive++;
+                        const ep = e.getPosition();
+                        const d = Math.hypot(ep.x - (hp?.x ?? 0), ep.z - (hp?.z ?? 0));
+                        if (d < nearest) nearest = d;
+                    }
+                    const ghost = snap.heroes.find(h => h.id === 1);
+                    console.log(
+                        `[coop-diag guest] hero@(${hp?.x.toFixed(1)},${hp?.z.toFixed(1)}) ` +
+                        `ghost(host-view)@(${ghost?.x.toFixed(1)},${ghost?.z.toFixed(1)}) ` +
+                        `aliveEnemies=${alive} nearest=${nearest === Infinity ? 'none' : nearest.toFixed(1)}u ` +
+                        `(ranger range≈9, melee≈3.5)`,
+                    );
                 }
                 // Mirror the host wave state so the guest HUD shows live info.
                 this._guestWave = {
