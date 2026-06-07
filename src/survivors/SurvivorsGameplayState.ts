@@ -40,13 +40,14 @@ import { formatBuckets } from '../engine/rendering/resourceBudget';
 import { CoopSession } from './coop/CoopSession';
 import { GuestEnemies } from './coop/GuestEnemies';
 import { computeCameraFocus } from './coop/cameraFocus';
+import { setCoopFxEmit, spawnCosmeticProjectile, spawnCosmeticSwingRing, emitCoopFx } from './coop/CoopFx';
 import { reconcilePosition } from './coop/reconcile';
 import { NetClient } from '../net/NetClient';
 import { RoomService, PrivateRoomService } from '../net/RoomService';
 import { ConnectionMachine } from '../net/ConnectionMachine';
 import { diffSnapshot } from '../net/SnapshotDelta';
 import { packEnemyFlags } from '../net/EnemyFlags';
-import type { SpawnMsg, DeathMsg, SnapshotMsg, CoopHeroSummary, RunOverMsg } from '../net/Protocol';
+import type { SpawnMsg, DeathMsg, SnapshotMsg, CoopHeroSummary, RunOverMsg, FxMsg } from '../net/Protocol';
 import { validateDamageReport } from './coop/DamageRouter';
 import { MilestoneBoss } from './enemies/MilestoneBoss';
 
@@ -670,6 +671,12 @@ export class SurvivorsGameplayState implements GameState {
                     // OTHER peer left, both start the grace-window countdown UX.
                     transport.onClose?.(() => this.onConnectionLost());
                     this.coopSession.onPeerLeft = () => this.onConnectionLost();
+                    // Cosmetic-FX replication (both roles): broadcast the local hero's
+                    // combat visuals + replay the teammate's. Damage is authoritative
+                    // elsewhere, so these carry no gameplay effect.
+                    setCoopFxEmit((kind, x, z, tx, tz, hint) =>
+                        this.coopSession?.sendFx({ t: 'fx', kind, x, z, tx, tz, hint }));
+                    this.coopSession.onFx = (m) => this.playRemoteFx(m);
                     // M3: wire guest enemy registry OR host spawn/death hooks.
                     if (this.coopSession.role === 'guest') {
                         this.guestEnemies = new GuestEnemies(this.game, getCachedEnemyAsset);
@@ -677,6 +684,13 @@ export class SurvivorsGameplayState implements GameState {
                         this.coopSession.onDeath = (m) => {
                             this._coopDbgDeaths++;
                             this.guestEnemies?.death(m.id);
+                            // Share death feedback the host produces (DeathMsg carries x/z/
+                            // reward/eliteElement): a gold reward float + a small cosmetic
+                            // death poof, so on the guest enemies don't just silently vanish.
+                            if (this.scene) {
+                                if (m.reward > 0) this.damageNumbers?.showReward(new Vector3(m.x, 0, m.z), m.reward);
+                                aoeBurst(this.scene, [], m.x, m.z, { radius: m.isElite ? 1.6 : 0.9, damage: 0, element: (m.eliteElement ?? 'physical') as PowerElement });
+                            }
                             // M4-10 (per-player orbs): the guest gets its OWN power orb on
                             // each elite death — magnets to the guest hero, and picking it up
                             // raises the guest's local (non-blocking) power-choice. Fully
@@ -976,11 +990,16 @@ export class SurvivorsGameplayState implements GameState {
 
         // When a power-slot fires, trigger the ranger's special-attack animation.
         // No-op for non-ranger champs (triggerSpecial type-guards on championType).
-        this.powerSlots.setOnCast(() => {
+        this.powerSlots.setOnCast((slot) => {
             const hero = this.hero as { triggerSpecial?: () => void } | null;
             if (hero && typeof hero.triggerSpecial === 'function') {
                 hero.triggerSpecial();
             }
+            // Co-op: broadcast a cosmetic cast burst so the teammate sees the power fire.
+            // (Exact per-power FX is a follow-up; this shows an element-coloured pop at
+            // the caster.) The body 'special' pose is already shared via heroState anim=3.
+            const p = this.hero?.getPosition();
+            if (p) emitCoopFx('power', p.x, p.z, undefined, undefined, slot.def.element);
         });
 
         // Wire enemy provider and power slots into HeroController for melee AOE + enchantments.
@@ -1762,6 +1781,36 @@ export class SurvivorsGameplayState implements GameState {
         this._reconnectEl = null;
     }
 
+    /** Replay a teammate's cosmetic combat FX (no gameplay effect — damage/CC are
+     *  authoritative via damageReport/snapshot). Dispatches by kind. */
+    private playRemoteFx(m: FxMsg): void {
+        if (!this.scene) return;
+        switch (m.kind) {
+            case 'proj': {
+                const shape = m.hint ?? 'sphere';
+                const element = shape === 'mageBolt' ? 'arcane' : 'physical';
+                spawnCosmeticProjectile(this.scene, shape, m.x, m.z, m.tx ?? m.x, m.tz ?? m.z, element);
+                break;
+            }
+            case 'swing': {
+                const range = m.hint ? parseFloat(m.hint) : 3.5;
+                spawnCosmeticSwingRing(this.scene, m.x, m.z, isNaN(range) ? 3.5 : range);
+                break;
+            }
+            case 'power':
+            case 'ult': {
+                // Cosmetic element-coloured pop at the teammate's cast point (no damage —
+                // enemies=[]). A placeholder for exact per-power FX; reuses the existing
+                // aoeBurst ring so the cast is visible.
+                const element = (m.hint ?? 'physical') as PowerElement;
+                aoeBurst(this.scene, [], m.x, m.z, { radius: m.kind === 'ult' ? 3.5 : 2, damage: 0, element });
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
     /** Guest run-over (M4-12): render the host's authoritative final result. */
     private showCoopGameOver(m: RunOverMsg): void {
         if (this._runEnded) return;
@@ -1874,6 +1923,7 @@ export class SurvivorsGameplayState implements GameState {
         Enemy.onShatterCallback = null;
         Enemy.guestDamageRedirect = null; // M4-9: clear the guest damage redirect
         Enemy.guestStatusRedirect = null; // M4-9 review fix: clear the guest status redirect
+        setCoopFxEmit(null);              // cosmetic-FX: stop broadcasting on teardown
         resetPowerEffects();
         if (this.testLabelEl) { this.testLabelEl.remove(); this.testLabelEl = null; }
         this.testMode = false;
@@ -2031,12 +2081,14 @@ export class SurvivorsGameplayState implements GameState {
             // anim: 2 while a basic-attack clip is playing so the teammate's ghost can
             // mirror the swing/shot; 1 otherwise (the ghost derives walk/idle from
             // its interpolated velocity).
-            const heroAttacking = (this.hero as unknown as { isAttackActive?: () => boolean }).isAttackActive?.() ?? false;
-            // heroState still carries the local champion identity + attack-anim flag
-            // (used to build + animate the teammate's ghost). The GUEST additionally
-            // streams its movement input below — the host simulates the guest hero from
-            // it authoritatively (M4-8), so the host ignores the guest's heroState pose.
-            this.coopSession.sendLocalPose({ x: hp.x, y: hp.y, z: hp.z, ry }, heroAttacking ? 2 : 1);
+            // heroState carries the local champion identity + an anim code so the
+            // teammate's ghost mirrors the body animation. 3 = special/ultimate (any
+            // power-slot cast or ult sets glbSpecialTimer → isSpecialActive), 2 = basic
+            // attack, 1 = idle/run (the ghost derives walk/idle from velocity). Special
+            // wins so an ult's cast pose shows even while the basic attack is on cooldown.
+            const heroAnimSrc = this.hero as unknown as { isSpecialActive?: () => boolean; isAttackActive?: () => boolean };
+            const heroAnim = heroAnimSrc.isSpecialActive?.() ? 3 : (heroAnimSrc.isAttackActive?.() ? 2 : 1);
+            this.coopSession.sendLocalPose({ x: hp.x, y: hp.y, z: hp.z, ry }, heroAnim);
             if (this.coopSession.role === 'guest') {
                 const mv = this.heroController?.getMoveInput();
                 // buttons (dash/ult) carried for M4-9 ability routing; 0 for now.
@@ -2103,11 +2155,17 @@ export class SurvivorsGameplayState implements GameState {
                 });
             }
             if (this.coopGhost) {
-                // Fire the remote hero's attack clip once on the rising edge to anim 2
-                // (heroState carries it). BEFORE update() so the clip plays this frame.
+                // Fire the remote hero's clip once on the rising edge (heroState carries
+                // the code). BEFORE update() so it plays this frame. 3 = special/ult,
+                // 2 = basic attack. triggerSpecial outranks triggerAttack (Champion gates
+                // attack while a special is active), so an ult's pose shows correctly.
                 const ranim = this.coopSession.getRemoteAnim();
-                if (ranim === 2 && this._coopGhostLastAnim !== 2) {
-                    (this.coopGhost as unknown as { triggerAttack?: (t?: Vector3) => void }).triggerAttack?.();
+                const ghostAnimApi = this.coopGhost as unknown as {
+                    triggerAttack?: (t?: Vector3) => void; triggerSpecial?: () => void;
+                };
+                if (ranim !== this._coopGhostLastAnim) {
+                    if (ranim === 3) ghostAnimApi.triggerSpecial?.();
+                    else if (ranim === 2) ghostAnimApi.triggerAttack?.();
                 }
                 this._coopGhostLastAnim = ranim;
 

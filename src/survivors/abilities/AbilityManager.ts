@@ -6,6 +6,14 @@ import { PowerSlotManager } from '../powers/PowerSlotManager';
 import { PlayerStats } from '../PlayerStats';
 import { StatusEffect } from '../GameTypes';
 import { createEmissiveMaterial } from '../../engine/rendering/LowPolyMaterial';
+import { emitCoopFx } from '../coop/CoopFx';
+
+/** Co-op cosmetic-burst tint per ultimate (the teammate sees an element-coloured pop). */
+const ULT_FX_ELEMENT: Record<string, string> = {
+    meteor: 'fire', frostNova: 'ice', whirlwind: 'physical', smash: 'physical',
+    multishot: 'physical', explosiveArrow: 'fire', chainLightning: 'storm',
+    fortify: 'arcane', goldRush: 'arcane',
+};
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
 
 /** Mode passed to the dash-override callback, picks which interpolation HeroController uses. */
@@ -427,6 +435,10 @@ export class AbilityManager {
             this.isTargeting = false;
             this.targetingAbility = null;
             if (this.onActivateCallback) this.onActivateCallback(abilityId);
+            // Co-op: broadcast a cosmetic ult cast so the teammate sees it (the body clip
+            // is shared via heroState anim=3; this adds the visible burst).
+            const hp = this.getHeroPosition();
+            if (hp) emitCoopFx('ult', hp.x, hp.z, position?.x, position?.z, ULT_FX_ELEMENT[abilityId] ?? 'arcane');
         }
 
         return success;

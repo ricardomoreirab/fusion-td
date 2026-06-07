@@ -1912,6 +1912,10 @@ export class Enemy {
         // smoothly instead of stepping on each (low-rate) snapshot. First
         // snapshot seeds the display value so there is no initial jump.
         const hp = Math.max(0, s.hp);
+        // Guest-side hit flash: the host-authoritative HP dropped → this enemy was hit
+        // this snapshot, so flash it (mirrors the host's per-hit flash; the guest never
+        // runs takeDamage on render-only enemies).
+        if (this._netHpTarget >= 0 && hp < this._netHpTarget - 0.5) this.flashHit();
         if (this._netHpTarget < 0) this.health = hp;
         this._netHpTarget = hp;
 

@@ -7,6 +7,7 @@ import { PlayerStats } from '../PlayerStats';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
 import { acquireProjectile, releaseProjectile } from '../../engine/rendering/ProjectilePool';
 import { blendElements } from '../ElementColors';
+import { emitCoopFx } from '../coop/CoopFx';
 
 // Module-level scratch vectors — safe because update() is not reentrant (frames serialize)
 const _scratchA = new Vector3();
@@ -286,6 +287,8 @@ export class HeroBasicAttack {
 
         // Bright sword-arc visual (thick golden torus + sweeping blade trail)
         this.spawnSwingRing(heroPos, range);
+        // Co-op: broadcast the swing so the teammate sees the melee arc (cosmetic).
+        emitCoopFx('swing', heroPos.x, heroPos.z, undefined, undefined, String(range));
 
         // Procedural barbarian spin FX (no-op for GLB champions — they lack barbAxeHead etc).
         const hero = this.hero as any;
@@ -551,6 +554,9 @@ export class HeroBasicAttack {
 
     private spawnProjectile(from: Vector3, target: BasicAttackTarget): void {
         const scene = this.scene;
+        // Co-op: broadcast this projectile so the teammate sees the shot (cosmetic only —
+        // damage is already routed authoritatively). No-op in single-player.
+        emitCoopFx('proj', from.x, from.z, target.position.x, target.position.z, this.projectileShape);
         const poolKey = `basic_attack_proj_${this.projectileShape}`;
         const proj = acquireProjectile(scene, poolKey, () => this.createProjectileMesh());
         proj.position.copyFrom(from);

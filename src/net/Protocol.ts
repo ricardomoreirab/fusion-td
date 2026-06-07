@@ -91,17 +91,25 @@ export interface RunSummaryMsg { t: 'runSummary'; hero: CoopHeroSummary }
  *  single source of run-over, so both clients render the identical 2-column screen. */
 export interface RunOverMsg { t: 'runOver'; timeSurvivedSec: number; waveReached: number; heroes: CoopHeroSummary[] }
 
+/** Cosmetic-FX replication: a client broadcasts the transient combat visuals its OWN
+ *  hero produces (projectiles, swing arcs, power/ult casts) so the teammate sees them.
+ *  Purely cosmetic — damage/CC are already authoritative via damageReport/snapshot, so
+ *  the receiver plays the visual with NO gameplay effect.
+ *  kind: what to play ('proj' | 'swing' | 'power' | 'ult'). hint: shape/element/id.
+ *  (x,z) origin; (tx,tz) optional target/aim point. */
+export interface FxMsg { t: 'fx'; kind: string; x: number; z: number; tx?: number; tz?: number; hint?: string }
+
 export type NetMessage =
     | HelloMsg | PeerLeftMsg | PingMsg | PongMsg | HeroStateMsg
     | SnapshotMsg | SpawnMsg | DeathMsg | DamageReportMsg | DamageResultMsg
     | WaveStartMsg | WaveClearMsg | InputMsg | RequestStateMsg
-    | RunSummaryMsg | RunOverMsg | SnapshotDelta;
+    | RunSummaryMsg | RunOverMsg | SnapshotDelta | FxMsg;
 
 const KNOWN_TAGS = new Set([
     'hello', 'peer-left', 'ping', 'pong', 'heroState',
     'snapshot', 'spawn', 'death', 'damageReport', 'damageResult',
     'wave-start', 'wave-clear', 'input', 'requestState',
-    'runSummary', 'runOver', 'snapshotDelta',
+    'runSummary', 'runOver', 'snapshotDelta', 'fx',
 ]);
 
 export function encode(msg: NetMessage): string {

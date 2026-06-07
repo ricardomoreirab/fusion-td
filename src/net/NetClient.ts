@@ -1,4 +1,4 @@
-import { decode, encode, type HeroStateMsg, type NetRole, type SnapshotMsg, type SpawnMsg, type DeathMsg, type DamageReportMsg, type DamageResultMsg, type InputMsg, type RunSummaryMsg, type RunOverMsg } from './Protocol';
+import { decode, encode, type HeroStateMsg, type NetRole, type SnapshotMsg, type SpawnMsg, type DeathMsg, type DamageReportMsg, type DamageResultMsg, type InputMsg, type RunSummaryMsg, type RunOverMsg, type FxMsg } from './Protocol';
 import type { SnapshotDelta } from './SnapshotDelta';
 import type { IncomingMessage, NetTransport } from './NetTransport';
 
@@ -29,6 +29,8 @@ export class NetClient {
     onRunOver?:       (msg: RunOverMsg)        => void;
     // M5-7: delta-compressed snapshot (between keyframes).
     onSnapshotDelta?: (msg: SnapshotDelta)    => void;
+    // Cosmetic-FX replication (combat visuals).
+    onFx?:            (msg: FxMsg)            => void;
 
     constructor(
         private transport: NetTransport,
@@ -71,6 +73,12 @@ export class NetClient {
     // M5-7: delta between keyframes (same 'tick' channel as full snapshots).
     sendSnapshotDelta(m: SnapshotDelta): void {
         this.transport.send('tick', encode(m));
+    }
+
+    // Cosmetic FX — reliable 'event' channel (a dropped spell visual shouldn't matter,
+    // but ordering with spawn/death keeps it simple; these are infrequent vs ticks).
+    sendFx(m: FxMsg): void {
+        this.transport.send('event', encode(m));
     }
 
     sendSpawn(m: SpawnMsg): void {
@@ -158,6 +166,9 @@ export class NetClient {
                 break;
             case 'snapshotDelta':
                 this.onSnapshotDelta?.(msg);
+                break;
+            case 'fx':
+                this.onFx?.(msg);
                 break;
             case 'hello':
                 break;
