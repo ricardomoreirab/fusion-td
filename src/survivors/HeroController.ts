@@ -44,6 +44,10 @@ export class HeroController {
     private maxHealth: number;
     private currentHealth: number;
     private isDead: boolean = false;
+    /** Co-op spectate (M4-11): hero is alive in bookkeeping but inert — no input,
+     *  no movement, no basic attack — while waiting to respawn on the next wave clear.
+     *  Camera still follows (so the spectator tracks the surviving teammate). */
+    public spectating: boolean = false;
     private onDeathCallback: () => void = () => {};
 
     // Extra Life (wave-5 boss item): each charge turns the next lethal hit into a
@@ -210,6 +214,19 @@ export class HeroController {
 
     public setOnDeath(fn: () => void): void {
         this.onDeathCallback = fn;
+    }
+
+    public isDeadOrSpectating(): boolean {
+        return this.isDead || this.spectating;
+    }
+
+    /** Co-op respawn (M4-11): clear death + spectate, restore full HP, and place the
+     *  hero at (x,z). Revive charges / shield are untouched (Extra Life is separate). */
+    public respawn(x: number, z: number): void {
+        this.isDead = false;
+        this.spectating = false;
+        this.currentHealth = this.maxHealth;
+        this.writeHeroPosition(x, 0, z);
     }
 
     /**
@@ -431,6 +448,7 @@ export class HeroController {
      * to hero facing for the dash direction in that case.
      */
     public getMoveInput(): { dx: number; dz: number } | null {
+        if (this.isDead || this.spectating) return null; // inert while spectating (sends no co-op input)
         let dx = this.externalDx;
         let dz = this.externalDz;
         if (this.keys['w'] || this.keys['arrowup']) dz += 1;
@@ -510,6 +528,13 @@ export class HeroController {
             }
         }
 
+        // ── Co-op spectate / death: hero is inert ──────────────────────────
+        // Zero velocity (Champion.update adds nothing), no input, no basic attack
+        // below. Camera follow still runs so the spectator tracks the survivor.
+        if (this.isDead || this.spectating) {
+            this._scratchVel.set(0, 0, 0);
+            this.hero.setPlayerVelocity(this._scratchVel);
+        } else
         // ── Dash override (Space-bar mobility) ─────────────────────────────
         // When active, position is driven by interpolation between start/target;
         // velocity is forced to zero so Champion.update doesn't add to it. The
@@ -636,8 +661,8 @@ export class HeroController {
             this.cameraShakeTimeRemaining -= deltaTime;
         }
 
-        // Basic auto-attack
-        if (this.basicAttack) this.basicAttack.update(deltaTime);
+        // Basic auto-attack (suspended while spectating / dead)
+        if (this.basicAttack && !this.isDead && !this.spectating) this.basicAttack.update(deltaTime);
     }
 
     public getCamera(): FreeCamera {

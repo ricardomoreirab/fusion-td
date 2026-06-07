@@ -242,6 +242,11 @@ export class SurvivorsGameplayState implements GameState {
     private guestHeroHp = 0;
     private guestHeroMaxHp = 0;
     private guestHeroAlive = true;
+    /** M4-11: the LOCAL hero is dead and spectating the surviving teammate (co-op). */
+    private _spectating = false;
+    /** M4-11: the run has ended (both heroes down / SP death) — guards the game-over
+     *  transition so it fires exactly once even if host + guest both detect it. */
+    private _runEnded = false;
     // Mutable hero-provider array shared with EnemyManager so the ghost provider
     // can be pushed in lazily (after the ghost spawns) and existing enemies see it
     // via their seekTargets reference (EnemyManager assigns the same array object).
@@ -594,7 +599,7 @@ export class SurvivorsGameplayState implements GameState {
         );
 
         this.heroController.setOnDeath(() => {
-            this.buildAndSendRunSummary();
+            this.onLocalHeroDeath();
         });
 
         // Extra Life: a lethal hit revives the hero at full HP behind a 5s shield
@@ -988,6 +993,10 @@ export class SurvivorsGameplayState implements GameState {
             const clearedWave = this.waveManager?.getCurrentWave() ?? 0;
             this.checkResourceBudget(clearedWave);
             this.maybeDisableEnemyShadows(clearedWave);
+            // M4-11: revive any spectating teammate at the wave break (arena is empty,
+            // so respawning at center is safe). Host-authoritative — the guest sees its
+            // alive flag flip true in the next snapshot and exits spectate.
+            if (this.coopSession) this.respawnDeadHeroes();
             // Calibration log: read in a ?test run to tune XP_CONFIG so level 100
             // lands near wave 30 (see the XP spec §6).
             if (this.levelSystem) {
@@ -1522,8 +1531,64 @@ export class SurvivorsGameplayState implements GameState {
         };
     }
 
+    // ── Co-op death / spectate / respawn (M4-11) ─────────────────────────────
+
+    /** The LOCAL hero just died. Single-player ends the run; co-op spectates the
+     *  surviving teammate, or ends the run only when BOTH are down. Wired to the
+     *  host's HeroController death; the guest drives its own death off the snapshot
+     *  alive flag (see the guest apply block), never hp>0. */
+    private onLocalHeroDeath(): void {
+        if (!this.coopSession) { this.buildAndSendRunSummary(); return; } // single-player
+        if (this.isTeammateAlive()) this.enterSpectate();
+        else this.buildAndSendRunSummary();
+    }
+
+    /** Is the OTHER hero still alive? Host's teammate is the guest (guestHeroAlive);
+     *  the guest's teammate is the host (heroes[0].alive in the latest snapshot). */
+    private isTeammateAlive(): boolean {
+        // Host: the teammate exists only once the guest's ghost has spawned — otherwise
+        // a host death before anyone joined would spectate forever instead of ending.
+        if (this.coopSession?.role === 'host') return !!this.coopGhost && this.guestHeroAlive;
+        const snap = this.coopSession?.getLatestSnapshot();
+        return snap?.heroes.find(h => h.id === 0)?.alive ?? false;
+    }
+
+    /** Enter spectate: the local hero goes inert (no input/attack/powers) and fades;
+     *  the camera follows the teammate. Idempotent (guards the spec's double-fire risk). */
+    private enterSpectate(): void {
+        if (this._spectating) return;
+        this._spectating = true;
+        if (this.heroController) this.heroController.spectating = true;
+        const mesh = (this.hero as unknown as { mesh?: { visibility: number } } | null)?.mesh;
+        if (mesh) mesh.visibility = 0.35;
+    }
+
+    /** Revive the local hero at (x,z): clear spectate, restore HP, un-fade. */
+    private respawnLocalHero(x: number, z: number): void {
+        this._spectating = false;
+        this.heroController?.respawn(x, z);
+        const mesh = (this.hero as unknown as { mesh?: { visibility: number } } | null)?.mesh;
+        if (mesh) mesh.visibility = 1;
+    }
+
+    /** Host-authoritative wave-clear revive: bring back the local hero if it was
+     *  down, and reset the guest's authoritative HP/alive + ghost position. The guest
+     *  observes its alive flag flip and exits spectate on its side. */
+    private respawnDeadHeroes(): void {
+        if (this.heroController?.isDeadOrSpectating()) this.respawnLocalHero(-1.5, 0);
+        if (this.coopSession?.role === 'host' && this.coopGhost && !this.guestHeroAlive) {
+            this.guestHeroHp = this.guestHeroMaxHp;
+            this.guestHeroAlive = true;
+            const g = this.coopGhost as unknown as { position: Vector3; mesh: Mesh | null };
+            g.position.set(1.5, g.position.y, 0);
+            if (g.mesh) { g.mesh.position.x = 1.5; g.mesh.position.z = 0; }
+        }
+    }
+
     /** Gather end-of-run stats and transition to game-over. */
     private buildAndSendRunSummary(): void {
+        if (this._runEnded) return; // fire exactly once (host + guest may both detect both-dead)
+        this._runEnded = true;
         const timeSurvivedSec = (performance.now() - this.runStartTime) / 1000;
         const waveReached = this.waveManager?.getCurrentWave() ?? 0;
         const kills = this.playerStats?.getTotalKills() ?? 0;
@@ -1684,6 +1749,8 @@ export class SurvivorsGameplayState implements GameState {
         this.guestHeroHp = 0;
         this.guestHeroMaxHp = 0;
         this.guestHeroAlive = true;
+        this._spectating = false;   // M4-11
+        this._runEnded = false;     // M4-11
         this._heroProviders = [];
         // M3: clear guest enemy registry and reset snapshot state.
         this.guestEnemies?.clear();
@@ -1838,6 +1905,8 @@ export class SurvivorsGameplayState implements GameState {
                         const self = this.hero?.getPosition();
                         const mate = this.coopGhost?.getPosition();
                         if (!self || !mate) return { x: 0, z: 0, height: 20 };
+                        // M4-11: while spectating, follow the surviving teammate alone.
+                        if (this._spectating) return { x: mate.x, z: mate.z, height: 22 };
                         return computeCameraFocus(
                             { x: self.x, z: self.z },
                             { x: mate.x, z: mate.z },
@@ -2017,23 +2086,39 @@ export class SurvivorsGameplayState implements GameState {
                 // for both heroes so the guest does NOT compute it locally.
                 // heroController is non-null here (update() guards at the top).
                 const guestEntry = snap.heroes.find(h => h.id === 1);
+                const hostEntry = snap.heroes.find(h => h.id === 0);
                 if (guestEntry && this.heroController) {
-                    this.heroController.setHealth(guestEntry.hp);
-                    // M4-8 reconciliation — ONCE per new snapshot (not every render
-                    // frame, which compounds the pull-back and reads as jitter). Within
-                    // DEAD_ZONE the guest trusts its local prediction; beyond it, lerp/
-                    // snap toward the host-authoritative position via reconcilePosition.
-                    if (this.hero && snap.tick !== this._lastReconcileTick) {
-                        this._lastReconcileTick = snap.tick;
-                        const lp = this.hero.getPosition();
-                        const gap = Math.hypot(guestEntry.x - lp.x, guestEntry.z - lp.z);
-                        if (gap > RECONCILE_DEAD_ZONE) {
-                            const r = reconcilePosition(
-                                { x: lp.x, z: lp.z },
-                                { x: guestEntry.x, z: guestEntry.z },
-                                RECONCILE_HARD_SNAP, RECONCILE_LERP,
-                            );
-                            this.heroController.reconcileNetworkPosition(r.pos.x, r.pos.z);
+                    // M4-11: death / spectate / respawn are driven by the authoritative
+                    // ALIVE FLAG (not hp>0). Both down → run over; I'm down + teammate up
+                    // → spectate; I'm back up while spectating → the host revived me.
+                    const meAlive = guestEntry.alive;
+                    const mateAlive = hostEntry?.alive ?? true;
+                    if (!meAlive && !mateAlive) {
+                        this.buildAndSendRunSummary();
+                    } else if (!meAlive && !this._spectating) {
+                        this.enterSpectate();
+                    } else if (meAlive && this._spectating) {
+                        this.respawnLocalHero(guestEntry.x, guestEntry.z);
+                    }
+
+                    // While alive: apply authoritative HP + reconcile predicted position.
+                    if (meAlive) {
+                        this.heroController.setHealth(guestEntry.hp);
+                        // M4-8 reconciliation — ONCE per new snapshot (every render frame
+                        // compounds the pull-back and reads as jitter). Within DEAD_ZONE the
+                        // guest trusts its local prediction; beyond it, lerp/snap.
+                        if (this.hero && snap.tick !== this._lastReconcileTick) {
+                            this._lastReconcileTick = snap.tick;
+                            const lp = this.hero.getPosition();
+                            const gap = Math.hypot(guestEntry.x - lp.x, guestEntry.z - lp.z);
+                            if (gap > RECONCILE_DEAD_ZONE) {
+                                const r = reconcilePosition(
+                                    { x: lp.x, z: lp.z },
+                                    { x: guestEntry.x, z: guestEntry.z },
+                                    RECONCILE_HARD_SNAP, RECONCILE_LERP,
+                                );
+                                this.heroController.reconcileNetworkPosition(r.pos.x, r.pos.z);
+                            }
                         }
                     }
                 }
@@ -2041,8 +2126,8 @@ export class SurvivorsGameplayState implements GameState {
             _measure('guestApply');
         }
 
-        // Power auto-fire
-        if (this.powerSlots) this.powerSlots.update(dt);
+        // Power auto-fire (suspended while spectating — the dead local hero does nothing)
+        if (this.powerSlots && !this._spectating) this.powerSlots.update(dt);
         _measure('powers');
 
         // Element visual decorations on the hero's weapon
@@ -2051,8 +2136,8 @@ export class SurvivorsGameplayState implements GameState {
         }
         _measure('elemVis');
 
-        // Manual ultimates (Meteor Strike + Frost Nova)
-        if (this.abilityManager) this.abilityManager.update(dt);
+        // Manual ultimates (Meteor Strike + Frost Nova) — suspended while spectating.
+        if (this.abilityManager && !this._spectating) this.abilityManager.update(dt);
         _measure('abilities');
 
         // Power drops + item drops — tick + swap-pop dead entries in one
@@ -2867,8 +2952,12 @@ export class SurvivorsGameplayState implements GameState {
                 if (gdx * gdx + gdz * gdz < sumRSq) {
                     const dmg = e.contactDamagePerSecond * deltaTime * reductionMult;
                     this.guestHeroHp = Math.max(0, this.guestHeroHp - dmg);
-                    if (this.guestHeroHp <= 0) {
+                    if (this.guestHeroHp <= 0 && this.guestHeroAlive) {
                         this.guestHeroAlive = false;
+                        // M4-11: the guest just died. If the host is also down, both are
+                        // dead → end the run; otherwise the guest spectates (it sees its
+                        // alive flag flip in the snapshot) and the host plays on.
+                        if (this.heroController?.isDeadOrSpectating()) this.buildAndSendRunSummary();
                     }
                 }
             }
