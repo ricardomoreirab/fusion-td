@@ -346,7 +346,15 @@ export class AbilityManager {
     // Activate dispatcher
     // ========================================================================
 
+    /** Co-op spectate guard (M4-11): when this returns false the local hero is dead /
+     *  spectating and may not manually fire abilities or dash. Default = always active. */
+    private activeProvider: (() => boolean) | null = null;
+    public setActiveProvider(fn: () => boolean): void { this.activeProvider = fn; }
+
     public activate(abilityId: string, position?: Vector3): boolean {
+        // A dead/spectating hero must not act — blocks the manual ult path (HUD button /
+        // keys) AND dash, which the update()-loop suspension doesn't cover.
+        if (this.activeProvider && !this.activeProvider()) return false;
         const ability = this.abilities.get(abilityId);
         if (!ability || !ability.isReady) return false;
 

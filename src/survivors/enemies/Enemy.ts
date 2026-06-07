@@ -87,6 +87,9 @@ export class Enemy {
     /** Co-op guest only (M4-9): when set, takeDamage reports the hit to the host by id
      *  and applies nothing locally (host-authoritative). Null on host + single-player. */
     public static guestDamageRedirect: ((enemyId: number, amount: number, element?: PowerElement) => void) | null = null;
+    /** Co-op guest only (M4-9 review fix): when set, applyStatusEffect reports the CC/DoT
+     *  to the host by id and applies nothing locally. Null on host + single-player. */
+    public static guestStatusRedirect: ((enemyId: number, effect: StatusEffect, durationS: number, strength: number) => void) | null = null;
     /** Fired exactly once per kill from base die() — independent of the visual
      *  death-effect path (which several subclasses override without calling super).
      *  Used for kill-driven gameplay like the cooldown refund. Position by reference. */
@@ -955,6 +958,12 @@ export class Enemy {
      * @param strength Strength of the effect (e.g., slow percentage, damage per tick)
      */
     public applyStatusEffect(effect: StatusEffect, duration: number, strength: number): void {
+        // Co-op guest: render-only enemies are host-authoritative. Report the CC/DoT to
+        // the host (which applies + ticks it) and do nothing locally — mirrors the
+        // takeDamage redirect. The chill→freeze recursion below also redirects (correct).
+        const sr = Enemy.guestStatusRedirect;
+        if (sr) { sr(this.id, effect, duration, strength); return; }
+
         const currentTime = performance.now();
         const endTime = currentTime + (duration * 1000);
 

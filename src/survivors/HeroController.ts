@@ -225,6 +225,11 @@ export class HeroController {
     public respawn(x: number, z: number): void {
         this.isDead = false;
         this.spectating = false;
+        // Never inherit an in-flight/aborted dash across a revive (stale invuln or a
+        // teleport-snap to an old dash target).
+        this.dashActive = false;
+        this.isInvulnerable = false;
+        this.dashElapsed = 0;
         this.currentHealth = this.maxHealth;
         this.writeHeroPosition(x, 0, z);
     }
@@ -534,6 +539,9 @@ export class HeroController {
         if (this.isDead || this.spectating) {
             this._scratchVel.set(0, 0, 0);
             this.hero.setPlayerVelocity(this._scratchVel);
+            // Cancel any dash that was in flight when death/spectate began — otherwise
+            // its invulnerability flag would stick for the whole spectate window.
+            if (this.dashActive) { this.dashActive = false; this.isInvulnerable = false; this.dashElapsed = 0; }
         } else
         // ── Dash override (Space-bar mobility) ─────────────────────────────
         // When active, position is driven by interpolation between start/target;

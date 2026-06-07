@@ -4,6 +4,7 @@ import { AdvancedDynamicTexture } from '@babylonjs/gui';
 import { Game } from '../engine/Game';
 import { GameState } from '../engine/GameState';
 import { SurvivorsArena } from './SurvivorsArena';
+import { StatusEffect } from './GameTypes';
 import { Champion } from './champions/Champion';
 import { HeroController } from './HeroController';
 import { SurvivorsJoystick } from './ui/SurvivorsJoystick';
@@ -723,6 +724,19 @@ export class SurvivorsGameplayState implements GameState {
                                 sourceHeroId: 1,
                             });
                         };
+                        // M4-9 review fix: route guest CC/DoT (freeze/stun/burn/chill/curse)
+                        // to the host too — without this the guest's status powers were inert
+                        // on shared enemies (applied to never-ticked render-only stubs).
+                        Enemy.guestStatusRedirect = (enemyId, effect, durationS, strength) => {
+                            this.coopSession?.sendDamageReport({
+                                t: 'damageReport',
+                                enemyId,
+                                amount: 0,
+                                element: 'physical',
+                                sourceHeroId: 1,
+                                status: { kind: effect, duration: durationS, magnitude: strength },
+                            });
+                        };
                         // Receive authoritative damage results from host and show damage numbers.
                         this.coopSession.onDamageResult = (m) => {
                             if (this.damageNumbers) {
@@ -765,7 +779,12 @@ export class SurvivorsGameplayState implements GameState {
                             if (e) {
                                 // takeDamage fires Enemy.onDamageCallback, which broadcasts the
                                 // damageResult to the guest centrally (M4-9) — no per-report echo.
-                                e.takeDamage(m.amount, m.element as PowerElement);
+                                if (m.amount > 0) e.takeDamage(m.amount, m.element as PowerElement);
+                                // Apply routed CC/DoT host-side (guard amount>0 above so a
+                                // pure-status report doesn't roll a 0-damage crit + echo).
+                                if (m.status) {
+                                    e.applyStatusEffect(m.status.kind as StatusEffect, m.status.duration, m.status.magnitude);
+                                }
                             }
                         };
 
@@ -853,7 +872,10 @@ export class SurvivorsGameplayState implements GameState {
                     const mult = this.playerStats?.damageReductionMultiplier ?? 1.0;
                     this.heroController.takeDamage(amount * mult, sourcePos);
                 },
-                isAlive: () => !!this.heroController,
+                // M4-11: a dead/spectating local hero stops being a seek/orb-pull target
+                // so co-op enemies converge on the surviving teammate. SP never spectates
+                // (single-provider resolveSeekTarget bypasses pickNearestAlive) → unchanged.
+                isAlive: () => !!this.heroController && !this.heroController.isDeadOrSpectating(),
                 applyPull: (towardX: number, towardZ: number, speed: number, durationS: number) => {
                     this.heroController?.applyPull(towardX, towardZ, speed, durationS);
                 },
@@ -1058,6 +1080,8 @@ export class SurvivorsGameplayState implements GameState {
         // is current even though the co-op connection resolves after startRun. Their
         // damage then routes to the host via Enemy.guestDamageRedirect.
         this.abilityManager.setEnemiesProvider(() => this.activeAttackEnemies());
+        // M4-11: block manual ults + dash while the local hero is dead/spectating.
+        this.abilityManager.setActiveProvider(() => !this.heroController?.isDeadOrSpectating());
         this.abilityManager.setHeroProvider(() => this.hero!.getPosition());
         this.abilityManager.setHero(this.hero);
         // Multishot's magical-arrow layer force-casts each equipped autocast slot.
@@ -1577,9 +1601,13 @@ export class SurvivorsGameplayState implements GameState {
     /** Is the OTHER hero still alive? Host's teammate is the guest (guestHeroAlive);
      *  the guest's teammate is the host (heroes[0].alive in the latest snapshot). */
     private isTeammateAlive(): boolean {
-        // Host: the teammate exists only once the guest's ghost has spawned — otherwise
-        // a host death before anyone joined would spectate forever instead of ending.
-        if (this.coopSession?.role === 'host') return !!this.coopGhost && this.guestHeroAlive;
+        // Host: a teammate exists once the guest is IDENTIFIED (first heroState sets the
+        // remote champ — earlier than the async ghost-mesh load), so a host death during
+        // the ghost-spawn window still spectates rather than ending the run. With no guest
+        // at all, getRemoteChamp() is null → the run ends.
+        if (this.coopSession?.role === 'host') {
+            return this.coopSession.getRemoteChamp() !== null && this.guestHeroAlive;
+        }
         const snap = this.coopSession?.getLatestSnapshot();
         return snap?.heroes.find(h => h.id === 0)?.alive ?? false;
     }
@@ -1610,9 +1638,9 @@ export class SurvivorsGameplayState implements GameState {
         if (this.coopSession?.role === 'host' && this.coopGhost && !this.guestHeroAlive) {
             this.guestHeroHp = this.guestHeroMaxHp;
             this.guestHeroAlive = true;
-            const g = this.coopGhost as unknown as { position: Vector3; mesh: Mesh | null };
+            const g = this.coopGhost as unknown as { position: Vector3; mesh: (Mesh & { visibility: number }) | null };
             g.position.set(1.5, g.position.y, 0);
-            if (g.mesh) { g.mesh.position.x = 1.5; g.mesh.position.z = 0; }
+            if (g.mesh) { g.mesh.position.x = 1.5; g.mesh.position.z = 0; g.mesh.visibility = 1; }
         }
     }
 
@@ -1627,7 +1655,11 @@ export class SurvivorsGameplayState implements GameState {
             kills: this.playerStats?.getTotalKills() ?? 0,
             level: this.levelSystem?.getLevel() ?? 1,
             xp: Math.round(this.playerStats?.getTotalMoneyEarned() ?? 0),
-            wave: this.waveManager?.getCurrentWave() ?? this._guestWave?.wave ?? 0,
+            // Guest's waveManager isn't ticked (returns 0), so read the snapshot-mirrored
+            // wave; host/SP use the live waveManager.
+            wave: this.coopSession?.role === 'guest'
+                ? (this._guestWave?.wave ?? 0)
+                : (this.waveManager?.getCurrentWave() ?? 0),
             loadout,
         };
     }
@@ -1705,11 +1737,21 @@ export class SurvivorsGameplayState implements GameState {
             if (this.coopSession?.role === 'guest') {
                 // The host (authority) is gone — the guest can't simulate alone.
                 this.buildAndSendRunSummary();
+            } else if (this.heroController?.isDeadOrSpectating()) {
+                // Host is itself down with no teammate left to revive it (powers/attack
+                // are suspended while spectating, so it can't clear a wave) → end the run
+                // rather than soft-lock as an inert spectator.
+                this.buildAndSendRunSummary();
             } else {
-                // Host-solo continue: drop the ghost + stop tracking the departed guest.
+                // Host-solo continue: fully detach co-op so the host plays as single-player
+                // (drop the ghost + its targeting provider, stop streaming to a dead socket,
+                // re-enable the pause overlay). coopRole becomes null next frame.
                 this.guestHeroAlive = false;
                 this.coopGhost?.dispose();
                 this.coopGhost = null;
+                this._heroProviders.length = 1; // drop the ghost provider IN PLACE (EnemyManager shares this array)
+                this.coopSession?.dispose();
+                this.coopSession = null;
             }
         }
     }
@@ -1831,6 +1873,7 @@ export class SurvivorsGameplayState implements GameState {
         Enemy.onKillCallback = null;
         Enemy.onShatterCallback = null;
         Enemy.guestDamageRedirect = null; // M4-9: clear the guest damage redirect
+        Enemy.guestStatusRedirect = null; // M4-9 review fix: clear the guest status redirect
         resetPowerEffects();
         if (this.testLabelEl) { this.testLabelEl.remove(); this.testLabelEl = null; }
         this.testMode = false;
@@ -2068,13 +2111,14 @@ export class SurvivorsGameplayState implements GameState {
                 }
                 this._coopGhostLastAnim = ranim;
 
-                if (this.coopSession.role === 'host') {
+                if (this.coopSession.role === 'host' && this.guestHeroAlive) {
                     // HOST: the ghost IS the guest hero — simulate it from the guest's
                     // latest input (authoritative). This replaces M2/M3 pose-copy so the
                     // guest's position can no longer be laggy/spoofed, and feeds the
-                    // contact-damage + snapshot loops a host-owned position.
+                    // contact-damage + snapshot loops a host-owned position. A DEAD guest's
+                    // ghost holds its last pose (no integration) and is faded (see below).
                     this._driveGuestGhostFromInput(dt);
-                } else if (pose) {
+                } else if (this.coopSession.role !== 'host' && pose) {
                     // GUEST: the ghost is the host hero — render it from the host's pose
                     // (the host is trivially authoritative for its own hero). Estimate
                     // velocity from the pose delta to drive walk anim, then snap to pose.
@@ -2207,12 +2251,15 @@ export class SurvivorsGameplayState implements GameState {
                         `(ranger range≈9, melee≈3.5)`,
                     );
                 }
-                // Mirror the host wave state so the guest HUD shows live info.
-                this._guestWave = {
-                    wave: snap.wave.n,
-                    enemiesAlive: snap.wave.alive,
-                    inProgress: snap.wave.inProgress === 1,
-                };
+                // Mirror the host wave state so the guest HUD shows live info. Mutate in
+                // place to avoid a per-frame allocation.
+                if (this._guestWave) {
+                    this._guestWave.wave = snap.wave.n;
+                    this._guestWave.enemiesAlive = snap.wave.alive;
+                    this._guestWave.inProgress = snap.wave.inProgress === 1;
+                } else {
+                    this._guestWave = { wave: snap.wave.n, enemiesAlive: snap.wave.alive, inProgress: snap.wave.inProgress === 1 };
+                }
                 // Part C: apply this guest hero's authoritative HP from the snapshot.
                 // The guest is hero id=1 in heroes[]. The host computed contact damage
                 // for both heroes so the guest does NOT compute it locally.
@@ -3102,10 +3149,16 @@ export class SurvivorsGameplayState implements GameState {
                 const gdx = ePos.x - ghostPos.x;
                 const gdz = ePos.z - ghostPos.z;
                 if (gdx * gdx + gdz * gdz < sumRSq) {
-                    const dmg = e.contactDamagePerSecond * deltaTime * reductionMult;
+                    // No reduction mult here — reductionMult is the HOST's, which doesn't
+                    // apply to the guest (the host doesn't know the guest's reduction). Use
+                    // the raw contact DPS rather than the wrong player's modifier.
+                    const dmg = e.contactDamagePerSecond * deltaTime;
                     this.guestHeroHp = Math.max(0, this.guestHeroHp - dmg);
                     if (this.guestHeroHp <= 0 && this.guestHeroAlive) {
                         this.guestHeroAlive = false;
+                        // Fade the downed guest's ghost (mirrors the local-hero spectate fade).
+                        const gm = (this.coopGhost as unknown as { mesh?: { visibility: number } } | null)?.mesh;
+                        if (gm) gm.visibility = 0.35;
                         // M4-11: the guest just died. If the host is also down, both are
                         // dead → end the run; otherwise the guest spectates (it sees its
                         // alive flag flip in the snapshot) and the host plays on.
