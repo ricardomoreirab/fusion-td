@@ -661,6 +661,19 @@ export class SurvivorsGameplayState implements GameState {
                                 });
                             };
                         }
+                        // M4-9: route ALL power/ability/DoT damage to the host too. Powers
+                        // call enemy.takeDamage directly (dozens of sites); this single
+                        // redirect catches them so the guest's powers actually hurt the
+                        // shared enemies instead of mutating render-only stubs.
+                        Enemy.guestDamageRedirect = (enemyId, amount, element) => {
+                            this.coopSession?.sendDamageReport({
+                                t: 'damageReport',
+                                enemyId,
+                                amount,
+                                element: element ?? 'physical',
+                                sourceHeroId: 1,
+                            });
+                        };
                         // Receive authoritative damage results from host and show damage numbers.
                         this.coopSession.onDamageResult = (m) => {
                             if (this.damageNumbers) {
@@ -694,19 +707,14 @@ export class SurvivorsGameplayState implements GameState {
                             const srcPos = ghost
                                 ? { x: ghost.getPosition().x, z: ghost.getPosition().z }
                                 : undefined;
-                            // maxRangeSq = 144 (12u) — generous for network lag
-                            if (!validateDamageReport(m, ep, 144, srcPos)) return;
+                            // maxRangeSq = 900 (30u) — covers power/ability reach (fireball,
+                            // chain, vortex) beyond basic-attack range, generous for lag.
+                            // Co-op peers are trusted, so this gate is anti-garbage, not anti-cheat.
+                            if (!validateDamageReport(m, ep, 900, srcPos)) return;
                             if (e) {
+                                // takeDamage fires Enemy.onDamageCallback, which broadcasts the
+                                // damageResult to the guest centrally (M4-9) — no per-report echo.
                                 e.takeDamage(m.amount, m.element as PowerElement);
-                                this.coopSession?.sendDamageResult({
-                                    t: 'damageResult',
-                                    enemyId: m.enemyId,
-                                    amount: m.amount,
-                                    isCrit: false,
-                                    element: m.element,
-                                    x: e.getPosition().x,
-                                    z: e.getPosition().z,
-                                });
                             }
                         };
 
@@ -844,6 +852,21 @@ export class SurvivorsGameplayState implements GameState {
         this.damageNumbers = new DamageNumberManager(this.game);
         Enemy.onDamageCallback = (position, damage, isCrit, element) => {
             this.damageNumbers?.showDamage(position, damage, element, isCrit);
+            // M4-9: mirror EVERY host-side damage number to the guest — its own routed
+            // hits AND the host's own hits — so the guest sees full combat feedback.
+            // Single broadcast point (fires here for guest reports applied above too),
+            // so there's no double-count. enemyId is unused by the guest (shows by pos).
+            if (this.coopSession?.role === 'host') {
+                this.coopSession.sendDamageResult({
+                    t: 'damageResult',
+                    enemyId: 0,
+                    amount: damage,
+                    isCrit,
+                    element: element ?? 'physical',
+                    x: position.x,
+                    z: position.z,
+                });
+            }
         };
         Enemy.onRewardCallback = (position, reward) => {
             this.damageNumbers?.showReward(position, reward);
@@ -973,6 +996,11 @@ export class SurvivorsGameplayState implements GameState {
         // Ability manager — configure for chosen champion class
         this.abilityManager = new AbilityManager(this.game, this.enemyManager);
         this.abilityManager.configureForClass(this.currentChampionType);
+        // M4-9: abilities target the role-aware enemy list (GuestEnemies on the co-op
+        // guest, where the host EnemyManager is empty) — evaluated per call so the role
+        // is current even though the co-op connection resolves after startRun. Their
+        // damage then routes to the host via Enemy.guestDamageRedirect.
+        this.abilityManager.setEnemiesProvider(() => this.activeAttackEnemies());
         this.abilityManager.setHeroProvider(() => this.hero!.getPosition());
         this.abilityManager.setHero(this.hero);
         // Multishot's magical-arrow layer force-casts each equipped autocast slot.
@@ -1590,6 +1618,7 @@ export class SurvivorsGameplayState implements GameState {
         Enemy.onRewardCallback = null;
         Enemy.onKillCallback = null;
         Enemy.onShatterCallback = null;
+        Enemy.guestDamageRedirect = null; // M4-9: clear the guest damage redirect
         resetPowerEffects();
         if (this.testLabelEl) { this.testLabelEl.remove(); this.testLabelEl = null; }
         this.testMode = false;

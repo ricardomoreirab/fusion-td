@@ -84,6 +84,9 @@ export class Enemy {
      */
     public static onDamageCallback: ((position: Vector3, damage: number, isCrit: boolean, element?: PowerElement) => void) | null = null;
     public static onRewardCallback: ((position: Vector3, reward: number) => void) | null = null;
+    /** Co-op guest only (M4-9): when set, takeDamage reports the hit to the host by id
+     *  and applies nothing locally (host-authoritative). Null on host + single-player. */
+    public static guestDamageRedirect: ((enemyId: number, amount: number, element?: PowerElement) => void) | null = null;
     /** Fired exactly once per kill from base die() — independent of the visual
      *  death-effect path (which several subclasses override without calling super).
      *  Used for kill-driven gameplay like the cooldown refund. Position by reference. */
@@ -1257,6 +1260,17 @@ export class Enemy {
      */
     public takeDamage(amount: number, element?: PowerElement): boolean {
         if (!this.alive) return false;
+
+        // Co-op guest (M4-9): render-only enemies are host-authoritative. Route the
+        // hit to the host by id and apply NOTHING locally — the host rolls crit /
+        // resistance, mutates HP, and echoes a damageResult (the number). This
+        // catches powers / abilities / DoT uniformly; basic attacks route earlier via
+        // HeroBasicAttack.damageRouter (they never reach takeDamage on the guest).
+        const redirect = Enemy.guestDamageRedirect;
+        if (redirect) {
+            redirect(this.id, amount, element);
+            return false;
+        }
 
         // Roll for crit using the global provider (player run stats). DoT ticks
         // and chained sub-hits all flow through here, so every damage source —

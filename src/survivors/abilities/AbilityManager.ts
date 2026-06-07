@@ -133,6 +133,42 @@ export class AbilityManager {
         this.configureForClass('mage');
     }
 
+    // ── Role-aware enemy source (co-op M4-9) ─────────────────────────────────
+    // Abilities query enemies through these helpers, NOT this.enemyManager
+    // directly, so the co-op guest can target its render-only GuestEnemies (the
+    // host's EnemyManager is empty on the guest — same fix as the basic attack).
+    // Default null = host / single-player → the authoritative EnemyManager.
+    private enemiesProvider: (() => Enemy[]) | null = null;
+    public setEnemiesProvider(fn: () => Enemy[]): void { this.enemiesProvider = fn; }
+
+    /** The enemy list abilities act on (role-aware, evaluated per call). */
+    private allEnemies(): Enemy[] {
+        return this.enemiesProvider ? this.enemiesProvider() : this.enemyManager.getEnemies();
+    }
+    /** Alive enemies within `range` of `position` (mirrors EnemyManager.getEnemiesInRange). */
+    private enemiesInRange(position: Vector3, range: number): Enemy[] {
+        const rangeSq = range * range;
+        return this.allEnemies().filter(e => {
+            if (!e.isAlive()) return false;
+            const ep = e.getPosition();
+            const dx = ep.x - position.x, dy = ep.y - position.y, dz = ep.z - position.z;
+            return dx * dx + dy * dy + dz * dz <= rangeSq;
+        });
+    }
+    /** Nearest alive enemy within optional `maxRange` (mirrors EnemyManager.getClosestEnemy). */
+    private closestEnemy(position: Vector3, maxRange?: number): Enemy | null {
+        let closest: Enemy | null = null;
+        let closestSq = maxRange !== undefined ? maxRange * maxRange : Number.MAX_VALUE;
+        for (const e of this.allEnemies()) {
+            if (!e.isAlive()) continue;
+            const ep = e.getPosition();
+            const dx = ep.x - position.x, dy = ep.y - position.y, dz = ep.z - position.z;
+            const dSq = dx * dx + dy * dy + dz * dz;
+            if (dSq < closestSq) { closestSq = dSq; closest = e; }
+        }
+        return closest;
+    }
+
     // ========================================================================
     // Class-aware ability registration
     // ========================================================================
@@ -328,7 +364,7 @@ export class AbilityManager {
                     if (heroPos) {
                         let best: Vector3 | null = null;
                         let bestSq = Infinity;
-                        for (const e of this.enemyManager.getEnemies()) {
+                        for (const e of this.allEnemies()) {
                             if (!e.isAlive()) continue;
                             const p = e.getPosition();
                             const dx = p.x - heroPos.x;
@@ -438,7 +474,7 @@ export class AbilityManager {
     private strikeMeteorAt(center: Vector3): void {
         const radius = 4;
         const damage = 100;
-        const enemies = this.enemyManager.getEnemiesInRange(center, radius);
+        const enemies = this.enemiesInRange(center, radius);
         for (const enemy of enemies) {
             enemy.takeDamage(damage);
         }
@@ -518,7 +554,7 @@ export class AbilityManager {
     // ========================================================================
 
     private activateFrostNova(): boolean {
-        const enemies = this.enemyManager.getEnemies();
+        const enemies = this.allEnemies();
         const duration = 2.5;
 
         for (const enemy of enemies) {
@@ -712,7 +748,7 @@ export class AbilityManager {
                 } else {
                     // Fallback: flat damage if the hit pipeline isn't wired.
                     const radiusSq = radius * radius;
-                    for (const e of this.enemyManager.getEnemies()) {
+                    for (const e of this.allEnemies()) {
                         if (!e.isAlive()) continue;
                         if (Vector3.DistanceSquared(pos, e.getPosition()) <= radiusSq) {
                             e.takeDamage(18);
@@ -836,7 +872,7 @@ export class AbilityManager {
         this.dashOverride(target, duration, mode, (landingPos: Vector3) => {
             // Landing push: every enemy within DASH_PUSH_RADIUS shoved outward
             // by DASH_PUSH_DISTANCE over 0.2s. No damage.
-            for (const e of this.enemyManager.getEnemies()) {
+            for (const e of this.allEnemies()) {
                 if (!e.isAlive()) continue;
                 const ePos = e.getPosition();
                 const ddx = ePos.x - landingPos.x;
@@ -951,7 +987,7 @@ export class AbilityManager {
         const knockRadius = 10;
         const knockForce = 12;
 
-        for (const e of this.enemyManager.getEnemies()) {
+        for (const e of this.allEnemies()) {
             if (!e.isAlive()) continue;
             const ePos = e.getPosition();
             const dx = ePos.x - heroPos.x;
@@ -1087,7 +1123,7 @@ export class AbilityManager {
                 // die. Single inline pass (no intermediate filtered-array allocation).
                 let nearest: Enemy | null = null;
                 let bestSq = Infinity;
-                for (const e of this.enemyManager.getEnemies()) {
+                for (const e of this.allEnemies()) {
                     if (!e.isAlive()) continue;
                     const d = Vector3.DistanceSquared(pos, e.getPosition());
                     if (d < bestSq) { bestSq = d; nearest = e; }
@@ -1200,7 +1236,7 @@ export class AbilityManager {
                 // Nearest alive enemy via a single inline pass — no filtered-array alloc.
                 let nearest: Enemy | null = null;
                 let bestDist = Infinity;
-                for (const e of this.enemyManager.getEnemies()) {
+                for (const e of this.allEnemies()) {
                     if (!e.isAlive()) continue;
                     const d = Vector3.DistanceSquared(pos, e.getPosition());
                     if (d < bestDist) { bestDist = d; nearest = e; }
@@ -1253,7 +1289,7 @@ export class AbilityManager {
     private triggerExplosion(position: Vector3, damage: number, radius: number): void {
         // Damage all enemies in radius (squared compare — no sqrt per enemy).
         const radiusSq = radius * radius;
-        for (const e of this.enemyManager.getEnemies()) {
+        for (const e of this.allEnemies()) {
             if (!e.isAlive()) continue;
             if (Vector3.DistanceSquared(position, e.getPosition()) <= radiusSq) {
                 e.takeDamage(damage);
@@ -1323,7 +1359,7 @@ export class AbilityManager {
         const decayRate = 0.7;
         const chainRange = 6;
 
-        const firstTarget = this.enemyManager.getClosestEnemy(position, 8);
+        const firstTarget = this.closestEnemy(position, 8);
         if (!firstTarget || !firstTarget.isAlive()) return false;
 
         let currentTarget = firstTarget;
@@ -1336,7 +1372,7 @@ export class AbilityManager {
 
         for (let i = 0; i < chainCount; i++) {
             currentDamage *= decayRate;
-            const enemiesInRange = this.enemyManager.getEnemiesInRange(currentTarget.getPosition(), chainRange);
+            const enemiesInRange = this.enemiesInRange(currentTarget.getPosition(), chainRange);
             let nextTarget = null;
             for (const enemy of enemiesInRange) {
                 if (!hitEnemies.has(enemy) && enemy.isAlive()) {
@@ -1469,7 +1505,7 @@ export class AbilityManager {
 
     private activateGoldRush(): boolean {
         if (!this.playerStats) return false;
-        const enemies = this.enemyManager.getEnemies();
+        const enemies = this.allEnemies();
         let totalBonus = 0;
         for (const enemy of enemies) {
             if (enemy.isAlive()) {
@@ -1485,7 +1521,7 @@ export class AbilityManager {
     }
 
     private createGoldRushVisual(totalGold: number): void {
-        const enemies = this.enemyManager.getEnemies();
+        const enemies = this.allEnemies();
         for (const enemy of enemies) {
             if (enemy.isAlive()) {
                 const ePos = enemy.getPosition();
@@ -1660,7 +1696,7 @@ export class AbilityManager {
     }
 
     public triggerMeteorAtNearest(): boolean {
-        const enemies = this.enemyManager.getEnemies();
+        const enemies = this.allEnemies();
         let target: Vector3 | null = null;
         let bestDistSq = Infinity;
         for (const e of enemies) {
