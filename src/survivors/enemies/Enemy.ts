@@ -178,6 +178,18 @@ export class Enemy {
      *  that made each subsequent wave's freeze longer than the last. */
     protected glbAnimationGroups: AnimationGroup[] = [];
 
+    // ── Guest-side network visuals (co-op) ──────────────────────────────────
+    // These drive a render-only enemy from host snapshots. They are SEPARATE from
+    // each subclass's host-side anim fields (glbWalkAnim/glbCurrentAnim/…) because
+    // the subclass update() — which owns those — is NEVER ticked on the guest.
+    // Categorised lazily from glbAnimationGroups (which the base already holds).
+    private _netWalkAnim: AnimationGroup | null = null;
+    private _netAttackAnim: AnimationGroup | null = null;
+    private _netCurrentAnim: AnimationGroup | null = null;
+    private _netAnimCategorized = false;
+    /** Host-authoritative HP the displayed bar eases toward (-1 = uninitialised). */
+    private _netHpTarget = -1;
+
     /** Skeletons cloned by GLB instantiation (`instantiateModelsToScene` with
      *  doNotInstantiate:true does a full Skeleton.clone() per instance). Each
      *  cloned skeleton allocates its OWN bone-matrix RawTexture on first render
@@ -1861,40 +1873,73 @@ export class Enemy {
 
     /**
      * Drive this enemy from a host-authoritative snapshot entry (guest side only).
-     * Updates position, rotation, health bar, and status flags.
-     * Never called in single-player.
-     *
-     * `s.y` is optional — when absent the position's y is left unchanged so
-     * flying enemies keep their hover height even if the host did not encode y.
-     *
-     * Animation is best-effort: position / rotation / health bar are always
-     * updated; GLB clip selection from flags.meleePhase is a
-     * TODO(coop-m3-scene) once GuestEnemies scene-integration is wired up.
+     * Never called in single-player. Applies the NON-positional state: HP (eased
+     * toward the host value by tickNetworkVisuals), status flags, and GLB clip
+     * selection (walk vs attack) from the snapshot anim code. Position is driven
+     * separately + smoothly via applyNetworkPosition() from an interpolation buffer.
      */
-    /** Apply the NON-positional network state (HP, status flags, health bar).
-     *  Position is driven separately + smoothly via applyNetworkPosition() from an
-     *  interpolation buffer, so HP/flags are snapped (instant) but movement lerps. */
     public applyNetworkState(s: SnapshotEnemy): void {
         if (!this.mesh) return;
 
         const flags = _unpackEnemyFlagsInline(s.flags);
 
-        // --- Health + health bar ---
-        this.health = Math.max(0, s.hp);
-        if (this.healthBarMesh && !this.healthBarMesh.isDisposed() &&
-            this.healthBarBackgroundMesh && !this.healthBarBackgroundMesh.isDisposed()) {
-            this.updateHealthBar();
-        }
+        // --- Health bar: ease, don't snap ---
+        // Record the host-authoritative HP as the target; tickNetworkVisuals()
+        // lerps the displayed value toward it every frame so the bar drains
+        // smoothly instead of stepping on each (low-rate) snapshot. First
+        // snapshot seeds the display value so there is no initial jump.
+        const hp = Math.max(0, s.hp);
+        if (this._netHpTarget < 0) this.health = hp;
+        this._netHpTarget = hp;
 
         // --- Status flags ---
         this.isFrozen   = flags.frozen;
         this.isStunned  = flags.stunned;
         this.isConfused = flags.confused;
 
-        // --- Animation (best-effort) ---
-        // TODO(coop-m3-scene): drive GLB walk/attack clips from s.anim and
-        // flags.meleePhase once GuestEnemies scene-integration is complete.
-        void flags.meleePhase; // suppress unused-variable warning until TODO is done
+        // --- Animation: drive the GLB clip from the host's anim code ---
+        // 2 = attacking (host melee FSM is past idle), anything else = walk.
+        this._applyNetworkAnim(s.anim);
+    }
+
+    /** Guest-side per-frame visuals tick: eases the displayed HP bar toward the
+     *  host-authoritative target. Called every frame by GuestEnemies (NOT on the
+     *  host — there the bar is driven directly by takeDamage). */
+    public tickNetworkVisuals(deltaTime: number): void {
+        if (this._netHpTarget < 0 || this.health === this._netHpTarget) return;
+        // Exponential ease (~80ms time constant) — frame-rate independent.
+        const k = 1 - Math.exp(-12 * deltaTime);
+        this.health += (this._netHpTarget - this.health) * k;
+        if (Math.abs(this.health - this._netHpTarget) < 0.5) this.health = this._netHpTarget;
+        if (this.healthBarMesh && !this.healthBarMesh.isDisposed() &&
+            this.healthBarBackgroundMesh && !this.healthBarBackgroundMesh.isDisposed()) {
+            this.updateHealthBar();
+        }
+    }
+
+    /** Guest-side: switch the GLB clip to attack (anim===2) or walk. No-op for
+     *  procedural enemies (no anim groups). Categorises the groups lazily from
+     *  glbAnimationGroups the first time it runs. */
+    private _applyNetworkAnim(anim: number): void {
+        if (this.glbAnimationGroups.length === 0) return;
+        if (!this._netAnimCategorized) {
+            this._netAnimCategorized = true;
+            for (const ag of this.glbAnimationGroups) {
+                const n = ag.name.toLowerCase();
+                if (n.includes('run3')) this._netWalkAnim = ag;
+                else if (!this._netWalkAnim && (n.includes('walk') || n.includes('run'))) this._netWalkAnim = ag;
+                else if (!this._netAttackAnim && (n.includes('attack') || n.includes('hit') ||
+                         n.includes('punch') || n.includes('strike') || n.includes('swing') ||
+                         n.includes('skill'))) this._netAttackAnim = ag;
+            }
+            if (!this._netWalkAnim && this.glbAnimationGroups.length > 0) this._netWalkAnim = this.glbAnimationGroups[0];
+            if (!this._netAttackAnim) this._netAttackAnim = this._netWalkAnim;
+        }
+        const slot = anim === 2 ? this._netAttackAnim : this._netWalkAnim;
+        if (!slot || this._netCurrentAnim === slot) return;
+        if (this._netCurrentAnim) this._netCurrentAnim.stop();
+        slot.start(true);
+        this._netCurrentAnim = slot;
     }
 
     /** Set the (interpolated) network position — drives both this.position (so

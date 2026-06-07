@@ -10,6 +10,7 @@ import type { SnapshotMsg, SpawnMsg, DeathMsg, DamageReportMsg, DamageResultMsg 
 export class CoopSession {
     private remoteBuffer = new PoseBuffer();
     private remoteChamp: string | null = null;
+    private remoteAnim = 0; // last anim code from the remote hero (0 idle/1 run/2 attack)
     private localSeq = 0;
 
     // M3: guest-side last-received snapshot (last-wins buffer)
@@ -31,6 +32,7 @@ export class CoopSession {
     ) {
         this.client.onHeroState = (m) => {
             this.remoteChamp = m.champ;
+            this.remoteAnim = m.anim;
             this.remoteBuffer.push(this.now(), { x: m.x, y: m.y, z: m.z, ry: m.ry });
         };
 
@@ -96,6 +98,12 @@ export class CoopSession {
 
     getRemoteChamp(): string | null {
         return this.remoteChamp;
+    }
+
+    /** Last anim code received from the remote hero (0 idle/1 run/2 attack). The
+     *  scene triggers the ghost's attack clip on the rising edge to 2. */
+    getRemoteAnim(): number {
+        return this.remoteAnim;
     }
 
     /** Interpolated remote pose at the given render time, or null if none yet. */

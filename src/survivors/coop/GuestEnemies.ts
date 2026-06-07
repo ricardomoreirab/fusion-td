@@ -87,6 +87,12 @@ export class GuestEnemies {
         }
     }
 
+    /** Per-frame non-positional visuals tick (HP-bar easing). Separate from
+     *  interpolate() because it needs the frame delta, not a render time. */
+    tickVisuals(deltaTime: number): void {
+        for (const enemy of this.byId.values()) enemy.tickNetworkVisuals(deltaTime);
+    }
+
     death(id: number): void {
         this.remove(id);
     }
