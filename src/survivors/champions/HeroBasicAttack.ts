@@ -134,6 +134,25 @@ export class HeroBasicAttack {
         return (this.baseRange + enchantBonus) * this.rangeMultiplier;
     }
 
+    /** Debug snapshot of every gate the fire path checks — so the co-op overlay can
+     *  show exactly why the attack isn't firing (busy / no-target / out-of-range /
+     *  on-cooldown) without the dev console. */
+    public debugState(): { busy: boolean; hasTarget: boolean; dist: number; range: number; cooldown: number } {
+        const hero = this.hero as { isSpecialActive?: () => boolean; isAttackActive?: () => boolean };
+        const busy =
+            (typeof hero.isSpecialActive === 'function' && hero.isSpecialActive()) ||
+            (typeof hero.isAttackActive  === 'function' && hero.isAttackActive());
+        const t = this.targetProvider();
+        const dist = t ? Vector3.Distance(this.getHeroPosition(), t.position) : -1;
+        return {
+            busy,
+            hasTarget: !!t && (t.isAlive?.() ?? true),
+            dist,
+            range: this.effectiveRange,
+            cooldown: this.cooldown,
+        };
+    }
+
     public update(deltaTime: number): void {
         // While a GLB special or basic-attack animation is still playing, suspend
         // basic attacks — no swing, no projectile, no damage, no swing-arc visual.

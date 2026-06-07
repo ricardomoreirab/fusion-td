@@ -1446,6 +1446,11 @@ export class SurvivorsGameplayState implements GameState {
             lines.push(`snaps=${this._coopDbgSnaps} hasSnap=${snap ? 'Y' : 'N'} snapEnemies=${snap?.enemies.length ?? 0}`);
             lines.push(`enemies(local)=${list.length} alive=${alive}`);
             lines.push(`nearest=${nearest === Infinity ? 'none' : nearest.toFixed(1)}u (ranger~9 melee~3.5)`);
+            const ba = this.heroController?.getBasicAttack();
+            if (ba) {
+                const d = ba.debugState();
+                lines.push(`ATK busy=${d.busy ? 'Y' : 'N'} tgt=${d.hasTarget ? 'Y' : 'N'} dist=${d.dist.toFixed(1)} rng=${d.range.toFixed(1)} cd=${d.cooldown.toFixed(2)}`);
+            }
         }
         lines.push(`hero@(${hp?.x.toFixed(1)},${hp?.z.toFixed(1)})`);
         this._coopDbgEl.textContent = lines.join('\n');
