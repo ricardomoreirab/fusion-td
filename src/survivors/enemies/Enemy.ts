@@ -1871,21 +1871,13 @@ export class Enemy {
      * updated; GLB clip selection from flags.meleePhase is a
      * TODO(coop-m3-scene) once GuestEnemies scene-integration is wired up.
      */
+    /** Apply the NON-positional network state (HP, status flags, health bar).
+     *  Position is driven separately + smoothly via applyNetworkPosition() from an
+     *  interpolation buffer, so HP/flags are snapped (instant) but movement lerps. */
     public applyNetworkState(s: SnapshotEnemy): void {
         if (!this.mesh) return;
 
         const flags = _unpackEnemyFlagsInline(s.flags);
-
-        // --- Position ---
-        this.position.x = s.x;
-        this.position.z = s.z;
-        if (s.y !== undefined) this.position.y = s.y;
-
-        // --- Mesh sync (mirrors the seek-target update() branch) ---
-        if (!this.mesh.isDisposed()) {
-            this.mesh.position.copyFrom(this.position);
-            this.mesh.rotation.y = s.ry;
-        }
 
         // --- Health + health bar ---
         this.health = Math.max(0, s.hp);
@@ -1902,8 +1894,21 @@ export class Enemy {
         // --- Animation (best-effort) ---
         // TODO(coop-m3-scene): drive GLB walk/attack clips from s.anim and
         // flags.meleePhase once GuestEnemies scene-integration is complete.
-        // Position + rotation already convey the important movement signal.
         void flags.meleePhase; // suppress unused-variable warning until TODO is done
+    }
+
+    /** Set the (interpolated) network position — drives both this.position (so
+     *  getPosition()/targeting see it) and the mesh. Called every frame by the
+     *  guest with a buffered, time-interpolated pose for smooth movement. */
+    public applyNetworkPosition(x: number, y: number, z: number, ry: number): void {
+        if (!this.mesh) return;
+        this.position.x = x;
+        this.position.y = y;
+        this.position.z = z;
+        if (!this.mesh.isDisposed()) {
+            this.mesh.position.copyFrom(this.position);
+            this.mesh.rotation.y = ry;
+        }
     }
 
 }

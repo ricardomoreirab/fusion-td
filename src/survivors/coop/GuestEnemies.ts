@@ -3,6 +3,7 @@ import { Game } from '../../engine/Game';
 import { Enemy } from '../enemies/Enemy';
 import { createEnemyOfType } from '../enemies/createEnemyOfType';
 import { makeElite } from '../enemies/EliteSpawner';
+import { PoseBuffer } from '../../net/Interpolation';
 import type { SnapshotEnemy, SpawnMsg } from '../../net/Protocol';
 
 /** Resolve the preloaded GLB AssetContainer for an enemy type, or null. */
@@ -22,6 +23,10 @@ export type EnemyAssetResolver = (type: string) => AssetContainer | null;
  */
 export class GuestEnemies {
     private byId = new Map<number, Enemy>();
+    /** Per-enemy position interpolation buffer — same smoothing the champion ghost
+     *  uses. pushSnapshot() feeds it on each NEW snapshot; interpolate() lerps the
+     *  mesh toward a render time ~100ms in the past every frame. */
+    private buffers = new Map<number, PoseBuffer>();
 
     constructor(private game: Game, private assetFor: EnemyAssetResolver = () => null) {}
 
@@ -49,24 +54,37 @@ export class GuestEnemies {
         ea.maxHealth = msg.maxHealth;
         ea.health    = msg.maxHealth;
         this.byId.set(msg.id, e);
+        // Seed the interpolation buffer with the spawn pose so the enemy renders
+        // at its spawn point immediately (before the first snapshot arrives).
+        const buf = new PoseBuffer();
+        buf.push(performance.now(), { x: msg.x, y: 0, z: msg.z, ry: 0 });
+        this.buffers.set(msg.id, buf);
     }
 
-    applySnapshot(entries: SnapshotEnemy[]): void {
+    /** Called once per NEW host snapshot. Applies HP/flags immediately and pushes
+     *  each enemy's position into its interpolation buffer (timestamped) — NOT every
+     *  frame, mirroring how the champion ghost buffers heroState messages. */
+    pushSnapshot(entries: SnapshotEnemy[], nowMs: number): void {
         for (const s of entries) {
             const enemy = this.byId.get(s.id);
-            if (enemy) enemy.applyNetworkState(s);
-            // Unknown id (spawn event not yet applied / lost) → ignore.
-            // A spawn event must create the instance; we never auto-create from
-            // snapshot alone because we would have no type or maxHealth.
+            if (!enemy) continue; // unknown id → its spawn event creates it; never auto-create.
+            enemy.applyNetworkState(s); // HP / status flags / health bar (instant)
+            const buf = this.buffers.get(s.id);
+            if (buf) buf.push(nowMs, { x: s.x, y: s.y ?? 0, z: s.z, ry: s.ry });
         }
-        // Removal is driven ONLY by reliable `death` events — NOT by snapshot
-        // absence. The guest applies the LATEST snapshot every frame, and a
-        // just-spawned enemy (created from a `spawn` event that arrived AFTER the
-        // latest snapshot was taken) is not yet in that snapshot. Removing on
-        // absence here deleted freshly-spawned enemies before their first
-        // inclusive snapshot — the cause of "some monsters never appear" and the
-        // flaky/partial enemy visibility. Death events (reliable, ordered) plus
-        // clear() on exit cover every legitimate removal.
+        // Removal is driven ONLY by reliable `death` events (+ clear() on exit) —
+        // never by snapshot absence (that deleted freshly-spawned enemies before
+        // their first inclusive snapshot).
+    }
+
+    /** Called EVERY frame with a render time slightly in the past (~100ms). Lerps
+     *  each enemy toward its buffered position for smooth movement, exactly like
+     *  the champion ghost. Drives this.position too, so targeting sees it. */
+    interpolate(renderTimeMs: number): void {
+        for (const [id, enemy] of this.byId) {
+            const p = this.buffers.get(id)?.sample(renderTimeMs);
+            if (p) enemy.applyNetworkPosition(p.x, p.y, p.z, p.ry);
+        }
     }
 
     death(id: number): void {
@@ -83,6 +101,7 @@ export class GuestEnemies {
         // materials (see gotcha: GLB skeleton + lifecycle leaks).
         e.disposeCorpse();
         this.byId.delete(id);
+        this.buffers.delete(id);
     }
 
     clear(): void {

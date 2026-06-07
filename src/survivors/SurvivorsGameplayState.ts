@@ -194,6 +194,9 @@ export class SurvivorsGameplayState implements GameState {
     private _coopDbgSnaps = 0;    // guest: snapshots applied
     /** Monotonically-increasing snapshot tick counter (debug + ack). */
     private _snapshotTick = 0;
+    /** Guest: last snapshot tick pushed into the enemy interpolation buffers, so a
+     *  given snapshot is buffered once (not re-pushed every frame). */
+    private _lastGuestSnapTick = -1;
     /** Scratch velocity for animating the ghost from interpolated pose deltas. */
     private _coopGhostVel = new Vector3();
     private joystick: SurvivorsJoystick | null = null;
@@ -1529,6 +1532,7 @@ export class SurvivorsGameplayState implements GameState {
         this._guestWave = null;
         this._snapshotAccumS = 0;
         this._snapshotTick = 0;
+        this._lastGuestSnapTick = -1;
         // Co-op debug overlay teardown + counter reset.
         this._coopDbgEl?.remove();
         this._coopDbgEl = null;
@@ -1765,10 +1769,17 @@ export class SurvivorsGameplayState implements GameState {
             // and update the local wave HUD from the snapshot's wave state.
             const snap = this.coopSession!.getLatestSnapshot();
             if (snap) {
-                this._coopDbgSnaps++;
-                // Drive render-only enemy positions / HP / flags.
+                // Drive render-only enemies. Positions go through an interpolation
+                // buffer (same smoothing as the champion ghost): push each NEW
+                // snapshot's positions + HP/flags once (keyed on tick), then
+                // interpolate EVERY frame toward a render time ~100ms in the past.
                 if (this.guestEnemies) {
-                    this.guestEnemies.applySnapshot(snap.enemies);
+                    if (snap.tick !== this._lastGuestSnapTick) {
+                        this._lastGuestSnapTick = snap.tick;
+                        this._coopDbgSnaps++;
+                        this.guestEnemies.pushSnapshot(snap.enemies, performance.now());
+                    }
+                    this.guestEnemies.interpolate(performance.now() - 100);
                 }
                 // DIAGNOSTIC (guest, ~1/s): is anything within the hero's attack
                 // reach? Reveals whether "not shooting" is no-target-in-range
