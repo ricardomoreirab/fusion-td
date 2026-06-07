@@ -62,15 +62,21 @@ export interface WaveClearMsg { t: 'wave-clear'; wave: number }
  *  packed InputButtons bitfield (see src/net/InputButtons.ts). */
 export interface InputMsg { t: 'input'; seq: number; dx: number; dz: number; buttons: number }
 
+/** Guest → host: "I'm connected and ready — re-send the current world." The host
+ *  replies with a spawn event per live enemy (catch-up). Needed because the host
+ *  connects FIRST (into an empty room), so any catch-up it emits on its own
+ *  connect is broadcast to nobody; the guest must pull state once it has joined. */
+export interface RequestStateMsg { t: 'requestState' }
+
 export type NetMessage =
     | HelloMsg | PeerLeftMsg | PingMsg | PongMsg | HeroStateMsg
     | SnapshotMsg | SpawnMsg | DeathMsg | DamageReportMsg | DamageResultMsg
-    | WaveStartMsg | WaveClearMsg | InputMsg;
+    | WaveStartMsg | WaveClearMsg | InputMsg | RequestStateMsg;
 
 const KNOWN_TAGS = new Set([
     'hello', 'peer-left', 'ping', 'pong', 'heroState',
     'snapshot', 'spawn', 'death', 'damageReport', 'damageResult',
-    'wave-start', 'wave-clear', 'input',
+    'wave-start', 'wave-clear', 'input', 'requestState',
 ]);
 
 export function encode(msg: NetMessage): string {

@@ -21,6 +21,8 @@ export class CoopSession {
     // M3 combat: host receives damageReport from guest; guest receives damageResult from host
     onDamageReport?:  (msg: DamageReportMsg)  => void;
     onDamageResult?:  (msg: DamageResultMsg)  => void;
+    /** Host: the guest connected and asked for the current world (catch-up). */
+    onRequestState?:  () => void;
 
     constructor(
         private client: NetClient,
@@ -38,6 +40,12 @@ export class CoopSession {
         this.client.onDeath         = (m) => { this.onDeath?.(m); };
         this.client.onDamageReport  = (m) => { this.onDamageReport?.(m); };
         this.client.onDamageResult  = (m) => { this.onDamageResult?.(m); };
+        this.client.onRequestState  = () => { this.onRequestState?.(); };
+    }
+
+    /** Guest: ask the host to re-send the current world (live enemies). */
+    sendRequestState(): void {
+        this.client.sendRequestState();
     }
 
     get role() {

@@ -612,6 +612,12 @@ export class SurvivorsGameplayState implements GameState {
                                 );
                             }
                         };
+                        // Now that the guest's spawn/death handlers are wired, ask the
+                        // host to re-send the current world so we render enemies that
+                        // already existed before we joined (catch-up). The host only
+                        // emits this in response — it can't, on its own connect (which
+                        // happened earlier, into an empty room).
+                        this.coopSession.sendRequestState();
                     } else {
                         // host: wire EnemyManager hooks. enemyManager is constructed
                         // below; store closures — they capture `this` so the actual
@@ -644,16 +650,19 @@ export class SurvivorsGameplayState implements GameState {
                             }
                         };
 
-                        // Catch-up: the run may already have live enemies (they
-                        // spawned before this connection resolved, or the guest
-                        // joined mid-run). Emit a spawn for each so the guest's
-                        // GuestEnemies populates — applySnapshot ignores ids with
-                        // no prior spawn event, so without this the guest sees no
-                        // monsters. Future spawns flow through the self-gating
-                        // setOnEnemySpawned hook installed synchronously below.
-                        const liveNow = this.enemyManager?.getEnemies() ?? [];
-                        for (const e of liveNow) this.coopSession?.sendSpawn(this.buildSpawnMsg(e));
-                        console.log(`[coop] host connected: catch-up sent ${liveNow.length} existing enemy spawns`);
+                        // Catch-up ON DEMAND: the host connects FIRST (into an empty
+                        // room), so emitting catch-up on its own connect broadcasts
+                        // to nobody. Instead, wait for the guest to send requestState
+                        // (once it's connected + wired) and THEN re-send a spawn for
+                        // every live enemy. Without this, every enemy that spawned
+                        // before the guest joined is never delivered (guest spawn
+                        // count < host spawn count). Future spawns flow through the
+                        // self-gating setOnEnemySpawned hook installed synchronously.
+                        this.coopSession.onRequestState = () => {
+                            const liveNow = this.enemyManager?.getEnemies() ?? [];
+                            for (const e of liveNow) this.coopSession?.sendSpawn(this.buildSpawnMsg(e));
+                            console.log(`[coop] guest requested state: catch-up sent ${liveNow.length} live enemy spawns`);
+                        };
                     }
                 } catch (err) {
                     console.error('[coop] connection failed:', err);

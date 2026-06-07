@@ -20,6 +20,7 @@ export class NetClient {
     onDeath?:         (msg: DeathMsg)         => void;
     onDamageReport?:  (msg: DamageReportMsg)  => void;
     onDamageResult?:  (msg: DamageResultMsg)  => void;
+    onRequestState?:  () => void;
 
     constructor(
         private transport: NetTransport,
@@ -47,6 +48,10 @@ export class NetClient {
 
     sendSpawn(m: SpawnMsg): void {
         this.transport.send('event', encode(m));
+    }
+
+    sendRequestState(): void {
+        this.transport.send('event', encode({ t: 'requestState' }));
     }
 
     sendDeath(m: DeathMsg): void {
@@ -111,6 +116,9 @@ export class NetClient {
                 break;
             case 'damageResult':
                 this.onDamageResult?.(msg);
+                break;
+            case 'requestState':
+                this.onRequestState?.();
                 break;
             case 'hello':
                 break;
