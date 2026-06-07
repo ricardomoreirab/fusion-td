@@ -641,7 +641,24 @@ export class SurvivorsGameplayState implements GameState {
                     if (this.coopSession.role === 'guest') {
                         this.guestEnemies = new GuestEnemies(this.game, getCachedEnemyAsset);
                         this.coopSession.onSpawn = (m) => { this._coopDbgSpawns++; this.guestEnemies?.spawn(m); };
-                        this.coopSession.onDeath = (m) => { this._coopDbgDeaths++; this.guestEnemies?.death(m.id); };
+                        this.coopSession.onDeath = (m) => {
+                            this._coopDbgDeaths++;
+                            this.guestEnemies?.death(m.id);
+                            // M4-10 (per-player orbs): the guest gets its OWN power orb on
+                            // each elite death — magnets to the guest hero, and picking it up
+                            // raises the guest's local (non-blocking) power-choice. Fully
+                            // independent of the host's orb; both players grow their own build.
+                            if (m.eliteElement && this.scene && this.hero) {
+                                const drop = new PowerDrop(
+                                    this.scene,
+                                    new Vector3(m.x, 0, m.z),
+                                    m.eliteElement,
+                                    () => this.hero!.getPosition(),
+                                    { pickupRadius: 1.5, magnetRadius: 4, magnetSpeed: 12, onPickup: (el) => this.onOrbPickup(el) },
+                                );
+                                this.powerDrops.push(drop);
+                            }
+                        };
                         // M3b: guest basic-attack reports hits to the host instead of
                         // mutating enemy HP locally. The target/enemy providers themselves
                         // are wired role-aware in startRun (see activeAttackEnemies /
@@ -1305,9 +1322,13 @@ export class SurvivorsGameplayState implements GameState {
             this.damageNumbers.showText(this.hero.getPosition(), `+ ${ITEM_DISPLAY_NAMES[id]}`, ITEM_FLOAT_COLOR[id]);
         }
 
-        // 300ms slow-mo pickup punch.
-        this.timeScale = 0.6;
-        setTimeout(() => { this.timeScale = 1.0; }, 300);
+        // 300ms slow-mo pickup punch — single-player only. In co-op timeScale is
+        // shared (the host streams it in the snapshot), so one player's pickup must
+        // not slow the other player's game.
+        if (!this.coopSession) {
+            this.timeScale = 0.6;
+            setTimeout(() => { this.timeScale = 1.0; }, 300);
+        }
     }
 
     /**
@@ -2114,6 +2135,12 @@ export class SurvivorsGameplayState implements GameState {
     }
 
     private isPausedForOverlay(): boolean {
+        // Co-op (M4-10): the simulation is SHARED, so a power-choice / replace-slot
+        // overlay must never freeze the loop — the host has to keep simulating and
+        // streaming snapshots while either player picks, and the guest must keep
+        // rendering. The overlay still shows; it just doesn't pause. Single-player
+        // keeps its blocking pause.
+        if (this.coopSession) return false;
         return !!(
             this.powerChoice?.isOpen() ||
             this.replaceSlotOverlay?.isOpen()
