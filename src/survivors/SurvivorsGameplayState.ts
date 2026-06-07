@@ -524,19 +524,26 @@ export class SurvivorsGameplayState implements GameState {
         );
 
         // --- Co-op (M2 ghost teammate) ---
-        // ?host  → create a room and host; ?join=CODE → join an existing room.
-        // The ghost is cosmetic in M2: both clients still run their own sim.
+        // ?host → host a room; ?join[=CODE] → join one. For easy two-tab testing the
+        // room code defaults to a FIXED dev code, so the GUEST tab can simply use
+        // ?join with nothing to copy. Open the host tab FIRST (the server assigns
+        // host/guest by connection order). Use ?host=random to mint a real random room.
         const coopParams = typeof window !== 'undefined'
             ? new URLSearchParams(window.location.search) : null;
         if (coopParams?.has('host') || coopParams?.has('join')) {
             const localChamp = championType;
             void (async () => {
                 try {
-                    let code = coopParams.get('join') ?? '';
+                    const FIXED_TEST_ROOM = 'TESTER'; // deterministic dev room ([A-Z2-9]{6})
+                    let code: string;
                     if (coopParams.has('host')) {
-                        const res = await fetch('/room', { method: 'POST' });
-                        code = (await res.json()).code;
-                        console.log(`[coop] hosting room ${code} — join with ?join=${code}`);
+                        code = coopParams.get('host') === 'random'
+                            ? (await (await fetch('/room', { method: 'POST' })).json()).code
+                            : FIXED_TEST_ROOM;
+                        console.log(`[coop] hosting room ${code} — join the other tab with ?join (or ?join=${code})`);
+                    } else {
+                        // ?join with no value → the fixed dev room; ?join=CODE → that room.
+                        code = coopParams.get('join') || FIXED_TEST_ROOM;
                     }
                     if (code.length !== 6) return;
                     const transport = await WebSocketTransport.connect(location.origin, code);
