@@ -1,7 +1,8 @@
 import { Vector3, AssetContainer } from '@babylonjs/core';
 import { Game } from '../../engine/Game';
 import { Enemy } from '../enemies/Enemy';
-import { buildEnemy } from '../enemies/buildEnemy';
+import { createEnemyOfType } from '../enemies/createEnemyOfType';
+import { makeElite } from '../enemies/EliteSpawner';
 import type { SnapshotEnemy, SpawnMsg } from '../../net/Protocol';
 
 /** Resolve the preloaded GLB AssetContainer for an enemy type, or null. */
@@ -26,17 +27,20 @@ export class GuestEnemies {
 
     spawn(msg: SpawnMsg): void {
         if (this.byId.has(msg.id)) return;
-        // THE shared construction — identical model + elite treatment to the host
-        // (buildEnemy stages the GLB / `_elite` GLB, sets netType, applies makeElite).
-        const e = buildEnemy(this.game, msg.type, new Vector3(msg.x, 0, msg.z), {
-            eliteElement: msg.eliteElement,
-            resolveAsset: this.assetFor,
-        });
+        // Elites use a distinct `<type>_elite` GLB on the host (falling back to the
+        // base model) — stage the same so the guest renders the matching model.
+        const elite = !!msg.eliteElement;
+        const asset = elite
+            ? (this.assetFor(`${msg.type}_elite`) ?? this.assetFor(msg.type))
+            : this.assetFor(msg.type);
+        const e = createEnemyOfType(this.game, msg.type, new Vector3(msg.x, 0, msg.z), asset);
         if (!e) return;
         e.id = msg.id;
-        // Override HP with the host-authoritative value — also overrides makeElite's
-        // HP multiplier so the health-bar ratio stays correct.
-        // health/maxHealth are protected; cast to set them.
+        // Apply the elite treatment (1.4× scale, aura, orange HP-bar tier) BEFORE
+        // overriding HP — makeElite multiplies HP, which we then replace with the
+        // host-authoritative msg.maxHealth so the bar ratio stays correct.
+        if (elite && msg.eliteElement) makeElite(e, msg.eliteElement, this.game.getScene());
+        // health/maxHealth are protected; cast to any to set host-authoritative values.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const ea = e as any;
         ea.maxHealth = msg.maxHealth;

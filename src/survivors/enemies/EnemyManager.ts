@@ -20,7 +20,6 @@ import { DragonTurtle } from './DragonTurtle';
 import { redSwapType } from './redSwap';
 import { PlayerStats } from '../PlayerStats';
 import { makeElite } from './EliteSpawner';
-import { buildEnemy } from './buildEnemy';
 import { DifficultyTuning } from '../DifficultyTuning';
 
 export class EnemyManager {
@@ -557,29 +556,76 @@ export class EnemyManager {
             heroPos.z + Math.sin(theta) * r,
         );
 
+        // Create enemy at spawn position with empty path. Before each construction, stage
+        // any preloaded GLB asset on the per-class static pendingAsset slot so createMesh
+        // can pick it up. Cleared inside the subclass after consumption. Elite variants
+        // look up a separate `<type>_elite` asset (with fallback to the base asset).
+        const assetFor = (baseType: string) => {
+            if (eliteElement) {
+                return this.enemyAssets[`${baseType}_elite`] ?? this.enemyAssets[baseType] ?? null;
+            }
+            return this.enemyAssets[baseType] ?? null;
+        };
+
         // Wave-10+ red-tier swap: tougher red variants replace the blue base enemies.
-        // Rewrites the type string so both the asset lookup and buildEnemy use it.
+        // Rewrites the type string so both the asset lookup and the switch below use it.
         const waveNow = this.waveManager?.getCurrentWave() ?? 0;
         type = redSwapType(type, waveNow);
-        // Milestone-boss tier (waves 5/10/15/20…); 0 → plain BossEnemy.
-        const bossTier = (waveNow > 0 && waveNow % 5 === 0) ? waveNow / 5 : 0;
 
-        // THE shared enemy construction — same function the guest render path calls,
-        // so the two never drift in model/elite appearance. Stages the GLB, builds
-        // the leaf class, sets netType, applies elite treatment. Host-only steps
-        // (seek-targets, scaling, shadows, id, onSpawn) are layered on below.
-        const enemy = buildEnemy(this.game, type, spawnPos, {
-            eliteElement,
-            resolveAsset: (k) => this.enemyAssets[k] ?? null,
-            bossTier,
-            bossStrengthMultiplier,
-        });
-        if (!enemy) return null;
+        let enemy: Enemy;
+        switch (type) {
+            case 'basic':    BasicEnemy.pendingAsset = assetFor('basic');
+                             enemy = new BasicEnemy(this.game, spawnPos, []); break;
+            case 'fast':     FastEnemy.pendingAsset = assetFor('fast');
+                             enemy = new FastEnemy(this.game, spawnPos, []); break;
+            case 'tank':     TankEnemy.pendingAsset = assetFor('tank');
+                             enemy = new TankEnemy(this.game, spawnPos, []); break;
+            case 'boss': {
+                const currentWave = this.waveManager?.getCurrentWave() ?? 0;
+                if (currentWave > 0 && currentWave % 5 === 0) {
+                    const tier = currentWave / 5;
+                    // Stage tier-specific GLB (cap at tier4 asset for tier 5+).
+                    const assetTier = Math.min(4, Math.max(1, tier));
+                    MilestoneBoss.pendingAsset = this.enemyAssets[`boss_tier${assetTier}`] ?? null;
+                    enemy = new MilestoneBoss(this.game, spawnPos, [], tier, bossStrengthMultiplier);
+                } else {
+                    enemy = new BossEnemy(this.game, spawnPos, []);
+                }
+                break;
+            }
+            case 'splitting':SplittingEnemy.pendingAsset = assetFor('splitting');
+                             enemy = new SplittingEnemy(this.game, spawnPos, []); break;
+            case 'healer':   HealerEnemy.pendingAsset = assetFor('healer');
+                             enemy = new HealerEnemy(this.game, spawnPos, []); break;
+            case 'basic_red':  BasicEnemy.pendingAsset = assetFor('basic_red');
+                               enemy = new RedMeleeMinion(this.game, spawnPos, []); break;
+            case 'fast_red':   FastEnemy.pendingAsset = assetFor('fast_red');
+                               enemy = new RedArtilleryCarriage(this.game, spawnPos, []); break;
+            case 'healer_red': HealerEnemy.pendingAsset = assetFor('healer_red');
+                               enemy = new RedWizard(this.game, spawnPos, []); break;
+            case 'tank_red':   TankEnemy.pendingAsset = assetFor('tank_red');
+                               enemy = new DragonTurtle(this.game, spawnPos, []); break;
+            case 'shield':   ShieldEnemy.pendingAsset = assetFor('shield');
+                             enemy = new ShieldEnemy(this.game, spawnPos, []); break;
+            default:         enemy = new BasicEnemy(this.game, spawnPos, []); break;
+        }
+
+        // Record the resolved type string on the enemy for the M3 host hook so
+        // buildSpawnMsg can read it without a reverse-lookup. 'boss' resolves to
+        // 'boss_milestone' when a MilestoneBoss was actually created (milestone waves);
+        // that string matches the 'boss_milestone' case in createEnemyOfType.
+        const isMilestoneBoss = enemy instanceof MilestoneBoss;
+        enemy.netType = isMilestoneBoss ? 'boss_milestone' : type;
 
         // Set seekTarget (single-provider, for legacy contact-damage / grab / slow paths)
         // AND seekTargets (array, for the nearest-of-N resolver) BEFORE first update.
         enemy.seekTarget = this.heroProvider;
         enemy.seekTargets = this.heroProviders;
+
+        // Apply elite treatment if requested
+        if (eliteElement) {
+            makeElite(enemy, eliteElement, this.game.getScene());
+        }
 
         // Hidden orb-pickup HP buff: scales on top of elite multipliers so
         // late-run elites compound both effects.
