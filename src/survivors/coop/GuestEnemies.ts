@@ -49,20 +49,21 @@ export class GuestEnemies {
     }
 
     applySnapshot(entries: SnapshotEnemy[]): void {
-        const live = new Set<number>();
         for (const s of entries) {
-            live.add(s.id);
             const enemy = this.byId.get(s.id);
             if (enemy) enemy.applyNetworkState(s);
             // Unknown id (spawn event not yet applied / lost) → ignore.
             // A spawn event must create the instance; we never auto-create from
             // snapshot alone because we would have no type or maxHealth.
         }
-        // Defensive cleanup: remove enemies the host no longer reports that did
-        // not get an explicit death event (e.g. connection gap at kill moment).
-        for (const id of [...this.byId.keys()]) {
-            if (!live.has(id)) this.remove(id);
-        }
+        // Removal is driven ONLY by reliable `death` events — NOT by snapshot
+        // absence. The guest applies the LATEST snapshot every frame, and a
+        // just-spawned enemy (created from a `spawn` event that arrived AFTER the
+        // latest snapshot was taken) is not yet in that snapshot. Removing on
+        // absence here deleted freshly-spawned enemies before their first
+        // inclusive snapshot — the cause of "some monsters never appear" and the
+        // flaky/partial enemy visibility. Death events (reliable, ordered) plus
+        // clear() on exit cover every legitimate removal.
     }
 
     death(id: number): void {

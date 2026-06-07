@@ -186,6 +186,12 @@ export class SurvivorsGameplayState implements GameState {
     private _snapshotAccumS = 0;
     /** Throttle for the co-op diagnostic log (guest only). */
     private _coopDiagAccumS = 0;
+    /** On-screen co-op debug overlay + counters (visible whenever co-op is active). */
+    private _coopDbgEl: HTMLDivElement | null = null;
+    private _coopDbgAccumS = 0;
+    private _coopDbgSpawns = 0;   // host: emitted; guest: received
+    private _coopDbgDeaths = 0;
+    private _coopDbgSnaps = 0;    // guest: snapshots applied
     /** Monotonically-increasing snapshot tick counter (debug + ack). */
     private _snapshotTick = 0;
     /** Scratch velocity for animating the ghost from interpolated pose deltas. */
@@ -552,8 +558,8 @@ export class SurvivorsGameplayState implements GameState {
                     // M3: wire guest enemy registry OR host spawn/death hooks.
                     if (this.coopSession.role === 'guest') {
                         this.guestEnemies = new GuestEnemies(this.game, getCachedEnemyAsset);
-                        this.coopSession.onSpawn = (m) => this.guestEnemies?.spawn(m);
-                        this.coopSession.onDeath = (m) => this.guestEnemies?.death(m.id);
+                        this.coopSession.onSpawn = (m) => { this._coopDbgSpawns++; this.guestEnemies?.spawn(m); };
+                        this.coopSession.onDeath = (m) => { this._coopDbgDeaths++; this.guestEnemies?.death(m.id); };
                         // M3b: guest basic-attack aims at render-only GuestEnemies and
                         // reports hits to the host instead of mutating enemy HP locally.
                         // heroController was created synchronously before this block so
@@ -687,10 +693,10 @@ export class SurvivorsGameplayState implements GameState {
         // spawn events and the guest saw no enemies. In single-player the
         // callbacks no-op (coopSession is null).
         this.enemyManager.setOnEnemySpawned((e) => {
-            if (this.coopSession?.role === 'host') this.coopSession.sendSpawn(this.buildSpawnMsg(e));
+            if (this.coopSession?.role === 'host') { this._coopDbgSpawns++; this.coopSession.sendSpawn(this.buildSpawnMsg(e)); }
         });
         this.enemyManager.setOnEnemyDied((e) => {
-            if (this.coopSession?.role === 'host') this.coopSession.sendDeath(this.buildDeathMsg(e));
+            if (this.coopSession?.role === 'host') { this._coopDbgDeaths++; this.coopSession.sendDeath(this.buildDeathMsg(e)); }
         });
         // Wire the shadow generator so bosses + elites auto-register as casters.
         // Reset per run: enemy shadows start on and get cut off after wave 5.
@@ -1391,6 +1397,47 @@ export class SurvivorsGameplayState implements GameState {
         this.game.getStateManager().changeState('gameOver');
     }
 
+    /** On-screen co-op debug box (top-right) — shows the host→guest pipeline live
+     *  so issues are readable without the dev console. Active whenever co-op is on. */
+    private _updateCoopDebugOverlay(deltaTime: number): void {
+        if (!this.coopSession) return;
+        this._coopDbgAccumS += deltaTime;
+        if (this._coopDbgAccumS < 0.25) return;
+        this._coopDbgAccumS = 0;
+        if (!this._coopDbgEl) {
+            const el = document.createElement('div');
+            el.style.cssText =
+                'position:fixed;top:8px;right:8px;z-index:99999;background:#000a;color:#3f6;' +
+                'font:11px/1.35 monospace;padding:6px 8px;border:1px solid #0a4;border-radius:4px;' +
+                'white-space:pre;pointer-events:none';
+            document.body.appendChild(el);
+            this._coopDbgEl = el;
+        }
+        const role = this.coopSession.role;
+        const hp = this.hero?.getPosition();
+        const lines = [`COOP role=${role}  spawns=${this._coopDbgSpawns} deaths=${this._coopDbgDeaths}`];
+        if (role === 'host') {
+            lines.push(`enemies(host)=${this.enemyManager?.getEnemies().length ?? 0}`);
+            lines.push(`ghost=${this.coopGhost ? 'Y' : 'N'} guestHP=${Math.round(this.guestHeroHp)}`);
+        } else {
+            const list = this.guestEnemies?.getEnemies() ?? [];
+            let alive = 0, nearest = Infinity;
+            for (const e of list) {
+                if (!e.isAlive()) continue;
+                alive++;
+                const ep = e.getPosition();
+                const d = Math.hypot(ep.x - (hp?.x ?? 0), ep.z - (hp?.z ?? 0));
+                if (d < nearest) nearest = d;
+            }
+            const snap = this.coopSession.getLatestSnapshot();
+            lines.push(`snaps=${this._coopDbgSnaps} hasSnap=${snap ? 'Y' : 'N'} snapEnemies=${snap?.enemies.length ?? 0}`);
+            lines.push(`enemies(local)=${list.length} alive=${alive}`);
+            lines.push(`nearest=${nearest === Infinity ? 'none' : nearest.toFixed(1)}u (ranger~9 melee~3.5)`);
+        }
+        lines.push(`hero@(${hp?.x.toFixed(1)},${hp?.z.toFixed(1)})`);
+        this._coopDbgEl.textContent = lines.join('\n');
+    }
+
     public exit(): void {
         for (const d of this.powerDrops) d.dispose();
         this.powerDrops = [];
@@ -1472,6 +1519,13 @@ export class SurvivorsGameplayState implements GameState {
         this._guestWave = null;
         this._snapshotAccumS = 0;
         this._snapshotTick = 0;
+        // Co-op debug overlay teardown + counter reset.
+        this._coopDbgEl?.remove();
+        this._coopDbgEl = null;
+        this._coopDbgAccumS = 0;
+        this._coopDbgSpawns = 0;
+        this._coopDbgDeaths = 0;
+        this._coopDbgSnaps = 0;
 
         this.hero?.dispose();
         this.hero = null;
@@ -1548,6 +1602,8 @@ export class SurvivorsGameplayState implements GameState {
 
         this.heroController.update(dt);
         if (this.hero) this.hero.update(dt);
+
+        if (this.coopSession) this._updateCoopDebugOverlay(deltaTime);
 
         // --- Co-op M2 sync: broadcast our pose, render the remote ghost ---
         if (this.coopSession && this.hero) {
@@ -1699,6 +1755,7 @@ export class SurvivorsGameplayState implements GameState {
             // and update the local wave HUD from the snapshot's wave state.
             const snap = this.coopSession!.getLatestSnapshot();
             if (snap) {
+                this._coopDbgSnaps++;
                 // Drive render-only enemy positions / HP / flags.
                 if (this.guestEnemies) {
                     this.guestEnemies.applySnapshot(snap.enemies);
