@@ -62,6 +62,10 @@ export interface WaveClearMsg { t: 'wave-clear'; wave: number }
  *  packed InputButtons bitfield (see src/net/InputButtons.ts). */
 export interface InputMsg { t: 'input'; seq: number; dx: number; dz: number; buttons: number }
 
+// M5-7: delta-compressed snapshot. Defined in SnapshotDelta.ts (with its codec);
+// imported type-only here so it joins the NetMessage union + decode tag set.
+import type { SnapshotDelta } from './SnapshotDelta';
+
 /** Guest → host: "I'm connected and ready — re-send the current world." The host
  *  replies with a spawn event per live enemy (catch-up). Needed because the host
  *  connects FIRST (into an empty room), so any catch-up it emits on its own
@@ -91,13 +95,13 @@ export type NetMessage =
     | HelloMsg | PeerLeftMsg | PingMsg | PongMsg | HeroStateMsg
     | SnapshotMsg | SpawnMsg | DeathMsg | DamageReportMsg | DamageResultMsg
     | WaveStartMsg | WaveClearMsg | InputMsg | RequestStateMsg
-    | RunSummaryMsg | RunOverMsg;
+    | RunSummaryMsg | RunOverMsg | SnapshotDelta;
 
 const KNOWN_TAGS = new Set([
     'hello', 'peer-left', 'ping', 'pong', 'heroState',
     'snapshot', 'spawn', 'death', 'damageReport', 'damageResult',
     'wave-start', 'wave-clear', 'input', 'requestState',
-    'runSummary', 'runOver',
+    'runSummary', 'runOver', 'snapshotDelta',
 ]);
 
 export function encode(msg: NetMessage): string {

@@ -1,6 +1,7 @@
 import type { NetClient } from '../../net/NetClient';
 import { PoseBuffer, type Pose } from '../../net/Interpolation';
 import type { SnapshotMsg, SpawnMsg, DeathMsg, DamageReportMsg, DamageResultMsg, InputMsg, RunSummaryMsg, RunOverMsg } from '../../net/Protocol';
+import { applyDelta, type SnapshotDelta } from '../../net/SnapshotDelta';
 
 /**
  * CoopSession — the M2 game-side glue, kept Babylon-free. Sends the local hero
@@ -15,6 +16,8 @@ export class CoopSession {
 
     // M3: guest-side last-received snapshot (last-wins buffer)
     private latestSnapshot: SnapshotMsg | null = null;
+    // M5-7: last FULL snapshot the guest holds, used as the base to apply deltas onto.
+    private baseSnapshot: SnapshotMsg | null = null;
 
     // M4: host-side last-received guest input (latest-wins). Drives the host's
     // authoritative simulation of the guest hero. `inputSeq` is the highest seq
@@ -48,8 +51,17 @@ export class CoopSession {
             this.remoteBuffer.push(this.now(), { x: m.x, y: m.y, z: m.z, ry: m.ry });
         };
 
-        // M3 guest-side wiring
-        this.client.onSnapshot      = (m) => { this.latestSnapshot = m; };
+        // M3 guest-side wiring. A full snapshot (keyframe) refreshes the delta base.
+        this.client.onSnapshot      = (m) => { this.latestSnapshot = m; this.baseSnapshot = m; };
+        // M5-7: apply a delta onto the held base IFF it builds on the tick we have;
+        // otherwise drop it (we missed the keyframe) and wait for the next keyframe.
+        this.client.onSnapshotDelta = (d) => {
+            if (this.baseSnapshot && d.baseTick === this.baseSnapshot.tick) {
+                const full = applyDelta(this.baseSnapshot, d);
+                this.latestSnapshot = full;
+                this.baseSnapshot = full;
+            }
+        };
         this.client.onSpawn         = (m) => { this.onSpawn?.(m); };
         this.client.onDeath         = (m) => { this.onDeath?.(m); };
         this.client.onDamageReport  = (m) => { this.onDamageReport?.(m); };
@@ -105,6 +117,11 @@ export class CoopSession {
     /** Host: broadcast an authoritative world snapshot to the guest. */
     sendEnemySnapshot(m: SnapshotMsg): void {
         this.client.sendSnapshot(m);
+    }
+
+    /** Host: send a delta between keyframes (M5-7). */
+    sendEnemySnapshotDelta(m: SnapshotDelta): void {
+        this.client.sendSnapshotDelta(m);
     }
 
     /** Host: notify the guest that a new enemy has spawned. */

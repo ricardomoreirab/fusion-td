@@ -1,4 +1,5 @@
 import { decode, encode, type HeroStateMsg, type NetRole, type SnapshotMsg, type SpawnMsg, type DeathMsg, type DamageReportMsg, type DamageResultMsg, type InputMsg, type RunSummaryMsg, type RunOverMsg } from './Protocol';
+import type { SnapshotDelta } from './SnapshotDelta';
 import type { IncomingMessage, NetTransport } from './NetTransport';
 
 /**
@@ -26,6 +27,8 @@ export class NetClient {
     // M4-12: co-op game-over summaries.
     onRunSummary?:    (msg: RunSummaryMsg)    => void;
     onRunOver?:       (msg: RunOverMsg)        => void;
+    // M5-7: delta-compressed snapshot (between keyframes).
+    onSnapshotDelta?: (msg: SnapshotDelta)    => void;
 
     constructor(
         private transport: NetTransport,
@@ -62,6 +65,11 @@ export class NetClient {
 
     // M3 senders
     sendSnapshot(m: SnapshotMsg): void {
+        this.transport.send('tick', encode(m));
+    }
+
+    // M5-7: delta between keyframes (same 'tick' channel as full snapshots).
+    sendSnapshotDelta(m: SnapshotDelta): void {
         this.transport.send('tick', encode(m));
     }
 
@@ -147,6 +155,9 @@ export class NetClient {
                 break;
             case 'runOver':
                 this.onRunOver?.(msg);
+                break;
+            case 'snapshotDelta':
+                this.onSnapshotDelta?.(msg);
                 break;
             case 'hello':
                 break;

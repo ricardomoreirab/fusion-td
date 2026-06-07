@@ -43,6 +43,7 @@ import { reconcilePosition } from './coop/reconcile';
 import { NetClient } from '../net/NetClient';
 import { RoomService, PrivateRoomService } from '../net/RoomService';
 import { ConnectionMachine } from '../net/ConnectionMachine';
+import { diffSnapshot } from '../net/SnapshotDelta';
 import { packEnemyFlags } from '../net/EnemyFlags';
 import type { SpawnMsg, DeathMsg, SnapshotMsg, CoopHeroSummary, RunOverMsg } from '../net/Protocol';
 import { validateDamageReport } from './coop/DamageRouter';
@@ -271,6 +272,11 @@ export class SurvivorsGameplayState implements GameState {
     private _guestWave: { wave: number; enemiesAlive: number; inProgress: boolean } | null = null;
     /** Accumulator (seconds) for the host snapshot cadence (~20 Hz). */
     private _snapshotAccumS = 0;
+    /** M5-7: the last FULL snapshot the host sent, used as the delta base. A keyframe
+     *  (full snapshot) goes out every SNAPSHOT_KEYFRAME_TICKS so a joiner / dropped
+     *  delta resyncs within ~1s; the ticks between are delta-compressed. */
+    private _lastSentSnapshot: SnapshotMsg | null = null;
+    private static readonly SNAPSHOT_KEYFRAME_TICKS = 20;
     /** Throttle for the co-op diagnostic log (guest only). */
     private _coopDiagAccumS = 0;
     /** On-screen co-op debug overlay + counters (visible whenever co-op is active). */
@@ -1883,6 +1889,7 @@ export class SurvivorsGameplayState implements GameState {
         this._coopGhostLastAnim = 0;
         this._snapshotAccumS = 0;
         this._snapshotTick = 0;
+        this._lastSentSnapshot = null; // M5-7
         this._lastGuestSnapTick = -1;
         this._lastReconcileTick = -1;
         // Co-op debug overlay teardown + counter reset.
@@ -2337,7 +2344,16 @@ export class SurvivorsGameplayState implements GameState {
             if (this._snapshotAccumS >= 0.05) {
                 this._snapshotAccumS = Math.max(0, this._snapshotAccumS - 0.05);
                 const snap = this.buildSnapshot();
-                this.coopSession.sendEnemySnapshot(snap);
+                // M5-7: full keyframe every SNAPSHOT_KEYFRAME_TICKS (≈1s) so a joiner /
+                // dropped delta resyncs; delta-compress the ticks between.
+                const keyframe = !this._lastSentSnapshot
+                    || this._snapshotTick % SurvivorsGameplayState.SNAPSHOT_KEYFRAME_TICKS === 0;
+                if (keyframe) {
+                    this.coopSession.sendEnemySnapshot(snap);
+                } else {
+                    this.coopSession.sendEnemySnapshotDelta(diffSnapshot(this._lastSentSnapshot!, snap));
+                }
+                this._lastSentSnapshot = snap;
                 this._snapshotTick++;
             }
         }
