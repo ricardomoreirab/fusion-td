@@ -1,6 +1,6 @@
 import type { NetClient } from '../../net/NetClient';
 import { PoseBuffer, type Pose } from '../../net/Interpolation';
-import type { SnapshotMsg, SpawnMsg, DeathMsg, DamageReportMsg, DamageResultMsg } from '../../net/Protocol';
+import type { SnapshotMsg, SpawnMsg, DeathMsg, DamageReportMsg, DamageResultMsg, InputMsg } from '../../net/Protocol';
 
 /**
  * CoopSession — the M2 game-side glue, kept Babylon-free. Sends the local hero
@@ -15,6 +15,12 @@ export class CoopSession {
 
     // M3: guest-side last-received snapshot (last-wins buffer)
     private latestSnapshot: SnapshotMsg | null = null;
+
+    // M4: host-side last-received guest input (latest-wins). Drives the host's
+    // authoritative simulation of the guest hero. `inputSeq` is the highest seq
+    // applied — echoed back as the snapshot ackSeq for guest reconciliation.
+    private latestInput: InputMsg | null = null;
+    private inputSeq = 0;
 
     // M3: game-layer callbacks wired by SurvivorsGameplayState (guest only)
     onSpawn?:         (msg: SpawnMsg)         => void;
@@ -43,6 +49,27 @@ export class CoopSession {
         this.client.onDamageReport  = (m) => { this.onDamageReport?.(m); };
         this.client.onDamageResult  = (m) => { this.onDamageResult?.(m); };
         this.client.onRequestState  = () => { this.onRequestState?.(); };
+        // M4 host-side: keep only the newest guest input (drop out-of-order/stale).
+        this.client.onInput = (m) => {
+            if (m.seq < this.inputSeq) return; // ignore reordered older frames
+            this.inputSeq = m.seq;
+            this.latestInput = m;
+        };
+    }
+
+    /** Guest: send this frame's movement axes + button bitfield (M4 input authority). */
+    sendLocalInput(dx: number, dz: number, buttons: number): void {
+        this.client.sendInput({ seq: ++this.localSeq, dx, dz, buttons });
+    }
+
+    /** Host: the newest guest input, or null if none yet. */
+    getLatestInput(): InputMsg | null {
+        return this.latestInput;
+    }
+
+    /** Host: highest guest input seq applied — snapshot ackSeq for reconciliation. */
+    getInputAckSeq(): number {
+        return this.inputSeq;
     }
 
     /** Guest: ask the host to re-send the current world (live enemies). */

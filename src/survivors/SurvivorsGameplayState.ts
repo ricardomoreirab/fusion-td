@@ -39,6 +39,7 @@ import { formatBuckets } from '../engine/rendering/resourceBudget';
 import { CoopSession } from './coop/CoopSession';
 import { GuestEnemies } from './coop/GuestEnemies';
 import { computeCameraFocus } from './coop/cameraFocus';
+import { reconcilePosition } from './coop/reconcile';
 import { NetClient } from '../net/NetClient';
 import { WebSocketTransport } from '../net/WebSocketTransport';
 import { packEnemyFlags } from '../net/EnemyFlags';
@@ -155,6 +156,23 @@ const TORCH_RANGE     = 9;
 /** Seconds shaved off every ability on cooldown for each monster killed. */
 const KILL_COOLDOWN_REDUCTION = 0.5;
 
+/** Base move speed per champion (mirrors startRun's `variants[].speed`). The host
+ *  integrates the guest's InputMsg at the guest champion's base speed to simulate
+ *  its hero authoritatively (M4-8). Per-run move-speed multipliers aren't known to
+ *  the host yet — the small divergence is corrected by guest-side reconciliation. */
+const CHAMP_BASE_SPEED: Record<string, number> = { barbarian: 6, ranger: 9, mage: 7 };
+
+/** Guest reconciliation tuning (M4-8). The guest predicts its own hero locally and
+ *  only corrects toward the host-authoritative position when the gap is real —
+ *  within DEAD_ZONE it trusts prediction entirely (host + guest integrate the same
+ *  input, so they drift only by ~speed×latency + the snapshot interval). Beyond it,
+ *  lerp gently; HARD_SNAP teleports (respawn / big desync). Reconcile runs ONCE per
+ *  new snapshot — correcting every render frame toward a stale target compounds the
+ *  pull-back and fights prediction (the "jitter"). */
+const RECONCILE_DEAD_ZONE = 1.0;
+const RECONCILE_HARD_SNAP = 5.0;
+const RECONCILE_LERP = 0.25;
+
 /**
  * Per-player aggregate (co-op M4, spec §3). The local player is always
  * `players[localId]`; single-player and the M3 host both run with exactly
@@ -248,6 +266,9 @@ export class SurvivorsGameplayState implements GameState {
     /** Guest: last snapshot tick pushed into the enemy interpolation buffers, so a
      *  given snapshot is buffered once (not re-pushed every frame). */
     private _lastGuestSnapTick = -1;
+    /** Guest: last snapshot tick its local hero was reconciled against (M4-8) — so the
+     *  position correction runs once per snapshot, not every render frame. */
+    private _lastReconcileTick = -1;
     /** Scratch velocity for animating the ghost from interpolated pose deltas. */
     private _coopGhostVel = new Vector3();
     /** Last remote anim code applied to the ghost — used to fire triggerAttack once
@@ -1341,6 +1362,34 @@ export class SurvivorsGameplayState implements GameState {
         };
     }
 
+    /** Host (M4-8): advance the guest's ghost from its latest InputMsg — the host's
+     *  authoritative simulation of the guest hero. Mirrors HeroController.update's
+     *  input→velocity→arena-clamp at the guest champion's base speed (per-run move
+     *  multipliers + knockback/pull aren't modelled yet — guest reconciliation and a
+     *  later host-event pass close that gap). Coasts on the last input on packet loss. */
+    private _driveGuestGhostFromInput(dt: number): void {
+        if (!this.coopGhost || !this.coopSession) return;
+        const input = this.coopSession.getLatestInput();
+        let dx = input?.dx ?? 0;
+        let dz = input?.dz ?? 0;
+        const len = Math.hypot(dx, dz);
+        if (len > 1) { dx /= len; dz /= len; }
+        const speed = CHAMP_BASE_SPEED[this.coopSession.getRemoteChamp() ?? 'barbarian'] ?? 6;
+        this._coopGhostVel.set(dx * speed, 0, dz * speed);
+        this.coopGhost.setPlayerVelocity(this._coopGhostVel);
+        this.coopGhost.update(dt); // integrates velocity → position + walk/idle + faces velocity
+        // Clamp inside the arena (same buffer HeroController uses for the local hero).
+        const g = this.coopGhost as unknown as { position: Vector3; mesh: Mesh | null };
+        const limit = (this.map?.getArenaRadius() ?? 20) - 0.5;
+        const d = Math.hypot(g.position.x, g.position.z);
+        if (d > limit && d > 1e-4) {
+            const k = limit / d;
+            g.position.x *= k;
+            g.position.z *= k;
+            if (g.mesh) { g.mesh.position.x = g.position.x; g.mesh.position.z = g.position.z; }
+        }
+    }
+
     /** Build a full world snapshot for broadcast to the guest. */
     private buildSnapshot(): SnapshotMsg {
         // Heroes: [local hero (id=0), ghost (id=1)]
@@ -1366,11 +1415,14 @@ export class SurvivorsGameplayState implements GameState {
             const gry = (this.coopGhost as unknown as { mesh: { rotation: { y: number } } | null }).mesh?.rotation.y ?? 0;
             // Part C: carry the host-tracked guest HP in the snapshot so the guest
             // can apply it as snapshot-authoritative HP instead of computing locally.
+            // M4-8: dx/dz echo the input the host integrated this frame; the guest
+            // reconciles its predicted position against this authoritative (x,z).
+            const gInput = this.coopSession?.getLatestInput();
             heroes.push({
                 id: 1, x: gp.x, y: gp.y, z: gp.z, ry: gry, hp: this.guestHeroHp, anim: 0,
-                dx: 0, dz: 0, // real values wired in scene task
+                dx: gInput?.dx ?? 0, dz: gInput?.dz ?? 0,
                 alive: this.guestHeroHp > 0,
-                level: 1, xp: 0, // real values wired in scene task
+                level: 1, xp: 0, // real values wired in scene task (M4-9 progression)
             });
         }
 
@@ -1413,7 +1465,7 @@ export class SurvivorsGameplayState implements GameState {
         return {
             t: 'snapshot',
             tick: this._snapshotTick,
-            ackSeq: 0, // hero-seq ack deferred to M3-combat
+            ackSeq: this.coopSession?.getInputAckSeq() ?? 0, // highest guest input seq applied (M4-8)
             timeScale: this.timeScale,
             heroes,
             enemies,
@@ -1470,6 +1522,11 @@ export class SurvivorsGameplayState implements GameState {
         if (role === 'host') {
             lines.push(`enemies(host)=${this.enemyManager?.getEnemies().length ?? 0}`);
             lines.push(`ghost=${this.coopGhost ? 'Y' : 'N'} guestHP=${Math.round(this.guestHeroHp)}`);
+            // M4-8 diag: is the guest's input arriving, and is the ghost moving from it?
+            const inp = this.coopSession.getLatestInput();
+            const gp = this.coopGhost?.getPosition();
+            lines.push(`in(${inp ? `${inp.dx.toFixed(1)},${inp.dz.toFixed(1)}` : '—'}) seq=${this.coopSession.getInputAckSeq()}`);
+            lines.push(`ghost@(${gp ? `${gp.x.toFixed(1)},${gp.z.toFixed(1)}` : '—'})`);
         } else {
             const list = this.guestEnemies?.getEnemies() ?? [];
             let alive = 0, nearest = Infinity;
@@ -1482,6 +1539,10 @@ export class SurvivorsGameplayState implements GameState {
             }
             const snap = this.coopSession.getLatestSnapshot();
             lines.push(`snaps=${this._coopDbgSnaps} hasSnap=${snap ? 'Y' : 'N'} snapEnemies=${snap?.enemies.length ?? 0}`);
+            // M4-8 diag: my predicted pos vs the host-authoritative heroes[1], + the gap.
+            const h1 = snap?.heroes.find(h => h.id === 1);
+            const gap = (h1 && hp) ? Math.hypot(h1.x - hp.x, h1.z - hp.z) : -1;
+            lines.push(`h1@(${h1 ? `${h1.x.toFixed(1)},${h1.z.toFixed(1)}` : '—'}) gap=${gap.toFixed(1)}`);
             lines.push(`enemies(local)=${list.length} alive=${alive}`);
             lines.push(`nearest=${nearest === Infinity ? 'none' : nearest.toFixed(1)}u (ranger~9 melee~3.5)`);
             const ba = this.heroController?.getBasicAttack();
@@ -1582,6 +1643,7 @@ export class SurvivorsGameplayState implements GameState {
         this._snapshotAccumS = 0;
         this._snapshotTick = 0;
         this._lastGuestSnapTick = -1;
+        this._lastReconcileTick = -1;
         // Co-op debug overlay teardown + counter reset.
         this._coopDbgEl?.remove();
         this._coopDbgEl = null;
@@ -1678,7 +1740,16 @@ export class SurvivorsGameplayState implements GameState {
             // mirror the swing/shot; 1 otherwise (the ghost derives walk/idle from
             // its interpolated velocity).
             const heroAttacking = (this.hero as unknown as { isAttackActive?: () => boolean }).isAttackActive?.() ?? false;
+            // heroState still carries the local champion identity + attack-anim flag
+            // (used to build + animate the teammate's ghost). The GUEST additionally
+            // streams its movement input below — the host simulates the guest hero from
+            // it authoritatively (M4-8), so the host ignores the guest's heroState pose.
             this.coopSession.sendLocalPose({ x: hp.x, y: hp.y, z: hp.z, ry }, heroAttacking ? 2 : 1);
+            if (this.coopSession.role === 'guest') {
+                const mv = this.heroController?.getMoveInput();
+                // buttons (dash/ult) carried for M4-9 ability routing; 0 for now.
+                this.coopSession.sendLocalInput(mv?.dx ?? 0, mv?.dz ?? 0, 0);
+            }
 
             // Render ~100ms in the past for smooth interpolation.
             const renderT = performance.now() - 100;
@@ -1700,6 +1771,17 @@ export class SurvivorsGameplayState implements GameState {
                     if (!this.coopSession || this.coopGhost) return;
                     this.coopGhost = new Champion(this.game, [], null, champType, asset ?? undefined);
                     this.coopGhost.controlMode = 'player'; // no AI; placed from network
+                    // M4-8: the host input-integrates the ghost from HERE, so seed it at
+                    // the guest's reported pose — otherwise it would start at the origin
+                    // and the guest's first reconcile would yank it across the arena.
+                    if (this.coopSession.role === 'host') {
+                        const seed = this.coopSession.getRemotePose(performance.now());
+                        if (seed) {
+                            const g = this.coopGhost as unknown as { position: Vector3; mesh: Mesh | null };
+                            g.position.set(seed.x, seed.y, seed.z);
+                            if (g.mesh) { g.mesh.position.x = seed.x; g.mesh.position.z = seed.z; g.mesh.rotation.y = seed.ry; }
+                        }
+                    }
                     // Shared/tethered camera: set once; reads both heroes' live
                     // positions each frame. Null-guarded (hero can be nulled on death).
                     this.heroController?.setCameraFocusProvider(() => {
@@ -1726,29 +1808,37 @@ export class SurvivorsGameplayState implements GameState {
                     }
                 });
             }
-            if (this.coopGhost && pose) {
-                const g = this.coopGhost as unknown as { position: Vector3; mesh: Mesh | null };
-                // Estimate velocity from the pose delta (current g.position holds the
-                // previous applied pose) to drive the walk animation, then snap to the
-                // authoritative interpolated pose so position stays exact.
-                if (dt > 1e-4) {
-                    this._coopGhostVel.set((pose.x - g.position.x) / dt, 0, (pose.z - g.position.z) / dt);
-                    this.coopGhost.setPlayerVelocity(this._coopGhostVel);
-                }
-                // Fire the attack clip once when the remote hero starts attacking
-                // (rising edge to anim 2). update() below lets it play out, then
-                // resumes walk/idle from the interpolated velocity.
+            if (this.coopGhost) {
+                // Fire the remote hero's attack clip once on the rising edge to anim 2
+                // (heroState carries it). BEFORE update() so the clip plays this frame.
                 const ranim = this.coopSession.getRemoteAnim();
                 if (ranim === 2 && this._coopGhostLastAnim !== 2) {
                     (this.coopGhost as unknown as { triggerAttack?: (t?: Vector3) => void }).triggerAttack?.();
                 }
                 this._coopGhostLastAnim = ranim;
-                this.coopGhost.update(dt); // advances walk/idle/attack animation
-                g.position.set(pose.x, pose.y, pose.z); // authoritative position
-                if (g.mesh) {
-                    g.mesh.position.x = pose.x;
-                    g.mesh.position.z = pose.z;
-                    g.mesh.rotation.y = pose.ry; // network yaw, after update()
+
+                if (this.coopSession.role === 'host') {
+                    // HOST: the ghost IS the guest hero — simulate it from the guest's
+                    // latest input (authoritative). This replaces M2/M3 pose-copy so the
+                    // guest's position can no longer be laggy/spoofed, and feeds the
+                    // contact-damage + snapshot loops a host-owned position.
+                    this._driveGuestGhostFromInput(dt);
+                } else if (pose) {
+                    // GUEST: the ghost is the host hero — render it from the host's pose
+                    // (the host is trivially authoritative for its own hero). Estimate
+                    // velocity from the pose delta to drive walk anim, then snap to pose.
+                    const g = this.coopGhost as unknown as { position: Vector3; mesh: Mesh | null };
+                    if (dt > 1e-4) {
+                        this._coopGhostVel.set((pose.x - g.position.x) / dt, 0, (pose.z - g.position.z) / dt);
+                        this.coopGhost.setPlayerVelocity(this._coopGhostVel);
+                    }
+                    this.coopGhost.update(dt);
+                    g.position.set(pose.x, pose.y, pose.z);
+                    if (g.mesh) {
+                        g.mesh.position.x = pose.x;
+                        g.mesh.position.z = pose.z;
+                        g.mesh.rotation.y = pose.ry; // network yaw, after update()
+                    }
                 }
             }
         }
@@ -1879,6 +1969,23 @@ export class SurvivorsGameplayState implements GameState {
                 const guestEntry = snap.heroes.find(h => h.id === 1);
                 if (guestEntry && this.heroController) {
                     this.heroController.setHealth(guestEntry.hp);
+                    // M4-8 reconciliation — ONCE per new snapshot (not every render
+                    // frame, which compounds the pull-back and reads as jitter). Within
+                    // DEAD_ZONE the guest trusts its local prediction; beyond it, lerp/
+                    // snap toward the host-authoritative position via reconcilePosition.
+                    if (this.hero && snap.tick !== this._lastReconcileTick) {
+                        this._lastReconcileTick = snap.tick;
+                        const lp = this.hero.getPosition();
+                        const gap = Math.hypot(guestEntry.x - lp.x, guestEntry.z - lp.z);
+                        if (gap > RECONCILE_DEAD_ZONE) {
+                            const r = reconcilePosition(
+                                { x: lp.x, z: lp.z },
+                                { x: guestEntry.x, z: guestEntry.z },
+                                RECONCILE_HARD_SNAP, RECONCILE_LERP,
+                            );
+                            this.heroController.reconcileNetworkPosition(r.pos.x, r.pos.z);
+                        }
+                    }
                 }
             }
             _measure('guestApply');

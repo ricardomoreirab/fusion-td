@@ -1,4 +1,4 @@
-import { decode, encode, type HeroStateMsg, type NetRole, type SnapshotMsg, type SpawnMsg, type DeathMsg, type DamageReportMsg, type DamageResultMsg } from './Protocol';
+import { decode, encode, type HeroStateMsg, type NetRole, type SnapshotMsg, type SpawnMsg, type DeathMsg, type DamageReportMsg, type DamageResultMsg, type InputMsg } from './Protocol';
 import type { IncomingMessage, NetTransport } from './NetTransport';
 
 /**
@@ -21,6 +21,8 @@ export class NetClient {
     onDamageReport?:  (msg: DamageReportMsg)  => void;
     onDamageResult?:  (msg: DamageResultMsg)  => void;
     onRequestState?:  () => void;
+    // M4: guest→host per-frame input (replaces pose-copy hero sync).
+    onInput?:         (msg: InputMsg)         => void;
 
     constructor(
         private transport: NetTransport,
@@ -39,6 +41,11 @@ export class NetClient {
 
     sendHeroState(s: Omit<HeroStateMsg, 't'>): void {
         this.transport.send('tick', encode({ t: 'heroState', ...s }));
+    }
+
+    // M4: guest sends its input each frame on the 'tick' channel (latest-wins).
+    sendInput(m: Omit<InputMsg, 't'>): void {
+        this.transport.send('tick', encode({ t: 'input', ...m }));
     }
 
     // M3 senders
@@ -119,6 +126,9 @@ export class NetClient {
                 break;
             case 'requestState':
                 this.onRequestState?.();
+                break;
+            case 'input':
+                this.onInput?.(msg);
                 break;
             case 'hello':
                 break;

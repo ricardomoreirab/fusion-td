@@ -475,6 +475,14 @@ export class HeroController {
         }
     }
 
+    /** Co-op guest (M4-8): nudge the predicted local hero toward the host-
+     *  authoritative snapshot position. Writes position + mesh only; velocity is
+     *  untouched so the next update() re-predicts from fresh input. The caller
+     *  decides snap-vs-lerp via reconcilePosition(); this just applies the result. */
+    public reconcileNetworkPosition(x: number, z: number): void {
+        this.writeHeroPosition(x, 0, z);
+    }
+
     /** Internal helper: write a position to both this.position and the mesh, in
      *  the exact same shape Champion.update would naturally produce. */
     private writeHeroPosition(x: number, y: number, z: number): void {
