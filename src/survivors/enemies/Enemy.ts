@@ -148,7 +148,7 @@ export class Enemy {
      *  local scene object by ID. Single-player never reads this field. */
     public id: number = -1;
 
-    /** Network type string matching the keys in createEnemyOfType / SpawnMsg.type.
+    /** Network type string matching the keys in buildEnemy / SpawnMsg.type.
      *  Set by EnemyManager.spawnSurvivorsEnemy (and the split/clone handlers) right
      *  after construction, before the host fires onEnemySpawnedCb.
      *  Defaults to 'basic' as a safe fallback; single-player never reads this. */
