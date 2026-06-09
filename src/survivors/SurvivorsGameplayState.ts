@@ -1810,7 +1810,7 @@ export class SurvivorsGameplayState implements GameState {
                 spawnCosmeticEnemyProjectile(this.scene, m.x, m.z, m.tx ?? m.x, m.tz ?? m.z);
                 break;
             case 'telegraph':
-                spawnCosmeticTelegraph(this.scene, m.x, m.z, m.tx ?? m.x, m.tz ?? m.z, m.hint ?? 'dash');
+                spawnCosmeticTelegraph(this.scene, m.x, m.z, m.tx ?? m.x, m.tz ?? m.z, m.hint === 'pull' ? 'pull' : 'dash');
                 break;
             default:
                 break;

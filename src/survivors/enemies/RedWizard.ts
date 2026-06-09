@@ -55,7 +55,7 @@ export class RedWizard extends HealerEnemy {
         // Trigger the GLB cast/attack animation (inherited GLB block plays it while > 0).
         this.glbAttackHoldTimer = 0.6;
         // Broadcast the bolt to the guest so it's visible on their screen.
-        emitCoopFx('enemyProj', this.position.x, this.position.z, heroPos.x, heroPos.z, 'wizard');
+        emitCoopFx('enemyProj', this.position.x, this.position.z, heroPos.x, heroPos.z);
         this.fireBolt(heroPos);
     }
 

@@ -118,7 +118,7 @@ export function spawnCosmeticTelegraph(
     scene: Scene,
     fromX: number, fromZ: number,
     toX: number, toZ: number,
-    hint: string,
+    hint: 'dash' | 'pull',
 ): void {
     const duration = 0.6; // matches TELEGRAPH_DURATION in MilestoneBoss
     let mesh: ReturnType<typeof MeshBuilder.CreatePlane> | ReturnType<typeof MeshBuilder.CreateDisc>;
@@ -144,8 +144,9 @@ export function spawnCosmeticTelegraph(
         mesh = MeshBuilder.CreatePlane('coopFxDashTele', { width: 1.4, height: dashDistance }, scene);
         mesh.rotation.x = Math.PI / 2;
         mesh.rotation.y = angle;
-        mesh.position.x = fromX + (dx / (Math.hypot(dx, dz) || 1)) * (dashDistance / 2);
-        mesh.position.z = fromZ + (dz / (Math.hypot(dx, dz) || 1)) * (dashDistance / 2);
+        const len = Math.hypot(dx, dz) || 1;
+        mesh.position.x = fromX + (dx / len) * (dashDistance / 2);
+        mesh.position.z = fromZ + (dz / len) * (dashDistance / 2);
         mesh.position.y = 0.05;
         mesh.material = getCachedMaterial(scene, 'coopFxTelegraphDash', m => {
             m.emissiveColor = new Color3(1, 0.1, 0.1);
