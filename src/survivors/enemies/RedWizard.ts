@@ -3,6 +3,7 @@ import { Game } from '../../engine/Game';
 import { HealerEnemy } from './HealerEnemy';
 import { acquireProjectile, releaseProjectile } from '../../engine/rendering/ProjectilePool';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
+import { emitCoopFx } from '../coop/CoopFx';
 
 /**
  * Wave-10+ replacement for the blue wizard (HealerEnemy). It does NOT heal —
@@ -53,6 +54,8 @@ export class RedWizard extends HealerEnemy {
         this.attackTimer = RedWizard.ATTACK_COOLDOWN;
         // Trigger the GLB cast/attack animation (inherited GLB block plays it while > 0).
         this.glbAttackHoldTimer = 0.6;
+        // Broadcast the bolt to the guest so it's visible on their screen.
+        emitCoopFx('enemyProj', this.position.x, this.position.z, heroPos.x, heroPos.z, 'wizard');
         this.fireBolt(heroPos);
     }
 

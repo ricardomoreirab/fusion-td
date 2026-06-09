@@ -40,7 +40,7 @@ import { formatBuckets } from '../engine/rendering/resourceBudget';
 import { CoopSession } from './coop/CoopSession';
 import { GuestEnemies } from './coop/GuestEnemies';
 import { computeCameraFocus } from './coop/cameraFocus';
-import { setCoopFxEmit, spawnCosmeticProjectile, spawnCosmeticSwingRing, emitCoopFx } from './coop/CoopFx';
+import { setCoopFxEmit, spawnCosmeticProjectile, spawnCosmeticSwingRing, spawnCosmeticEnemyProjectile, emitCoopFx } from './coop/CoopFx';
 import { reconcilePosition } from './coop/reconcile';
 import { NetClient } from '../net/NetClient';
 import { RoomService, PrivateRoomService } from '../net/RoomService';
@@ -1806,6 +1806,9 @@ export class SurvivorsGameplayState implements GameState {
                 aoeBurst(this.scene, [], m.x, m.z, { radius: m.kind === 'ult' ? 3.5 : 2, damage: 0, element });
                 break;
             }
+            case 'enemyProj':
+                spawnCosmeticEnemyProjectile(this.scene, m.x, m.z, m.tx ?? m.x, m.tz ?? m.z);
+                break;
             default:
                 break;
         }

@@ -69,6 +69,43 @@ export function spawnCosmeticProjectile(
 }
 
 /**
+ * Replay a RedWizard bolt seen by the guest: a magenta/arcane orb travelling from the
+ * enemy position to the hero target at the same speed as the host bolt (14 u/s).
+ * Cosmetic only — damage is authoritative via snapshot/damageResult.
+ * Leak-safe: material cached by bounded key ('arcane'), plain mesh.dispose() leaves it.
+ */
+export function spawnCosmeticEnemyProjectile(
+    scene: Scene,
+    fromX: number, fromZ: number,
+    toX: number, toZ: number,
+): void {
+    const mesh = MeshBuilder.CreateSphere('coopFxEnemyProj', { diameter: 0.4, segments: 4 }, scene);
+    mesh.position.set(fromX, 1.4, fromZ); // match fireBolt y-offset (staff-orb height)
+    mesh.material = getCachedMaterial(scene, 'coopFxProjMat_arcane', m => {
+        m.emissiveColor = FX_COLOR.arcane;
+        m.diffuseColor = new Color3(0, 0, 0);
+        m.disableLighting = true;
+    });
+
+    const target = new Vector3(toX, 1.4, toZ);
+    const speed = 14; // matches RedWizard.BOLT_SPEED
+    const startMs = performance.now();
+    const dir = new Vector3();
+    const observer = scene.onBeforeRenderObservable.add(() => {
+        target.subtractToRef(mesh.position, dir);
+        const dist = dir.length();
+        if (dist < 0.4 || performance.now() - startMs > 3000) {
+            mesh.dispose(); // material is cached/shared — keep it
+            scene.onBeforeRenderObservable.remove(observer);
+            return;
+        }
+        const dt = scene.getEngine().getDeltaTime() / 1000;
+        dir.normalize().scaleInPlace(Math.min(dist, speed * dt));
+        mesh.position.addInPlace(dir);
+    });
+}
+
+/**
  * Replay a teammate's melee swing arc: a golden torus that expands + fades over ~0.3s
  * at (x,z) with the given range. Cosmetic. Leak-safe (cached material, plain dispose,
  * fade via mesh.visibility never the shared material's alpha — per CLAUDE.md FX rules).
