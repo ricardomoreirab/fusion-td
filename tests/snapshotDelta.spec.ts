@@ -172,6 +172,42 @@ describe('diffSnapshot / applyDelta — round-trip', () => {
         expect(delta.timeScale).toBe(0.5);
     });
 
+    it('shield fraction change marks enemy as changed and round-trips', () => {
+        const base = makeSnapshot({
+            tick: 10,
+            enemies: [{ id: 9, x: 0, z: 0, ry: 0, hp: 30, flags: 0, anim: 0, shield: 1.0 }],
+        });
+        const next = makeSnapshot({
+            tick: 11,
+            enemies: [{ id: 9, x: 0, z: 0, ry: 0, hp: 30, flags: 0, anim: 0, shield: 0.4 }],
+        });
+
+        const delta = diffSnapshot(base, next);
+        expect(delta.changedEnemies).toHaveLength(1);
+        expect(delta.changedEnemies[0].shield).toBe(0.4);
+
+        const reconstructed = applyDelta(base, delta);
+        expect(reconstructed.enemies[0].shield).toBe(0.4);
+        expect(reconstructed).toEqual(next);
+    });
+
+    it('shield absent in base, present in next — marks changed, round-trips', () => {
+        const base = makeSnapshot({
+            tick: 12,
+            enemies: [{ id: 10, x: 0, z: 0, ry: 0, hp: 30, flags: 0, anim: 0 }],
+        });
+        const next = makeSnapshot({
+            tick: 13,
+            enemies: [{ id: 10, x: 0, z: 0, ry: 0, hp: 30, flags: 0, anim: 0, shield: 0.75 }],
+        });
+
+        const delta = diffSnapshot(base, next);
+        expect(delta.changedEnemies).toHaveLength(1);
+        expect(delta.changedEnemies[0].shield).toBe(0.75);
+
+        expect(applyDelta(base, delta)).toEqual(next);
+    });
+
     it('flags or anim change marks enemy as changed', () => {
         const base = makeSnapshot({
             tick: 10,

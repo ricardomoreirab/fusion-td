@@ -1574,6 +1574,7 @@ export class SurvivorsGameplayState implements GameState {
                     elite:    e.isElite,
                     meleePhase: md.phase,
                 });
+                const shieldFrac = e.getShieldFraction();
                 enemies.push({
                     id: e.id,
                     x: ep.x,
@@ -1582,6 +1583,7 @@ export class SurvivorsGameplayState implements GameState {
                     hp: e.getHealth(),
                     flags,
                     anim: md.phase > 0 ? 2 : 1, // 0 idle, 1 walk, 2 attack (rough)
+                    ...(shieldFrac !== undefined && { shield: shieldFrac }),
                 });
             }
         }

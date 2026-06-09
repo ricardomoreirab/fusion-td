@@ -12,6 +12,24 @@ describe('M3 protocol', () => {
     };
     expect(decode(encode(msg))).toEqual(msg);
   });
+  it('round-trips a snapshot with shield fraction', () => {
+    const msg: NetMessage = {
+      t: 'snapshot', tick: 6, ackSeq: 4, timeScale: 1,
+      heroes: [],
+      enemies: [{ id: 3, x: 1, z: 2, ry: 0, hp: 30, flags: 0, anim: 1, shield: 0.5 }],
+      wave: { n: 1, alive: 1, inProgress: 1, breather: 0 },
+    };
+    expect(decode(encode(msg))).toEqual(msg);
+  });
+  it('snapshot enemy with shield: 0 round-trips (fully depleted)', () => {
+    const msg: NetMessage = {
+      t: 'snapshot', tick: 7, ackSeq: 5, timeScale: 1,
+      heroes: [],
+      enemies: [{ id: 4, x: 0, z: 0, ry: 0, hp: 25, flags: 0, anim: 1, shield: 0 }],
+      wave: { n: 1, alive: 1, inProgress: 1, breather: 0 },
+    };
+    expect(decode(encode(msg))).toEqual(msg);
+  });
   it('round-trips spawn/death/damage/wave events', () => {
     const msgs: NetMessage[] = [
       { t: 'spawn', id: 1, type: 'basic', x: 0, z: 0, maxHealth: 30 },

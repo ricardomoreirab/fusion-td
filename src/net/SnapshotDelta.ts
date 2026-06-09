@@ -24,7 +24,8 @@ function enemyChanged(a: SnapshotEnemy, b: SnapshotEnemy): boolean {
         a.ry !== b.ry ||
         a.hp !== b.hp ||
         a.flags !== b.flags ||
-        a.anim !== b.anim
+        a.anim !== b.anim ||
+        a.shield !== b.shield
     );
 }
 

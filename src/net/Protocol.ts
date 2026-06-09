@@ -35,7 +35,12 @@ export interface SnapshotHero {
     /** XP progress within the current level as a 0..1 fraction. */
     xp: number;
 }
-export interface SnapshotEnemy { id: number; x: number; z: number; y?: number; ry: number; hp: number; flags: number; anim: number }
+export interface SnapshotEnemy {
+    id: number; x: number; z: number; y?: number; ry: number; hp: number; flags: number; anim: number;
+    /** Shield fraction 0..1 (shield/maxShield). Present only for ShieldEnemy;
+     *  omitted for all other enemy types to keep the snapshot lean. */
+    shield?: number;
+}
 export interface SnapshotMsg {
     t: 'snapshot'; tick: number; ackSeq: number; timeScale: number;
     heroes: SnapshotHero[]; enemies: SnapshotEnemy[];

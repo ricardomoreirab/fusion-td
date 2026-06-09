@@ -478,7 +478,7 @@ export class ShieldEnemy extends Enemy {
     /**
      * Update the shield mesh visual based on shield state
      */
-    private updateShieldVisual(): void {
+    protected updateShieldVisual(): void {
         if (!this.shieldMesh) return;
 
         const shieldFraction = this.maxShield > 0 ? this.shield / this.maxShield : 0;
@@ -744,6 +744,29 @@ export class ShieldEnemy extends Enemy {
                 releaseDeathBurst();
             }, 1000);
         }, 1000);
+    }
+
+    /**
+     * Returns the shield fraction (shield/maxShield) for snapshot authoring
+     * (host only). Guest ShieldEnemy instances use applyNetworkState to drive
+     * the dome visual from this value.
+     */
+    public getShieldFraction(): number | undefined {
+        return this.maxShield > 0 ? this.shield / this.maxShield : 0;
+    }
+
+    /**
+     * Guest-side override: drive the dome visual from the host-authoritative
+     * shield fraction carried in the snapshot. The guest's ShieldEnemy never
+     * runs AI or takeDamage, so we set the internal shield state and call
+     * updateShieldVisual directly.
+     */
+    public applyNetworkState(s: import('../../net/Protocol').SnapshotEnemy): void {
+        super.applyNetworkState(s);
+        if (s.shield !== undefined) {
+            this.shield = s.shield * this.maxShield;
+            this.updateShieldVisual();
+        }
     }
 
     /**

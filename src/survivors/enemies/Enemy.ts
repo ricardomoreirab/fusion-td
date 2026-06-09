@@ -1700,6 +1700,15 @@ export class Enemy {
     }
 
     /**
+     * Returns the shield fraction (shield/maxShield) as a 0..1 number, or
+     * undefined for enemy types that have no shield. Overridden by ShieldEnemy.
+     * Used by the host snapshot to populate SnapshotEnemy.shield.
+     */
+    public getShieldFraction(): number | undefined {
+        return undefined;
+    }
+
+    /**
      * Get the current path index (how far along the path this enemy is)
      */
     public getPathIndex(): number {
