@@ -751,6 +751,19 @@ export class SurvivorsGameplayState implements GameState {
                                 status: { kind: effect, duration: durationS, magnitude: strength },
                             });
                         };
+                        // M6 A5: route guest-cast knockback (Smash, dash push, knockback
+                        // item) to the host — without this only the guest's render-only
+                        // copies moved; the shared enemies were never pushed.
+                        Enemy.guestKnockbackRedirect = (enemyId, dirX, dirZ, magnitude) => {
+                            this.coopSession?.sendDamageReport({
+                                t: 'damageReport',
+                                enemyId,
+                                amount: 0,
+                                element: 'physical',
+                                sourceHeroId: 1,
+                                knockback: { dx: dirX, dz: dirZ, magnitude },
+                            });
+                        };
                         // Receive authoritative damage results from host and show damage numbers.
                         this.coopSession.onDamageResult = (m) => {
                             if (this.damageNumbers) {
@@ -798,6 +811,13 @@ export class SurvivorsGameplayState implements GameState {
                                 // pure-status report doesn't roll a 0-damage crit + echo).
                                 if (m.status) {
                                     e.applyStatusEffect(m.status.kind as StatusEffect, m.status.duration, m.status.magnitude);
+                                }
+                                // M6 A5: apply routed knockback through the BASE implementation —
+                                // the guest's call already went through any subclass scaling
+                                // (BossEnemy ×0.3) before redirecting, so a virtual re-dispatch
+                                // here would double-scale. Base body keeps the alive/CC gating.
+                                if (m.knockback) {
+                                    Enemy.prototype.applyKnockback.call(e, m.knockback.dx, m.knockback.dz, m.knockback.magnitude);
                                 }
                             }
                         };
@@ -1931,6 +1951,7 @@ export class SurvivorsGameplayState implements GameState {
         Enemy.onShatterCallback = null;
         Enemy.guestDamageRedirect = null; // M4-9: clear the guest damage redirect
         Enemy.guestStatusRedirect = null; // M4-9 review fix: clear the guest status redirect
+        Enemy.guestKnockbackRedirect = null; // M6 A5: clear the guest knockback redirect
         setCoopFxEmit(null);              // cosmetic-FX: stop broadcasting on teardown
         resetPowerEffects();
         if (this.testLabelEl) { this.testLabelEl.remove(); this.testLabelEl = null; }

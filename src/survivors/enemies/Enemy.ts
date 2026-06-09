@@ -90,6 +90,9 @@ export class Enemy {
     /** Co-op guest only (M4-9 review fix): when set, applyStatusEffect reports the CC/DoT
      *  to the host by id and applies nothing locally. Null on host + single-player. */
     public static guestStatusRedirect: ((enemyId: number, effect: StatusEffect, durationS: number, strength: number) => void) | null = null;
+    /** Co-op guest only (M6 A5): when set, applyKnockback reports the push to the host
+     *  by id and applies nothing locally. Null on host + single-player. */
+    public static guestKnockbackRedirect: ((enemyId: number, dirX: number, dirZ: number, magnitude: number) => void) | null = null;
     /** Fired exactly once per kill from base die() — independent of the visual
      *  death-effect path (which several subclasses override without calling super).
      *  Used for kill-driven gameplay like the cooldown refund. Position by reference. */
@@ -1869,6 +1872,12 @@ export class Enemy {
      */
     public applyKnockback(dirX: number, dirZ: number, magnitude: number): void {
         if (!this.alive) return;
+        // Co-op guest: render-only enemies are host-authoritative. Report the push
+        // (already subclass-scaled — e.g. BossEnemy ×0.3 — by the time it reaches
+        // this base body) and apply nothing locally; the host re-applies it through
+        // the base implementation with its authoritative alive/CC gating.
+        const kr = Enemy.guestKnockbackRedirect;
+        if (kr) { kr(this.id, dirX, dirZ, magnitude); return; }
         if (this.isFrozen || this.isStunned) return;
         this.position.x += dirX * magnitude;
         this.position.z += dirZ * magnitude;

@@ -57,6 +57,9 @@ export interface DamageReportMsg {
     sourceHeroId: number;
     /** Optional CC/status effect to apply on the host when the hit lands. */
     status?: { kind: string; duration: number; magnitude: number };
+    /** Optional knockback to apply on the host (guest-cast Smash etc.).
+     *  dx/dz is the normalized push direction; magnitude is world units. */
+    knockback?: { dx: number; dz: number; magnitude: number };
 }
 export interface DamageResultMsg { t: 'damageResult'; enemyId: number; amount: number; isCrit: boolean; element: string; x: number; z: number }
 export interface WaveStartMsg { t: 'wave-start'; wave: number }

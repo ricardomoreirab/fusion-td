@@ -1029,6 +1029,17 @@ export class AbilityManager {
     }
 
     private animateEnemyKnockback(enemy: any, targetX: number, targetZ: number, duration: number): void {
+        // Co-op guest: enemies are host-authoritative render copies — never tween
+        // them locally (fights the snapshot). Route the full displacement as one
+        // knockback report; the host applies the push and snapshots it back.
+        const kr = Enemy.guestKnockbackRedirect;
+        if (kr) {
+            const p = enemy.getPosition();
+            const dx = targetX - p.x, dz = targetZ - p.z;
+            const mag = Math.hypot(dx, dz);
+            if (mag > 0.001) kr(enemy.id, dx / mag, dz / mag, mag);
+            return;
+        }
         let elapsed = 0;
         const startX = enemy.getPosition().x;
         const startZ = enemy.getPosition().z;

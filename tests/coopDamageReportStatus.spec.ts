@@ -46,6 +46,40 @@ describe('DamageReportMsg optional status field', () => {
   });
 });
 
+describe('DamageReportMsg optional knockback field', () => {
+  it('round-trips with a knockback field present', () => {
+    const msg: DamageReportMsg = {
+      t: 'damageReport',
+      enemyId: 9,
+      amount: 0,
+      element: 'physical',
+      sourceHeroId: 1,
+      knockback: { dx: 0.6, dz: -0.8, magnitude: 3.5 },
+    };
+    const decoded = decode(encode(msg)) as DamageReportMsg;
+    expect(decoded).toEqual(msg);
+    expect(decoded.knockback).toEqual({ dx: 0.6, dz: -0.8, magnitude: 3.5 });
+  });
+
+  it('decoded report WITHOUT knockback has no knockback key (backward-compatible)', () => {
+    const msg: DamageReportMsg = {
+      t: 'damageReport', enemyId: 4, amount: 12, element: 'fire', sourceHeroId: 0,
+    };
+    const decoded = decode(encode(msg)) as DamageReportMsg;
+    expect(decoded).toEqual(msg);
+    expect(decoded.knockback).toBeUndefined();
+  });
+
+  it('knockback and status coexist on one report', () => {
+    const msg: DamageReportMsg = {
+      t: 'damageReport', enemyId: 6, amount: 20, element: 'storm', sourceHeroId: 1,
+      status: { kind: 'stun', duration: 1.0, magnitude: 0 },
+      knockback: { dx: -1, dz: 0, magnitude: 2 },
+    };
+    expect(decode(encode(msg))).toEqual(msg);
+  });
+});
+
 describe('validateDamageReport unaffected by status field', () => {
   it('validates correctly when status is absent', () => {
     const report: DamageReportMsg = {
