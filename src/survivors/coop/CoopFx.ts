@@ -106,6 +106,65 @@ export function spawnCosmeticEnemyProjectile(
 }
 
 /**
+ * Replay a MilestoneBoss dash or pull telegraph on the guest's screen so the player
+ * can read and dodge the special move. hint='dash' → red lane rectangle; 'pull' → purple
+ * disc. Fades over TELEGRAPH_DURATION (0.6s) to match the host side.
+ *
+ * Leak-safe: materials cached by bounded keys ('coopFxTelegraphDash' /
+ * 'coopFxTelegraphPull'), plain mesh.dispose() leaves the shared materials alone, fade
+ * via mesh.visibility not the material's alpha (per CLAUDE.md FX rules).
+ */
+export function spawnCosmeticTelegraph(
+    scene: Scene,
+    fromX: number, fromZ: number,
+    toX: number, toZ: number,
+    hint: string,
+): void {
+    const duration = 0.6; // matches TELEGRAPH_DURATION in MilestoneBoss
+    let mesh: ReturnType<typeof MeshBuilder.CreatePlane> | ReturnType<typeof MeshBuilder.CreateDisc>;
+
+    if (hint === 'pull') {
+        // Purple grab-zone disc centered at boss position (matches spawnPullTelegraph).
+        const pullRadius = 3.0; // PULL_TELEGRAPH_RADIUS
+        mesh = MeshBuilder.CreateDisc('coopFxPullTele', { radius: pullRadius, tessellation: 24 }, scene);
+        mesh.rotation.x = Math.PI / 2;
+        mesh.position.set(fromX, 0.05, fromZ);
+        mesh.material = getCachedMaterial(scene, 'coopFxTelegraphPull', m => {
+            m.emissiveColor = new Color3(0.55, 0.1, 0.9);
+            m.diffuseColor = new Color3(0, 0, 0);
+            m.disableLighting = true;
+            m.alpha = 0.45;
+        });
+    } else {
+        // Red lane rectangle pointing from origin toward dash endpoint (matches spawnDashTelegraph).
+        const dashDistance = 6.0; // DASH_DISTANCE
+        const dx = toX - fromX;
+        const dz = toZ - fromZ;
+        const angle = -Math.atan2(dz, dx) + Math.PI / 2;
+        mesh = MeshBuilder.CreatePlane('coopFxDashTele', { width: 1.4, height: dashDistance }, scene);
+        mesh.rotation.x = Math.PI / 2;
+        mesh.rotation.y = angle;
+        mesh.position.x = fromX + (dx / (Math.hypot(dx, dz) || 1)) * (dashDistance / 2);
+        mesh.position.z = fromZ + (dz / (Math.hypot(dx, dz) || 1)) * (dashDistance / 2);
+        mesh.position.y = 0.05;
+        mesh.material = getCachedMaterial(scene, 'coopFxTelegraphDash', m => {
+            m.emissiveColor = new Color3(1, 0.1, 0.1);
+            m.diffuseColor = new Color3(0, 0, 0);
+            m.disableLighting = true;
+            m.alpha = 0.55;
+        });
+    }
+
+    let t = 0;
+    const observer = scene.onBeforeRenderObservable.add(() => {
+        t += scene.getEngine().getDeltaTime() / 1000;
+        const k = Math.min(t / duration, 1);
+        mesh.visibility = 1 - k; // fade via visibility, NOT the shared material's alpha
+        if (k >= 1) { mesh.dispose(); scene.onBeforeRenderObservable.remove(observer); }
+    });
+}
+
+/**
  * Replay a teammate's melee swing arc: a golden torus that expands + fades over ~0.3s
  * at (x,z) with the given range. Cosmetic. Leak-safe (cached material, plain dispose,
  * fade via mesh.visibility never the shared material's alpha — per CLAUDE.md FX rules).

@@ -40,7 +40,7 @@ import { formatBuckets } from '../engine/rendering/resourceBudget';
 import { CoopSession } from './coop/CoopSession';
 import { GuestEnemies } from './coop/GuestEnemies';
 import { computeCameraFocus } from './coop/cameraFocus';
-import { setCoopFxEmit, spawnCosmeticProjectile, spawnCosmeticSwingRing, spawnCosmeticEnemyProjectile, emitCoopFx } from './coop/CoopFx';
+import { setCoopFxEmit, spawnCosmeticProjectile, spawnCosmeticSwingRing, spawnCosmeticEnemyProjectile, spawnCosmeticTelegraph, emitCoopFx } from './coop/CoopFx';
 import { reconcilePosition } from './coop/reconcile';
 import { NetClient } from '../net/NetClient';
 import { RoomService, PrivateRoomService } from '../net/RoomService';
@@ -1808,6 +1808,9 @@ export class SurvivorsGameplayState implements GameState {
             }
             case 'enemyProj':
                 spawnCosmeticEnemyProjectile(this.scene, m.x, m.z, m.tx ?? m.x, m.tz ?? m.z);
+                break;
+            case 'telegraph':
+                spawnCosmeticTelegraph(this.scene, m.x, m.z, m.tx ?? m.x, m.tz ?? m.z, m.hint ?? 'dash');
                 break;
             default:
                 break;
