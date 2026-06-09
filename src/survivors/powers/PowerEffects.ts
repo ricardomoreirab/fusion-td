@@ -10,7 +10,7 @@ import { ELEMENT_COLOR } from '../ElementColors';
 import { buildArrowMesh } from './ArrowMesh';
 import { StatusEffect } from '../GameTypes';
 import { getReaction } from './StatusReactions';
-import type { Enemy } from '../enemies/Enemy';
+import { Enemy } from '../enemies/Enemy';
 import type { PowerElement, ChampionType } from './PowerDefinitions';
 import type { RichStatusKind } from './StatusModel';
 
@@ -258,14 +258,20 @@ export function gatherVortex(scene: Scene, enemies: Enemy[], x: number, z: numbe
         orb.rotation.y += dt * 6;
         const doTick = tickAcc >= tickInterval;
         if (doTick) tickAcc -= tickInterval;
+        // Co-op guest (redirect set): enemies are host-authoritative render copies —
+        // never move them locally or the pull fights the snapshot. Damage/status
+        // below still run (they route to the host via the redirects).
+        const canMoveEnemies = !Enemy.guestDamageRedirect;
         for (const e of enemies) {
             if (!e.isAlive()) continue;
             const p = e.getPosition();
             const dx = x - p.x, dz = z - p.z;
             if (dx * dx + dz * dz > r2) continue;
-            // Pull inward (mutates the by-ref position; enemy.update copies it to the mesh).
-            p.x += dx * opts.pull * dt;
-            p.z += dz * opts.pull * dt;
+            if (canMoveEnemies) {
+                // Pull inward (mutates the by-ref position; enemy.update copies it to the mesh).
+                p.x += dx * opts.pull * dt;
+                p.z += dz * opts.pull * dt;
+            }
             if (doTick) {
                 e.takeDamage(opts.tickDamage, opts.element);
                 applyStatus(e, opts.status);
