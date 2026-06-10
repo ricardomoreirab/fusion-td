@@ -18,7 +18,8 @@ export type EnemyAssetResolver = (type: string) => AssetContainer | null;
  *                     mesh and registers it by id.
  *   applySnapshot() — called each tick; drives position/rotation/HP for every
  *                     known enemy and defensively removes stale ones.
- *   death()         — called on a host DeathMsg; triggers the death cleanup.
+ *   death()         — called on a host DeathMsg; plays the death clip, then the
+ *                     corpse disposes itself via the leak-safe path.
  *   clear()         — called on run exit; disposes all remaining instances.
  */
 export class GuestEnemies {
@@ -27,6 +28,10 @@ export class GuestEnemies {
      *  uses. pushSnapshot() feeds it on each NEW snapshot; interpolate() lerps the
      *  mesh toward a render time ~100ms in the past every frame. */
     private buffers = new Map<number, PoseBuffer>();
+    /** Corpses playing their death clip — already out of byId (snapshots no longer
+     *  drive them) but not yet released. Tracked so clear() on run exit can
+     *  disposeCorpse() them immediately instead of leaving a pending self-tick. */
+    private lingering = new Set<Enemy>();
 
     constructor(private game: Game, private assetFor: EnemyAssetResolver = () => null) {}
 
@@ -94,17 +99,27 @@ export class GuestEnemies {
     }
 
     death(id: number): void {
-        this.remove(id);
+        const e = this.byId.get(id);
+        // Deregister FIRST so snapshots/interpolation can no longer drive the
+        // corpse while its death clip plays.
+        this.byId.delete(id);
+        this.buffers.delete(id);
+        if (!e) return;
+        // CRITICAL leak-safety: the corpse must end in disposeCorpse, which frees
+        // the GLB skeleton bone-matrix texture, anim groups, per-instance
+        // materials, shadow renderlist, and health-bar textures. NEVER call plain
+        // mesh.dispose() — that leaks the skeleton RawTexture, cloned
+        // AnimationGroups, and per-instance materials (see gotcha: GLB skeleton +
+        // lifecycle leaks). playDeathAnimThenDispose defers that exact call until
+        // the `<prefix>_dead` clip + linger finish (immediate for procedural
+        // enemies with no GLB clips).
+        this.lingering.add(e);
+        e.playDeathAnimThenDispose(() => this.lingering.delete(e));
     }
 
     private remove(id: number): void {
         const e = this.byId.get(id);
         if (!e) return;
-        // CRITICAL leak-safety: disposeCorpse frees GLB skeleton bone-matrix
-        // texture, anim groups, per-instance materials, shadow renderlist, and
-        // health-bar textures. NEVER call plain mesh.dispose() — that leaks
-        // the skeleton RawTexture, cloned AnimationGroups, and per-instance
-        // materials (see gotcha: GLB skeleton + lifecycle leaks).
         e.disposeCorpse();
         this.byId.delete(id);
         this.buffers.delete(id);
@@ -112,6 +127,11 @@ export class GuestEnemies {
 
     clear(): void {
         for (const id of [...this.byId.keys()]) this.remove(id);
+        // Release mid-linger corpses NOW — their self-tick must not outlive the
+        // run. disposeCorpse cancels the tick and is idempotent; the onDisposed
+        // callback mutates `lingering`, so iterate a copy.
+        for (const e of [...this.lingering]) e.disposeCorpse();
+        this.lingering.clear();
     }
 
     count(): number {

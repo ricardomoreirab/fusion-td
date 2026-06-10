@@ -1,4 +1,4 @@
-import { Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, Color4, Scene, ParticleSystem, Texture, DynamicTexture, Sound, Animation, AnimationGroup, Skeleton, ShadowGenerator } from '@babylonjs/core';
+import { Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, Color4, Scene, ParticleSystem, Texture, DynamicTexture, Sound, Animation, AnimationGroup, Skeleton, ShadowGenerator, Observer } from '@babylonjs/core';
 import { Game } from '../../engine/Game';
 import { EnemyType, StatusEffect } from '../GameTypes';
 import { PowerElement } from '../powers/PowerDefinitions';
@@ -196,6 +196,12 @@ export class Enemy {
     private _netAttackAnim: AnimationGroup | null = null;
     private _netCurrentAnim: AnimationGroup | null = null;
     private _netAnimCategorized = false;
+    /** Guest-only corpse tick (playDeathAnimThenDispose). There is no EnemyManager
+     *  corpse list on the guest, so the lingering corpse self-ticks via this
+     *  observer; disposeCorpse() removes it so an early teardown can't leave a
+     *  per-frame callback firing against a released mesh. */
+    private _netCorpseObserver: Observer<Scene> | null = null;
+    private _netCorpseOnDisposed: (() => void) | null = null;
     /** Host-authoritative HP the displayed bar eases toward (-1 = uninitialised). */
     private _netHpTarget = -1;
 
@@ -1596,11 +1602,20 @@ export class Enemy {
         return this.corpseTimeRemaining <= 0;
     }
 
-    /** Release a finished corpse's mesh/skeleton/animation-groups/shadow-casters. */
+    /** Release a finished corpse's mesh/skeleton/animation-groups/shadow-casters.
+     *  Idempotent. Also the early-out for a guest corpse mid-linger: cancels the
+     *  self-tick observer so teardown can't leave it firing on a released mesh. */
     public disposeCorpse(): void {
+        if (this._netCorpseObserver) {
+            this.scene.onBeforeRenderObservable.remove(this._netCorpseObserver);
+            this._netCorpseObserver = null;
+        }
         this.corpseTimeRemaining = 0;
         this._releaseMeshAndAnimations();
         this._disposeHealthBarMeshes();   // also free the health bar (idempotent; safe after die())
+        const done = this._netCorpseOnDisposed;
+        this._netCorpseOnDisposed = null;
+        if (done) done();
     }
 
     /** Record the shadow generators this enemy's mesh was registered into, so the
@@ -1732,6 +1747,13 @@ export class Enemy {
      */
     public dispose(): void {
         this.cancelMeleeAttack();
+
+        // Guest corpse self-tick (playDeathAnimThenDispose) — cancel it so it
+        // can't fire against the mesh released below.
+        if (this._netCorpseObserver) {
+            this.scene.onBeforeRenderObservable.remove(this._netCorpseObserver);
+            this._netCorpseObserver = null;
+        }
 
         // Restore any in-progress hit-flash before tearing materials down, so a
         // shared cached material isn't left stuck on HIT_TINT.
@@ -2012,6 +2034,51 @@ export class Enemy {
             this.mesh.position.copyFrom(this.position);
             this.mesh.rotation.y = ry;
         }
+    }
+
+    /**
+     * Guest-only death (driven by a host DeathMsg): play the GLB `<prefix>_dead`
+     * clip, linger, then release through the same leak-safe path as a host kill
+     * (disposeCorpse → skeleton RawTexture + anim groups + per-instance materials
+     * + shadow renderLists). Runs NONE of the host-side death logic — no reward,
+     * no kill/shatter callbacks, no drops; those already happened on the host.
+     *
+     * The caller (GuestEnemies.death) must have removed this enemy from its
+     * registry FIRST, so snapshots/interpolation can no longer drive it, and
+     * keeps it in a lingering set so teardown can disposeCorpse() it early —
+     * `onDisposed` fires exactly once when the corpse is finally released.
+     */
+    public playDeathAnimThenDispose(onDisposed?: () => void): void {
+        if (!this.alive) return; // already a corpse / disposed
+        this.alive = false;
+        this._netCorpseOnDisposed = onDisposed ?? null;
+
+        // Mirror what die() stops during the corpse phase: melee swing, hit-flash
+        // tint (shared cached material!), HP bar, persistent status particles.
+        this.cancelMeleeAttack();
+        this._restoreFlash();
+        this._disposeHealthBarMeshes();
+        this.statusEffectParticles.forEach(particleSystem => {
+            particleSystem.stop();
+            particleSystem.dispose(false);
+        });
+        this.statusEffectParticles.clear();
+
+        // No GLB animation (procedural enemy) or no mesh left: nothing to play.
+        if (this.glbAnimationGroups.length === 0 || !this.mesh || this.mesh.isDisposed()) {
+            this.disposeCorpse();
+            return;
+        }
+
+        // Reuses the host's clip lookup + duration estimate; stops the looping
+        // net walk/attack clip and sets corpseTimeRemaining.
+        this._netCurrentAnim = null;
+        this._beginDeathSequence();
+
+        this._netCorpseObserver = this.scene.onBeforeRenderObservable.add(() => {
+            const dt = this.scene.getEngine().getDeltaTime() / 1000;
+            if (this.tickCorpse(dt)) this.disposeCorpse();
+        });
     }
 
 }
