@@ -36,7 +36,12 @@ export interface SnapshotHero {
     xp: number;
 }
 export interface SnapshotEnemy {
-    id: number; x: number; z: number; y?: number; ry: number; hp: number; flags: number; anim: number;
+    id: number; x: number; z: number; y?: number; ry: number; hp: number; flags: number;
+    /** Animation code: 0 idle, 1 walk, 2 generic attack (from the melee FSM) —
+     *  or 10+N when the host is playing a named GLB skill clip `<prefix>_skillN`
+     *  (11 = _skill1, 12 = _skill2, 13 = _skill3), so the guest mirrors the exact
+     *  boss/elite skill clip instead of its generic attack fallback. */
+    anim: number;
     /** Shield fraction 0..1 (shield/maxShield). Present only for ShieldEnemy;
      *  omitted for all other enemy types to keep the snapshot lean. */
     shield?: number;

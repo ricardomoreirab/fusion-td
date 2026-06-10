@@ -208,6 +208,22 @@ describe('diffSnapshot / applyDelta — round-trip', () => {
         expect(applyDelta(base, delta)).toEqual(next);
     });
 
+    it('skill anim code (10+N) marks enemy as changed and round-trips', () => {
+        const base = makeSnapshot({
+            tick: 30,
+            enemies: [{ id: 6, x: 0, z: 0, ry: 0, hp: 500, flags: 0, anim: 2 }],
+        });
+        const next = makeSnapshot({
+            tick: 31,
+            enemies: [{ id: 6, x: 0, z: 0, ry: 0, hp: 500, flags: 0, anim: 12 }], // boss started _skill2
+        });
+
+        const delta = diffSnapshot(base, next);
+        expect(delta.changedEnemies).toHaveLength(1);
+        expect(delta.changedEnemies[0].anim).toBe(12);
+        expect(applyDelta(base, delta)).toEqual(next);
+    });
+
     it('flags or anim change marks enemy as changed', () => {
         const base = makeSnapshot({
             tick: 10,

@@ -196,6 +196,12 @@ export class Enemy {
     private _netAttackAnim: AnimationGroup | null = null;
     private _netCurrentAnim: AnimationGroup | null = null;
     private _netAnimCategorized = false;
+    /** Lazy lookup of named GLB skill clips (`<prefix>_skillN`) ↔ snapshot anim
+     *  codes 10+N (see SnapshotEnemy.anim). Used by BOTH sides: the host maps
+     *  the currently playing clip → code (getNetAnimCode), the guest maps a
+     *  received code → clip (_applyNetworkAnim). Cleared with the groups in
+     *  _releaseMeshAndAnimations. */
+    private _netSkillClips: { ag: AnimationGroup; code: number }[] | null = null;
     /** Guest-only corpse tick (playDeathAnimThenDispose). There is no EnemyManager
      *  corpse list on the guest, so the lingering corpse self-ticks via this
      *  observer; disposeCorpse() removes it so an early teardown can't leave a
@@ -1417,6 +1423,7 @@ export class Enemy {
         }
         this.glbAnimationGroups.length = 0;
         this.glbDeathAnim = null;
+        this._netSkillClips = null;
 
         if (this.mesh) {
             // Remove the mesh (+ descendants) from every shadow renderList it was
@@ -1934,6 +1941,37 @@ export class Enemy {
         return { phase, progress: Math.max(0, Math.min(1, progress)) };
     }
 
+    /** Build (once) the list of named GLB skill clips and their snapshot anim
+     *  codes. Clip names follow `<prefix>_skillN` (variants like `_skill2_3`
+     *  map to their base skill, here 12). Empty for procedural enemies and for
+     *  GLBs without skill-named clips. */
+    private _getNetSkillClips(): { ag: AnimationGroup; code: number }[] {
+        if (!this._netSkillClips) {
+            this._netSkillClips = [];
+            for (const ag of this.glbAnimationGroups) {
+                const m = /_skill(\d+)/.exec(ag.name.toLowerCase());
+                if (!m) continue;
+                const n = parseInt(m[1], 10);
+                if (n >= 1 && n <= 3) this._netSkillClips.push({ ag, code: 10 + n });
+            }
+        }
+        return this._netSkillClips;
+    }
+
+    /**
+     * Host-side: the animation code packed into SnapshotEnemy.anim — 1 walk /
+     * 2 attack from the melee FSM, upgraded to 10+N when the GLB clip currently
+     * playing is a named skill (`<prefix>_skillN`), so the guest mirrors the
+     * exact boss/elite skill clip instead of its generic attack fallback.
+     * Only called by the host's buildSnapshot (co-op); never in single-player.
+     */
+    public getNetAnimCode(): number {
+        for (const { ag, code } of this._getNetSkillClips()) {
+            if (ag.isPlaying) return code;
+        }
+        return this.meleeState !== 'idle' ? 2 : 1;
+    }
+
     /**
      * Drive this enemy from a host-authoritative snapshot entry (guest side only).
      * Never called in single-player. Applies the NON-positional state: HP (eased
@@ -1972,7 +2010,8 @@ export class Enemy {
         this.isConfused = flags.confused;
 
         // --- Animation: drive the GLB clip from the host's anim code ---
-        // 2 = attacking (host melee FSM is past idle), anything else = walk.
+        // 2 = attacking (host melee FSM is past idle), 10+N = named _skillN
+        // clip, anything else = walk. See SnapshotEnemy.anim.
         this._applyNetworkAnim(s.anim);
     }
 
@@ -1997,9 +2036,16 @@ export class Enemy {
         else if (!now && was) this.stopStatusEffectParticles(effect);
     }
 
-    /** Guest-side: switch the GLB clip to attack (anim===2) or walk. No-op for
-     *  procedural enemies (no anim groups). Categorises the groups lazily from
-     *  glbAnimationGroups the first time it runs. */
+    /** Guest-side: switch the GLB clip to attack (anim===2), the named skill
+     *  clip (anim>=10 → _skillN, falling back to attack when this instance has
+     *  no matching clip), or walk. No-op for procedural enemies (no anim
+     *  groups). Categorises the groups lazily from glbAnimationGroups the first
+     *  time it runs.
+     *
+     *  Clips loop (the host loops its current clip too — every playGlbAnim call
+     *  passes loop=true); the `_netCurrentAnim === slot` guard means repeated
+     *  20 Hz snapshots with the same code never restart the clip, and when the
+     *  snapshot code drops back to 1 the walk slot takes over. */
     private _applyNetworkAnim(anim: number): void {
         if (this.glbAnimationGroups.length === 0) return;
         if (!this._netAnimCategorized) {
@@ -2015,7 +2061,12 @@ export class Enemy {
             if (!this._netWalkAnim && this.glbAnimationGroups.length > 0) this._netWalkAnim = this.glbAnimationGroups[0];
             if (!this._netAttackAnim) this._netAttackAnim = this._netWalkAnim;
         }
-        const slot = anim === 2 ? this._netAttackAnim : this._netWalkAnim;
+        let slot: AnimationGroup | null;
+        if (anim >= 10) {
+            slot = this._getNetSkillClips().find(s => s.code === anim)?.ag ?? this._netAttackAnim;
+        } else {
+            slot = anim === 2 ? this._netAttackAnim : this._netWalkAnim;
+        }
         if (!slot || this._netCurrentAnim === slot) return;
         if (this._netCurrentAnim) this._netCurrentAnim.stop();
         slot.start(true);

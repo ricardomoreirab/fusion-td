@@ -1602,7 +1602,7 @@ export class SurvivorsGameplayState implements GameState {
                     ry: eRy,
                     hp: e.getHealth(),
                     flags,
-                    anim: md.phase > 0 ? 2 : 1, // 0 idle, 1 walk, 2 attack (rough)
+                    anim: e.getNetAnimCode(), // walk/attack from the melee FSM, or 10+N for a named _skillN clip (see SnapshotEnemy.anim)
                     ...(shieldFrac !== undefined && { shield: shieldFrac }),
                 });
             }
