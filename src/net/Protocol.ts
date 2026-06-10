@@ -55,7 +55,10 @@ export interface SnapshotMsg {
 }
 
 export interface SpawnMsg { t: 'spawn'; id: number; type: string; x: number; z: number; maxHealth: number; eliteElement?: string; isClone?: boolean; enrageOriginId?: number; bossTier?: number }
-export interface DeathMsg { t: 'death'; id: number; x: number; z: number; isElite: boolean; isClone: boolean; reward: number; eliteElement?: string }
+/** itemTier: present ONLY when a real (non-clone) milestone boss died at a tier that
+ *  maps to a run item (RunItems.itemForTier) — the guest spawns its OWN ItemDrop from
+ *  it, per-player, exactly like eliteElement drives per-player power orbs. */
+export interface DeathMsg { t: 'death'; id: number; x: number; z: number; isElite: boolean; isClone: boolean; reward: number; eliteElement?: string; itemTier?: number }
 export interface DamageReportMsg {
     t: 'damageReport';
     enemyId: number;

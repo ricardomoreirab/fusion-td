@@ -41,6 +41,17 @@ describe('M3 protocol', () => {
     ];
     for (const m of msgs) expect(decode(encode(m))).toEqual(m);
   });
+  it('round-trips a milestone-boss death carrying itemTier (per-player item drops)', () => {
+    const msg: NetMessage = {
+      t: 'death', id: 9, x: 2.5, z: -1.5, isElite: false, isClone: false, reward: 250, itemTier: 2,
+    };
+    expect(decode(encode(msg))).toEqual(msg);
+    // Round-trip must preserve the ABSENCE of itemTier too (plain deaths).
+    const plain: NetMessage = { t: 'death', id: 10, x: 0, z: 0, isElite: true, isClone: false, reward: 30, eliteElement: 'fire' };
+    const decoded = decode(encode(plain));
+    expect(decoded).toEqual(plain);
+    expect((decoded as { itemTier?: number }).itemTier).toBeUndefined();
+  });
   it('packs/unpacks the enemy flag bitfield', () => {
     const f = { frozen: true, stunned: false, confused: true, flying: false, elite: true, meleePhase: 2 };
     expect(unpackEnemyFlags(packEnemyFlags(f))).toEqual(f);

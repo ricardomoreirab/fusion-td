@@ -1405,6 +1405,13 @@ export class SurvivorsGameplayState implements GameState {
     private buildDeathMsg(e: Enemy): DeathMsg {
         const pos = e.getPosition();
         const isClone = (e instanceof MilestoneBoss) ? e.isClone : false;
+        // Per-player items (audit #21): a REAL milestone-boss death at an item-bearing
+        // tier carries the tier so the guest spawns its OWN gem — mirrors eliteElement
+        // driving per-player power orbs. Authored regardless of the HOST's ownership
+        // (per-player: the guest may not own it yet); each side's spawnItemDrop does
+        // its own hasItem skip. Clones never drop (same rule as the local pipeline).
+        const itemTier = (e instanceof MilestoneBoss && !isClone && RunItems.itemForTier(e.waveTier) !== null)
+            ? e.waveTier : undefined;
         return {
             t: 'death',
             id: e.id,
@@ -1414,6 +1421,7 @@ export class SurvivorsGameplayState implements GameState {
             isClone,
             reward: e.getReward(),
             eliteElement: (e.isElite && e.eliteDropElement) ? e.eliteDropElement : undefined,
+            itemTier,
         };
     }
 
@@ -1709,6 +1717,14 @@ export class SurvivorsGameplayState implements GameState {
                         { pickupRadius: 1.5, magnetRadius: 4, magnetSpeed: 12, onPickup: (el) => this.onOrbPickup(el) },
                     );
                     this.powerDrops.push(drop);
+                }
+                // Per-player items (audit #21): a milestone-boss death carries its
+                // tier — the guest spawns its OWN item gem, magneting to the guest
+                // hero; pickup grants the GUEST's RunItems/HUD through the exact SP
+                // path (spawnItemDrop → onItemPickup), which also skips tiers the
+                // guest already owns. Fully independent of the host's local gem.
+                if (m.itemTier !== undefined && this.scene && this.hero) {
+                    this.spawnItemDrop(new Vector3(m.x, 0, m.z), m.itemTier);
                 }
             };
             // M3b: guest basic-attack reports hits to the host instead of
