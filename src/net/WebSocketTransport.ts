@@ -1,5 +1,5 @@
 import type { NetRole } from './Protocol';
-import type { Channel, IncomingMessage, NetTransport } from './NetTransport';
+import type { Channel, IncomingMessage, NetTransport, WireData } from './NetTransport';
 
 /**
  * WebSocketTransport — NetTransport over a single WebSocket through the Room DO.
@@ -18,8 +18,11 @@ export class WebSocketTransport implements NetTransport {
     private constructor(ws: WebSocket, role: NetRole) {
         this.ws = ws;
         this.role = role;
+        // M6 E1: snapshots/deltas arrive as binary frames — surface ArrayBuffer
+        // (not Blob) so NetClient can DataView-decode synchronously.
+        ws.binaryType = 'arraybuffer';
         ws.addEventListener('message', (ev) => {
-            const data = typeof ev.data === 'string' ? ev.data : '';
+            const data: WireData = typeof ev.data === 'string' ? ev.data : (ev.data as ArrayBuffer);
             // Swallow the hello frame here (role already resolved); everything
             // else is delivered upward. Channel can't be recovered from a blind
             // relay, so default to 'tick' (events still self-identify by tag).
@@ -52,6 +55,7 @@ export class WebSocketTransport implements NetTransport {
         const wsUrl = baseUrl.replace(/^http/, 'ws') + `/ws/${code}${q}`;
         return new Promise((resolve, reject) => {
             const ws = new WebSocket(wsUrl);
+            ws.binaryType = 'arraybuffer'; // before any frame can be delivered
             ws.addEventListener('error', () => reject(new Error('ws error')), { once: true });
             ws.addEventListener('message', function onHello(ev) {
                 try {
@@ -65,7 +69,7 @@ export class WebSocketTransport implements NetTransport {
         });
     }
 
-    send(_channel: Channel, data: string): void {
+    send(_channel: Channel, data: WireData): void {
         if (this.ws.readyState === WebSocket.OPEN) this.ws.send(data);
     }
 

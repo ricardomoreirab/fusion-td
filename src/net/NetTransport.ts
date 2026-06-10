@@ -2,9 +2,12 @@ import type { NetRole } from './Protocol';
 
 export type Channel = 'tick' | 'event';
 
+/** Wire payload: JSON text for events, binary frames for snapshots/deltas (M6 E1). */
+export type WireData = string | ArrayBuffer;
+
 export interface IncomingMessage {
     channel: Channel;
-    data: string;
+    data: WireData;
 }
 
 /**
@@ -14,7 +17,7 @@ export interface IncomingMessage {
  */
 export interface NetTransport {
     readonly role: NetRole;
-    send(channel: Channel, data: string): void;
+    send(channel: Channel, data: WireData): void;
     onMessage(cb: (msg: IncomingMessage) => void): void;
     /** M5-5: fired once on an unexpected drop (not a deliberate close()). Optional —
      *  the FakeTransport test double doesn't model network loss. */

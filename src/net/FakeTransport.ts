@@ -1,5 +1,5 @@
 import type { NetRole } from './Protocol';
-import type { Channel, IncomingMessage, NetTransport } from './NetTransport';
+import type { Channel, IncomingMessage, NetTransport, WireData } from './NetTransport';
 
 /**
  * In-memory NetTransport pair for unit tests. Delivery is manual: send() queues
@@ -25,7 +25,8 @@ export class FakeTransport implements NetTransport {
         return [host, guest];
     }
 
-    send(channel: Channel, data: string): void {
+    // Binary frames (ArrayBuffer) pass through untouched, mirroring the blind relay.
+    send(channel: Channel, data: WireData): void {
         this.peer?.queue.push({ channel, data });
     }
 

@@ -1,5 +1,6 @@
-import { decode, encode, type HeroStateMsg, type NetRole, type SnapshotMsg, type SpawnMsg, type DeathMsg, type DamageReportMsg, type DamageResultMsg, type InputMsg, type RunSummaryMsg, type RunOverMsg, type FxMsg } from './Protocol';
+import { decode, encode, type HeroStateMsg, type NetMessage, type NetRole, type SnapshotMsg, type SpawnMsg, type DeathMsg, type DamageReportMsg, type DamageResultMsg, type InputMsg, type RunSummaryMsg, type RunOverMsg, type FxMsg } from './Protocol';
 import type { SnapshotDelta } from './SnapshotDelta';
+import { encodeSnapshot, encodeSnapshotDelta, decodeBinaryMessage } from './SnapshotBinary';
 import type { IncomingMessage, NetTransport } from './NetTransport';
 
 /**
@@ -67,14 +68,15 @@ export class NetClient {
         this.transport.send('event', encode(m));
     }
 
-    // M3 senders
+    // M3 senders. M6 E1: snapshots go binary (DataView codec) — they dominate
+    // tick-channel bandwidth; everything else stays JSON.
     sendSnapshot(m: SnapshotMsg): void {
-        this.transport.send('tick', encode(m));
+        this.transport.send('tick', encodeSnapshot(m));
     }
 
     // M5-7: delta between keyframes (same 'tick' channel as full snapshots).
     sendSnapshotDelta(m: SnapshotDelta): void {
-        this.transport.send('tick', encode(m));
+        this.transport.send('tick', encodeSnapshotDelta(m));
     }
 
     // Cosmetic FX — reliable 'event' channel (a dropped spell visual shouldn't matter,
@@ -115,11 +117,19 @@ export class NetClient {
     }
 
     private handle(m: IncomingMessage): void {
-        let msg;
-        try {
-            msg = decode(m.data);
-        } catch {
-            return;
+        let msg: NetMessage;
+        if (typeof m.data === 'string') {
+            try {
+                msg = decode(m.data);
+            } catch {
+                return;
+            }
+        } else {
+            // M6 E1: binary frames carry snapshot/snapshotDelta only. The decoder
+            // yields the same parsed object shape, so downstream code is unchanged.
+            const decoded = decodeBinaryMessage(m.data);
+            if (!decoded) return;
+            msg = decoded;
         }
         switch (msg.t) {
             case 'ping':

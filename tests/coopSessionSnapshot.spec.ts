@@ -25,8 +25,9 @@ describe('CoopSession M3 — snapshot plumbing', () => {
             timeScale: 1,
             heroes: [],
             enemies: [
+                // f32-exact floats: snapshots ride the binary codec (M6 E1).
                 { id: 1, x: 3, z: 5, ry: 0.5, hp: 80, flags: 0, anim: 1 },
-                { id: 2, x: -1, z: 2, ry: 1.2, hp: 50, flags: 1, anim: 0 },
+                { id: 2, x: -1, z: 2, ry: 1.25, hp: 50, flags: 1, anim: 0 },
             ],
             wave: { n: 3, alive: 2, inProgress: 1, breather: 0 },
         };
