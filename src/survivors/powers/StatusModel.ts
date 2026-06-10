@@ -158,11 +158,20 @@ export class StatusStacks {
             }
         }
         for (const kind of out.expired) this.tracks.delete(kind);
-        if (burnExpired) this.burnTickAcc = 0;
+        if (burnExpired) {
+            // Flush the sub-interval remainder so the total damage integral is exact.
+            // `burn` was captured above from the same tick call; it's non-null here.
+            // A full tick deals stacks×strength per tickIntervalS, so the tail is
+            // the elapsed fraction of an interval.
+            if (this.burnTickAcc > 0 && burn) {
+                out.burnDamage += burn.stacks * burn.strength
+                    * (this.burnTickAcc / STATUS_TUNING.burn.tickIntervalS);
+            }
+            this.burnTickAcc = 0;
+        }
         if (curseExpired) {
             // Flush the sub-interval remainder so the total damage integral is exact.
             // `curse` was captured above from the same tick call; it's non-null here.
-            // Burn does not flush its tail; curse does — see commit notes.
             if (this.curseTickAcc > 0 && curse) {
                 out.curseDamage += maxHp * curse.strength * this.curseTickAcc;
             }

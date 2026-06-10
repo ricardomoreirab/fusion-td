@@ -12,6 +12,10 @@ export class WebSocketTransport implements NetTransport {
     private ws: WebSocket;
     private handler: ((m: IncomingMessage) => void) | null = null;
     private backlog: IncomingMessage[] = [];
+    /** Backlog cap for the handler-detached window (lobby→game handoff). A peer
+     *  streaming ~20 msg/s while we sit in champion select would otherwise grow
+     *  this unboundedly; drop the OLDEST on overflow — streams are last-wins. */
+    private static readonly BACKLOG_MAX = 512;
     private closeHandler: (() => void) | null = null;
     private closedByUs = false;
     /** The socket dropped unexpectedly BEFORE onClose was registered (possible in
@@ -31,8 +35,12 @@ export class WebSocketTransport implements NetTransport {
             // else is delivered upward. Channel can't be recovered from a blind
             // relay, so default to 'tick' (events still self-identify by tag).
             const msg: IncomingMessage = { channel: 'tick', data };
-            if (this.handler) this.handler(msg);
-            else this.backlog.push(msg);
+            if (this.handler) {
+                this.handler(msg);
+            } else {
+                if (this.backlog.length >= WebSocketTransport.BACKLOG_MAX) this.backlog.shift();
+                this.backlog.push(msg);
+            }
         });
         // M5-5: surface an unexpected drop (not our own close()) so the game can try
         // to resume the slot within the Room DO's grace window.

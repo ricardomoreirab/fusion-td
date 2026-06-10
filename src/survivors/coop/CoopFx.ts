@@ -29,11 +29,13 @@ export function isCoopFxActive(): boolean { return _emit !== null; }
 // A REPLAYED effect runs the same primitive code as a local cast, which would
 // re-emit and echo the FX back to its sender forever. The receiver wraps every
 // replay in withFxReplay(); emitting sites skip while isReplayingFx() is true.
-let _replaying = false;
-export function isReplayingFx(): boolean { return _replaying; }
+// Depth counter (not a boolean) so a nested withFxReplay can't clear the guard
+// before the outer replay finishes.
+let _replayDepth = 0;
+export function isReplayingFx(): boolean { return _replayDepth > 0; }
 export function withFxReplay(fn: () => void): void {
-    _replaying = true;
-    try { fn(); } finally { _replaying = false; }
+    _replayDepth++;
+    try { fn(); } finally { _replayDepth--; }
 }
 
 /** Element → emissive colour for cosmetic projectiles/casts. Bounded set → cached mats. */

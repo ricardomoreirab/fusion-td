@@ -1434,7 +1434,14 @@ export class Enemy {
         }
         this.glbAnimationGroups.length = 0;
         this.glbDeathAnim = null;
+        // Net-anim caches all point into the groups disposed above — null the lot
+        // so the teardown contract is self-evident (and lazy re-categorization
+        // would start clean if a mesh were ever rebuilt).
         this._netSkillClips = null;
+        this._netAnimCategorized = false;
+        this._netWalkAnim = null;
+        this._netAttackAnim = null;
+        this._netCurrentAnim = null;
 
         if (this.mesh) {
             // Remove the mesh (+ descendants) from every shadow renderList it was

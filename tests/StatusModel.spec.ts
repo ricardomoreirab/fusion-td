@@ -12,6 +12,17 @@ describe('StatusStacks — burn', () => {
         expect(s.tick(0.25, 100).burnDamage).toBe(6);
     });
 
+    it('flushes the remainder on expiry so no damage is silently dropped', () => {
+        const s = new StatusStacks();
+        // 0.7s burn, 2 stacks × 3 dmg: one full tick at 0.5s + a 0.2s tail that
+        // must be flushed as the elapsed fraction of an interval (mirrors curse).
+        s.apply('burn', 0.7, 3, 2);
+        const r = s.tick(0.7, 100);
+        // expected: 2×3 (first tick) + 2×3×(0.2/0.5) (tail flush) = 6 + 2.4 = 8.4
+        expect(r.burnDamage).toBeCloseTo(8.4, 5);
+        expect(r.expired).toContain('burn');
+    });
+
     it('caps at maxStacks and detonates the pool when applied over cap', () => {
         const s = new StatusStacks();
         s.apply('burn', 5, 2, STATUS_TUNING.burn.maxStacks); // exactly at cap

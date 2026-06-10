@@ -149,6 +149,13 @@ describe('SnapshotBinary — garbage rejection (no throw)', () => {
         expect(decodeSnapshot(buf.slice(0, buf.byteLength - 3))).toBeNull();
     });
 
+    it('returns null on a valid message with trailing bytes appended', () => {
+        const buf = encodeSnapshot(makeSnapshot({ enemies: [makeEnemy()] }));
+        const padded = new Uint8Array(buf.byteLength + 1);
+        padded.set(new Uint8Array(buf), 0); // valid frame + 1 garbage byte
+        expect(decodeSnapshot(padded.buffer)).toBeNull();
+    });
+
     it('returns null on wrong version or wrong message type', () => {
         const buf = encodeSnapshot(makeSnapshot());
         const bumped = buf.slice(0);

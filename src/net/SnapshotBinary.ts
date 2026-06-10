@@ -9,23 +9,28 @@
 //   u8  version          = 1
 //   u8  msgType          1 = snapshot, 2 = snapshotDelta
 //
-// snapshot body (msgType 1)
+// snapshot body (msgType 1) — ALL counts first, then the record arrays:
 //   u32 tick             (20 Hz → u16 overflows in ~55 min; u32 is safe)
 //   u32 ackSeq           (guest input seq, one per frame — u32)
 //   f32 timeScale
 //   wave block           (9 B, below)
-//   u8  heroCount        + heroCount × hero record
-//   u16 enemyCount       + enemyCount × enemy record
+//   u8  heroCount
+//   u16 enemyCount
+//   heroCount × hero record
+//   enemyCount × enemy record
 //
-// snapshotDelta body (msgType 2)
+// snapshotDelta body (msgType 2) — same shape: counts first, then arrays:
 //   u32 baseTick
 //   u32 tick
 //   u32 ackSeq
 //   f32 timeScale
 //   wave block
-//   u8  heroCount        + heroCount × hero record
-//   u16 changedCount     + changedCount × enemy record
-//   u16 removedCount     + removedCount × u32 enemy id
+//   u8  heroCount
+//   u16 changedCount
+//   u16 removedCount
+//   heroCount × hero record
+//   changedCount × enemy record
+//   removedCount × u32 enemy id
 //
 // wave block (9 B):   u16 n, u16 alive, u8 inProgress, f32 breather
 //

@@ -693,9 +693,11 @@ export class SurvivorsGameplayState implements GameState {
             // Keep service + code for resume reconnects (M6 D1), then wire the
             // session exactly like the URL flow does. Any frames the peer sent
             // while we sat in champion select are backlogged in the transport
-            // (the lobby detached its handler) and drain into the NetClient;
-            // last-wins streams + the guest's requestState catch-up make any
-            // pre-wire arrivals harmless.
+            // (the lobby detached its handler; capped — oldest dropped on overflow)
+            // and drain into the NetClient, which decodes them but DROPS them (its
+            // hooks aren't wired yet). That loss is acceptable: snapshots/inputs
+            // are continuous streams that resume immediately, and one-shot events
+            // (spawns via the guest's requestState catch-up) are sent post-wiring.
             this._roomService = pendingCoop.roomService;
             this._roomCode = pendingCoop.code;
             console.log(`[coop] lobby session: room ${pendingCoop.code} as ${pendingCoop.role}`);
@@ -1446,7 +1448,7 @@ export class SurvivorsGameplayState implements GameState {
         const heroes: SnapshotMsg['heroes'] = [];
         if (this.hero && this.heroController) {
             const p = this.hero.getPosition();
-            const ry = (this.hero as unknown as { mesh: { rotation: { y: number } } | null }).mesh?.rotation.y ?? 0;
+            const ry = this.hero.getFacingY();
             heroes.push({
                 id: 0,
                 x: p.x,
@@ -1462,7 +1464,7 @@ export class SurvivorsGameplayState implements GameState {
         }
         if (this.coopGhost) {
             const gp = this.coopGhost.getPosition();
-            const gry = (this.coopGhost as unknown as { mesh: { rotation: { y: number } } | null }).mesh?.rotation.y ?? 0;
+            const gry = this.coopGhost.getFacingY();
             // Part C: carry the host-tracked guest HP in the snapshot so the guest
             // can apply it as snapshot-authoritative HP instead of computing locally.
             // M4-8: dx/dz echo the input the host integrated this frame; the guest
@@ -2000,6 +2002,9 @@ export class SurvivorsGameplayState implements GameState {
                 this._heroProviders.length = 1; // drop the ghost provider IN PLACE (EnemyManager shares this array)
                 this.coopSession?.dispose();
                 this.coopSession = null;
+                // Stop cosmetic-FX broadcasting too — otherwise isCoopFxActive() stays
+                // true and every cast keeps building JSON hints that go nowhere.
+                setCoopFxEmit(null);
             }
         }
     }
@@ -2218,7 +2223,7 @@ export class SurvivorsGameplayState implements GameState {
             const channel = startCosmeticUltChannel(
                 scene, ability,
                 () => this.coopGhost?.getPosition() ?? fallback,
-                () => (this.coopGhost as unknown as { mesh: { rotation: { y: number } } | null } | null)?.mesh?.rotation.y ?? 0,
+                () => this.coopGhost?.getFacingY() ?? 0,
                 d, r,
             );
             const timer = window.setTimeout(() => entry.dispose(), (d + 2) * 1000);
@@ -2528,7 +2533,7 @@ export class SurvivorsGameplayState implements GameState {
         // --- Co-op M2 sync: broadcast our pose, render the remote ghost ---
         if (this.coopSession && this.hero) {
             const hp = this.hero.getPosition();
-            const ry = (this.hero as unknown as { mesh: Mesh | null }).mesh?.rotation.y ?? 0;
+            const ry = this.hero.getFacingY();
             // NOTE(M3): the per-frame object literal here is intentionally simple for
             // M2; binary encoding + scratch reuse arrive at M3 (spec §3/§6).
             // anim: 2 while a basic-attack clip is playing so the teammate's ghost can
