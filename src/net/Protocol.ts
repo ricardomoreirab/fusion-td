@@ -109,8 +109,11 @@ export interface RunOverMsg { t: 'runOver'; timeSurvivedSec: number; waveReached
  *  Purely cosmetic — damage/CC are already authoritative via damageReport/snapshot, so
  *  the receiver plays the visual with NO gameplay effect.
  *  kind: what to play ('proj' | 'swing' | 'power' | 'ult' | 'pe' | 'enemyProj' |
- *  'telegraph'). hint: shape/element/id — for 'pe' (exact power-primitive replay,
- *  M6 C1) a compact JSON payload { p: primitive name, e: element, …visual params }.
+ *  'telegraph' | 'ultStart' | 'ultStop' | 'abilityClip'). hint: shape/element/id —
+ *  for 'pe' (exact power-primitive replay, M6 C1) a compact JSON payload
+ *  { p: primitive name, e: element, …visual params }; for 'ult'/'ultStart' (exact
+ *  manual-ult replay, M6 C2) { a: ability id, …visual params } ('ultStop' carries
+ *  the plain ability id); for 'abilityClip' { s: clip suffix, d: duration, sp: speed }.
  *  (x,z) origin; (tx,tz) optional target/aim point. */
 export interface FxMsg { t: 'fx'; kind: string; x: number; z: number; tx?: number; tz?: number; hint?: string }
 

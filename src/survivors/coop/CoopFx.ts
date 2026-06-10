@@ -1,5 +1,9 @@
 import { Scene, Vector3, MeshBuilder, Color3 } from '@babylonjs/core';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
+import {
+    spawnHurricaneVisual, spawnWhirlwindRing,
+    spawnMultishotAura, spawnCosmeticVolleyArrow,
+} from '../abilities/AbilityVisuals';
 
 /**
  * Cosmetic-FX replication glue (co-op). Combat-visual sites (basic-attack projectiles,
@@ -177,6 +181,67 @@ export function spawnCosmeticTelegraph(
         mesh.visibility = 1 - k; // fade via visibility, NOT the shared material's alpha
         if (k >= 1) { mesh.dispose(); scene.onBeforeRenderObservable.remove(observer); }
     });
+}
+
+/**
+ * Replay a teammate's CHANNELLED ultimate (M6 C2): a persistent cosmetic visual that
+ * follows the ghost's interpolated position each frame, started on 'ultStart' and
+ * torn down via the returned dispose handle ('ultStop' / safety timeout / state exit).
+ *
+ *   - whirlwind: the hurricane (updraft + funnel from AbilityVisuals, the SAME look
+ *     as the local cast) + the expanding ground rings at the local 0.3s tick cadence.
+ *   - multishot: the green aura + periodic cosmetic volley arrows fired along the
+ *     ghost's facing (±spread) at the local 30-arrows-per-duration cadence.
+ *
+ * Gameplay-inert: AbilityVisuals builders never touch enemies and never emit fx, so
+ * no withFxReplay wrap is needed. Leak-safe: dispose() is idempotent, removes the
+ * tick observer on every path, and the visuals' own dispose handles their meshes,
+ * observers, and particle systems (cached materials are shared + bounded).
+ */
+export function startCosmeticUltChannel(
+    scene: Scene,
+    ability: 'whirlwind' | 'multishot',
+    getCenter: () => Vector3 | null,
+    getFacing: () => number,
+    durationS: number,
+    radius: number,
+): { dispose: () => void } {
+    const visual = ability === 'whirlwind'
+        ? spawnHurricaneVisual(scene, getCenter, durationS, radius)
+        : spawnMultishotAura(scene, getCenter);
+    const tickInterval = ability === 'whirlwind' ? 0.3 : durationS / 30;
+
+    let elapsed = 0;
+    let sinceTick = 0;
+    const tickObs = scene.onBeforeRenderObservable.add(() => {
+        const dt = scene.getEngine().getDeltaTime() / 1000;
+        elapsed += dt;
+        sinceTick += dt;
+        // Past the channel duration the visual has faded itself out — stop ticking
+        // and just wait for 'ultStop' (or the caller's safety timeout) to dispose.
+        if (elapsed > durationS || sinceTick < tickInterval) return;
+        sinceTick = 0;
+        const c = getCenter();
+        if (!c) return;
+        if (ability === 'whirlwind') {
+            spawnWhirlwindRing(scene, c, radius);
+            // Secondary outer ring — matches the local concentric-tornado read.
+            spawnWhirlwindRing(scene, c, radius * 1.4);
+        } else {
+            const ang = getFacing() + (Math.random() - 0.5) * 0.9;
+            spawnCosmeticVolleyArrow(scene, c, Math.sin(ang), Math.cos(ang));
+        }
+    });
+
+    let disposed = false;
+    return {
+        dispose: () => {
+            if (disposed) return;
+            disposed = true;
+            scene.onBeforeRenderObservable.remove(tickObs);
+            visual.dispose();
+        },
+    };
 }
 
 /**

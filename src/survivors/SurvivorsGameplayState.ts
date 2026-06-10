@@ -41,7 +41,11 @@ import { formatBuckets } from '../engine/rendering/resourceBudget';
 import { CoopSession } from './coop/CoopSession';
 import { GuestEnemies } from './coop/GuestEnemies';
 import { computeCameraFocus } from './coop/cameraFocus';
-import { setCoopFxEmit, spawnCosmeticProjectile, spawnCosmeticSwingRing, spawnCosmeticEnemyProjectile, spawnCosmeticTelegraph, emitCoopFx, isCoopFxActive, withFxReplay } from './coop/CoopFx';
+import { setCoopFxEmit, spawnCosmeticProjectile, spawnCosmeticSwingRing, spawnCosmeticEnemyProjectile, spawnCosmeticTelegraph, startCosmeticUltChannel, emitCoopFx, isCoopFxActive, withFxReplay } from './coop/CoopFx';
+import {
+    scheduleMeteorBarrage, createMeteorVisual, createFrostNovaVisual,
+    spawnSmashShockwave, spawnExplosiveArrowFlight, spawnExplosionVisual,
+} from './abilities/AbilityVisuals';
 import { reconcilePosition } from './coop/reconcile';
 import { NetClient } from '../net/NetClient';
 import { RoomService, PrivateRoomService } from '../net/RoomService';
@@ -51,6 +55,26 @@ import { packEnemyFlags } from '../net/EnemyFlags';
 import type { SpawnMsg, DeathMsg, SnapshotMsg, CoopHeroSummary, RunOverMsg, FxMsg } from '../net/Protocol';
 import { validateDamageReport } from './coop/DamageRouter';
 import { MilestoneBoss } from './enemies/MilestoneBoss';
+
+/**
+ * Map class-specific ultimate IDs → GLB clip + duration so the hero plays the
+ * right animation when the player presses an ultimate button. The clip plays as
+ * a forced "special" channel — basic attacks suspend for the whole duration.
+ * When `duration` exceeds the clip's natural length the clip loops (Whirlwind
+ * ticks for 5s so the slash should keep going). Whirlwind speed bumped
+ * 1.5 → 2.2 to read more like a tornado.
+ *
+ * Module-level (M6 C2) so the co-op 'abilityClip' replay can allowlist incoming
+ * clip suffixes against exactly the set we ourselves can send.
+ */
+const ABILITY_CLIPS: Partial<Record<string, { suffix: string; duration?: number; speed?: number }>> = {
+    // Barbarian (Aulus)
+    whirlwind: { suffix: 'aulus_warrior_of_ferocity_in_game_skill3',   duration: 5.0, speed: 2.2 },
+    smash:     { suffix: 'aulus_warrior_of_ferocity_in_game_skill2_3' }, // one-shot, natural length
+};
+const COOP_ABILITY_CLIP_SUFFIXES = new Set(
+    Object.values(ABILITY_CLIPS).map(c => c!.suffix),
+);
 
 /**
  * Module-level cache for champion GLBs. Loaded on demand inside enter() (not at
@@ -301,6 +325,11 @@ export class SurvivorsGameplayState implements GameState {
     /** Last remote anim code applied to the ghost — used to fire triggerAttack once
      *  on the rising edge to 2 (the heroState carries anim every frame). */
     private _coopGhostLastAnim = 0;
+    /** M6 C2: active cosmetic ultimate channels replayed for the teammate, keyed by
+     *  ability id (single peer → one concurrent channel per ability). Each entry's
+     *  dispose() is idempotent and fires on 'ultStop', on a duration+2s safety
+     *  timeout (in case the stop is lost), and on exit()/host-solo detach. */
+    private coopUltChannels: Map<string, { dispose: () => void }> = new Map();
     private joystick: SurvivorsJoystick | null = null;
     private grass: ReturnType<typeof createProceduralGrass> | null = null;
     private shadowSourceLight: DirectionalLight | null = null;
@@ -1158,23 +1187,21 @@ export class SurvivorsGameplayState implements GameState {
         // wave-clear time is measured against this floor.
         this.captureResourceBaseline();
 
-        // Map class-specific ultimate IDs → GLB clip + duration so the hero plays
-        // the right animation when the player presses an ultimate button. The clip
-        // plays as a forced "special" channel — basic attacks suspend for the
-        // whole duration. When `duration` exceeds the clip's natural length the
-        // clip loops (Whirlwind ticks for 5s so the slash should keep going).
-        // Whirlwind speed bumped 1.5 → 2.2 to read more like a tornado.
-        const ABILITY_CLIPS: Partial<Record<string, { suffix: string; duration?: number; speed?: number }>> = {
-            // Barbarian (Aulus)
-            whirlwind: { suffix: 'aulus_warrior_of_ferocity_in_game_skill3',   duration: 5.0, speed: 2.2 },
-            smash:     { suffix: 'aulus_warrior_of_ferocity_in_game_skill2_3' }, // one-shot, natural length
-        };
+        // Hero ultimate body clips: ABILITY_CLIPS (module-level) maps ability id →
+        // GLB clip; played as a forced "special" channel.
         this.abilityManager.setOnActivate((abilityId) => {
             const clip = ABILITY_CLIPS[abilityId];
             if (!clip || !this.hero) return;
             const hero = this.hero as { playAbilityClip?: (s: string, d?: number, sp?: number) => void };
             if (typeof hero.playAbilityClip === 'function') {
                 hero.playAbilityClip(clip.suffix, clip.duration, clip.speed ?? 1.0);
+                // Co-op (M6 C2): mirror the EXACT clip on the teammate's ghost (the
+                // generic anim=3 special pose is skipped while the clip is active).
+                if (isCoopFxActive()) {
+                    const p = this.hero.getPosition();
+                    emitCoopFx('abilityClip', p.x, p.z, undefined, undefined,
+                        JSON.stringify({ s: clip.suffix, d: clip.duration, sp: clip.speed ?? 1.0 }));
+                }
             }
         });
 
@@ -1805,6 +1832,7 @@ export class SurvivorsGameplayState implements GameState {
                 this.guestHeroAlive = false;
                 this.coopGhost?.dispose();
                 this.coopGhost = null;
+                this.disposeUltChannels(); // M6 C2: the peer is gone — stop its channels
                 this._heroProviders.length = 1; // drop the ghost provider IN PLACE (EnemyManager shares this array)
                 this.coopSession?.dispose();
                 this.coopSession = null;
@@ -1847,16 +1875,32 @@ export class SurvivorsGameplayState implements GameState {
             }
             case 'power':
             case 'ult': {
+                // M6 C2: manual ults send a parameterised JSON hint → exact replay.
+                if (m.kind === 'ult' && this.replayUltimateFx(m)) break;
                 // Cosmetic element-coloured pop at the teammate's cast point (no damage —
                 // enemies=[]). Fallback for casts that don't route through the PowerEffects
                 // primitives (base mage/ranger powers, un-migrated fusion pairs) and for
-                // AbilityManager ults ('ult' — exact FX is Task C2). withFxReplay stops
-                // aoeBurst's own 'pe' broadcast from echoing back to the sender.
-                const element = (m.hint ?? 'physical') as PowerElement;
+                // 'ult' hints that are unknown/malformed (or plain elements: dash, legacy
+                // ults). withFxReplay stops aoeBurst's own 'pe' broadcast from echoing
+                // back to the sender.
+                const PE_ELEMENTS: PowerElement[] = ['fire', 'ice', 'arcane', 'physical', 'storm'];
+                const element = PE_ELEMENTS.includes(m.hint as PowerElement)
+                    ? m.hint as PowerElement
+                    : (m.kind === 'ult' ? 'arcane' : 'physical');
                 const scene = this.scene;
                 withFxReplay(() => aoeBurst(scene, [], m.x, m.z, { radius: m.kind === 'ult' ? 3.5 : 2, damage: 0, element }));
                 break;
             }
+            case 'ultStart':
+                this.startRemoteUltChannel(m);
+                break;
+            case 'ultStop':
+                // hint = ability id; dispose() also clears the safety timer + map entry.
+                if (m.hint) this.coopUltChannels.get(m.hint)?.dispose();
+                break;
+            case 'abilityClip':
+                this.replayRemoteAbilityClip(m);
+                break;
             case 'pe': {
                 // Exact power-FX replication (M6 C1): re-run the teammate's PowerEffects
                 // primitive with enemies=[] and zero damage/status — pure cosmetics.
@@ -1937,6 +1981,108 @@ export class SurvivorsGameplayState implements GameState {
                         break; // unknown primitive name — ignore
                 }
             });
+        } catch { /* malformed remote hint — drop silently */ }
+    }
+
+    /** M6 C2: parse + replay one EXACT one-shot manual-ultimate visual. Same shape
+     *  as replayPrimitiveFx: explicit ability-id allowlist, sanitised/capped numeric
+     *  params, malformed hints dropped. The AbilityVisuals builders are the very
+     *  code the local cast renders with, minus all damage/CC — and they never emit
+     *  fx, so no withFxReplay wrap is needed. Returns false for non-JSON/unknown
+     *  hints so the caller falls back to the generic element burst. */
+    private replayUltimateFx(m: FxMsg): boolean {
+        const scene = this.scene;
+        if (!scene || !m.hint || !m.hint.startsWith('{')) return false;
+        try {
+            const h = JSON.parse(m.hint) as Record<string, unknown>;
+            switch (h.a) {
+                case 'meteor':
+                    // Same barrage scheduler as the local cast (5 strikes, 120ms
+                    // stagger, scatter ring); each replay strike is visual-only.
+                    // Strikes are setTimeout-staggered, so guard against the run
+                    // having ended before the late ones land.
+                    scheduleMeteorBarrage(new Vector3(m.x, 0, m.z), (target) => {
+                        if (this.scene === scene) createMeteorVisual(scene, target, 4);
+                    });
+                    return true;
+                case 'frostNova':
+                    createFrostNovaVisual(scene); // arena-wide, parameterless
+                    return true;
+                case 'smash':
+                    spawnSmashShockwave(scene, new Vector3(m.x, 0, m.z));
+                    return true;
+                case 'expArrow': {
+                    // Flight to the FIXED point the caster locked at spawn (exact),
+                    // then the blast visual at the impact point.
+                    const r = typeof h.r === 'number' && Number.isFinite(h.r) && h.r > 0
+                        ? Math.min(h.r, 8) : 3;
+                    spawnExplosiveArrowFlight(scene, new Vector3(m.x, 0, m.z),
+                        new Vector3(m.tx ?? m.x, 1.0, m.tz ?? m.z),
+                        (impact) => { if (this.scene === scene) spawnExplosionVisual(scene, impact, r); });
+                    return true;
+                }
+                default:
+                    return false; // unknown ability id → generic burst fallback
+            }
+        } catch { return false; }
+    }
+
+    /** M6 C2: start a cosmetic channelled-ultimate replay (whirlwind hurricane /
+     *  multishot volley) that follows the ghost's interpolated position each frame.
+     *  Lifecycle is airtight: 'ultStop' disposes; a duration+2s safety timeout
+     *  catches a lost stop; exit()/host-solo detach dispose whatever remains. */
+    private startRemoteUltChannel(m: FxMsg): void {
+        const scene = this.scene;
+        if (!scene || !m.hint) return;
+        try {
+            const h = JSON.parse(m.hint) as Record<string, unknown>;
+            const ability = h.a;
+            if (ability !== 'whirlwind' && ability !== 'multishot') return;
+            // One concurrent channel per ability per (single) peer — restart replaces.
+            this.coopUltChannels.get(ability)?.dispose();
+            const d = typeof h.d === 'number' && Number.isFinite(h.d) && h.d > 0 ? Math.min(h.d, 10) : 5;
+            const r = typeof h.r === 'number' && Number.isFinite(h.r) && h.r > 0 ? Math.min(h.r, 20) : 7;
+            // Follow the ghost each frame; until it exists (champ still loading) the
+            // cast point anchors the visual.
+            const fallback = new Vector3(m.x, 0, m.z);
+            const channel = startCosmeticUltChannel(
+                scene, ability,
+                () => this.coopGhost?.getPosition() ?? fallback,
+                () => (this.coopGhost as unknown as { mesh: { rotation: { y: number } } | null } | null)?.mesh?.rotation.y ?? 0,
+                d, r,
+            );
+            const timer = window.setTimeout(() => entry.dispose(), (d + 2) * 1000);
+            const entry = {
+                dispose: () => {
+                    window.clearTimeout(timer);
+                    channel.dispose(); // idempotent
+                    this.coopUltChannels.delete(ability);
+                },
+            };
+            this.coopUltChannels.set(ability, entry);
+        } catch { /* malformed remote hint — drop silently */ }
+    }
+
+    /** M6 C2: dispose every active cosmetic ult channel (state exit / peer detach). */
+    private disposeUltChannels(): void {
+        for (const c of Array.from(this.coopUltChannels.values())) c.dispose();
+        this.coopUltChannels.clear();
+    }
+
+    /** M6 C2: play the teammate's exact ability body clip on the ghost. The suffix
+     *  is allowlisted against the clips we ourselves can send (COOP_ABILITY_CLIP_
+     *  SUFFIXES); duration/speed are capped. playAbilityClip itself no-ops safely
+     *  when the ghost's rig has no matching clip (e.g. different champion). */
+    private replayRemoteAbilityClip(m: FxMsg): void {
+        if (!m.hint || !this.coopGhost) return;
+        try {
+            const h = JSON.parse(m.hint) as Record<string, unknown>;
+            if (typeof h.s !== 'string' || !COOP_ABILITY_CLIP_SUFFIXES.has(h.s)) return;
+            const d = typeof h.d === 'number' && Number.isFinite(h.d) && h.d > 0
+                ? Math.min(h.d, 10) : undefined;
+            const sp = typeof h.sp === 'number' && Number.isFinite(h.sp)
+                ? Math.min(Math.max(h.sp, 0.1), 5) : 1.0;
+            this.coopGhost.playAbilityClip(h.s, d, sp);
         } catch { /* malformed remote hint — drop silently */ }
     }
 
@@ -2094,6 +2240,7 @@ export class SurvivorsGameplayState implements GameState {
         this.coopGhost?.dispose();
         this.coopGhost = null;
         this.coopGhostPending = false;
+        this.disposeUltChannels(); // M6 C2: tear down any in-flight cosmetic ult channel
         // Part D: reset host-tracked guest-hero HP state and providers array.
         this.guestHeroHp = 0;
         this.guestHeroMaxHp = 0;
@@ -2292,10 +2439,15 @@ export class SurvivorsGameplayState implements GameState {
                 const ranim = this.coopSession.getRemoteAnim();
                 const ghostAnimApi = this.coopGhost as unknown as {
                     triggerAttack?: (t?: Vector3) => void; triggerSpecial?: () => void;
+                    isSpecialActive?: () => boolean;
                 };
                 if (ranim !== this._coopGhostLastAnim) {
-                    if (ranim === 3) ghostAnimApi.triggerSpecial?.();
-                    else if (ranim === 2) ghostAnimApi.triggerAttack?.();
+                    // M6 C2: when an exact ability clip (fx 'abilityClip') is already
+                    // driving the rig, isSpecialActive() is true — skip the generic
+                    // special pose so triggerSpecial doesn't stomp the real clip.
+                    if (ranim === 3) {
+                        if (!ghostAnimApi.isSpecialActive?.()) ghostAnimApi.triggerSpecial?.();
+                    } else if (ranim === 2) ghostAnimApi.triggerAttack?.();
                 }
                 this._coopGhostLastAnim = ranim;
 
