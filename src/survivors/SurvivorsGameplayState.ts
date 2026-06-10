@@ -51,7 +51,7 @@ import { capInputLen, arenaClampScale } from './integrateMove';
 import { NetClient } from '../net/NetClient';
 import type { NetTransport } from '../net/NetTransport';
 import { RoomService, PrivateRoomService } from '../net/RoomService';
-import { takePendingCoop } from './coop/PendingCoop';
+import { takePendingCoop, clearPendingCoop } from './coop/PendingCoop';
 import { ConnectionMachine } from '../net/ConnectionMachine';
 import { diffSnapshot } from '../net/SnapshotDelta';
 import { packEnemyFlags } from '../net/EnemyFlags';
@@ -346,6 +346,9 @@ export class SurvivorsGameplayState implements GameState {
      *  dispose() is idempotent and fires on 'ultStop', on a duration+2s safety
      *  timeout (in case the stop is lost), and on exit()/host-solo detach. */
     private coopUltChannels: Map<string, { dispose: () => void }> = new Map();
+    /** Once-only guard for the fx-dispatch failure warn (avoids log spam if a
+     *  whole backlog of malformed fx drains at once). Reset in exit(). */
+    private _fxDispatchWarned = false;
     private joystick: SurvivorsJoystick | null = null;
     private grass: ReturnType<typeof createProceduralGrass> | null = null;
     private shadowSourceLight: DirectionalLight | null = null;
@@ -1684,7 +1687,18 @@ export class SurvivorsGameplayState implements GameState {
         // elsewhere, so these carry no gameplay effect.
         setCoopFxEmit((kind, x, z, tx, tz, hint) =>
             this.coopSession?.sendFx({ t: 'fx', kind, x, z, tx, tz, hint }));
-        this.coopSession.onFx = (m) => this.playRemoteFx(m);
+        // Hardening: a malformed fx must never abort the backlog drain loop or
+        // the message pump — swallow, warn once (first failure, with the kind).
+        this.coopSession.onFx = (m) => {
+            try {
+                this.playRemoteFx(m);
+            } catch (e) {
+                if (!this._fxDispatchWarned) {
+                    this._fxDispatchWarned = true;
+                    console.warn(`[coop] fx dispatch failed (kind=${m.kind})`, e);
+                }
+            }
+        };
         // M3: wire guest enemy registry OR host spawn/death hooks.
         if (this.coopSession.role === 'guest') {
             // Once-only scene object: the GuestEnemies INSTANCE survives a re-wire
@@ -2433,6 +2447,10 @@ export class SurvivorsGameplayState implements GameState {
 
         this.coopSession?.dispose();
         this.coopSession = null;
+        // Hardening: drop any lobby stash that never reached startRun() (closes
+        // its un-consumed transport) so a stale handoff can't leak into a later run.
+        clearPendingCoop();
+        this._fxDispatchWarned = false;
         this.coopGhost?.dispose();
         this.coopGhost = null;
         this.coopGhostPending = false;

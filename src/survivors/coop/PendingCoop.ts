@@ -35,3 +35,13 @@ export function takePendingCoop(): PendingCoopConfig | null {
     pending = null;
     return cfg;
 }
+
+/** Drop any stashed-but-unconsumed session, closing its live transport. Cheap
+ *  hardening against stale handoffs — called from SurvivorsGameplayState.exit()
+ *  so a lobby stash that never reached startRun() can't leak a socket into a
+ *  later run. */
+export function clearPendingCoop(): void {
+    if (!pending) return;
+    try { pending.transport.close(); } catch { /* already closed — ignore */ }
+    pending = null;
+}
