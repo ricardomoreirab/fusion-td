@@ -547,6 +547,50 @@
 .lb-row:nth-child(even) { background: rgba(255, 255, 255, 0.04); }
 .lb-row--top { color: var(--c-gold-hi); }
 
+/* ── Co-op lobby ─────────────────────────────────────────── */
+.modal-panel--coop { width: min(520px, 92vw); }
+.coop-code-row { display: flex; gap: var(--s-2); align-items: center; justify-content: center; flex-wrap: wrap; }
+.coop-code {
+  font-family: 'Courier New', monospace;
+  font-weight: 700;
+  font-size: clamp(32px, 9vw, 52px);
+  line-height: 1.1;
+  letter-spacing: 0.18em;
+  text-indent: 0.18em;            /* recenters: letter-spacing pads only the right */
+  color: var(--c-gold-hi);
+  text-shadow: 0 2px 6px #000;
+  user-select: text;              /* the code must be selectable for manual copy */
+  -webkit-user-select: text;
+  cursor: text;
+  padding: var(--s-1) var(--s-3);
+  border: 1px dashed var(--c-gold-lo);
+  border-radius: var(--r-sm);
+  background: var(--c-stone-900);
+}
+.coop-copy-btn { font-size: var(--fs-200); padding: var(--s-2) var(--s-3); }
+@keyframes coop-wait-pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+.coop-wait { animation: coop-wait-pulse 1.6s ease-in-out infinite; }
+.coop-error { color: var(--c-blood); font-family: var(--ff-body); font-size: var(--fs-200); text-align: center; min-height: 1.2em; }
+.coop-link {
+  font-family: var(--ff-body); font-size: var(--fs-200);
+  color: var(--c-parchment-dim); text-decoration: underline;
+  cursor: pointer; text-align: center; align-self: center;
+  padding: var(--s-1) var(--s-2);
+}
+.coop-link:hover { color: var(--c-parchment); }
+.coop-join-row { display: flex; gap: var(--s-2); justify-content: center; align-items: stretch; flex-wrap: wrap; }
+.coop-code-input {
+  width: min(200px, 56vw);
+  font-family: 'Courier New', monospace;
+  font-weight: 700;
+  font-size: var(--fs-400);
+  text-align: center;
+  letter-spacing: 0.3em;
+  text-indent: 0.3em;
+  text-transform: uppercase;
+}
+
+/* ── Leaderboard submit row ──────────────────────────────── */
 .lb-submit { display: flex; gap: var(--s-2); justify-content: center; align-items: stretch; flex-wrap: wrap; margin-top: var(--s-2); }
 .lb-name-input {
   width: min(220px, 60vw);
