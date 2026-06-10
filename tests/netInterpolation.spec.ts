@@ -43,4 +43,35 @@ describe('PoseBuffer', () => {
         expect(b.sample(0)).toEqual(pose(8, 0));
         expect(b.sample(8)).toEqual(pose(8, 0));
     });
+
+    describe('speedAt', () => {
+        it('returns 0 with fewer than two samples', () => {
+            const b = new PoseBuffer();
+            expect(b.speedAt(100)).toBe(0);
+            b.push(100, pose(0, 0));
+            expect(b.speedAt(100)).toBe(0);
+        });
+
+        it('returns the XZ displacement rate of the bracketing segment', () => {
+            const b = new PoseBuffer();
+            b.push(0, pose(0, 0));
+            b.push(100, pose(3, 4)); // 5 units over 0.1s → 50 u/s
+            expect(b.speedAt(50)).toBeCloseTo(50);
+        });
+
+        it('returns 0 outside the buffered range (clamped pose is not moving)', () => {
+            const b = new PoseBuffer();
+            b.push(100, pose(0, 0));
+            b.push(200, pose(10, 0));
+            expect(b.speedAt(50)).toBe(0);
+            expect(b.speedAt(999)).toBe(0);
+        });
+
+        it('ignores vertical (y) motion', () => {
+            const b = new PoseBuffer();
+            b.push(0, { x: 0, y: 0, z: 0, ry: 0 });
+            b.push(1000, { x: 0, y: 5, z: 0, ry: 0 });
+            expect(b.speedAt(500)).toBe(0);
+        });
+    });
 });

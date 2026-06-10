@@ -49,4 +49,24 @@ export class PoseBuffer {
         }
         return { ...last.p };
     }
+
+    /** Horizontal speed (units/sec) of the buffered motion at render time `t`,
+     *  i.e. the XZ displacement rate of the segment sample(t) interpolates
+     *  across. 0 outside the buffered range — there the pose is clamped, not
+     *  moving. Allocation-free (called per enemy per frame on the guest). */
+    speedAt(t: number): number {
+        const s = this.samples;
+        if (s.length < 2 || t <= s[0].t || t >= s[s.length - 1].t) return 0;
+        for (let i = 0; i < s.length - 1; i++) {
+            const a = s[i], b = s[i + 1];
+            if (t >= a.t && t <= b.t) {
+                const dtMs = b.t - a.t;
+                if (dtMs <= 0) return 0;
+                const dx = b.p.x - a.p.x;
+                const dz = b.p.z - a.p.z;
+                return Math.sqrt(dx * dx + dz * dz) / (dtMs / 1000);
+            }
+        }
+        return 0;
+    }
 }

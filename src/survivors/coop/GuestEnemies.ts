@@ -88,11 +88,21 @@ export class GuestEnemies {
 
     /** Called EVERY frame with a render time slightly in the past (~100ms). Lerps
      *  each enemy toward its buffered position for smooth movement, exactly like
-     *  the champion ghost. Drives this.position too, so targeting sees it. */
-    interpolate(renderTimeMs: number): void {
+     *  the champion ghost. Drives this.position too, so targeting sees it.
+     *
+     *  Also drives the procedural (non-GLB) limb animation from the buffer's
+     *  speed estimate — the guest never ticks enemy AI (which is what animates
+     *  procedural parts on the host), so without this the procedural meshes
+     *  slide around as statues. `deltaTime` is the frame delta in seconds. */
+    interpolate(renderTimeMs: number, deltaTime: number): void {
         for (const [id, enemy] of this.byId) {
-            const p = this.buffers.get(id)?.sample(renderTimeMs);
-            if (p) enemy.applyNetworkPosition(p.x, p.y, p.z, p.ry);
+            const buf = this.buffers.get(id);
+            if (!buf) continue;
+            const p = buf.sample(renderTimeMs);
+            if (!p) continue;
+            enemy.applyNetworkPosition(p.x, p.y, p.z, p.ry);
+            // No-op for GLB enemies (net-driven clips animate those).
+            enemy.tickNetworkProceduralAnim(deltaTime, buf.speedAt(renderTimeMs));
         }
     }
 

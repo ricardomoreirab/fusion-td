@@ -512,48 +512,7 @@ export class TankEnemy extends Enemy {
 
         // Update scuttling animation
         if (!this.isFrozen && !this.isStunned && this.currentPathIndex < this.path.length) {
-            this.stompTime += deltaTime * 4; // Moderate speed for heavy scuttling
-
-            if (this.mesh) {
-                // Heavy body: slow vertical stomp with slight forward pitch
-                const verticalStomp = Math.abs(Math.sin(this.stompTime * 2)) * 0.08;
-                this.mesh.position.y = this.position.y + 0.35 + verticalStomp;
-
-                // Slight body pitch forward and back (like a charging beetle)
-                this.mesh.rotation.x = Math.sin(this.stompTime) * 0.04;
-
-                // Minimal side-to-side rock
-                this.mesh.rotation.z = Math.sin(this.stompTime * 0.5) * 0.03;
-            }
-
-            // Animate 6 legs: alternating tripod gait (left-front, right-mid, left-back move together)
-            for (let i = 0; i < this.legs.length; i++) {
-                const leg = this.legs[i];
-                // Even-indexed legs (left-front, right-mid, left-back) vs odd-indexed
-                const phase = (i % 2 === 0) ? 0 : Math.PI;
-                // Legs pump up and down and rotate slightly
-                leg.rotation.z = leg.position.x > 0
-                    ? -0.3 + Math.sin(this.stompTime * 3 + phase) * 0.20
-                    : 0.3 + Math.sin(this.stompTime * 3 + phase) * 0.20;
-            }
-
-            // Mandibles: open-close clacking
-            if (this.mandibleLeft && this.mandibleRight) {
-                const clack = Math.sin(this.stompTime * 2.5) * 0.15;
-                this.mandibleLeft.rotation.z = 0.4 + clack;
-                this.mandibleRight.rotation.z = -0.4 - clack;
-            }
-
-            // Shell ridge plates: subtle vibration
-            for (let i = 0; i < this.rocks.length; i++) {
-                const ridge = this.rocks[i];
-                ridge.position.y = 0.28 + Math.sin(this.stompTime * 3 + i * 1.5) * 0.008;
-            }
-
-            // Shell: very subtle breathing
-            if (this.shellTop) {
-                this.shellTop.scaling.y = 0.50 + Math.sin(this.stompTime * 1.5) * 0.02;
-            }
+            this.animateProceduralParts(deltaTime);
 
             // Face direction of movement
             if (this.currentPathIndex < this.path.length) {
@@ -569,6 +528,54 @@ export class TankEnemy extends Enemy {
         }
 
         return result;
+    }
+
+    /** Beetle scuttle pose — advances the stomp phase and animates the body,
+     *  tripod legs, mandibles, and shell. Called by update() while scuttling
+     *  and by tickNetworkProceduralAnim on the guest. */
+    protected animateProceduralParts(deltaTime: number): void {
+        this.stompTime += deltaTime * 4; // Moderate speed for heavy scuttling
+
+        if (this.mesh) {
+            // Heavy body: slow vertical stomp with slight forward pitch
+            const verticalStomp = Math.abs(Math.sin(this.stompTime * 2)) * 0.08;
+            this.mesh.position.y = this.position.y + 0.35 + verticalStomp;
+
+            // Slight body pitch forward and back (like a charging beetle)
+            this.mesh.rotation.x = Math.sin(this.stompTime) * 0.04;
+
+            // Minimal side-to-side rock
+            this.mesh.rotation.z = Math.sin(this.stompTime * 0.5) * 0.03;
+        }
+
+        // Animate 6 legs: alternating tripod gait (left-front, right-mid, left-back move together)
+        for (let i = 0; i < this.legs.length; i++) {
+            const leg = this.legs[i];
+            // Even-indexed legs (left-front, right-mid, left-back) vs odd-indexed
+            const phase = (i % 2 === 0) ? 0 : Math.PI;
+            // Legs pump up and down and rotate slightly
+            leg.rotation.z = leg.position.x > 0
+                ? -0.3 + Math.sin(this.stompTime * 3 + phase) * 0.20
+                : 0.3 + Math.sin(this.stompTime * 3 + phase) * 0.20;
+        }
+
+        // Mandibles: open-close clacking
+        if (this.mandibleLeft && this.mandibleRight) {
+            const clack = Math.sin(this.stompTime * 2.5) * 0.15;
+            this.mandibleLeft.rotation.z = 0.4 + clack;
+            this.mandibleRight.rotation.z = -0.4 - clack;
+        }
+
+        // Shell ridge plates: subtle vibration
+        for (let i = 0; i < this.rocks.length; i++) {
+            const ridge = this.rocks[i];
+            ridge.position.y = 0.28 + Math.sin(this.stompTime * 3 + i * 1.5) * 0.008;
+        }
+
+        // Shell: very subtle breathing
+        if (this.shellTop) {
+            this.shellTop.scaling.y = 0.50 + Math.sin(this.stompTime * 1.5) * 0.02;
+        }
     }
 
     /**

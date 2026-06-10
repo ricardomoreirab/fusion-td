@@ -2312,7 +2312,7 @@ export class SurvivorsGameplayState implements GameState {
                         this._coopDbgSnaps++;
                         this.guestEnemies.pushSnapshot(snap.enemies, performance.now());
                     }
-                    this.guestEnemies.interpolate(performance.now() - 100);
+                    this.guestEnemies.interpolate(performance.now() - 100, dt);
                     this.guestEnemies.tickVisuals(dt); // ease HP bars between snapshots
                 }
                 // DIAGNOSTIC (guest, ~1/s): is anything within the hero's attack

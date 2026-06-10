@@ -340,44 +340,7 @@ export class HealerEnemy extends Enemy {
 
         // Update walking animation
         if (!this.isFrozen && !this.isStunned && this.currentPathIndex < this.path.length && this.mesh) {
-            this.walkTime += deltaTime * 4; // Gentle pace for a mystic
-
-            // Gentle float/bob: shaman hovers slightly as it walks
-            const bobAmount = Math.sin(this.walkTime * 0.8) * 0.08;
-            this.mesh.position.y = this.position.y + 0.7 + bobAmount;
-
-            // Subtle body sway
-            this.mesh.rotation.z = Math.sin(this.walkTime * 0.5) * 0.05;
-
-            // Head: slow mystical scanning
-            if (this.head) {
-                this.head.rotation.y = Math.sin(this.walkTime * 0.6) * 0.12;
-                this.head.rotation.x = Math.sin(this.walkTime * 0.4) * 0.04;
-            }
-
-            // Left arm: gentle sway
-            if (this.leftArm) {
-                this.leftArm.rotation.x = Math.sin(this.walkTime * 0.7 + Math.PI) * 0.20;
-            }
-
-            // Right arm + staff: sway with staff motion
-            if (this.rightArm) {
-                this.rightArm.rotation.x = Math.sin(this.walkTime * 0.7) * 0.15;
-                this.rightArm.rotation.z = 0.1 + Math.sin(this.walkTime * 0.5) * 0.05;
-            }
-
-            // Staff orb: pulsing glow scale
-            if (this.staffOrb) {
-                const orbPulse = 0.9 + Math.sin(this.walkTime * 2.0) * 0.2;
-                this.staffOrb.scaling = new Vector3(orbPulse, orbPulse, orbPulse);
-            }
-
-            // Aura ring: pulsing scale and gentle rotation
-            if (this.auraRing) {
-                const auraPulse = 0.85 + Math.sin(this.walkTime * 1.5) * 0.2;
-                this.auraRing.scaling = new Vector3(auraPulse, 1.0, auraPulse);
-                this.auraRing.rotation.y += deltaTime * 1.2;
-            }
+            this.animateProceduralParts(deltaTime);
 
             // Face direction of movement
             if (this.currentPathIndex < this.path.length) {
@@ -393,6 +356,51 @@ export class HealerEnemy extends Enemy {
         }
 
         return result;
+    }
+
+    /** Shaman float/bob pose — advances the walk phase and animates the body,
+     *  head, arms, staff orb, and aura ring. Called by update() while moving
+     *  and by tickNetworkProceduralAnim on the guest. */
+    protected animateProceduralParts(deltaTime: number): void {
+        if (!this.mesh) return;
+        this.walkTime += deltaTime * 4; // Gentle pace for a mystic
+
+        // Gentle float/bob: shaman hovers slightly as it walks
+        const bobAmount = Math.sin(this.walkTime * 0.8) * 0.08;
+        this.mesh.position.y = this.position.y + 0.7 + bobAmount;
+
+        // Subtle body sway
+        this.mesh.rotation.z = Math.sin(this.walkTime * 0.5) * 0.05;
+
+        // Head: slow mystical scanning
+        if (this.head) {
+            this.head.rotation.y = Math.sin(this.walkTime * 0.6) * 0.12;
+            this.head.rotation.x = Math.sin(this.walkTime * 0.4) * 0.04;
+        }
+
+        // Left arm: gentle sway
+        if (this.leftArm) {
+            this.leftArm.rotation.x = Math.sin(this.walkTime * 0.7 + Math.PI) * 0.20;
+        }
+
+        // Right arm + staff: sway with staff motion
+        if (this.rightArm) {
+            this.rightArm.rotation.x = Math.sin(this.walkTime * 0.7) * 0.15;
+            this.rightArm.rotation.z = 0.1 + Math.sin(this.walkTime * 0.5) * 0.05;
+        }
+
+        // Staff orb: pulsing glow scale
+        if (this.staffOrb) {
+            const orbPulse = 0.9 + Math.sin(this.walkTime * 2.0) * 0.2;
+            this.staffOrb.scaling = new Vector3(orbPulse, orbPulse, orbPulse);
+        }
+
+        // Aura ring: pulsing scale and gentle rotation
+        if (this.auraRing) {
+            const auraPulse = 0.85 + Math.sin(this.walkTime * 1.5) * 0.2;
+            this.auraRing.scaling = new Vector3(auraPulse, 1.0, auraPulse);
+            this.auraRing.rotation.y += deltaTime * 1.2;
+        }
     }
 
     /**

@@ -2087,6 +2087,44 @@ export class Enemy {
         }
     }
 
+    /** Below this interpolated speed (units/s) the guest's procedural walk
+     *  cycle pauses — mirrors the host freezing the walk pose when an enemy
+     *  isn't actually moving (rooted mid-swing, snapshot stall, knock pause). */
+    private static readonly NET_ANIM_MIN_SPEED = 0.05;
+
+    /**
+     * Guest-only: advance the procedural limb animation from the interpolated
+     * network motion. The guest never ticks enemy AI (update()), which is what
+     * animates procedural parts on the host — without this, non-GLB enemies
+     * (procedural Boss / fallback meshes) slide around as frozen statues.
+     *
+     * No-op for GLB enemies (their net-driven clips via _applyNetworkAnim
+     * already animate them) and while frozen/stunned or (near) stationary.
+     * `speed` is the horizontal speed estimate from the interpolation buffer.
+     * NEVER called on the host — its update() drives the same pose helper
+     * directly, so single-player behaviour is untouched.
+     */
+    public tickNetworkProceduralAnim(deltaTime: number, speed: number): void {
+        if (this.glbAnimationGroups.length > 0) return; // GLB: clips drive it
+        if (!this.alive || !this.mesh || this.mesh.isDisposed()) return;
+        // While frozen/stunned or (near) stationary, HOLD the pose rather than
+        // skip it: applyNetworkPosition rewrites mesh.position from the
+        // ground-level network y every frame, so the pose pass must still run
+        // to re-apply the body-height offset. dt=0 leaves the walk phase (and
+        // thus the stance) unchanged — mirroring the host, which freezes the
+        // pose by returning before its mesh-position copy.
+        const hold = this.isFrozen || this.isStunned || speed < Enemy.NET_ANIM_MIN_SPEED;
+        this.animateProceduralParts(hold ? 0 : deltaTime);
+    }
+
+    /** One frame of procedural part animation: advance the subclass's walk
+     *  phase and pose its limbs. Shared entry point — the host's update()
+     *  calls it inside its own movement/CC gates, and the guest calls it via
+     *  tickNetworkProceduralAnim. Base class has no procedural parts. */
+    protected animateProceduralParts(_deltaTime: number): void {
+        // Subclasses with procedural part animation override this.
+    }
+
     /**
      * Guest-only death (driven by a host DeathMsg): play the GLB `<prefix>_dead`
      * clip, linger, then release through the same leak-safe path as a host kill

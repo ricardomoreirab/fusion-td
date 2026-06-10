@@ -378,16 +378,22 @@ export class BossEnemy extends Enemy {
     public update(deltaTime: number): boolean {
         if (!this.alive || !this.mesh) return false;
 
-        // Update animation time
-        this.animationTime += deltaTime;
-
-        // Animate parts
-        this.animateParts(deltaTime);
+        // Advance animation time + animate parts
+        this.animateProceduralParts(deltaTime);
 
         // Call parent update method (handles movement, status effects, and the
         // melee-swing state machine — which calls onMeleeAttackPhase below for
         // the boss's overhead claw animation).
         return super.update(deltaTime);
+    }
+
+    /** Titan walk pose — advances the animation phase and animates the body,
+     *  legs, head, jaw, arms, crystals, and orbiting wisps. Called by update()
+     *  every frame and by tickNetworkProceduralAnim on the guest (the guest's
+     *  non-milestone boss is always the procedural mesh). */
+    protected animateProceduralParts(deltaTime: number): void {
+        this.animationTime += deltaTime;
+        this.animateParts(deltaTime);
     }
 
     /** Overrides animateParts' idle arm sway with the swing pose while attacking. */
