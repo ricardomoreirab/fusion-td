@@ -14,6 +14,10 @@ export class WebSocketTransport implements NetTransport {
     private backlog: IncomingMessage[] = [];
     private closeHandler: (() => void) | null = null;
     private closedByUs = false;
+    /** The socket dropped unexpectedly BEFORE onClose was registered (possible in
+     *  the lobby→game handoff gap, e.g. the peer's host quits while we sit in
+     *  champion select). Remembered so a late onClose(cb) still fires. */
+    private droppedBeforeHandler = false;
 
     private constructor(ws: WebSocket, role: NetRole) {
         this.ws = ws;
@@ -32,12 +36,21 @@ export class WebSocketTransport implements NetTransport {
         });
         // M5-5: surface an unexpected drop (not our own close()) so the game can try
         // to resume the slot within the Room DO's grace window.
-        ws.addEventListener('close', () => { if (!this.closedByUs) this.closeHandler?.(); });
+        ws.addEventListener('close', () => {
+            if (this.closedByUs) return;
+            if (this.closeHandler) this.closeHandler();
+            else this.droppedBeforeHandler = true;
+        });
     }
 
-    /** M5-5: called once when the socket drops unexpectedly (network / server). */
+    /** M5-5: called once when the socket drops unexpectedly (network / server).
+     *  If the drop already happened (lobby→game handoff gap), fires immediately. */
     onClose(cb: () => void): void {
         this.closeHandler = cb;
+        if (this.droppedBeforeHandler) {
+            this.droppedBeforeHandler = false;
+            cb();
+        }
     }
 
     /**
@@ -80,10 +93,14 @@ export class WebSocketTransport implements NetTransport {
         for (const m of q) cb(m);
     }
 
-    /** Lobby → game handoff: detach the handler so incoming frames buffer in the
-     *  backlog again until the game's NetClient installs its own onMessage. */
+    /** Lobby → game handoff: detach BOTH lobby handlers. Incoming frames buffer
+     *  in the backlog again until the game's NetClient installs its onMessage,
+     *  and an unexpected drop in the gap is remembered (droppedBeforeHandler)
+     *  so the game's later onClose(cb) still fires — instead of the drop being
+     *  swallowed by the lobby's stale, gen-gated handler. */
     offMessage(): void {
         this.handler = null;
+        this.closeHandler = null;
     }
 
     close(): void {

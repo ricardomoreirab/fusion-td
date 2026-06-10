@@ -19,10 +19,12 @@ export interface NetTransport {
     readonly role: NetRole;
     send(channel: Channel, data: WireData): void;
     onMessage(cb: (msg: IncomingMessage) => void): void;
-    /** Detach the current onMessage handler and return to backlog buffering.
-     *  Used by the menu lobby when handing a live transport to the game: frames
-     *  arriving between the handoff and NetClient's onMessage are buffered, not
-     *  delivered to a dead lobby handler. Optional — only the lobby needs it. */
+    /** Detach the current onMessage AND onClose handlers, returning to pre-attach
+     *  buffering. Used by the menu lobby when handing a live transport to the
+     *  game: frames arriving between the handoff and NetClient's onMessage are
+     *  backlogged (not delivered to a dead lobby handler), and an unexpected drop
+     *  in that gap replays into the game's later onClose registration. Optional —
+     *  only the lobby needs it. */
     offMessage?(): void;
     /** M5-5: fired once on an unexpected drop (not a deliberate close()). Optional —
      *  the FakeTransport test double doesn't model network loss. */
