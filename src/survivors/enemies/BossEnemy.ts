@@ -496,24 +496,17 @@ export class BossEnemy extends Enemy {
     }
 
     /**
-     * Override die() to also clean up orbiting wisps (not parented to mesh)
+     * Free the orbiting wisps — NOT parented to this.mesh (positioned in world
+     * coords by animateParts), so the base mesh-tree release never reaches them.
+     * Runs on every disposal path (die/disposeCorpse/dispose — the corpse path is
+     * the ONLY one guest enemies take). Idempotent: the array is emptied.
+     * dispose(false, true) also frees each wisp's uniquely-owned 'bossOrbitMatN'
+     * StandardMaterial, which a default dispose() would strand in scene.materials.
      */
-    protected die(): void {
-        this.disposeOrbitingWisps();
-        super.die();
-    }
-
-    /**
-     * Clean up resources including orbiting wisps (not parented to mesh)
-     */
-    public dispose(): void {
-        this.disposeOrbitingWisps();
-        super.dispose();
-    }
-
-    private disposeOrbitingWisps(): void {
+    protected disposeAuxVisuals(): void {
+        super.disposeAuxVisuals();
         for (const orb of this.orbitingWisps) {
-            if (!orb.isDisposed()) orb.dispose();
+            if (!orb.isDisposed()) orb.dispose(false, true);
         }
         this.orbitingWisps = [];
     }

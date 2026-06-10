@@ -564,27 +564,14 @@ export class FastEnemy extends Enemy {
      *  Ghosts are NOT parented to this.mesh, so the base mesh dispose never
      *  reaches them; dispose(false, true) also frees the uniquely-named
      *  'fastGhostMat' that default dispose() would strand in scene.materials.
+     *  Runs on every disposal path (die/disposeCorpse/dispose — the corpse path
+     *  is the ONLY one guest enemies take). Idempotent: the array is emptied.
      *  No-op on the GLB path (ghostTrails is empty there). */
-    private disposeGhostTrails(): void {
+    protected disposeAuxVisuals(): void {
+        super.disposeAuxVisuals();
         for (const ghost of this.ghostTrails) {
             if (!ghost.isDisposed()) ghost.dispose(false, true);
         }
         this.ghostTrails = [];
-    }
-
-    /** In-combat death path. The base die() → corpse → disposeCorpse only frees
-     *  this.mesh + its children; the unparented ghost trails would otherwise leak
-     *  (mesh + material) on every kill. */
-    protected die(): void {
-        this.disposeGhostTrails();
-        super.die();
-    }
-
-    /**
-     * Clean up ghost trail meshes in addition to base cleanup (teardown path).
-     */
-    public dispose(): void {
-        this.disposeGhostTrails();
-        super.dispose();
     }
 }

@@ -605,14 +605,12 @@ export class MilestoneBoss extends BossEnemy {
         super.applyKnockback(dirX, dirZ, magnitude);
     }
 
-    /** Dispose owned visuals not parented to mesh. */
-    public dispose(): void {
+    /** Free the telegraph ring — NOT parented to this.mesh, so the base mesh-tree
+     *  release never reaches it. Runs on every disposal path (die/disposeCorpse/
+     *  dispose — the corpse path is the ONLY one guest enemies take). Idempotent
+     *  (disposeTelegraphRing nulls the ref); BossEnemy's override frees the wisps. */
+    protected disposeAuxVisuals(): void {
+        super.disposeAuxVisuals();
         this.disposeTelegraphRing();
-        super.dispose();
-    }
-
-    protected die(): void {
-        this.disposeTelegraphRing();
-        super.die();
     }
 }

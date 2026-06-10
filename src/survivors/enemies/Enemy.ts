@@ -1414,6 +1414,16 @@ export class Enemy {
      * scene._activeAnimatables climbed into the thousands with only a few enemies
      * alive, producing multi-second stop-the-world freezes by wave 4+.
      */
+    /**
+     * Free subclass-owned aux visuals that are NOT parented to this.mesh (boss
+     * orbiting wisps, fast-enemy ghost trails, milestone-boss telegraphs, …), so
+     * the mesh-tree release below can't reach them. Overrides MUST be idempotent:
+     * this hook runs on EVERY disposal path — die() (host kill), disposeCorpse()
+     * (corpse release; the ONLY path guest enemies take), and dispose() (teardown).
+     * Base implementation is a no-op.
+     */
+    protected disposeAuxVisuals(): void { /* subclass hook */ }
+
     protected _releaseMeshAndAnimations(): void {
         // Stop + dispose every AnimationGroup that GLB instantiation cloned for
         // this enemy, or the animatables keep running every frame after the mesh
@@ -1500,6 +1510,10 @@ export class Enemy {
 
         // Tear down any in-progress melee swing.
         this.cancelMeleeAttack();
+
+        // Unparented aux visuals (wisps/ghost trails/telegraphs) die with the
+        // enemy, not with the lingering corpse.
+        this.disposeAuxVisuals();
 
         // Create death effect (particle burst + reward float text + sound). Runs
         // while the mesh is still present so subclass effects that read it work.
@@ -1627,6 +1641,9 @@ export class Enemy {
             this._netCorpseObserver = null;
         }
         this.corpseTimeRemaining = 0;
+        // Guest enemies are freed via disposeCorpse() ONLY (never die()/dispose()),
+        // so unparented aux visuals must be released here too (idempotent).
+        this.disposeAuxVisuals();
         this._releaseMeshAndAnimations();
         this._disposeHealthBarMeshes();   // also free the health bar (idempotent; safe after die())
         const done = this._netCorpseOnDisposed;
@@ -1774,6 +1791,9 @@ export class Enemy {
         // Restore any in-progress hit-flash before tearing materials down, so a
         // shared cached material isn't left stuck on HIT_TINT.
         this._restoreFlash();
+
+        // Unparented aux visuals (idempotent — a die()d enemy already freed them).
+        this.disposeAuxVisuals();
 
         // Release the mesh together with its cloned AnimationGroups + per-instance
         // materials (shared with die() so a kill frees the same resources).
