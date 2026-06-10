@@ -14,13 +14,13 @@ export type EnemyAssetResolver = (type: string) => AssetContainer | null;
  * Never ticks AI — driven entirely by host snapshots + spawn/death events.
  *
  * Lifecycle:
- *   spawn()         — called on a host SpawnMsg; constructs the concrete enemy
- *                     mesh and registers it by id.
- *   applySnapshot() — called each tick; drives position/rotation/HP for every
- *                     known enemy and defensively removes stale ones.
- *   death()         — called on a host DeathMsg; plays the death clip, then the
- *                     corpse disposes itself via the leak-safe path.
- *   clear()         — called on run exit; disposes all remaining instances.
+ *   spawn()        — called on a host SpawnMsg; constructs the concrete enemy
+ *                    mesh and registers it by id.
+ *   pushSnapshot() — called on each NEW host snapshot; drives position
+ *                    interpolation buffers and HP/flag state for every known id.
+ *   death()        — called on a host DeathMsg; plays the death clip, then the
+ *                    corpse disposes itself via the leak-safe path.
+ *   clear()        — called on run exit; disposes all remaining instances.
  */
 export class GuestEnemies {
     private byId = new Map<number, Enemy>();
@@ -32,6 +32,10 @@ export class GuestEnemies {
      *  drive them) but not yet released. Tracked so clear() on run exit can
      *  disposeCorpse() them immediately instead of leaving a pending self-tick. */
     private lingering = new Set<Enemy>();
+    /** Mirror of EnemyManager.MAX_CORPSES — caps simultaneous skinned death-anim
+     *  corpses on the guest so an AoE wipe can't pile up unbounded meshes/skeletons
+     *  and stall the frame (same freeze hazard the host guards against). */
+    private static readonly MAX_CORPSES = 16;
 
     constructor(private game: Game, private assetFor: EnemyAssetResolver = () => null) {}
 
@@ -114,6 +118,13 @@ export class GuestEnemies {
         // the `<prefix>_dead` clip + linger finish (immediate for procedural
         // enemies with no GLB clips).
         this.lingering.add(e);
+        // Evict oldest corpses when the cap is exceeded. Sets iterate in insertion
+        // order, so the first entry is the oldest. disposeCorpse() is idempotent and
+        // triggers the onDisposed callback which prunes the entry from lingering.
+        while (this.lingering.size > GuestEnemies.MAX_CORPSES) {
+            const oldest = this.lingering.values().next().value!;
+            oldest.disposeCorpse();
+        }
         e.playDeathAnimThenDispose(() => this.lingering.delete(e));
     }
 

@@ -2049,7 +2049,12 @@ export class Enemy {
      * `onDisposed` fires exactly once when the corpse is finally released.
      */
     public playDeathAnimThenDispose(onDisposed?: () => void): void {
-        if (!this.alive) return; // already a corpse / disposed
+        if (!this.alive) {
+            // Already a corpse / disposed — honour the contract: caller's lingering
+            // entry must still be pruned so it doesn't pin the Set indefinitely.
+            onDisposed?.();
+            return;
+        }
         this.alive = false;
         this._netCorpseOnDisposed = onDisposed ?? null;
 
