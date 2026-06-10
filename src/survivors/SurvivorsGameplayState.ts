@@ -48,6 +48,7 @@ import {
 } from './abilities/AbilityVisuals';
 import { reconcilePosition } from './coop/reconcile';
 import { NetClient } from '../net/NetClient';
+import type { NetTransport } from '../net/NetTransport';
 import { RoomService, PrivateRoomService } from '../net/RoomService';
 import { ConnectionMachine } from '../net/ConnectionMachine';
 import { diffSnapshot } from '../net/SnapshotDelta';
@@ -695,183 +696,7 @@ export class SurvivorsGameplayState implements GameState {
                     if (code.length !== 6) return;
                     this._roomCode = code;
                     const transport = await room.connect(code);
-                    this.coopSession = new CoopSession(new NetClient(transport), localChamp);
-                    console.log(`[coop] connected as ${this.coopSession.role}`);
-                    // M5-5/6: an unexpected drop of OUR socket, or the relay telling us the
-                    // OTHER peer left, both start the grace-window countdown UX.
-                    transport.onClose?.(() => this.onConnectionLost());
-                    this.coopSession.onPeerLeft = () => this.onConnectionLost();
-                    // Cosmetic-FX replication (both roles): broadcast the local hero's
-                    // combat visuals + replay the teammate's. Damage is authoritative
-                    // elsewhere, so these carry no gameplay effect.
-                    setCoopFxEmit((kind, x, z, tx, tz, hint) =>
-                        this.coopSession?.sendFx({ t: 'fx', kind, x, z, tx, tz, hint }));
-                    this.coopSession.onFx = (m) => this.playRemoteFx(m);
-                    // M3: wire guest enemy registry OR host spawn/death hooks.
-                    if (this.coopSession.role === 'guest') {
-                        this.guestEnemies = new GuestEnemies(this.game, getCachedEnemyAsset);
-                        this.coopSession.onSpawn = (m) => { this._coopDbgSpawns++; this.guestEnemies?.spawn(m); };
-                        this.coopSession.onDeath = (m) => {
-                            this._coopDbgDeaths++;
-                            this.guestEnemies?.death(m.id);
-                            // Share death feedback the host produces (DeathMsg carries x/z/
-                            // reward/eliteElement): a gold reward float + a small cosmetic
-                            // death poof, so on the guest enemies don't just silently vanish.
-                            if (this.scene) {
-                                if (m.reward > 0) this.damageNumbers?.showReward(new Vector3(m.x, 0, m.z), m.reward);
-                                // withFxReplay: this burst is itself a replay of a host
-                                // event — without the guard, aoeBurst's 'pe' broadcast
-                                // would echo a phantom ring back to the host.
-                                const scene = this.scene;
-                                withFxReplay(() => aoeBurst(scene, [], m.x, m.z, { radius: m.isElite ? 1.6 : 0.9, damage: 0, element: (m.eliteElement ?? 'physical') as PowerElement }));
-                            }
-                            // M4-10 (per-player orbs): the guest gets its OWN power orb on
-                            // each elite death — magnets to the guest hero, and picking it up
-                            // raises the guest's local (non-blocking) power-choice. Fully
-                            // independent of the host's orb; both players grow their own build.
-                            if (m.eliteElement && this.scene && this.hero) {
-                                const drop = new PowerDrop(
-                                    this.scene,
-                                    new Vector3(m.x, 0, m.z),
-                                    m.eliteElement,
-                                    () => this.hero!.getPosition(),
-                                    { pickupRadius: 1.5, magnetRadius: 4, magnetSpeed: 12, onPickup: (el) => this.onOrbPickup(el) },
-                                );
-                                this.powerDrops.push(drop);
-                            }
-                        };
-                        // M3b: guest basic-attack reports hits to the host instead of
-                        // mutating enemy HP locally. The target/enemy providers themselves
-                        // are wired role-aware in startRun (see activeAttackEnemies /
-                        // getNearestEnemy) — they read GuestEnemies at call time, so we do
-                        // NOT set them here (doing so raced with, and was clobbered by,
-                        // startRun's own setTargetProvider/setEnemyProvider once the GLB
-                        // load awaits resolved, leaving the guest unable to acquire a target).
-                        const ba = this.heroController?.getBasicAttack();
-                        if (ba) {
-                            ba.damageRouter = (enemy, amount, element) => {
-                                this.coopSession?.sendDamageReport({
-                                    t: 'damageReport',
-                                    enemyId: enemy.id,
-                                    amount,
-                                    element,
-                                    sourceHeroId: 1,
-                                });
-                            };
-                        }
-                        // M4-9: route ALL power/ability/DoT damage to the host too. Powers
-                        // call enemy.takeDamage directly (dozens of sites); this single
-                        // redirect catches them so the guest's powers actually hurt the
-                        // shared enemies instead of mutating render-only stubs.
-                        Enemy.guestDamageRedirect = (enemyId, amount, element) => {
-                            this.coopSession?.sendDamageReport({
-                                t: 'damageReport',
-                                enemyId,
-                                amount,
-                                element: element ?? 'physical',
-                                sourceHeroId: 1,
-                            });
-                        };
-                        // M4-9 review fix: route guest CC/DoT (freeze/stun/burn/chill/curse)
-                        // to the host too — without this the guest's status powers were inert
-                        // on shared enemies (applied to never-ticked render-only stubs).
-                        Enemy.guestStatusRedirect = (enemyId, effect, durationS, strength) => {
-                            this.coopSession?.sendDamageReport({
-                                t: 'damageReport',
-                                enemyId,
-                                amount: 0,
-                                element: 'physical',
-                                sourceHeroId: 1,
-                                status: { kind: effect, duration: durationS, magnitude: strength },
-                            });
-                        };
-                        // M6 A5: route guest-cast knockback (Smash, dash push, knockback
-                        // item) to the host — without this only the guest's render-only
-                        // copies moved; the shared enemies were never pushed.
-                        Enemy.guestKnockbackRedirect = (enemyId, dirX, dirZ, magnitude) => {
-                            this.coopSession?.sendDamageReport({
-                                t: 'damageReport',
-                                enemyId,
-                                amount: 0,
-                                element: 'physical',
-                                sourceHeroId: 1,
-                                knockback: { dx: dirX, dz: dirZ, magnitude },
-                            });
-                        };
-                        // Receive authoritative damage results from host and show damage numbers.
-                        this.coopSession.onDamageResult = (m) => {
-                            if (this.damageNumbers) {
-                                this.damageNumbers.showDamage(
-                                    new Vector3(m.x, 0, m.z),
-                                    m.amount,
-                                    m.element as PowerElement | undefined,
-                                    m.isCrit,
-                                );
-                            }
-                        };
-                        // M4-12: the host owns run-over; render its authoritative 2-column result.
-                        this.coopSession.onRunOver = (m) => this.showCoopGameOver(m);
-                        // Now that the guest's spawn/death handlers are wired, ask the
-                        // host to re-send the current world so we render enemies that
-                        // already existed before we joined (catch-up). The host only
-                        // emits this in response — it can't, on its own connect (which
-                        // happened earlier, into an empty room).
-                        this.coopSession.sendRequestState();
-                    } else {
-                        // host: wire EnemyManager hooks. enemyManager is constructed
-                        // below; store closures — they capture `this` so the actual
-                        // manager reference is resolved at call time, not wiring time.
-                        // We defer the actual setOnEnemySpawned/setOnEnemyDied calls
-                        // until after enemyManager is created (see below).
-                        //
-                        // M3b: validate + apply guest damage reports authoritatively.
-                        // Uses closures so enemyManager/coopGhost are resolved at call time.
-                        this.coopSession.onDamageReport = (m) => {
-                            const e = this.enemyManager?.getEnemyById(m.enemyId);
-                            const ep = e ? { x: e.getPosition().x, z: e.getPosition().z } : null;
-                            const ghost = this.coopGhost;
-                            const srcPos = ghost
-                                ? { x: ghost.getPosition().x, z: ghost.getPosition().z }
-                                : undefined;
-                            // maxRangeSq = 900 (30u) — covers power/ability reach (fireball,
-                            // chain, vortex) beyond basic-attack range, generous for lag.
-                            // Co-op peers are trusted, so this gate is anti-garbage, not anti-cheat.
-                            if (!validateDamageReport(m, ep, 900, srcPos)) return;
-                            if (e) {
-                                // takeDamage fires Enemy.onDamageCallback, which broadcasts the
-                                // damageResult to the guest centrally (M4-9) — no per-report echo.
-                                if (m.amount > 0) e.takeDamage(m.amount, m.element as PowerElement);
-                                // Apply routed CC/DoT host-side (guard amount>0 above so a
-                                // pure-status report doesn't roll a 0-damage crit + echo).
-                                if (m.status) {
-                                    e.applyStatusEffect(m.status.kind as StatusEffect, m.status.duration, m.status.magnitude);
-                                }
-                                // M6 A5: apply routed knockback through the BASE implementation —
-                                // the guest's call already went through any subclass scaling
-                                // (BossEnemy ×0.3) before redirecting, so a virtual re-dispatch
-                                // here would double-scale. Base body keeps the alive/CC gating.
-                                if (m.knockback) {
-                                    Enemy.prototype.applyKnockback.call(e, m.knockback.dx, m.knockback.dz, m.knockback.magnitude);
-                                }
-                            }
-                        };
-
-                        // Catch-up ON DEMAND: the host connects FIRST (into an empty
-                        // room), so emitting catch-up on its own connect broadcasts
-                        // to nobody. Instead, wait for the guest to send requestState
-                        // (once it's connected + wired) and THEN re-send a spawn for
-                        // every live enemy. Without this, every enemy that spawned
-                        // before the guest joined is never delivered (guest spawn
-                        // count < host spawn count). Future spawns flow through the
-                        // self-gating setOnEnemySpawned hook installed synchronously.
-                        this.coopSession.onRequestState = () => {
-                            const liveNow = this.enemyManager?.getEnemies() ?? [];
-                            for (const e of liveNow) this.coopSession?.sendSpawn(this.buildSpawnMsg(e));
-                            console.log(`[coop] guest requested state: catch-up sent ${liveNow.length} live enemy spawns`);
-                        };
-                        // M4-12: keep the latest guest hero summary for run-over aggregation.
-                        this.coopSession.onRunSummary = (m) => { this._guestSummary = m.hero; };
-                    }
+                    this.wireCoopSession(transport, localChamp);
                 } catch (err) {
                     console.error('[coop] connection failed:', err);
                 }
@@ -1778,6 +1603,200 @@ export class SurvivorsGameplayState implements GameState {
         const gos = this.game.getStateManager().getState('gameOver') as GameOverState;
         if (gos) gos.setSurvivorsSummary(summary);
         this.game.getStateManager().changeState('gameOver');
+    }
+
+    // ── Co-op session wiring (M6 D1) ─────────────────────────────────────────
+
+    /** Create the CoopSession over `transport` and perform ALL game-side wiring.
+     *  Called once from startRun's connect path, and again on a successful resume
+     *  (M6 D1 transparent rejoin) — so everything here must be re-entrant: any
+     *  prior session is disposed first, and once-only scene objects (GuestEnemies)
+     *  are guarded against re-creation. Wiring order mirrors the original inline
+     *  block: session → drop handlers → FX → guest branch | host branch. */
+    private wireCoopSession(transport: NetTransport, localChamp: string): void {
+        // Re-wire support: drop any previous session. dispose() closes the OLD
+        // session's (already-dead) transport — never the new one passed in here.
+        this.coopSession?.dispose();
+        this.coopSession = new CoopSession(new NetClient(transport), localChamp);
+        console.log(`[coop] connected as ${this.coopSession.role}`);
+        // M5-5/6: an unexpected drop of OUR socket, or the relay telling us the
+        // OTHER peer left, both start the grace-window countdown UX.
+        transport.onClose?.(() => this.onConnectionLost());
+        this.coopSession.onPeerLeft = () => this.onConnectionLost();
+        // Cosmetic-FX replication (both roles): broadcast the local hero's
+        // combat visuals + replay the teammate's. Damage is authoritative
+        // elsewhere, so these carry no gameplay effect.
+        setCoopFxEmit((kind, x, z, tx, tz, hint) =>
+            this.coopSession?.sendFx({ t: 'fx', kind, x, z, tx, tz, hint }));
+        this.coopSession.onFx = (m) => this.playRemoteFx(m);
+        // M3: wire guest enemy registry OR host spawn/death hooks.
+        if (this.coopSession.role === 'guest') {
+            // Once-only scene object: keep the live registry across a re-wire
+            // (the enemies it renders are still valid; the resync below refreshes it).
+            if (!this.guestEnemies) this.guestEnemies = new GuestEnemies(this.game, getCachedEnemyAsset);
+            this.coopSession.onSpawn = (m) => { this._coopDbgSpawns++; this.guestEnemies?.spawn(m); };
+            this.coopSession.onDeath = (m) => {
+                this._coopDbgDeaths++;
+                this.guestEnemies?.death(m.id);
+                // Share death feedback the host produces (DeathMsg carries x/z/
+                // reward/eliteElement): a gold reward float + a small cosmetic
+                // death poof, so on the guest enemies don't just silently vanish.
+                if (this.scene) {
+                    if (m.reward > 0) this.damageNumbers?.showReward(new Vector3(m.x, 0, m.z), m.reward);
+                    // withFxReplay: this burst is itself a replay of a host
+                    // event — without the guard, aoeBurst's 'pe' broadcast
+                    // would echo a phantom ring back to the host.
+                    const scene = this.scene;
+                    withFxReplay(() => aoeBurst(scene, [], m.x, m.z, { radius: m.isElite ? 1.6 : 0.9, damage: 0, element: (m.eliteElement ?? 'physical') as PowerElement }));
+                }
+                // M4-10 (per-player orbs): the guest gets its OWN power orb on
+                // each elite death — magnets to the guest hero, and picking it up
+                // raises the guest's local (non-blocking) power-choice. Fully
+                // independent of the host's orb; both players grow their own build.
+                if (m.eliteElement && this.scene && this.hero) {
+                    const drop = new PowerDrop(
+                        this.scene,
+                        new Vector3(m.x, 0, m.z),
+                        m.eliteElement,
+                        () => this.hero!.getPosition(),
+                        { pickupRadius: 1.5, magnetRadius: 4, magnetSpeed: 12, onPickup: (el) => this.onOrbPickup(el) },
+                    );
+                    this.powerDrops.push(drop);
+                }
+            };
+            // M3b: guest basic-attack reports hits to the host instead of
+            // mutating enemy HP locally. The target/enemy providers themselves
+            // are wired role-aware in startRun (see activeAttackEnemies /
+            // getNearestEnemy) — they read GuestEnemies at call time, so we do
+            // NOT set them here (doing so raced with, and was clobbered by,
+            // startRun's own setTargetProvider/setEnemyProvider once the GLB
+            // load awaits resolved, leaving the guest unable to acquire a target).
+            const ba = this.heroController?.getBasicAttack();
+            if (ba) {
+                ba.damageRouter = (enemy, amount, element) => {
+                    this.coopSession?.sendDamageReport({
+                        t: 'damageReport',
+                        enemyId: enemy.id,
+                        amount,
+                        element,
+                        sourceHeroId: 1,
+                    });
+                };
+            }
+            // M4-9: route ALL power/ability/DoT damage to the host too. Powers
+            // call enemy.takeDamage directly (dozens of sites); this single
+            // redirect catches them so the guest's powers actually hurt the
+            // shared enemies instead of mutating render-only stubs.
+            Enemy.guestDamageRedirect = (enemyId, amount, element) => {
+                this.coopSession?.sendDamageReport({
+                    t: 'damageReport',
+                    enemyId,
+                    amount,
+                    element: element ?? 'physical',
+                    sourceHeroId: 1,
+                });
+            };
+            // M4-9 review fix: route guest CC/DoT (freeze/stun/burn/chill/curse)
+            // to the host too — without this the guest's status powers were inert
+            // on shared enemies (applied to never-ticked render-only stubs).
+            Enemy.guestStatusRedirect = (enemyId, effect, durationS, strength) => {
+                this.coopSession?.sendDamageReport({
+                    t: 'damageReport',
+                    enemyId,
+                    amount: 0,
+                    element: 'physical',
+                    sourceHeroId: 1,
+                    status: { kind: effect, duration: durationS, magnitude: strength },
+                });
+            };
+            // M6 A5: route guest-cast knockback (Smash, dash push, knockback
+            // item) to the host — without this only the guest's render-only
+            // copies moved; the shared enemies were never pushed.
+            Enemy.guestKnockbackRedirect = (enemyId, dirX, dirZ, magnitude) => {
+                this.coopSession?.sendDamageReport({
+                    t: 'damageReport',
+                    enemyId,
+                    amount: 0,
+                    element: 'physical',
+                    sourceHeroId: 1,
+                    knockback: { dx: dirX, dz: dirZ, magnitude },
+                });
+            };
+            // Receive authoritative damage results from host and show damage numbers.
+            this.coopSession.onDamageResult = (m) => {
+                if (this.damageNumbers) {
+                    this.damageNumbers.showDamage(
+                        new Vector3(m.x, 0, m.z),
+                        m.amount,
+                        m.element as PowerElement | undefined,
+                        m.isCrit,
+                    );
+                }
+            };
+            // M4-12: the host owns run-over; render its authoritative 2-column result.
+            this.coopSession.onRunOver = (m) => this.showCoopGameOver(m);
+            // Now that the guest's spawn/death handlers are wired, ask the
+            // host to re-send the current world so we render enemies that
+            // already existed before we joined (catch-up). The host only
+            // emits this in response — it can't, on its own connect (which
+            // happened earlier, into an empty room). On a resume re-wire this
+            // doubles as the resync request (M6 D1).
+            this.coopSession.sendRequestState();
+        } else {
+            // host: wire EnemyManager hooks. enemyManager is constructed
+            // in startRun; store closures — they capture `this` so the actual
+            // manager reference is resolved at call time, not wiring time.
+            // The actual setOnEnemySpawned/setOnEnemyDied calls live in startRun
+            // (installed unconditionally, self-gating on coopSession at call time).
+            //
+            // M3b: validate + apply guest damage reports authoritatively.
+            // Uses closures so enemyManager/coopGhost are resolved at call time.
+            this.coopSession.onDamageReport = (m) => {
+                const e = this.enemyManager?.getEnemyById(m.enemyId);
+                const ep = e ? { x: e.getPosition().x, z: e.getPosition().z } : null;
+                const ghost = this.coopGhost;
+                const srcPos = ghost
+                    ? { x: ghost.getPosition().x, z: ghost.getPosition().z }
+                    : undefined;
+                // maxRangeSq = 900 (30u) — covers power/ability reach (fireball,
+                // chain, vortex) beyond basic-attack range, generous for lag.
+                // Co-op peers are trusted, so this gate is anti-garbage, not anti-cheat.
+                if (!validateDamageReport(m, ep, 900, srcPos)) return;
+                if (e) {
+                    // takeDamage fires Enemy.onDamageCallback, which broadcasts the
+                    // damageResult to the guest centrally (M4-9) — no per-report echo.
+                    if (m.amount > 0) e.takeDamage(m.amount, m.element as PowerElement);
+                    // Apply routed CC/DoT host-side (guard amount>0 above so a
+                    // pure-status report doesn't roll a 0-damage crit + echo).
+                    if (m.status) {
+                        e.applyStatusEffect(m.status.kind as StatusEffect, m.status.duration, m.status.magnitude);
+                    }
+                    // M6 A5: apply routed knockback through the BASE implementation —
+                    // the guest's call already went through any subclass scaling
+                    // (BossEnemy ×0.3) before redirecting, so a virtual re-dispatch
+                    // here would double-scale. Base body keeps the alive/CC gating.
+                    if (m.knockback) {
+                        Enemy.prototype.applyKnockback.call(e, m.knockback.dx, m.knockback.dz, m.knockback.magnitude);
+                    }
+                }
+            };
+
+            // Catch-up ON DEMAND: the host connects FIRST (into an empty
+            // room), so emitting catch-up on its own connect broadcasts
+            // to nobody. Instead, wait for the guest to send requestState
+            // (once it's connected + wired) and THEN re-send a spawn for
+            // every live enemy. Without this, every enemy that spawned
+            // before the guest joined is never delivered (guest spawn
+            // count < host spawn count). Future spawns flow through the
+            // self-gating setOnEnemySpawned hook installed synchronously.
+            this.coopSession.onRequestState = () => {
+                const liveNow = this.enemyManager?.getEnemies() ?? [];
+                for (const e of liveNow) this.coopSession?.sendSpawn(this.buildSpawnMsg(e));
+                console.log(`[coop] guest requested state: catch-up sent ${liveNow.length} live enemy spawns`);
+            };
+            // M4-12: keep the latest guest hero summary for run-over aggregation.
+            this.coopSession.onRunSummary = (m) => { this._guestSummary = m.hero; };
+        }
     }
 
     // ── Co-op reconnect grace (M5-5/6) ───────────────────────────────────────
