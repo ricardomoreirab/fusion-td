@@ -4,6 +4,7 @@ import { EnemyType, StatusEffect } from '../GameTypes';
 import { PowerElement } from '../powers/PowerDefinitions';
 import { StatusStacks, STATUS_TUNING, type RichStatusKind } from '../powers/StatusModel';
 import { type TargetProvider, pickNearestAlive } from './nearestTarget';
+import { isCachedMaterial } from '../../engine/rendering/MaterialCache';
 import type { SnapshotEnemy } from '../../net/Protocol';
 
 // One-time per-enemy-class log when a GLB has no recognizable death clip, so the
@@ -1447,12 +1448,20 @@ export class Enemy {
             // Procedural enemy materials are colour-only (no textures), so the `true`
             // is a no-op for them. Leaving this `false` leaked ~one texture per spawn
             // (the steady cross-run scene.textures climb).
+            //
+            // SHARED cached materials (isCachedMaterial) must be skipped: elite
+            // aura/glow/spike meshes parented under this.mesh use getCachedMaterial
+            // — disposing one on the first elite death would blank every other live
+            // elite of that element AND leave the cache handing out a dead material.
+            // Only clearMaterialCache() (run teardown) may dispose those.
             const allMeshes = [this.mesh, ...this.mesh.getChildMeshes(false)];
             for (const m of allMeshes) {
                 const mat = m.material;
                 if (mat) {
                     m.material = null;
-                    try { mat.dispose(false, true); } catch (_) { /* already disposed */ }
+                    if (!isCachedMaterial(mat)) {
+                        try { mat.dispose(false, true); } catch (_) { /* already disposed */ }
+                    }
                 }
             }
             this.mesh.dispose();
