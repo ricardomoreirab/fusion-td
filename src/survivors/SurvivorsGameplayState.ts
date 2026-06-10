@@ -1653,8 +1653,12 @@ export class SurvivorsGameplayState implements GameState {
         this.coopSession.onFx = (m) => this.playRemoteFx(m);
         // M3: wire guest enemy registry OR host spawn/death hooks.
         if (this.coopSession.role === 'guest') {
-            // Once-only scene object: keep the live registry across a re-wire
-            // (the enemies it renders are still valid; the resync below refreshes it).
+            // Once-only scene object: the GuestEnemies INSTANCE survives a re-wire
+            // (never recreated mid-run), but its contents do not get to: removal is
+            // driven only by death events, and any death that fired while our socket
+            // was dead is lost forever — stale ids would stay frozen/targetable
+            // zombies. Contract: every (re)wire clears the registry and re-requests
+            // catch-up spawns below, fully rebuilding it from the host's live set.
             if (!this.guestEnemies) this.guestEnemies = new GuestEnemies(this.game, getCachedEnemyAsset);
             this.coopSession.onSpawn = (m) => { this._coopDbgSpawns++; this.guestEnemies?.spawn(m); };
             this.coopSession.onDeath = (m) => {
@@ -1762,7 +1766,12 @@ export class SurvivorsGameplayState implements GameState {
             // already existed before we joined (catch-up). The host only
             // emits this in response — it can't, on its own connect (which
             // happened earlier, into an empty room). On a resume re-wire this
-            // doubles as the resync request (M6 D1).
+            // doubles as the resync request (M6 D1) — clear the registry FIRST
+            // so enemies that died on the host while our socket was dead (their
+            // death events went to nobody) don't linger as zombies; the catch-up
+            // spawns rebuild the registry from the host's live set. On the
+            // initial connect the registry is empty, so clear() is a no-op.
+            this.guestEnemies?.clear();
             this.coopSession.sendRequestState();
         } else {
             // host: wire EnemyManager hooks. enemyManager is constructed
@@ -1855,6 +1864,16 @@ export class SurvivorsGameplayState implements GameState {
         console.log('[coop] peer rejoined — resuming play');
         this._connMachine.onPeerRejoined(); // reconnecting → connected
         this._endReconnect();               // hide overlay + clear the FSM
+        // The HOST dropped and resumed: spawns/deaths during its gap went to our
+        // (fine) socket via ITS dead one — i.e. were never sent — so our world is
+        // stale. Rebuild it: drop every render copy and re-request catch-up spawns.
+        // Fires exactly once per rejoin (_endReconnect above nulled _connMachine,
+        // so the per-message onPeerTraffic tap no-ops until the next drop) and is
+        // cheap (one requestState; the host re-sends live spawns, spawn() dedups).
+        if (this.coopSession?.role === 'guest') {
+            this.guestEnemies?.clear();
+            this.coopSession.sendRequestState();
+        }
     }
 
     /** M6 D1: one resume attempt — reconnect into OUR vacated slot (the Room DO
@@ -1882,11 +1901,21 @@ export class SurvivorsGameplayState implements GameState {
                 }
                 console.log(`[coop] resumed room ${code} as ${t.role} — re-wiring session`);
                 // Re-wire the live run over the new transport. For the guest this
-                // also re-sends requestState, resyncing the enemy registry; the
+                // also clears + re-requests the enemy registry (resync); the
                 // periodic snapshot keyframe restores the delta base (M5-7).
                 this.wireCoopSession(t, champ);
-                this._connMachine.onPeerRejoined(); // reconnecting → connected
-                this._endReconnect();               // hide overlay + clear the FSM
+                // OUR slot is restored — but if the OTHER peer left permanently while
+                // our socket was dead, its peer-left notice reached nobody and we'd
+                // hang silently. Don't end the reconnect UX: convert the wait into a
+                // 'peer' wait with a fresh grace window (onPeerRejoined → onPeerLeft
+                // re-arms the same FSM; no new transitions needed). First traffic
+                // from the peer clears it via onPeerBack — within a tick when they're
+                // alive, so the happy path is visually unchanged; if they're really
+                // gone, the existing expiry fallback (host-solo continue / guest
+                // run-over) fires as usual.
+                this._connMachine.onPeerRejoined(); // reconnecting → connected (our resume succeeded)
+                this._connLostKind = 'peer';
+                this._connMachine.onPeerLeft();     // connected → reconnecting: fresh window for the PEER
             },
             () => {
                 this._resumeInFlight = false; // swallow; retry on the next tick
@@ -1920,9 +1949,15 @@ export class SurvivorsGameplayState implements GameState {
         }
         const secs = Math.ceil(cm.graceRemaining);
         const role = this.coopSession?.role;
-        const headline = this._connLostKind === 'self' ? 'Connection lost' : 'Teammate disconnected';
-        this._reconnectEl.textContent =
-            `${headline}\nReconnecting… ${secs}s\n${role === 'host' ? '(continuing solo if they don’t return)' : '(run ends if the host doesn’t return)'}`;
+        // 'self' = OUR socket dropped (we're the one reconnecting); 'peer' = the
+        // teammate dropped (we're waiting for THEM). Subject must match the kind.
+        const self = this._connLostKind === 'self';
+        const headline = self ? 'Connection lost' : 'Teammate disconnected';
+        const action = self ? 'Reconnecting you…' : 'Reconnecting…';
+        const outcome = self
+            ? (role === 'host' ? '(run continues solo if you can’t rejoin)' : '(run ends if you can’t rejoin)')
+            : (role === 'host' ? '(continuing solo if they don’t return)' : '(run ends if the host doesn’t return)');
+        this._reconnectEl.textContent = `${headline}\n${action} ${secs}s\n${outcome}`;
         this._reconnectEl.style.whiteSpace = 'pre-line';
 
         if (cm.state === 'closed') {
@@ -1956,6 +1991,10 @@ export class SurvivorsGameplayState implements GameState {
         this._reconnectEl = null;
         this._connLostKind = null;  // M6 D1 (an in-flight resume self-checks on resolve)
         this._resumeAccumS = 0;
+        // Invariant: no reconnect state ⇒ no resume considered in flight. A connect
+        // promise that resolves later self-discards (_connMachine is null → it
+        // closes the fresh socket) and resetting the flag again is harmless.
+        this._resumeInFlight = false;
     }
 
     /** True when this def's cast() delivers its visuals through the PowerEffects
