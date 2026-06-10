@@ -16,7 +16,8 @@ import { PowerDrop } from './powers/PowerDrop';
 import { PowerSlotManager, PowerSlot } from './powers/PowerSlotManager';
 import { POWER_DEFS, getPowerByElementAndClass, getPowerMapForClass, PowerElement, ChampionType, PowerDefinition } from './powers/PowerDefinitions';
 import { getFusionFor, getFusionsForClass, getUltimateOfferForFusions } from './powers/FusionDefinitions';
-import { aoeBurst, gatherVortex, persistentZone, omniVolley, setCameraShakeHook, resetPowerEffects } from './powers/PowerEffects';
+import { aoeBurst, gatherVortex, persistentZone, omniVolley, spawnBolt, arrowStrike, setCameraShakeHook, resetPowerEffects } from './powers/PowerEffects';
+import { getAutocastArchetype, archetypeKey } from './powers/FusionArchetypeRegistry';
 import './powers/FusionArchetypes'; // registers fusion archetypes at load
 import { Enemy, HEALTH_BAR_RENDER_GROUP } from './enemies/Enemy';
 import { BasicAttackTarget } from './champions/HeroBasicAttack';
@@ -40,7 +41,7 @@ import { formatBuckets } from '../engine/rendering/resourceBudget';
 import { CoopSession } from './coop/CoopSession';
 import { GuestEnemies } from './coop/GuestEnemies';
 import { computeCameraFocus } from './coop/cameraFocus';
-import { setCoopFxEmit, spawnCosmeticProjectile, spawnCosmeticSwingRing, spawnCosmeticEnemyProjectile, spawnCosmeticTelegraph, emitCoopFx } from './coop/CoopFx';
+import { setCoopFxEmit, spawnCosmeticProjectile, spawnCosmeticSwingRing, spawnCosmeticEnemyProjectile, spawnCosmeticTelegraph, emitCoopFx, isCoopFxActive, withFxReplay } from './coop/CoopFx';
 import { reconcilePosition } from './coop/reconcile';
 import { NetClient } from '../net/NetClient';
 import { RoomService, PrivateRoomService } from '../net/RoomService';
@@ -689,7 +690,11 @@ export class SurvivorsGameplayState implements GameState {
                             // death poof, so on the guest enemies don't just silently vanish.
                             if (this.scene) {
                                 if (m.reward > 0) this.damageNumbers?.showReward(new Vector3(m.x, 0, m.z), m.reward);
-                                aoeBurst(this.scene, [], m.x, m.z, { radius: m.isElite ? 1.6 : 0.9, damage: 0, element: (m.eliteElement ?? 'physical') as PowerElement });
+                                // withFxReplay: this burst is itself a replay of a host
+                                // event — without the guard, aoeBurst's 'pe' broadcast
+                                // would echo a phantom ring back to the host.
+                                const scene = this.scene;
+                                withFxReplay(() => aoeBurst(scene, [], m.x, m.z, { radius: m.isElite ? 1.6 : 0.9, damage: 0, element: (m.eliteElement ?? 'physical') as PowerElement }));
                             }
                             // M4-10 (per-player orbs): the guest gets its OWN power orb on
                             // each elite death — magnets to the guest hero, and picking it up
@@ -1015,11 +1020,17 @@ export class SurvivorsGameplayState implements GameState {
             if (hero && typeof hero.triggerSpecial === 'function') {
                 hero.triggerSpecial();
             }
-            // Co-op: broadcast a cosmetic cast burst so the teammate sees the power fire.
-            // (Exact per-power FX is a follow-up; this shows an element-coloured pop at
-            // the caster.) The body 'special' pose is already shared via heroState anim=3.
-            const p = this.hero?.getPosition();
-            if (p) emitCoopFx('power', p.x, p.z, undefined, undefined, slot.def.element);
+            // Co-op (M6 C1): fusion + ultimate casts now replicate their EXACT visuals
+            // via the PowerEffects primitives ('pe' messages emitted inside each
+            // primitive), so the generic element-burst placeholder would double up —
+            // suppress it for those. It REMAINS for casts that don't route through the
+            // primitives: base mage/ranger powers (bespoke projectile FX in
+            // PowerDefinitions.ts) and un-migrated fusion pairs (parent-cast fallback).
+            // The body 'special' pose is already shared via heroState anim=3.
+            if (isCoopFxActive() && !this.castRoutesThroughPrimitives(slot.def)) {
+                const p = this.hero?.getPosition();
+                if (p) emitCoopFx('power', p.x, p.z, undefined, undefined, slot.def.element);
+            }
         });
 
         // Wire enemy provider and power slots into HeroController for melee AOE + enchantments.
@@ -1235,12 +1246,16 @@ export class SurvivorsGameplayState implements GameState {
         const scene = this.scene;
         const p = this.hero.getPosition();
         const elems: PowerElement[] = ['fire', 'ice', 'arcane', 'physical', 'storm'];
-        for (const el of elems) {
-            aoeBurst(scene, [], p.x, p.z, { radius: 1, damage: 0, element: el, ringLifeS: 0.05 });
-            gatherVortex(scene, [], p.x, p.z, { radius: 1, durationS: 0.05, pull: 0, tickDamage: 0, element: el });
-            persistentZone(scene, [], p.x, p.z, { radius: 1, durationS: 0.05, tickIntervalS: 0.05, tickDamage: 0, element: el });
-            omniVolley(scene, [], p.x, p.z, { count: 2, speed: 4, damage: 0, element: el, lifeS: 0.05 });
-        }
+        // withFxReplay: prewarm is local shader-warming, not a real cast — without the
+        // guard each primitive would broadcast a spurious 'pe' to the co-op teammate.
+        withFxReplay(() => {
+            for (const el of elems) {
+                aoeBurst(scene, [], p.x, p.z, { radius: 1, damage: 0, element: el, ringLifeS: 0.05 });
+                gatherVortex(scene, [], p.x, p.z, { radius: 1, durationS: 0.05, pull: 0, tickDamage: 0, element: el });
+                persistentZone(scene, [], p.x, p.z, { radius: 1, durationS: 0.05, tickIntervalS: 0.05, tickDamage: 0, element: el });
+                omniVolley(scene, [], p.x, p.z, { count: 2, speed: 4, damage: 0, element: el, lifeS: 0.05 });
+            }
+        });
         scene.render(); // kick shader compilation for the spawned FX meshes
         resetPowerEffects(); // dispose all the just-spawned prewarm FX + observers
     }
@@ -1803,6 +1818,17 @@ export class SurvivorsGameplayState implements GameState {
         this._reconnectEl = null;
     }
 
+    /** True when this def's cast() delivers its visuals through the PowerEffects
+     *  primitives (which self-broadcast exact 'pe' FX): all slot ultimates, and any
+     *  fusion whose element pair has a registered autocast archetype. */
+    private castRoutesThroughPrimitives(def: PowerDefinition): boolean {
+        if (def.tier === 'ultimate') return true;
+        if (def.tier === 'fusion' && def.elements?.length === 2) {
+            return !!getAutocastArchetype(archetypeKey(def.elements[0], def.elements[1]));
+        }
+        return false;
+    }
+
     /** Replay a teammate's cosmetic combat FX (no gameplay effect — damage/CC are
      *  authoritative via damageReport/snapshot). Dispatches by kind. */
     private playRemoteFx(m: FxMsg): void {
@@ -1822,10 +1848,22 @@ export class SurvivorsGameplayState implements GameState {
             case 'power':
             case 'ult': {
                 // Cosmetic element-coloured pop at the teammate's cast point (no damage —
-                // enemies=[]). A placeholder for exact per-power FX; reuses the existing
-                // aoeBurst ring so the cast is visible.
+                // enemies=[]). Fallback for casts that don't route through the PowerEffects
+                // primitives (base mage/ranger powers, un-migrated fusion pairs) and for
+                // AbilityManager ults ('ult' — exact FX is Task C2). withFxReplay stops
+                // aoeBurst's own 'pe' broadcast from echoing back to the sender.
                 const element = (m.hint ?? 'physical') as PowerElement;
-                aoeBurst(this.scene, [], m.x, m.z, { radius: m.kind === 'ult' ? 3.5 : 2, damage: 0, element });
+                const scene = this.scene;
+                withFxReplay(() => aoeBurst(scene, [], m.x, m.z, { radius: m.kind === 'ult' ? 3.5 : 2, damage: 0, element }));
+                break;
+            }
+            case 'pe': {
+                // Exact power-FX replication (M6 C1): re-run the teammate's PowerEffects
+                // primitive with enemies=[] and zero damage/status — pure cosmetics.
+                // Nothing routes through the guest damage/status redirects, a replayed
+                // vortex can't pull enemies (pull:0 + creation-time isReplay guard), and
+                // withFxReplay() stops the replayed primitive from re-emitting.
+                this.replayPrimitiveFx(m);
                 break;
             }
             case 'enemyProj':
@@ -1837,6 +1875,69 @@ export class SurvivorsGameplayState implements GameState {
             default:
                 break;
         }
+    }
+
+    /** Parse + replay one 'pe' (primitive effect) message. Explicit per-primitive
+     *  allowlist (never dynamic dispatch by string); numeric params are sanitised
+     *  with sane fallbacks + caps; malformed hints are dropped, never thrown. */
+    private replayPrimitiveFx(m: FxMsg): void {
+        const scene = this.scene;
+        if (!scene || !m.hint) return;
+        try {
+            const h = JSON.parse(m.hint) as Record<string, unknown>;
+            const PE_ELEMENTS: PowerElement[] = ['fire', 'ice', 'arcane', 'physical', 'storm'];
+            const element = PE_ELEMENTS.includes(h.e as PowerElement) ? h.e as PowerElement : 'physical';
+            const num = (v: unknown, fallback: number, max: number): number =>
+                typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.min(v, max) : fallback;
+            withFxReplay(() => {
+                switch (h.p) {
+                    case 'aoeBurst':
+                        aoeBurst(scene, [], m.x, m.z, {
+                            radius: num(h.r, 2, 20), damage: 0, element,
+                            ringLifeS: typeof h.l === 'number' ? num(h.l, 0.35, 2) : undefined,
+                        });
+                        break;
+                    case 'bolt':
+                        // One chain segment, replayed verbatim (spawnBolt emits per hop).
+                        spawnBolt(scene, new Vector3(m.x, 1, m.z), new Vector3(m.tx ?? m.x, 1, m.tz ?? m.z), element);
+                        break;
+                    case 'vortex':
+                        // pull:0 + the primitive's creation-time isReplay guard ⇒ the
+                        // replayed vortex can never move this side's enemies; tickDamage
+                        // 0 over enemies=[] ⇒ no gameplay. finalBurst omitted — the
+                        // caster's real final burst arrives as its own 'pe' aoeBurst.
+                        gatherVortex(scene, [], m.x, m.z, {
+                            radius: num(h.r, 4, 20), durationS: num(h.d, 1.5, 8),
+                            pull: 0, tickDamage: 0, element,
+                        });
+                        break;
+                    case 'zone':
+                        persistentZone(scene, [], m.x, m.z, {
+                            radius: num(h.r, 3, 20), durationS: num(h.d, 3, 10), tickDamage: 0, element,
+                            crawlToward: typeof h.cx === 'number' && typeof h.cz === 'number'
+                                ? { x: h.cx, z: h.cz } : undefined,
+                            crawlSpeed: typeof h.cs === 'number' ? num(h.cs, 1.5, 10) : undefined,
+                        });
+                        break;
+                    case 'volley':
+                        omniVolley(scene, [], m.x, m.z, {
+                            count: Math.round(num(h.c, 6, 24)), speed: num(h.s, 16, 40),
+                            damage: 0, element,
+                            lifeS: typeof h.l === 'number' ? num(h.l, 1.2, 4) : undefined,
+                        });
+                        break;
+                    case 'arrow':
+                        // Fixed-point flight target (the enemy's position at emit time);
+                        // impact FX arrives as the impacted primitive's own 'pe'.
+                        arrowStrike(scene, m.x, m.z,
+                            { isAlive: () => true, getPosition: () => ({ x: m.tx ?? m.x, z: m.tz ?? m.z }) },
+                            element, () => { /* cosmetic flight only */ });
+                        break;
+                    default:
+                        break; // unknown primitive name — ignore
+                }
+            });
+        } catch { /* malformed remote hint — drop silently */ }
     }
 
     /** Guest run-over (M4-12): render the host's authoritative final result. */

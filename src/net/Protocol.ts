@@ -108,7 +108,9 @@ export interface RunOverMsg { t: 'runOver'; timeSurvivedSec: number; waveReached
  *  hero produces (projectiles, swing arcs, power/ult casts) so the teammate sees them.
  *  Purely cosmetic — damage/CC are already authoritative via damageReport/snapshot, so
  *  the receiver plays the visual with NO gameplay effect.
- *  kind: what to play ('proj' | 'swing' | 'power' | 'ult'). hint: shape/element/id.
+ *  kind: what to play ('proj' | 'swing' | 'power' | 'ult' | 'pe' | 'enemyProj' |
+ *  'telegraph'). hint: shape/element/id — for 'pe' (exact power-primitive replay,
+ *  M6 C1) a compact JSON payload { p: primitive name, e: element, …visual params }.
  *  (x,z) origin; (tx,tz) optional target/aim point. */
 export interface FxMsg { t: 'fx'; kind: string; x: number; z: number; tx?: number; tz?: number; hint?: string }
 

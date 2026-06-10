@@ -17,6 +17,20 @@ export function setCoopFxEmit(fn: CoopFxEmit | null): void { _emit = fn; }
 export function emitCoopFx(kind: string, x: number, z: number, tx?: number, tz?: number, hint?: string): void {
     _emit?.(kind, x, z, tx, tz, hint);
 }
+/** True only while a co-op session has wired an emitter. Callers use this as the
+ *  cheap gate BEFORE building hint payloads (JSON), so single-player pays nothing. */
+export function isCoopFxActive(): boolean { return _emit !== null; }
+
+// ── replay re-entrancy guard ─────────────────────────────────────────────────
+// A REPLAYED effect runs the same primitive code as a local cast, which would
+// re-emit and echo the FX back to its sender forever. The receiver wraps every
+// replay in withFxReplay(); emitting sites skip while isReplayingFx() is true.
+let _replaying = false;
+export function isReplayingFx(): boolean { return _replaying; }
+export function withFxReplay(fn: () => void): void {
+    _replaying = true;
+    try { fn(); } finally { _replaying = false; }
+}
 
 /** Element → emissive colour for cosmetic projectiles/casts. Bounded set → cached mats. */
 const FX_COLOR: Record<string, Color3> = {
