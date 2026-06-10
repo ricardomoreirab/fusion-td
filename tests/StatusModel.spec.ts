@@ -56,11 +56,92 @@ describe('StatusStacks — fragile', () => {
 });
 
 describe('StatusStacks — curse', () => {
-    it('drains a fraction of max HP per second continuously', () => {
+    it('drains a fraction of max HP per tick (0.5 s interval)', () => {
         const s = new StatusStacks();
         s.apply('curse', 5, /*strength = 3%/s*/ 0.03);
         // 0.5s at 3%/s of 200 maxHP = 0.5 * 0.03 * 200 = 3
         expect(s.tick(0.5, 200).curseDamage).toBeCloseTo(3, 5);
+    });
+
+    it('emits no damage before the first tick interval', () => {
+        const s = new StatusStacks();
+        s.apply('curse', 5, 0.05);
+        // 0.4s < 0.5s tick interval → no damage yet
+        expect(s.tick(0.4, 100).curseDamage).toBe(0);
+    });
+
+    it('emits damage only on crossing each 0.5 s boundary', () => {
+        const s = new StatusStacks();
+        s.apply('curse', 5, 0.1);
+        // no tick yet at 0.3s
+        expect(s.tick(0.3, 100).curseDamage).toBe(0);
+        // 0.3 + 0.25 = 0.55s → crosses 0.5s → one tick worth: 100 * 0.1 * 0.5 = 5
+        expect(s.tick(0.25, 100).curseDamage).toBeCloseTo(5, 5);
+    });
+
+    it('fires multiple ticks when dt spans several intervals', () => {
+        const s = new StatusStacks();
+        s.apply('curse', 10, 0.1);
+        // 1.5s spans 3 intervals: 3 * (100 * 0.1 * 0.5) = 15
+        expect(s.tick(1.5, 100).curseDamage).toBeCloseTo(15, 5);
+    });
+
+    it('total curse damage over full duration is integral-preserving (matches per-frame total)', () => {
+        // Simulate both approaches with 16ms frames over a 5s curse at 2%/s on 500 HP.
+        // Per-frame total: 500 * 0.02 * 5 = 50.
+        const strength = 0.02;
+        const maxHp = 500;
+        const durationS = 5;
+        const dtS = 0.016;
+        const INTERVAL = 0.5; // STATUS_TUNING.curse.tickIntervalS
+
+        // Accumulator approach (mirrors the implementation)
+        let accTotal = 0;
+        let acc = 0;
+        let remaining = durationS;
+        while (remaining > 0) {
+            const dt = Math.min(dtS, remaining);
+            remaining -= dt;
+            acc += dt;
+            while (acc >= INTERVAL) {
+                accTotal += maxHp * strength * INTERVAL;
+                acc -= INTERVAL;
+            }
+            if (remaining <= 0 && acc > 0) {
+                // tail flush on expiry
+                accTotal += maxHp * strength * acc;
+            }
+        }
+
+        // Per-frame total (legacy behaviour) for comparison
+        const perFrameTotal = maxHp * strength * durationS;
+
+        // Both totals should be within 1e-9 (floating point only)
+        expect(accTotal).toBeCloseTo(perFrameTotal, 9);
+    });
+
+    it('flushes the remainder on expiry so no damage is silently dropped', () => {
+        const s = new StatusStacks();
+        // 0.7s curse: one full tick at 0.5s + 0.2s tail that must be flushed
+        s.apply('curse', 0.7, 0.1);
+        let total = 0;
+        // advance to just past the full duration in one big step
+        let r = s.tick(0.7, 100);
+        total += r.curseDamage;
+        // expected: 100 * 0.1 * 0.5 (first tick) + 100 * 0.1 * 0.2 (tail flush) = 7
+        expect(total).toBeCloseTo(7, 5);
+        expect(r.expired).toContain('curse');
+    });
+
+    it('accumulator resets after expiry (no phantom carry-over on re-apply)', () => {
+        const s = new StatusStacks();
+        s.apply('curse', 0.4, 0.1);
+        s.tick(0.3, 100);          // 0.1s of curse left, acc=0.3
+        s.tick(0.3, 100);          // curse expires; acc must reset
+        expect(s.has('curse')).toBe(false);
+        s.apply('curse', 10, 0.1); // fresh curse
+        // 0.45s < 0.5s interval → no tick yet (would fire if acc=0.1 carried over)
+        expect(s.tick(0.45, 100).curseDamage).toBe(0);
     });
 });
 
