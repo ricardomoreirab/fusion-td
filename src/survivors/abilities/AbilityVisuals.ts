@@ -30,6 +30,17 @@ const whirlwindPool: Mesh[] = [];
 let whirlwindPoolInit = false;
 
 function acquireWhirlwindRing(scene: Scene): Mesh {
+    // The pool is module-level so it survives state exits, but Game.cleanupScene()
+    // disposes every scene mesh between states. On the next run the pool would
+    // hold disposed (or other-scene) meshes — re-enabling those renders nothing.
+    // Detect stale entries and rebuild the pool from scratch.
+    if (whirlwindPoolInit && whirlwindPool.some(r => r.isDisposed() || r.getScene() !== scene)) {
+        for (const r of whirlwindPool) {
+            if (!r.isDisposed()) r.dispose(); // cached/shared material — keep it
+        }
+        whirlwindPool.length = 0;
+        whirlwindPoolInit = false;
+    }
     if (!whirlwindPoolInit) {
         for (let i = 0; i < WHIRLWIND_POOL_SIZE; i++) {
             const t = MeshBuilder.CreateTorus(
