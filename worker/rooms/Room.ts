@@ -70,6 +70,16 @@ export class Room {
         } else {
             // Normal first-join path.
             role = peers.length === 0 ? 'host' : 'guest';
+            // Lobby UX: tell the already-connected peer(s) that a fresh teammate
+            // attached, so a hosting menu lobby can auto-advance into the game.
+            // Deliberately NOT sent on the resume path above — `peer-rejoined`
+            // covers that, and the in-game reconnect flow owns it. If a resume
+            // degrades into a fresh join (DO evicted, vacated slot forgotten),
+            // this fires instead; the in-game client's decoder drops the unknown
+            // 'peer-joined' tag silently and peer TRAFFIC drives the rejoin UX.
+            for (const peer of peers) {
+                peer.send(JSON.stringify({ t: 'peer-joined', role }));
+            }
         }
 
         server.serializeAttachment({ role });

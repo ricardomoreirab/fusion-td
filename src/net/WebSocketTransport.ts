@@ -80,6 +80,12 @@ export class WebSocketTransport implements NetTransport {
         for (const m of q) cb(m);
     }
 
+    /** Lobby → game handoff: detach the handler so incoming frames buffer in the
+     *  backlog again until the game's NetClient installs its own onMessage. */
+    offMessage(): void {
+        this.handler = null;
+    }
+
     close(): void {
         this.closedByUs = true; // a deliberate teardown must not trigger reconnect
         this.ws.close();

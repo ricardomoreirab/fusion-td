@@ -51,6 +51,7 @@ import { capInputLen, arenaClampScale } from './integrateMove';
 import { NetClient } from '../net/NetClient';
 import type { NetTransport } from '../net/NetTransport';
 import { RoomService, PrivateRoomService } from '../net/RoomService';
+import { takePendingCoop } from './coop/PendingCoop';
 import { ConnectionMachine } from '../net/ConnectionMachine';
 import { diffSnapshot } from '../net/SnapshotDelta';
 import { packEnemyFlags } from '../net/EnemyFlags';
@@ -683,13 +684,31 @@ export class SurvivorsGameplayState implements GameState {
         );
 
         // --- Co-op (M2 ghost teammate) ---
-        // ?host → host a room; ?join[=CODE] → join one. For easy two-tab testing the
-        // room code defaults to a FIXED dev code, so the GUEST tab can simply use
-        // ?join with nothing to copy. Open the host tab FIRST (the server assigns
-        // host/guest by connection order). Use ?host=random to mint a real random room.
+        // Menu lobby flow FIRST: the Co-op lobby hands over a live, already-
+        // connected transport via PendingCoop (it connected while still in the
+        // menu, so connection order — not champion-select speed — fixed the
+        // host/guest roles). Absent that, fall through to the dev URL-param flow.
+        const pendingCoop = takePendingCoop();
+        if (pendingCoop) {
+            // Keep service + code for resume reconnects (M6 D1), then wire the
+            // session exactly like the URL flow does. Any frames the peer sent
+            // while we sat in champion select are backlogged in the transport
+            // (the lobby detached its handler) and drain into the NetClient;
+            // last-wins streams + the guest's requestState catch-up make any
+            // pre-wire arrivals harmless.
+            this._roomService = pendingCoop.roomService;
+            this._roomCode = pendingCoop.code;
+            console.log(`[coop] lobby session: room ${pendingCoop.code} as ${pendingCoop.role}`);
+            this.wireCoopSession(pendingCoop.transport, championType);
+        }
+        // Dev flow: ?host → host a room; ?join[=CODE] → join one. For easy two-tab
+        // testing the room code defaults to a FIXED dev code, so the GUEST tab can
+        // simply use ?join with nothing to copy. Open the host tab FIRST (the server
+        // assigns host/guest by connection order). Use ?host=random to mint a real
+        // random room.
         const coopParams = typeof window !== 'undefined'
             ? new URLSearchParams(window.location.search) : null;
-        if (coopParams?.has('host') || coopParams?.has('join')) {
+        if (!pendingCoop && (coopParams?.has('host') || coopParams?.has('join'))) {
             const localChamp = championType;
             void (async () => {
                 try {
