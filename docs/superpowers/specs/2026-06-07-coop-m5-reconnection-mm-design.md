@@ -23,7 +23,7 @@
 ## 3. Wire additions
 - `SnapshotDeltaMsg{ baseTick, tick, changedHeroes[], changedEnemies[], removedEnemyIds[] }` + periodic full `SnapshotMsg` keyframes.
 - Reconnect handshake: `/ws/:code?role=host|guest&resume=1` (DO validates against the vacated slot + grace window).
-- `peer-left`/`peer-rejoined` control frames (peer-left already exists from M1).
+- `peer-left`/`peer-rejoined`/`peer-joined` control frames (peer-left already exists from M1; `peer-joined` is sent to existing peers on a normal second join — consumed by the lobby, dropped by the in-game NetClient).
 
 ## 4. Task breakdown
 
