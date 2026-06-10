@@ -53,7 +53,7 @@ import { RoomService, PrivateRoomService } from '../net/RoomService';
 import { ConnectionMachine } from '../net/ConnectionMachine';
 import { diffSnapshot } from '../net/SnapshotDelta';
 import { packEnemyFlags } from '../net/EnemyFlags';
-import type { SpawnMsg, DeathMsg, SnapshotMsg, CoopHeroSummary, RunOverMsg, FxMsg } from '../net/Protocol';
+import type { NetRole, SpawnMsg, DeathMsg, SnapshotMsg, CoopHeroSummary, RunOverMsg, FxMsg } from '../net/Protocol';
 import { validateDamageReport } from './coop/DamageRouter';
 import { MilestoneBoss } from './enemies/MilestoneBoss';
 
@@ -269,6 +269,17 @@ export class SurvivorsGameplayState implements GameState {
      *  only while a disconnect is being waited out. */
     private _connMachine: ConnectionMachine | null = null;
     private _reconnectEl: HTMLDivElement | null = null;
+    /** M6 D1: why the grace window is open — 'self' = OUR socket dropped (we attempt
+     *  the resume), 'peer' = the relay reported the OTHER peer left (we wait). */
+    private _connLostKind: 'self' | 'peer' | null = null;
+    /** M6 D1: resume-attempt pacing (~1.5s) + overlapping-attempt guard. */
+    private _resumeAccumS = 0;
+    private _resumeInFlight = false;
+    /** M6 D1: kept from startRun/wireCoopSession so a resume can reconnect into the
+     *  same room (same code), reclaim the same role, and re-wire the same champ. */
+    private _roomService: RoomService | null = null;
+    private _myCoopRole: NetRole | null = null;
+    private _localChampionType: string | null = null;
     /** Ghost mesh for the remote teammate (M2: cosmetic, not simulated). */
     private coopGhost: Champion | null = null;
     private coopGhostPending = false;
@@ -683,6 +694,7 @@ export class SurvivorsGameplayState implements GameState {
                     // M5-4: game code talks only to the RoomService interface, so a
                     // future matchmaking service can replace this without changes here.
                     const room: RoomService = new PrivateRoomService();
+                    this._roomService = room; // kept for resume reconnects (M6 D1)
                     let code: string;
                     if (coopParams.has('host')) {
                         code = coopParams.get('host') === 'random'
@@ -1619,10 +1631,14 @@ export class SurvivorsGameplayState implements GameState {
         this.coopSession?.dispose();
         this.coopSession = new CoopSession(new NetClient(transport), localChamp);
         console.log(`[coop] connected as ${this.coopSession.role}`);
+        // M6 D1: remember role + champ so a later resume can reclaim this exact slot.
+        this._myCoopRole = this.coopSession.role;
+        this._localChampionType = localChamp;
         // M5-5/6: an unexpected drop of OUR socket, or the relay telling us the
-        // OTHER peer left, both start the grace-window countdown UX.
-        transport.onClose?.(() => this.onConnectionLost());
-        this.coopSession.onPeerLeft = () => this.onConnectionLost();
+        // OTHER peer left, both start the grace-window countdown UX — but only OUR
+        // drop drives OUR resume attempts (M6 D1).
+        transport.onClose?.(() => this.onConnectionLost('self'));
+        this.coopSession.onPeerLeft = () => this.onConnectionLost('peer');
         // Cosmetic-FX replication (both roles): broadcast the local hero's
         // combat visuals + replay the teammate's. Damage is authoritative
         // elsewhere, so these carry no gameplay effect.
@@ -1801,16 +1817,62 @@ export class SurvivorsGameplayState implements GameState {
 
     // ── Co-op reconnect grace (M5-5/6) ───────────────────────────────────────
 
-    /** A peer dropped (our socket closed, or the relay reported peer-left). Start the
-     *  grace window; _updateReconnect ticks it + shows the countdown, and decides what
-     *  happens on expiry. Idempotent. NOTE: transparent rejoin (resume + session
-     *  re-wire) is deferred — it needs induced-disconnect validation; today the window
-     *  is a graceful "waiting" that ends in host-solo-continue / guest-run-over. */
-    private onConnectionLost(): void {
-        if (!this.coopSession || this._connMachine || this._runEnded) return;
+    /** A peer dropped: 'self' = OUR socket closed, 'peer' = the relay reported
+     *  peer-left. Both start the same grace window (_updateReconnect ticks it, shows
+     *  the countdown, and decides what happens on expiry), but only 'self' drives
+     *  resume attempts into our vacated slot (M6 D1). Idempotent — except that a
+     *  'self' drop arriving while we were already waiting out a 'peer' drop upgrades
+     *  the kind, so we still try to restore our own socket. */
+    private onConnectionLost(kind: 'self' | 'peer'): void {
+        if (!this.coopSession || this._runEnded) return;
+        if (this._connMachine) {
+            // Already in the grace window. If OUR socket now dropped too, switch to
+            // self-resume — without our own slot back, nothing can recover.
+            if (kind === 'self') this._connLostKind = 'self';
+            return;
+        }
+        this._connLostKind = kind;
+        this._resumeAccumS = 0;
         this._connMachine = new ConnectionMachine(30);
         this._connMachine.onPeerLeft(); // connected → reconnecting (30s)
-        console.warn(`[coop] connection lost (room ${this._roomCode ?? '?'}, ${this.coopSession.role}) — grace window started`);
+        console.warn(`[coop] connection lost (room ${this._roomCode ?? '?'}, ${this.coopSession.role}, ${kind === 'self' ? 'our socket dropped' : 'peer left'}) — grace window started`);
+    }
+
+    /** M6 D1: one resume attempt — reconnect into OUR vacated slot (the Room DO
+     *  restores our role within its grace window). Guarded by _resumeInFlight; a
+     *  failed attempt is swallowed and the next ~1.5s tick retries until the FSM
+     *  window expires (expiry behavior unchanged). */
+    private _attemptResume(): void {
+        const code = this._roomCode;
+        const room = this._roomService;
+        const role = this._myCoopRole;
+        const champ = this._localChampionType;
+        if (!code || !room || !role || !champ) return;
+        this._resumeInFlight = true;
+        room.connect(code, { resume: { role } }).then(
+            (t) => {
+                this._resumeInFlight = false;
+                // The window may have expired (host-solo continue / guest run-over)
+                // or the run ended while the connect was in flight — then there is no
+                // session to re-wire; discard the fresh socket. Also bail if the DO
+                // lost the vacated record (eviction) and re-admitted us as the OTHER
+                // role: a mid-run role swap would invert all authority wiring.
+                if (this._connMachine?.state !== 'reconnecting' || this._runEnded || t.role !== role) {
+                    t.close();
+                    return;
+                }
+                console.log(`[coop] resumed room ${code} as ${t.role} — re-wiring session`);
+                // Re-wire the live run over the new transport. For the guest this
+                // also re-sends requestState, resyncing the enemy registry; the
+                // periodic snapshot keyframe restores the delta base (M5-7).
+                this.wireCoopSession(t, champ);
+                this._connMachine.onPeerRejoined(); // reconnecting → connected
+                this._endReconnect();               // hide overlay + clear the FSM
+            },
+            () => {
+                this._resumeInFlight = false; // swallow; retry on the next tick
+            },
+        );
     }
 
     /** Per-frame while a disconnect is pending: count down + update the overlay, then
@@ -1819,6 +1881,15 @@ export class SurvivorsGameplayState implements GameState {
         const cm = this._connMachine;
         if (!cm) return;
         cm.tick(deltaTime);
+        // M6 D1: while the window is open because OUR socket dropped, retry a resume
+        // into our vacated slot every ~1.5s (driven by the same render-loop tick).
+        if (cm.state === 'reconnecting' && this._connLostKind === 'self') {
+            this._resumeAccumS += deltaTime;
+            if (this._resumeAccumS >= 1.5 && !this._resumeInFlight) {
+                this._resumeAccumS = 0;
+                this._attemptResume();
+            }
+        }
         if (!this._reconnectEl) {
             const el = document.createElement('div');
             el.style.cssText =
@@ -1830,8 +1901,9 @@ export class SurvivorsGameplayState implements GameState {
         }
         const secs = Math.ceil(cm.graceRemaining);
         const role = this.coopSession?.role;
+        const headline = this._connLostKind === 'self' ? 'Connection lost' : 'Teammate disconnected';
         this._reconnectEl.textContent =
-            `Teammate disconnected\nReconnecting… ${secs}s\n${role === 'host' ? '(continuing solo if they don’t return)' : '(run ends if the host doesn’t return)'}`;
+            `${headline}\nReconnecting… ${secs}s\n${role === 'host' ? '(continuing solo if they don’t return)' : '(run ends if the host doesn’t return)'}`;
         this._reconnectEl.style.whiteSpace = 'pre-line';
 
         if (cm.state === 'closed') {
@@ -1863,6 +1935,8 @@ export class SurvivorsGameplayState implements GameState {
         this._connMachine = null;
         this._reconnectEl?.remove();
         this._reconnectEl = null;
+        this._connLostKind = null;  // M6 D1 (an in-flight resume self-checks on resolve)
+        this._resumeAccumS = 0;
     }
 
     /** True when this def's cast() delivers its visuals through the PowerEffects
@@ -2270,6 +2344,12 @@ export class SurvivorsGameplayState implements GameState {
         this._summaryAccumS = 0;    // M4-12
         this._endReconnect();       // M5-6: tear down any reconnect overlay/FSM
         this._roomCode = null;
+        // M6 D1: drop resume context (an in-flight attempt self-discards on resolve:
+        // _connMachine is null after _endReconnect, so it closes the fresh socket).
+        this._roomService = null;
+        this._myCoopRole = null;
+        this._localChampionType = null;
+        this._resumeInFlight = false;
         this._heroProviders = [];
         // M3: clear guest enemy registry and reset snapshot state.
         this.guestEnemies?.clear();
