@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { reconcilePosition, type Vec2 } from '../src/survivors/coop/reconcile';
+import { reconcilePosition, replayInputs, type Vec2, type InputFrame } from '../src/survivors/coop/reconcile';
+import { integrateMove } from '../src/survivors/integrateMove';
 
 describe('reconcilePosition', () => {
   const THRESHOLD = 2.0;
@@ -69,5 +70,59 @@ describe('reconcilePosition', () => {
     const result = reconcilePosition(local, snap, THRESHOLD, LERP);
     expect(result.snapped).toBe(true);
     expect(result.pos).toEqual({ x: 3, z: 4 });
+  });
+});
+
+describe('replayInputs (M6 E2)', () => {
+  const SPEED = 6;
+  const R = 50;
+  const DT = 1 / 60;
+
+  it('no unacked inputs → returns the authoritative start unchanged', () => {
+    const r = replayInputs({ x: 3, z: -2 }, [], SPEED, R);
+    expect(r).toEqual({ x: 3, z: -2 });
+  });
+
+  it('single input matches one integrateMove step exactly', () => {
+    const inputs: InputFrame[] = [{ dx: 1, dz: 0, dt: DT }];
+    const r = replayInputs({ x: 0, z: 0 }, inputs, SPEED, R);
+    expect(r).toEqual(integrateMove(0, 0, 1, 0, SPEED, DT, R));
+  });
+
+  it('multiple inputs accumulate in order', () => {
+    const inputs: InputFrame[] = [
+      { dx: 1, dz: 0, dt: DT },
+      { dx: 1, dz: 0, dt: DT },
+      { dx: 0, dz: 1, dt: DT },
+    ];
+    const r = replayInputs({ x: 0, z: 0 }, inputs, SPEED, R);
+    expect(r.x).toBeCloseTo(2 * SPEED * DT, 12);
+    expect(r.z).toBeCloseTo(SPEED * DT, 12);
+  });
+
+  it('KEY PROPERTY: replaying the unacked tail from the authoritative pose reproduces the local prediction', () => {
+    // Local sim applied inputs i1..i5 from P0. Host acked through i2, so its
+    // authoritative pose is P0 after i1,i2. Replaying i3..i5 from there must
+    // land EXACTLY on the local predicted position → zero residual, no jitter.
+    const all: InputFrame[] = [
+      { dx: 1,  dz: 0,  dt: DT },
+      { dx: 1,  dz: 1,  dt: DT },        // diagonal (normalized inside)
+      { dx: 0,  dz: -1, dt: DT },
+      { dx: -0.4, dz: 0.2, dt: DT },     // analog joystick
+      { dx: 1,  dz: 0,  dt: 0.02 },      // varying frame dt
+    ];
+    let local: Vec2 = { x: 5, z: 5 };
+    for (const i of all) local = integrateMove(local.x, local.z, i.dx, i.dz, SPEED, i.dt, R);
+
+    const authoritative = replayInputs({ x: 5, z: 5 }, all.slice(0, 2), SPEED, R);
+    const predicted = replayInputs(authoritative, all.slice(2), SPEED, R);
+    expect(predicted.x).toBe(local.x); // exact float equality — same math, same order
+    expect(predicted.z).toBe(local.z);
+  });
+
+  it('replay respects the arena clamp', () => {
+    const inputs: InputFrame[] = Array.from({ length: 10 }, () => ({ dx: 1, dz: 0, dt: 1 }));
+    const r = replayInputs({ x: 45, z: 0 }, inputs, SPEED, R);
+    expect(Math.hypot(r.x, r.z)).toBeLessThanOrEqual(49.5 + 1e-9);
   });
 });

@@ -5,6 +5,7 @@ import { PowerSlotManager } from './powers/PowerSlotManager';
 import { Enemy } from './enemies/Enemy';
 import { PlayerStats } from './PlayerStats';
 import { DashMode } from './abilities/AbilityManager';
+import { capInputLen, arenaClampScale } from './integrateMove';
 
 /** Hero damage-feedback tuning — adjust here, not deep in the update loop. */
 const HIT_REACTION_COOLDOWN_S = 0.5;
@@ -106,6 +107,7 @@ export class HeroController {
     // Scratch Vector3 fields — reused every frame to eliminate per-frame allocations
     private _scratchVel: Vector3 = new Vector3();
     private _scratchCamTarget: Vector3 = new Vector3();
+    private _scratchInput = { dx: 0, dz: 0 };
 
     // Co-op: when set, the camera frames this point (+ height) instead of just
     // the local hero. Lets a shared/tethered camera reuse the existing lerp/shake.
@@ -431,6 +433,17 @@ export class HeroController {
         this.externalSlowUntil = this.elapsedTime + durationS;
     }
 
+    /** Current effective move speed: base × shop/level multiplier × active boss slow.
+     *  This is exactly the speed update() integrates input with — the co-op guest
+     *  passes it to the input replay so the replayed prediction matches the local
+     *  one (M6 E2). Note the HOST simulates the guest at the champion's BASE speed
+     *  (it doesn't know multipliers/slows) — that divergence is documented at the
+     *  replay site and absorbed by the reconcile dead-zone/lerp. */
+    public getEffectiveMoveSpeed(): number {
+        const slow = this.elapsedTime < this.externalSlowUntil ? this.externalSlowMultiplier : 1;
+        return this.moveSpeed * this.moveSpeedMultiplier * slow;
+    }
+
     /** Push player-stats reference into the inner basic-attack instance, and also wire
      *  the lifesteal heal callback to this controller's heal() so lifesteal updates the
      *  real hero HP (not the phantom PlayerStats.health that the HUD doesn't read). */
@@ -591,14 +604,15 @@ export class HeroController {
             if (this.keys['a'] || this.keys['arrowleft']) dx -= 1;
             if (this.keys['d'] || this.keys['arrowright']) dx += 1;
 
-            // Normalize — cap at magnitude 1, allow joystick analog below 1
-            const len = Math.hypot(dx, dz);
-            if (len > 1) { dx /= len; dz /= len; }
+            // Normalize — cap at magnitude 1, allow joystick analog below 1.
+            // Shared with the co-op input replay (integrateMove.ts) — same math.
+            capInputLen(dx, dz, this._scratchInput);
+            dx = this._scratchInput.dx;
+            dz = this._scratchInput.dz;
 
             // Boss slow: multiplies the player's own move speed only (knockback and
             // pull are external forces and are NOT slowed). Expires on its timer.
-            const slow = this.elapsedTime < this.externalSlowUntil ? this.externalSlowMultiplier : 1;
-            const effectiveSpeed = this.moveSpeed * this.moveSpeedMultiplier * slow;
+            const effectiveSpeed = this.getEffectiveMoveSpeed();
 
             this._scratchVel.set(dx * effectiveSpeed, 0, dz * effectiveSpeed);
 
@@ -627,11 +641,11 @@ export class HeroController {
             this.hero.setPlayerVelocity(this._scratchVel);
         }
 
-        // Clamp hero position inside arena after Champion.update applies velocity
+        // Clamp hero position inside arena after Champion.update applies velocity.
+        // Shared with the co-op input replay (integrateMove.ts) — same math.
         const pos = this.hero.getPosition();
-        const distFromCenter = Math.hypot(pos.x, pos.z);
-        if (distFromCenter > this.arenaRadius - 0.5) {
-            const k = (this.arenaRadius - 0.5) / distFromCenter;
+        const k = arenaClampScale(pos.x, pos.z, this.arenaRadius);
+        if (k !== 1) {
             // hero.getPosition() returns the live position by reference, so write the
             // clamped values straight to it (and the mesh) — no scratch, no double-write.
             const clampedX = pos.x * k;

@@ -46,7 +46,8 @@ import {
     scheduleMeteorBarrage, createMeteorVisual, createFrostNovaVisual,
     spawnSmashShockwave, spawnExplosiveArrowFlight, spawnExplosionVisual,
 } from './abilities/AbilityVisuals';
-import { reconcilePosition } from './coop/reconcile';
+import { reconcilePosition, replayInputs } from './coop/reconcile';
+import { capInputLen, arenaClampScale } from './integrateMove';
 import { NetClient } from '../net/NetClient';
 import type { NetTransport } from '../net/NetTransport';
 import { RoomService, PrivateRoomService } from '../net/RoomService';
@@ -334,6 +335,8 @@ export class SurvivorsGameplayState implements GameState {
     private _lastReconcileTick = -1;
     /** Scratch velocity for animating the ghost from interpolated pose deltas. */
     private _coopGhostVel = new Vector3();
+    /** Scratch for the ghost's capped input (shared-math helper writes into it). */
+    private _scratchGhostInput = { dx: 0, dz: 0 };
     /** Last remote anim code applied to the ghost — used to fire triggerAttack once
      *  on the rising edge to 2 (the heroState carries anim every frame). */
     private _coopGhostLastAnim = 0;
@@ -1401,20 +1404,17 @@ export class SurvivorsGameplayState implements GameState {
     private _driveGuestGhostFromInput(dt: number): void {
         if (!this.coopGhost || !this.coopSession) return;
         const input = this.coopSession.getLatestInput();
-        let dx = input?.dx ?? 0;
-        let dz = input?.dz ?? 0;
-        const len = Math.hypot(dx, dz);
-        if (len > 1) { dx /= len; dz /= len; }
+        // Cap + clamp via the SAME pure helpers the guest's replay uses
+        // (integrateMove.ts) so host sim and guest prediction share one math.
+        capInputLen(input?.dx ?? 0, input?.dz ?? 0, this._scratchGhostInput);
         const speed = CHAMP_BASE_SPEED[this.coopSession.getRemoteChamp() ?? 'barbarian'] ?? 6;
-        this._coopGhostVel.set(dx * speed, 0, dz * speed);
+        this._coopGhostVel.set(this._scratchGhostInput.dx * speed, 0, this._scratchGhostInput.dz * speed);
         this.coopGhost.setPlayerVelocity(this._coopGhostVel);
         this.coopGhost.update(dt); // integrates velocity → position + walk/idle + faces velocity
         // Clamp inside the arena (same buffer HeroController uses for the local hero).
         const g = this.coopGhost as unknown as { position: Vector3; mesh: Mesh | null };
-        const limit = (this.map?.getArenaRadius() ?? 20) - 0.5;
-        const d = Math.hypot(g.position.x, g.position.z);
-        if (d > limit && d > 1e-4) {
-            const k = limit / d;
+        const k = arenaClampScale(g.position.x, g.position.z, this.map?.getArenaRadius() ?? 20);
+        if (k !== 1) {
             g.position.x *= k;
             g.position.z *= k;
             if (g.mesh) { g.mesh.position.x = g.position.x; g.mesh.position.z = g.position.z; }
@@ -2526,7 +2526,9 @@ export class SurvivorsGameplayState implements GameState {
             if (this.coopSession.role === 'guest') {
                 const mv = this.heroController?.getMoveInput();
                 // buttons (dash/ult) carried for M4-9 ability routing; 0 for now.
-                this.coopSession.sendLocalInput(mv?.dx ?? 0, mv?.dz ?? 0, 0);
+                // dt = the same (timeScale-scaled) dt the local sim integrated this
+                // input with — recorded for replay reconciliation (clamped inside).
+                this.coopSession.sendLocalInput(mv?.dx ?? 0, mv?.dz ?? 0, 0, dt);
             }
 
             // Render ~100ms in the past for smooth interpolation.
@@ -2791,17 +2793,30 @@ export class SurvivorsGameplayState implements GameState {
                     // While alive: apply authoritative HP + reconcile predicted position.
                     if (meAlive) {
                         this.heroController.setHealth(guestEntry.hp);
-                        // M4-8 reconciliation — ONCE per new snapshot (every render frame
-                        // compounds the pull-back and reads as jitter). Within DEAD_ZONE the
-                        // guest trusts its local prediction; beyond it, lerp/snap.
+                        // M6 E2 input-replay reconciliation — ONCE per new snapshot.
+                        // Start from the host-authoritative pose, replay every input the
+                        // host hasn't applied yet (seq > ackSeq) through the SAME
+                        // integration math the local prediction used, then dead-zone/
+                        // lerp/snap the rendered position toward that replayed target.
+                        // Replaying at the guest's CURRENT effective speed keeps the
+                        // replay consistent with its own prediction (residual ≈ 0);
+                        // the host integrates at CHAMP_BASE_SPEED, so speed-multiplier
+                        // divergence shows as a steady sub-snap gap the lerp absorbs.
                         if (this.hero && snap.tick !== this._lastReconcileTick) {
                             this._lastReconcileTick = snap.tick;
+                            this.coopSession!.pruneInputHistory(snap.ackSeq);
+                            const predicted = replayInputs(
+                                { x: guestEntry.x, z: guestEntry.z },
+                                this.coopSession!.getUnackedInputs(snap.ackSeq),
+                                this.heroController.getEffectiveMoveSpeed(),
+                                this.map?.getArenaRadius() ?? 20,
+                            );
                             const lp = this.hero.getPosition();
-                            const gap = Math.hypot(guestEntry.x - lp.x, guestEntry.z - lp.z);
+                            const gap = Math.hypot(predicted.x - lp.x, predicted.z - lp.z);
                             if (gap > RECONCILE_DEAD_ZONE) {
                                 const r = reconcilePosition(
                                     { x: lp.x, z: lp.z },
-                                    { x: guestEntry.x, z: guestEntry.z },
+                                    predicted,
                                     RECONCILE_HARD_SNAP, RECONCILE_LERP,
                                 );
                                 this.heroController.reconcileNetworkPosition(r.pos.x, r.pos.z);

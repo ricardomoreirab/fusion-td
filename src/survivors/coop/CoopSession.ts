@@ -3,6 +3,19 @@ import { PoseBuffer, type Pose } from '../../net/Interpolation';
 import type { SnapshotMsg, SpawnMsg, DeathMsg, DamageReportMsg, DamageResultMsg, InputMsg, RunSummaryMsg, RunOverMsg, FxMsg } from '../../net/Protocol';
 import { applyDelta, type SnapshotDelta } from '../../net/SnapshotDelta';
 
+/** One ring entry: a sent input plus the LOCAL frame dt it was simulated with.
+ *  dt never travels over the wire (the host integrates with its own frame dt);
+ *  it exists purely so the guest can replay unacked inputs (M6 E2). */
+export interface RecordedInput { seq: number; dx: number; dz: number; dt: number }
+
+/** Ring capacity — at 60 input frames/s this is >4s of history, far beyond any
+ *  snapshot RTT; older (long-since-acked) entries are simply overwritten. */
+export const INPUT_HISTORY_SIZE = 256;
+
+/** Cap on the dt recorded per input so a tab-switch frame spike (one giant dt)
+ *  can't be replayed as a teleport-length step. */
+export const MAX_INPUT_DT_S = 0.1;
+
 /**
  * CoopSession — the M2 game-side glue, kept Babylon-free. Sends the local hero
  * pose each tick and buffers the remote hero pose for interpolated rendering.
@@ -24,6 +37,13 @@ export class CoopSession {
     // applied — echoed back as the snapshot ackSeq for guest reconciliation.
     private latestInput: InputMsg | null = null;
     private inputSeq = 0;
+
+    // M6 E2: guest-side bounded input-history ring for replay reconciliation.
+    // Pre-allocated records mutated in place — zero per-frame allocation.
+    private inputHistory: RecordedInput[] =
+        Array.from({ length: INPUT_HISTORY_SIZE }, () => ({ seq: 0, dx: 0, dz: 0, dt: 0 }));
+    private inputHistoryStart = 0; // index of the oldest entry
+    private inputHistoryCount = 0;
 
     // M3: game-layer callbacks wired by SurvivorsGameplayState (guest only)
     onSpawn?:         (msg: SpawnMsg)         => void;
@@ -91,9 +111,44 @@ export class CoopSession {
         };
     }
 
-    /** Guest: send this frame's movement axes + button bitfield (M4 input authority). */
-    sendLocalInput(dx: number, dz: number, buttons: number): void {
-        this.client.sendInput({ seq: ++this.localSeq, dx, dz, buttons });
+    /** Guest: send this frame's movement axes + button bitfield (M4 input authority).
+     *  `dtS` is the LOCAL simulation dt this input was integrated with — recorded
+     *  in the history ring for replay reconciliation (M6 E2), never sent. */
+    sendLocalInput(dx: number, dz: number, buttons: number, dtS: number): void {
+        const seq = ++this.localSeq;
+        this.client.sendInput({ seq, dx, dz, buttons });
+
+        // Record into the bounded ring: overwrite the oldest entry when full.
+        if (this.inputHistoryCount === INPUT_HISTORY_SIZE) {
+            this.inputHistoryStart = (this.inputHistoryStart + 1) % INPUT_HISTORY_SIZE;
+            this.inputHistoryCount--;
+        }
+        const slot = this.inputHistory[(this.inputHistoryStart + this.inputHistoryCount) % INPUT_HISTORY_SIZE];
+        slot.seq = seq;
+        slot.dx = dx;
+        slot.dz = dz;
+        slot.dt = Math.min(Math.max(dtS, 0), MAX_INPUT_DT_S);
+        this.inputHistoryCount++;
+    }
+
+    /** Guest: drop every recorded input the host has acknowledged (seq ≤ ackSeq). */
+    pruneInputHistory(ackSeq: number): void {
+        while (this.inputHistoryCount > 0 && this.inputHistory[this.inputHistoryStart].seq <= ackSeq) {
+            this.inputHistoryStart = (this.inputHistoryStart + 1) % INPUT_HISTORY_SIZE;
+            this.inputHistoryCount--;
+        }
+    }
+
+    /** Guest: recorded inputs the host has NOT yet applied (seq > ackSeq), oldest
+     *  first. Allocates the result array (called once per snapshot, ~20 Hz — not
+     *  per frame); the entries are live ring records, consume synchronously. */
+    getUnackedInputs(ackSeq: number): RecordedInput[] {
+        const out: RecordedInput[] = [];
+        for (let i = 0; i < this.inputHistoryCount; i++) {
+            const rec = this.inputHistory[(this.inputHistoryStart + i) % INPUT_HISTORY_SIZE];
+            if (rec.seq > ackSeq) out.push(rec);
+        }
+        return out;
     }
 
     /** Host: the newest guest input, or null if none yet. */
