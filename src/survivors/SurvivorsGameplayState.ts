@@ -1657,8 +1657,13 @@ export class SurvivorsGameplayState implements GameState {
     private wireCoopSession(transport: NetTransport, localChamp: string): void {
         // Re-wire support: drop any previous session. dispose() closes the OLD
         // session's (already-dead) transport — never the new one passed in here.
+        // Carry the old outgoing seq counter into the new session: the host's
+        // persistent session keeps its high `inputSeq` watermark across our
+        // resume, so a counter restarting at 0 would have every post-resume
+        // input dropped as "stale" (movement-locked guest until it caught up).
+        const carrySeq = this.coopSession?.getLocalSeq() ?? 0;
         this.coopSession?.dispose();
-        this.coopSession = new CoopSession(new NetClient(transport), localChamp);
+        this.coopSession = new CoopSession(new NetClient(transport), localChamp, undefined, carrySeq);
         console.log(`[coop] connected as ${this.coopSession.role}`);
         // M6 D1: remember role + champ so a later resume can reclaim this exact slot.
         this._myCoopRole = this.coopSession.role;

@@ -16,6 +16,12 @@ export const INPUT_HISTORY_SIZE = 256;
  *  can't be replayed as a teleport-length step. */
 export const MAX_INPUT_DT_S = 0.1;
 
+/** Host-side restart detection: a guest input seq this far BELOW the highest
+ *  applied seq cannot be a reordered frame (the relay never delays that long) —
+ *  it means the guest rebuilt its session (drop+resume) with a fresh counter.
+ *  Accept it and adopt the new stream instead of silently dropping everything. */
+export const SEQ_RESTART_GAP = 1000;
+
 /**
  * CoopSession — the M2 game-side glue, kept Babylon-free. Sends the local hero
  * pose each tick and buffers the remote hero pose for interpolated rendering.
@@ -25,7 +31,7 @@ export class CoopSession {
     private remoteBuffer = new PoseBuffer();
     private remoteChamp: string | null = null;
     private remoteAnim = 0; // last anim code from the remote hero (0 idle/1 run/2 attack)
-    private localSeq = 0;
+    private localSeq: number;
 
     // M3: guest-side last-received snapshot (last-wins buffer)
     private latestSnapshot: SnapshotMsg | null = null;
@@ -72,7 +78,12 @@ export class CoopSession {
         private client: NetClient,
         private localChamp: string,
         private now: () => number = () => performance.now(),
+        startSeq = 0,
     ) {
+        // M6 D1 fix: a re-wired session (guest drop+resume) continues the previous
+        // session's counter so the host's `seq < inputSeq` guard never sees the
+        // fresh stream as stale (which would silently drop every post-resume input).
+        this.localSeq = startSeq;
         this.client.onHeroState = (m) => {
             this.onPeerTraffic?.();
             this.remoteChamp = m.champ;
@@ -103,9 +114,14 @@ export class CoopSession {
         this.client.onPeerRejoined  = () => { this.onPeerRejoined?.(); };
         this.client.onFx            = (m) => { this.onPeerTraffic?.(); this.onFx?.(m); };
         // M4 host-side: keep only the newest guest input (drop out-of-order/stale).
+        // M6 D1 fix: a seq far BELOW the highest applied one is not a reorder — the
+        // guest restarted its input stream (fresh counter after drop+resume).
+        // Adopt it; otherwise every post-resume input would be silently dropped
+        // and the echoed ackSeq would make the guest prune its whole replay ring.
         this.client.onInput = (m) => {
             this.onPeerTraffic?.();
-            if (m.seq < this.inputSeq) return; // ignore reordered older frames
+            const restarted = m.seq < this.inputSeq - SEQ_RESTART_GAP;
+            if (m.seq < this.inputSeq && !restarted) return; // ignore reordered older frames
             this.inputSeq = m.seq;
             this.latestInput = m;
         };
@@ -159,6 +175,13 @@ export class CoopSession {
     /** Host: highest guest input seq applied — snapshot ackSeq for reconciliation. */
     getInputAckSeq(): number {
         return this.inputSeq;
+    }
+
+    /** Local outgoing seq counter (shared by inputs + poses). Read when re-wiring
+     *  a session after a drop+resume so the replacement continues the numbering
+     *  (passed as the new session's `startSeq`). */
+    getLocalSeq(): number {
+        return this.localSeq;
     }
 
     /** Guest: periodically send my hero summary so the host can aggregate run-over. */
