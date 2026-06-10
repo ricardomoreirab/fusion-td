@@ -320,7 +320,9 @@ export class SurvivorsGameplayState implements GameState {
     private static readonly SNAPSHOT_KEYFRAME_TICKS = 20;
     /** Throttle for the co-op diagnostic log (guest only). */
     private _coopDiagAccumS = 0;
-    /** On-screen co-op debug overlay + counters (visible whenever co-op is active). */
+    /** On-screen co-op debug overlay + counters (opt-in via the `?coopdebug` URL param). */
+    private readonly _coopDbgEnabled =
+        typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('coopdebug');
     private _coopDbgEl: HTMLDivElement | null = null;
     private _coopDbgAccumS = 0;
     private _coopDbgSpawns = 0;   // host: emitted; guest: received
@@ -2317,9 +2319,9 @@ export class SurvivorsGameplayState implements GameState {
     }
 
     /** On-screen co-op debug box (top-right) — shows the host→guest pipeline live
-     *  so issues are readable without the dev console. Active whenever co-op is on. */
+     *  so issues are readable without the dev console. Opt-in via `?coopdebug`. */
     private _updateCoopDebugOverlay(deltaTime: number): void {
-        if (!this.coopSession) return;
+        if (!this._coopDbgEnabled || !this.coopSession) return;
         this._coopDbgAccumS += deltaTime;
         if (this._coopDbgAccumS < 0.25) return;
         this._coopDbgAccumS = 0;
