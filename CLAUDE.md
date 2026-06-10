@@ -22,10 +22,13 @@ The codebase is organized by **bounded context**, not by file type:
 src/
   engine/         cross-mode infrastructure (Game, scene, lights, asset loading)
   survivors/      survivors-mode gameplay (the only currently shipped mode)
+  net/            online co-op networking (protocol, transport, codecs)
   menu/           main menu state
   game-over/      game-over state
   shared/         cross-state UI helpers
+  ui/             DOM HUD + overlays (see "Survivors UI" below)
   index.ts        DOM bootstrap
+worker/           Cloudflare Worker + Room Durable Object (blind WS relay)
 ```
 
 ### Entry & state machine
@@ -63,6 +66,15 @@ src/
 
 ### Manual ultimates
 - `src/survivors/abilities/AbilityManager.ts` — Meteor Strike (45s, click-to-target), Frost Nova (30s, instant), and per-champion class ults. `triggerFrostNova()`, `triggerMeteorAtNearest()`. Constructed with `(game, enemyManager)`.
+- `src/survivors/abilities/AbilityVisuals.ts` — damage-free visual builders split out of AbilityManager, shared by the local cast AND the co-op remote-fx replay.
+
+### Online co-op (host-authoritative, 2 players)
+- `src/net/` — `Protocol.ts` (all wire messages), `NetClient.ts` (message pump), `WebSocketTransport.ts` / `FakeTransport.ts` (tests), `RoomService.ts` (room mint/connect interface; `PrivateRoomService` is the live impl), `SnapshotBinary.ts` (binary tick codec), `SnapshotDelta.ts` (delta vs last snapshot + keyframes), `Interpolation.ts` (jitter buffer), `ConnectionMachine.ts` (reconnect FSM).
+- `src/survivors/coop/` — `CoopSession.ts` (typed send/receive over NetClient), `GuestEnemies.ts` (guest render-only enemy registry driven by host snapshots), `CoopFx.ts` (cosmetic-fx channel: `emitCoopFx`/`withFxReplay`), `PendingCoop.ts` (lobby → startRun handoff; cleared in `exit()`), `reconcile.ts` (input-replay reconciliation).
+- `worker/` — Cloudflare Room Durable Object: blind WS relay. Control frames: `hello`, `peer-left`, `peer-joined` (normal second join), `peer-rejoined` (resume). A dropped peer can resume its role within a 30s grace window.
+- **Entry:** menu Co-op lobby (`src/ui/overlays/CoopLobby.ts`) connects while still in the menu → stashes the live session via `PendingCoop` → `startRun()` takes it. Dev flow: `?host` / `?join[=CODE]` URL params (fixed dev room `TESTER`).
+- **Invariants:** the HOST simulates everything (enemy AI, waves, damage). The guest renders host-authoritative copies and routes damage/status/knockback through the `Enemy.guest*Redirect` statics — ALL cleared in `exit()`. Cosmetic fx replays are gameplay-inert (`withFxReplay` guard stops re-broadcast echoes). Single-player must stay byte-identical: every co-op hook is null/guarded.
+- **Shared movement math:** `src/survivors/integrateMove.ts` — single source of truth for HeroController, the host's guest-ghost, and guest input replay.
 
 ### Survivors UI — migrated to **DOM** (in `src/ui/`)
 The HUD and overlays were migrated off Babylon-GUI to DOM (see `docs/superpowers/plans/2026-05-29-dom-ui-foundation-and-hud.md`). The live UI is:
@@ -117,9 +129,7 @@ Bosses register into BOTH via `EnemyManager.setShadowGenerators([directional, to
 
 ## Tests
 
-Vitest is wired for **pure-logic** modules only (no Babylon scene). Tests live under `tests/*.spec.ts`. Currently:
-- `tests/PlayerStats.spec.ts` — money/health/purchase counts.
-- `tests/RunItems.spec.ts` — tier-to-item mapping + stack effects.
+Vitest is wired for **pure-logic** modules only (no full Babylon scene; a few suites use the Babylon Null engine). Tests live under `tests/*.spec.ts` — currently ~42 spec files (~314 tests) covering player stats/items, power slots/fusions/status model, and the co-op/net stack (protocol round-trips, snapshot binary + delta codecs, connection FSM, reconciliation, damage routing, transports).
 
 ## Balance (current)
 
@@ -127,6 +137,7 @@ Vitest is wired for **pure-logic** modules only (no Babylon scene). Tests live u
 - Contact DPS: Basic 8/s, Fast 5/s, Tank 20/s, Boss 30/s.
 - Slow cap: 80% max (speed never below 0.2× original).
 - Freeze immunity: 3s after freeze ends. Stun immunity: 5s after stun ends.
+- Curse DoT ticks at 0.5s intervals (integral-preserving — same total damage as the old per-frame tick); burn AND curse flush their accumulator tail on expiry so no damage is lost.
 
 ## Deleted (cleanup history)
 

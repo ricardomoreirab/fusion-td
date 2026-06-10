@@ -193,6 +193,12 @@ export class Champion extends Enemy {
         this.playerVelocity.copyFrom(velocity);
     }
 
+    /** Facing yaw (mesh rotation.y), 0 while the mesh is still loading. Public
+     *  accessor so callers don't need to reach into the protected mesh field. */
+    public getFacingY(): number {
+        return this.mesh?.rotation.y ?? 0;
+    }
+
     // getPosition() inherited from Enemy — returns this.position by REFERENCE.
     // The previous override here cloned on every call, which was the dominant
     // source of GC pressure at high enemy counts (every enemy calls

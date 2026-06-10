@@ -4,6 +4,7 @@ import { AdvancedDynamicTexture } from '@babylonjs/gui';
 import { Game } from '../engine/Game';
 import { GameState } from '../engine/GameState';
 import { SurvivorsArena } from './SurvivorsArena';
+import { StatusEffect } from './GameTypes';
 import { Champion } from './champions/Champion';
 import { HeroController } from './HeroController';
 import { SurvivorsJoystick } from './ui/SurvivorsJoystick';
@@ -15,7 +16,8 @@ import { PowerDrop } from './powers/PowerDrop';
 import { PowerSlotManager, PowerSlot } from './powers/PowerSlotManager';
 import { POWER_DEFS, getPowerByElementAndClass, getPowerMapForClass, PowerElement, ChampionType, PowerDefinition } from './powers/PowerDefinitions';
 import { getFusionFor, getFusionsForClass, getUltimateOfferForFusions } from './powers/FusionDefinitions';
-import { aoeBurst, gatherVortex, persistentZone, omniVolley, setCameraShakeHook, resetPowerEffects } from './powers/PowerEffects';
+import { aoeBurst, gatherVortex, persistentZone, omniVolley, spawnBolt, arrowStrike, setCameraShakeHook, resetPowerEffects } from './powers/PowerEffects';
+import { getAutocastArchetype, archetypeKey } from './powers/FusionArchetypeRegistry';
 import './powers/FusionArchetypes'; // registers fusion archetypes at load
 import { Enemy, HEALTH_BAR_RENDER_GROUP } from './enemies/Enemy';
 import { BasicAttackTarget } from './champions/HeroBasicAttack';
@@ -36,6 +38,46 @@ import { GameSettings, bladeCountForQuality } from '../shared/GameSettings';
 import { clearMaterialCache, getCachedMaterial, getMaterialCacheSize } from '../engine/rendering/MaterialCache';
 import { clearProjectilePools } from '../engine/rendering/ProjectilePool';
 import { formatBuckets } from '../engine/rendering/resourceBudget';
+import { CoopSession } from './coop/CoopSession';
+import { GuestEnemies } from './coop/GuestEnemies';
+import { computeCameraFocus } from './coop/cameraFocus';
+import { setCoopFxEmit, spawnCosmeticProjectile, spawnCosmeticSwingRing, spawnCosmeticEnemyProjectile, spawnCosmeticTelegraph, startCosmeticUltChannel, emitCoopFx, isCoopFxActive, withFxReplay } from './coop/CoopFx';
+import {
+    scheduleMeteorBarrage, createMeteorVisual, createFrostNovaVisual,
+    spawnSmashShockwave, spawnExplosiveArrowFlight, spawnExplosionVisual,
+} from './abilities/AbilityVisuals';
+import { reconcilePosition, replayInputs } from './coop/reconcile';
+import { capInputLen, arenaClampScale } from './integrateMove';
+import { NetClient } from '../net/NetClient';
+import type { NetTransport } from '../net/NetTransport';
+import { RoomService, PrivateRoomService } from '../net/RoomService';
+import { takePendingCoop, clearPendingCoop } from './coop/PendingCoop';
+import { ConnectionMachine } from '../net/ConnectionMachine';
+import { diffSnapshot } from '../net/SnapshotDelta';
+import { packEnemyFlags } from '../net/EnemyFlags';
+import type { NetRole, SpawnMsg, DeathMsg, SnapshotMsg, CoopHeroSummary, RunOverMsg, FxMsg } from '../net/Protocol';
+import { validateDamageReport } from './coop/DamageRouter';
+import { MilestoneBoss } from './enemies/MilestoneBoss';
+
+/**
+ * Map class-specific ultimate IDs → GLB clip + duration so the hero plays the
+ * right animation when the player presses an ultimate button. The clip plays as
+ * a forced "special" channel — basic attacks suspend for the whole duration.
+ * When `duration` exceeds the clip's natural length the clip loops (Whirlwind
+ * ticks for 5s so the slash should keep going). Whirlwind speed bumped
+ * 1.5 → 2.2 to read more like a tornado.
+ *
+ * Module-level (M6 C2) so the co-op 'abilityClip' replay can allowlist incoming
+ * clip suffixes against exactly the set we ourselves can send.
+ */
+const ABILITY_CLIPS: Partial<Record<string, { suffix: string; duration?: number; speed?: number }>> = {
+    // Barbarian (Aulus)
+    whirlwind: { suffix: 'aulus_warrior_of_ferocity_in_game_skill3',   duration: 5.0, speed: 2.2 },
+    smash:     { suffix: 'aulus_warrior_of_ferocity_in_game_skill2_3' }, // one-shot, natural length
+};
+const COOP_ABILITY_CLIP_SUFFIXES = new Set(
+    Object.values(ABILITY_CLIPS).map(c => c!.suffix),
+);
 
 /**
  * Module-level cache for champion GLBs. Loaded on demand inside enter() (not at
@@ -62,6 +104,14 @@ const ENEMY_GLB_PATHS: Partial<Record<string, { dir: string; file: string }>> = 
     splitting:   { dir: 'assets/thunder-fenrir/source/',               file: 'thunder_fenrir.glb' },
     mini:        { dir: 'assets/thunder-fenrir-cab/source/',           file: 'thunder_fenrir_cab.glb' },
     shield:      { dir: 'assets/red-super-melee-minion/source/',       file: 'red_super_melee_minion.glb' },
+    // Wave-10+ red-tier replacements (see redSwap.ts). No red-super-artillery-carriage
+    // asset exists, so an elite red carriage falls back to fast_red automatically.
+    basic_red:        { dir: 'assets/red-melee-minion/source/',            file: 'red_melee_minion.glb' },
+    fast_red:         { dir: 'assets/red-gold-artillery-carriage/source/', file: 'red_gold_artillery_carriage.glb' },
+    healer_red:       { dir: 'assets/red-wizard/source/',                  file: 'red_wizard.glb' },
+    tank_red:         { dir: 'assets/dragon-turtle/source/',               file: 'dragon_turtle.glb' },
+    basic_red_elite:  { dir: 'assets/red-super-melee-minion/source/',      file: 'red_super_melee_minion.glb' },
+    healer_red_elite: { dir: 'assets/red-super-wizard/source/',            file: 'red_super_wizard.glb' },
     // Per-tier milestone-boss GLBs (waves 5/10/15/20). EnemyManager picks the right
     // one from MilestoneBoss.waveTier when staging on MilestoneBoss.pendingAsset.
     boss_tier1:  { dir: 'assets/thamuz-lord-lava-in-game/source/',         file: 'thamuz_lord_lava_in_game.glb' },
@@ -75,6 +125,15 @@ function loadChampionAsset(championType: string, scene: Scene): Promise<AssetCon
 
 function loadEnemyAsset(enemyType: string, scene: Scene): Promise<AssetContainer> | null {
     return loadAsset(ENEMY_GLB_PATHS, enemyType, scene);
+}
+
+/** Synchronously fetch a preloaded enemy GLB from the module cache (populated by
+ *  enter()'s preload), or null if not cached / no GLB for this type. Lets the
+ *  guest stage the same model the host renders instead of the procedural mesh. */
+function getCachedEnemyAsset(enemyType: string): AssetContainer | null {
+    const path = ENEMY_GLB_PATHS[enemyType];
+    if (!path) return null;
+    return _glbAssets[`${path.dir}${path.file}`] ?? null;
 }
 
 const _glbAssets: Record<string, AssetContainer> = {};
@@ -129,13 +188,169 @@ const TORCH_RANGE     = 9;
 /** Seconds shaved off every ability on cooldown for each monster killed. */
 const KILL_COOLDOWN_REDUCTION = 0.5;
 
+/** Base move speed per champion (mirrors startRun's `variants[].speed`). The host
+ *  integrates the guest's InputMsg at the guest champion's base speed to simulate
+ *  its hero authoritatively (M4-8). Per-run move-speed multipliers aren't known to
+ *  the host yet — the small divergence is corrected by guest-side reconciliation. */
+const CHAMP_BASE_SPEED: Record<string, number> = { barbarian: 6, ranger: 9, mage: 7 };
+
+/** Guest reconciliation tuning (M4-8). The guest predicts its own hero locally and
+ *  only corrects toward the host-authoritative position when the gap is real —
+ *  within DEAD_ZONE it trusts prediction entirely (host + guest integrate the same
+ *  input, so they drift only by ~speed×latency + the snapshot interval). Beyond it,
+ *  lerp gently; HARD_SNAP teleports (respawn / big desync). Reconcile runs ONCE per
+ *  new snapshot — correcting every render frame toward a stale target compounds the
+ *  pull-back and fights prediction (the "jitter"). */
+const RECONCILE_DEAD_ZONE = 1.0;
+const RECONCILE_HARD_SNAP = 5.0;
+const RECONCILE_LERP = 0.25;
+
+/**
+ * Per-player aggregate (co-op M4, spec §3). The local player is always
+ * `players[localId]`; single-player and the M3 host both run with exactly
+ * `players = [slot0]`. The host gains a `players[1]` (the guest hero, simulated
+ * from InputMsg) when input-authority lands in a later M4 task.
+ *
+ * Only per-player BUILDS live here. Shared systems (enemyManager, waveManager,
+ * arena, camera, drops, damageNumbers) stay flat on the state. The state's
+ * playerStats/levelSystem/heroController/powerSlots/abilityManager/runItems are
+ * get/set accessors over `local().*`, so every existing call-site is untouched
+ * and single-player stays byte-identical.
+ */
+interface PlayerSlot {
+    id: number;
+    isLocal: boolean;
+    stats: PlayerStats | null;
+    level: LevelSystem | null;
+    hero: HeroController | null;
+    powers: PowerSlotManager | null;
+    abilities: AbilityManager | null;
+    items: RunItems | null;
+}
+
+/** Build an empty per-player slot. Its six systems are populated in-place during
+ *  startRun (host/SP) or — once players[1] lands — when the host constructs the
+ *  guest's build. Kept allocation-light: no Babylon objects created here. */
+function makePlayerSlot(id: number, isLocal: boolean): PlayerSlot {
+    return { id, isLocal, stats: null, level: null, hero: null, powers: null, abilities: null, items: null };
+}
+
 export class SurvivorsGameplayState implements GameState {
     private game: Game;
     private scene: Scene | null = null;
     private ui: AdvancedDynamicTexture | null = null;
     private map: SurvivorsArena | null = null;
     private hero: Champion | null = null;
-    private heroController: HeroController | null = null;
+
+    // ── Per-player slots (co-op M4) — see PlayerSlot above. The local player's six
+    //    core systems are reached through the get/set accessors below, so every
+    //    existing `this.heroController` / `this.playerStats` / … call-site is
+    //    unchanged and single-player stays byte-identical. ──────────────────────
+    private players: PlayerSlot[] = [];
+    private localId = 0;
+    /** The local player's slot, or undefined outside a run (between startRun/exit). */
+    private local(): PlayerSlot | undefined { return this.players[this.localId]; }
+    private get heroController(): HeroController | null { return this.local()?.hero ?? null; }
+    private set heroController(v: HeroController | null) { const s = this.local(); if (s) s.hero = v; }
+    private get playerStats(): PlayerStats | null { return this.local()?.stats ?? null; }
+    private set playerStats(v: PlayerStats | null) { const s = this.local(); if (s) s.stats = v; }
+    private get levelSystem(): LevelSystem | null { return this.local()?.level ?? null; }
+    private set levelSystem(v: LevelSystem | null) { const s = this.local(); if (s) s.level = v; }
+    private get powerSlots(): PowerSlotManager | null { return this.local()?.powers ?? null; }
+    private set powerSlots(v: PowerSlotManager | null) { const s = this.local(); if (s) s.powers = v; }
+    private get abilityManager(): AbilityManager | null { return this.local()?.abilities ?? null; }
+    private set abilityManager(v: AbilityManager | null) { const s = this.local(); if (s) s.abilities = v; }
+    private get runItems(): RunItems | null { return this.local()?.items ?? null; }
+    private set runItems(v: RunItems | null) { const s = this.local(); if (s) s.items = v; }
+
+    private coopSession: CoopSession | null = null;
+    /** M5-4/5: the room code, kept so a future transparent reconnect can resume the
+     *  same room via the RoomService without re-querying matchmaking. */
+    private _roomCode: string | null = null;
+    /** M5-6: drives the peer-disconnect grace countdown + reconnect overlay. Non-null
+     *  only while a disconnect is being waited out. */
+    private _connMachine: ConnectionMachine | null = null;
+    private _reconnectEl: HTMLDivElement | null = null;
+    /** M6 D1: why the grace window is open — 'self' = OUR socket dropped (we attempt
+     *  the resume), 'peer' = the relay reported the OTHER peer left (we wait). */
+    private _connLostKind: 'self' | 'peer' | null = null;
+    /** M6 D1: resume-attempt pacing (~1.5s) + overlapping-attempt guard. */
+    private _resumeAccumS = 0;
+    private _resumeInFlight = false;
+    /** M6 D1: kept from startRun/wireCoopSession so a resume can reconnect into the
+     *  same room (same code), reclaim the same role, and re-wire the same champ. */
+    private _roomService: RoomService | null = null;
+    private _myCoopRole: NetRole | null = null;
+    private _localChampionType: string | null = null;
+    /** Ghost mesh for the remote teammate (M2: cosmetic, not simulated). */
+    private coopGhost: Champion | null = null;
+    private coopGhostPending = false;
+    // M3 (Part A): host-authoritative HP tracking for the guest hero.
+    // The host computes contact damage for both heroes; these fields hold the
+    // guest's authoritative HP. Sent to the guest in every snapshot (heroes[1].hp).
+    // Null/zero until the ghost appears and champHpFor resolves the guest's class.
+    private guestHeroHp = 0;
+    private guestHeroMaxHp = 0;
+    private guestHeroAlive = true;
+    /** M4-11: the LOCAL hero is dead and spectating the surviving teammate (co-op). */
+    private _spectating = false;
+    /** M4-11: the run has ended (both heroes down / SP death) — guards the game-over
+     *  transition so it fires exactly once even if host + guest both detect it. */
+    private _runEnded = false;
+    /** M4-12 (host): the guest's most recent hero summary (sent ~every 2s), used to
+     *  aggregate the 2-column game-over without a death-timing race. */
+    private _guestSummary: CoopHeroSummary | null = null;
+    /** M4-12 (guest): accumulator for the periodic hero-summary send. */
+    private _summaryAccumS = 0;
+    // Mutable hero-provider array shared with EnemyManager so the ghost provider
+    // can be pushed in lazily (after the ghost spawns) and existing enemies see it
+    // via their seekTargets reference (EnemyManager assigns the same array object).
+    private _heroProviders: Parameters<EnemyManager['configureSurvivorsMode']>[0] = [];
+    // M3: guest-side render-only enemy registry (null in single-player and host).
+    private guestEnemies: GuestEnemies | null = null;
+    /** Last wave state received from the host snapshot; drives the guest HUD.
+     *  Null until the first snapshot arrives. Reset to null in exit(). */
+    private _guestWave: { wave: number; enemiesAlive: number; inProgress: boolean } | null = null;
+    /** Accumulator (seconds) for the host snapshot cadence (~20 Hz). */
+    private _snapshotAccumS = 0;
+    /** M5-7: the last FULL snapshot the host sent, used as the delta base. A keyframe
+     *  (full snapshot) goes out every SNAPSHOT_KEYFRAME_TICKS so a joiner / dropped
+     *  delta resyncs within ~1s; the ticks between are delta-compressed. */
+    private _lastSentSnapshot: SnapshotMsg | null = null;
+    private static readonly SNAPSHOT_KEYFRAME_TICKS = 20;
+    /** Throttle for the co-op diagnostic log (guest only). */
+    private _coopDiagAccumS = 0;
+    /** On-screen co-op debug overlay + counters (opt-in via the `?coopdebug` URL param). */
+    private readonly _coopDbgEnabled =
+        typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('coopdebug');
+    private _coopDbgEl: HTMLDivElement | null = null;
+    private _coopDbgAccumS = 0;
+    private _coopDbgSpawns = 0;   // host: emitted; guest: received
+    private _coopDbgDeaths = 0;
+    private _coopDbgSnaps = 0;    // guest: snapshots applied
+    /** Monotonically-increasing snapshot tick counter (debug + ack). */
+    private _snapshotTick = 0;
+    /** Guest: last snapshot tick pushed into the enemy interpolation buffers, so a
+     *  given snapshot is buffered once (not re-pushed every frame). */
+    private _lastGuestSnapTick = -1;
+    /** Guest: last snapshot tick its local hero was reconciled against (M4-8) — so the
+     *  position correction runs once per snapshot, not every render frame. */
+    private _lastReconcileTick = -1;
+    /** Scratch velocity for animating the ghost from interpolated pose deltas. */
+    private _coopGhostVel = new Vector3();
+    /** Scratch for the ghost's capped input (shared-math helper writes into it). */
+    private _scratchGhostInput = { dx: 0, dz: 0 };
+    /** Last remote anim code applied to the ghost — used to fire triggerAttack once
+     *  on the rising edge to 2 (the heroState carries anim every frame). */
+    private _coopGhostLastAnim = 0;
+    /** M6 C2: active cosmetic ultimate channels replayed for the teammate, keyed by
+     *  ability id (single peer → one concurrent channel per ability). Each entry's
+     *  dispose() is idempotent and fires on 'ultStop', on a duration+2s safety
+     *  timeout (in case the stop is lost), and on exit()/host-solo detach. */
+    private coopUltChannels: Map<string, { dispose: () => void }> = new Map();
+    /** Once-only guard for the fx-dispatch failure warn (avoids log spam if a
+     *  whole backlog of malformed fx drains at once). Reset in exit(). */
+    private _fxDispatchWarned = false;
     private joystick: SurvivorsJoystick | null = null;
     private grass: ReturnType<typeof createProceduralGrass> | null = null;
     private shadowSourceLight: DirectionalLight | null = null;
@@ -155,11 +370,10 @@ export class SurvivorsGameplayState implements GameState {
     // Gameplay systems
     private enemyManager: EnemyManager | null = null;
     private waveManager: WaveManager | null = null;
-    private playerStats: PlayerStats | null = null;
+    // playerStats + levelSystem now live in the local PlayerSlot (get/set accessors above).
     // XP / leveling — replaces the gold Armory shop. Gold income folds into XP;
     // each level-up pushes +1%/level onto every attribute except crit chance
     // (which stays +0.5%/level) — see applyLevelBonuses.
-    private levelSystem: LevelSystem | null = null;
     /** Hero base max HP captured at run start — XP scales max HP off this. */
     private baseMaxHealth = 0;
     /** How much max-HP bonus has already been pushed to the hero (delta-applied). */
@@ -167,14 +381,12 @@ export class SurvivorsGameplayState implements GameState {
     /** Seconds remaining in the post-wave breather before auto-advancing (shop removed). */
     private waveBreatherRemaining = 0;
     private static readonly WAVE_BREATHER_SECONDS = 2;
-    private powerSlots: PowerSlotManager | null = null;
-    private abilityManager: AbilityManager | null = null;
+    // powerSlots + abilityManager now live in the local PlayerSlot (accessors above).
 
     // Power drops
     private powerDrops: PowerDrop[] = [];
 
-    // Item drops (from milestone bosses)
-    private runItems: RunItems | null = null;
+    // Item drops (from milestone bosses) — runItems lives in the local PlayerSlot (accessors above).
     private itemDrops: ItemDrop[] = [];
 
     // Extra Life revive shield — translucent bubble that follows the hero for the
@@ -357,6 +569,13 @@ export class SurvivorsGameplayState implements GameState {
     private async startRun(championType: string): Promise<void> {
         if (!this.scene || !this.ui || !this.map) return;
 
+        // Co-op M4: establish the local player's slot BEFORE any per-player system is
+        // constructed below — the playerStats/heroController/… setters write into it.
+        // Single-player + host both run with exactly players=[slot0]; the host's
+        // players[1] (guest hero) is added when input-authority lands.
+        this.localId = 0;
+        this.players = [makePlayerSlot(0, true)];
+
         this.game.showLoadingScreen('Warming up the arena…');
         await new Promise<void>(res => requestAnimationFrame(() => requestAnimationFrame(() => res())));
 
@@ -452,7 +671,7 @@ export class SurvivorsGameplayState implements GameState {
         );
 
         this.heroController.setOnDeath(() => {
-            this.buildAndSendRunSummary();
+            this.onLocalHeroDeath();
         });
 
         // Extra Life: a lethal hit revives the hero at full HP behind a 5s shield
@@ -468,6 +687,62 @@ export class SurvivorsGameplayState implements GameState {
             },
             () => this.removeReviveShield(),
         );
+
+        // --- Co-op (M2 ghost teammate) ---
+        // Menu lobby flow FIRST: the Co-op lobby hands over a live, already-
+        // connected transport via PendingCoop (it connected while still in the
+        // menu, so connection order — not champion-select speed — fixed the
+        // host/guest roles). Absent that, fall through to the dev URL-param flow.
+        const pendingCoop = takePendingCoop();
+        if (pendingCoop) {
+            // Keep service + code for resume reconnects (M6 D1), then wire the
+            // session exactly like the URL flow does. Any frames the peer sent
+            // while we sat in champion select are backlogged in the transport
+            // (the lobby detached its handler; capped — oldest dropped on overflow)
+            // and drain into the NetClient, which decodes them but DROPS them (its
+            // hooks aren't wired yet). That loss is acceptable: snapshots/inputs
+            // are continuous streams that resume immediately, and one-shot events
+            // (spawns via the guest's requestState catch-up) are sent post-wiring.
+            this._roomService = pendingCoop.roomService;
+            this._roomCode = pendingCoop.code;
+            console.log(`[coop] lobby session: room ${pendingCoop.code} as ${pendingCoop.role}`);
+            this.wireCoopSession(pendingCoop.transport, championType);
+        }
+        // Dev flow: ?host → host a room; ?join[=CODE] → join one. For easy two-tab
+        // testing the room code defaults to a FIXED dev code, so the GUEST tab can
+        // simply use ?join with nothing to copy. Open the host tab FIRST (the server
+        // assigns host/guest by connection order). Use ?host=random to mint a real
+        // random room.
+        const coopParams = typeof window !== 'undefined'
+            ? new URLSearchParams(window.location.search) : null;
+        if (!pendingCoop && (coopParams?.has('host') || coopParams?.has('join'))) {
+            const localChamp = championType;
+            void (async () => {
+                try {
+                    const FIXED_TEST_ROOM = 'TESTER'; // deterministic dev room ([A-Z2-9]{6})
+                    // M5-4: game code talks only to the RoomService interface, so a
+                    // future matchmaking service can replace this without changes here.
+                    const room: RoomService = new PrivateRoomService();
+                    this._roomService = room; // kept for resume reconnects (M6 D1)
+                    let code: string;
+                    if (coopParams.has('host')) {
+                        code = coopParams.get('host') === 'random'
+                            ? (await room.createRoom()).code
+                            : FIXED_TEST_ROOM;
+                        console.log(`[coop] hosting room ${code} — join the other tab with ?join (or ?join=${code})`);
+                    } else {
+                        // ?join with no value → the fixed dev room; ?join=CODE → that room.
+                        code = coopParams.get('join') || FIXED_TEST_ROOM;
+                    }
+                    if (code.length !== 6) return;
+                    this._roomCode = code;
+                    const transport = await room.connect(code);
+                    this.wireCoopSession(transport, localChamp);
+                } catch (err) {
+                    console.error('[coop] connection failed:', err);
+                }
+            })();
+        }
 
         // ---------- Gameplay systems ----------
 
@@ -493,6 +768,19 @@ export class SurvivorsGameplayState implements GameState {
 
         this.enemyManager = new EnemyManager(this.game);
         this.enemyManager.setPlayerStats(this.playerStats);
+        // M3: wire host-side spawn/death hooks. Install them UNCONDITIONALLY and
+        // self-gate inside the callback on coopSession at CALL time. The co-op
+        // connection resolves in a later async IIFE above, so this synchronous
+        // code runs while coopSession is still null — gating the WIRING on it
+        // (as before) silently skipped the hooks, so the host never emitted
+        // spawn events and the guest saw no enemies. In single-player the
+        // callbacks no-op (coopSession is null).
+        this.enemyManager.setOnEnemySpawned((e) => {
+            if (this.coopSession?.role === 'host') { this._coopDbgSpawns++; this.coopSession.sendSpawn(this.buildSpawnMsg(e)); }
+        });
+        this.enemyManager.setOnEnemyDied((e) => {
+            if (this.coopSession?.role === 'host') { this._coopDbgDeaths++; this.coopSession.sendDeath(this.buildDeathMsg(e)); }
+        });
         // Wire the shadow generator so bosses + elites auto-register as casters.
         // Reset per run: enemy shadows start on and get cut off after wave 5.
         this.enemyShadowsDisabled = false;
@@ -502,7 +790,11 @@ export class SurvivorsGameplayState implements GameState {
         // triggers state.exit() synchronously (nulling this.hero), and the rest of
         // EnemyManager.update would otherwise crash on this.hero!.getPosition().
         const heroPosFallback = new Vector3();
-        this.enemyManager.configureSurvivorsMode(
+        // Build the mutable hero-providers array (stored on `this` so the ghost
+        // provider can be pushed lazily when the co-op ghost spawns). EnemyManager
+        // holds the same array reference via seekTargets, so mutations are visible
+        // to all already-spawned enemies without a re-configure call.
+        this._heroProviders = [
             {
                 getPosition: () => {
                     const p = this.hero?.getPosition();
@@ -514,7 +806,10 @@ export class SurvivorsGameplayState implements GameState {
                     const mult = this.playerStats?.damageReductionMultiplier ?? 1.0;
                     this.heroController.takeDamage(amount * mult, sourcePos);
                 },
-                isAlive: () => !!this.heroController,
+                // M4-11: a dead/spectating local hero stops being a seek/orb-pull target
+                // so co-op enemies converge on the surviving teammate. SP never spectates
+                // (single-provider resolveSeekTarget bypasses pickNearestAlive) → unchanged.
+                isAlive: () => !!this.heroController && !this.heroController.isDeadOrSpectating(),
                 applyPull: (towardX: number, towardZ: number, speed: number, durationS: number) => {
                     this.heroController?.applyPull(towardX, towardZ, speed, durationS);
                 },
@@ -522,8 +817,8 @@ export class SurvivorsGameplayState implements GameState {
                     this.heroController?.applySlow(multiplier, durationS);
                 },
             },
-            this.map.getArenaRadius(),
-        );
+        ];
+        this.enemyManager.configureSurvivorsMode(this._heroProviders, this.map.getArenaRadius());
 
         // Hand over enemy GLB assets so EnemyManager.spawnSurvivorsEnemy can stage them
         // on the per-class pendingAsset slots before construction. Loaded lazily (await
@@ -566,6 +861,21 @@ export class SurvivorsGameplayState implements GameState {
         this.damageNumbers = new DamageNumberManager(this.game);
         Enemy.onDamageCallback = (position, damage, isCrit, element) => {
             this.damageNumbers?.showDamage(position, damage, element, isCrit);
+            // M4-9: mirror EVERY host-side damage number to the guest — its own routed
+            // hits AND the host's own hits — so the guest sees full combat feedback.
+            // Single broadcast point (fires here for guest reports applied above too),
+            // so there's no double-count. enemyId is unused by the guest (shows by pos).
+            if (this.coopSession?.role === 'host') {
+                this.coopSession.sendDamageResult({
+                    t: 'damageResult',
+                    enemyId: 0,
+                    amount: damage,
+                    isCrit,
+                    element: element ?? 'physical',
+                    x: position.x,
+                    z: position.z,
+                });
+            }
         };
         Enemy.onRewardCallback = (position, reward) => {
             this.damageNumbers?.showReward(position, reward);
@@ -600,15 +910,28 @@ export class SurvivorsGameplayState implements GameState {
 
         // When a power-slot fires, trigger the ranger's special-attack animation.
         // No-op for non-ranger champs (triggerSpecial type-guards on championType).
-        this.powerSlots.setOnCast(() => {
+        this.powerSlots.setOnCast((slot) => {
             const hero = this.hero as { triggerSpecial?: () => void } | null;
             if (hero && typeof hero.triggerSpecial === 'function') {
                 hero.triggerSpecial();
             }
+            // Co-op (M6 C1): fusion + ultimate casts now replicate their EXACT visuals
+            // via the PowerEffects primitives ('pe' messages emitted inside each
+            // primitive), so the generic element-burst placeholder would double up —
+            // suppress it for those. It REMAINS for casts that don't route through the
+            // primitives: base mage/ranger powers (bespoke projectile FX in
+            // PowerDefinitions.ts) and un-migrated fusion pairs (parent-cast fallback).
+            // The body 'special' pose is already shared via heroState anim=3.
+            if (isCoopFxActive() && !this.castRoutesThroughPrimitives(slot.def)) {
+                const p = this.hero?.getPosition();
+                if (p) emitCoopFx('power', p.x, p.z, undefined, undefined, slot.def.element);
+            }
         });
 
-        // Wire enemy provider and power slots into HeroController for melee AOE + enchantments
-        this.heroController.setEnemyProvider(() => this.enemyManager!.getEnemies());
+        // Wire enemy provider and power slots into HeroController for melee AOE + enchantments.
+        // Role-aware + evaluated per call (see activeAttackEnemies): the co-op guest targets
+        // its render-only registry, the host/SP the authoritative EnemyManager.
+        this.heroController.setEnemyProvider(() => this.activeAttackEnemies());
         this.heroController.setPowerSlots(this.powerSlots);
         // Route the global damage multiplier (shop powerDamageMultiplier × run perk)
         // into the basic attack — without this, weapon damage never scaled with
@@ -668,6 +991,10 @@ export class SurvivorsGameplayState implements GameState {
             const clearedWave = this.waveManager?.getCurrentWave() ?? 0;
             this.checkResourceBudget(clearedWave);
             this.maybeDisableEnemyShadows(clearedWave);
+            // M4-11: revive any spectating teammate at the wave break (arena is empty,
+            // so respawning at center is safe). Host-authoritative — the guest sees its
+            // alive flag flip true in the next snapshot and exits spectate.
+            if (this.coopSession) this.respawnDeadHeroes();
             // Calibration log: read in a ?test run to tune XP_CONFIG so level 100
             // lands near wave 30 (see the XP spec §6).
             if (this.levelSystem) {
@@ -693,6 +1020,13 @@ export class SurvivorsGameplayState implements GameState {
         // Ability manager — configure for chosen champion class
         this.abilityManager = new AbilityManager(this.game, this.enemyManager);
         this.abilityManager.configureForClass(this.currentChampionType);
+        // M4-9: abilities target the role-aware enemy list (GuestEnemies on the co-op
+        // guest, where the host EnemyManager is empty) — evaluated per call so the role
+        // is current even though the co-op connection resolves after startRun. Their
+        // damage then routes to the host via Enemy.guestDamageRedirect.
+        this.abilityManager.setEnemiesProvider(() => this.activeAttackEnemies());
+        // M4-11: block manual ults + dash while the local hero is dead/spectating.
+        this.abilityManager.setActiveProvider(() => !this.heroController?.isDeadOrSpectating());
         this.abilityManager.setHeroProvider(() => this.hero!.getPosition());
         this.abilityManager.setHero(this.hero);
         // Multishot's magical-arrow layer force-casts each equipped autocast slot.
@@ -719,23 +1053,21 @@ export class SurvivorsGameplayState implements GameState {
         // wave-clear time is measured against this floor.
         this.captureResourceBaseline();
 
-        // Map class-specific ultimate IDs → GLB clip + duration so the hero plays
-        // the right animation when the player presses an ultimate button. The clip
-        // plays as a forced "special" channel — basic attacks suspend for the
-        // whole duration. When `duration` exceeds the clip's natural length the
-        // clip loops (Whirlwind ticks for 5s so the slash should keep going).
-        // Whirlwind speed bumped 1.5 → 2.2 to read more like a tornado.
-        const ABILITY_CLIPS: Partial<Record<string, { suffix: string; duration?: number; speed?: number }>> = {
-            // Barbarian (Aulus)
-            whirlwind: { suffix: 'aulus_warrior_of_ferocity_in_game_skill3',   duration: 5.0, speed: 2.2 },
-            smash:     { suffix: 'aulus_warrior_of_ferocity_in_game_skill2_3' }, // one-shot, natural length
-        };
+        // Hero ultimate body clips: ABILITY_CLIPS (module-level) maps ability id →
+        // GLB clip; played as a forced "special" channel.
         this.abilityManager.setOnActivate((abilityId) => {
             const clip = ABILITY_CLIPS[abilityId];
             if (!clip || !this.hero) return;
             const hero = this.hero as { playAbilityClip?: (s: string, d?: number, sp?: number) => void };
             if (typeof hero.playAbilityClip === 'function') {
                 hero.playAbilityClip(clip.suffix, clip.duration, clip.speed ?? 1.0);
+                // Co-op (M6 C2): mirror the EXACT clip on the teammate's ghost (the
+                // generic anim=3 special pose is skipped while the clip is active).
+                if (isCoopFxActive()) {
+                    const p = this.hero.getPosition();
+                    emitCoopFx('abilityClip', p.x, p.z, undefined, undefined,
+                        JSON.stringify({ s: clip.suffix, d: clip.duration, sp: clip.speed ?? 1.0 }));
+                }
             }
         });
 
@@ -807,12 +1139,16 @@ export class SurvivorsGameplayState implements GameState {
         const scene = this.scene;
         const p = this.hero.getPosition();
         const elems: PowerElement[] = ['fire', 'ice', 'arcane', 'physical', 'storm'];
-        for (const el of elems) {
-            aoeBurst(scene, [], p.x, p.z, { radius: 1, damage: 0, element: el, ringLifeS: 0.05 });
-            gatherVortex(scene, [], p.x, p.z, { radius: 1, durationS: 0.05, pull: 0, tickDamage: 0, element: el });
-            persistentZone(scene, [], p.x, p.z, { radius: 1, durationS: 0.05, tickIntervalS: 0.05, tickDamage: 0, element: el });
-            omniVolley(scene, [], p.x, p.z, { count: 2, speed: 4, damage: 0, element: el, lifeS: 0.05 });
-        }
+        // withFxReplay: prewarm is local shader-warming, not a real cast — without the
+        // guard each primitive would broadcast a spurious 'pe' to the co-op teammate.
+        withFxReplay(() => {
+            for (const el of elems) {
+                aoeBurst(scene, [], p.x, p.z, { radius: 1, damage: 0, element: el, ringLifeS: 0.05 });
+                gatherVortex(scene, [], p.x, p.z, { radius: 1, durationS: 0.05, pull: 0, tickDamage: 0, element: el });
+                persistentZone(scene, [], p.x, p.z, { radius: 1, durationS: 0.05, tickIntervalS: 0.05, tickDamage: 0, element: el });
+                omniVolley(scene, [], p.x, p.z, { count: 2, speed: 4, damage: 0, element: el, lifeS: 0.05 });
+            }
+        });
         scene.render(); // kick shader compilation for the spawned FX meshes
         resetPowerEffects(); // dispose all the just-spawned prewarm FX + observers
     }
@@ -997,9 +1333,13 @@ export class SurvivorsGameplayState implements GameState {
             this.damageNumbers.showText(this.hero.getPosition(), `+ ${ITEM_DISPLAY_NAMES[id]}`, ITEM_FLOAT_COLOR[id]);
         }
 
-        // 300ms slow-mo pickup punch.
-        this.timeScale = 0.6;
-        setTimeout(() => { this.timeScale = 1.0; }, 300);
+        // 300ms slow-mo pickup punch — single-player only. In co-op timeScale is
+        // shared (the host streams it in the snapshot), so one player's pickup must
+        // not slow the other player's game.
+        if (!this.coopSession) {
+            this.timeScale = 0.6;
+            setTimeout(() => { this.timeScale = 1.0; }, 300);
+        }
     }
 
     /**
@@ -1043,31 +1383,994 @@ export class SurvivorsGameplayState implements GameState {
         }
     }
 
-    /** Gather end-of-run stats and transition to game-over. */
-    private buildAndSendRunSummary(): void {
-        const timeSurvivedSec = (performance.now() - this.runStartTime) / 1000;
-        const waveReached = this.waveManager?.getCurrentWave() ?? 0;
-        const kills = this.playerStats?.getTotalKills() ?? 0;
-        const goldCollected = this.playerStats?.getTotalMoneyEarned() ?? 0; // == total XP earned now
-        const levelReached = this.levelSystem?.getLevel() ?? 1;
+    // ── M3 co-op message builders ─────────────────────────────────────────────
 
-        const finalLoadout = (this.powerSlots?.getSlots() ?? [])
+    /** Build a SpawnMsg for an enemy that was just spawned by the host. */
+    private buildSpawnMsg(e: Enemy): SpawnMsg {
+        const pos = e.getPosition();
+        const isClone = (e instanceof MilestoneBoss) ? e.isClone : false;
+        const enrageOriginId = isClone
+            ? ((e as MilestoneBoss).getEnrageOrigin()?.id ?? undefined)
+            : undefined;
+        return {
+            t: 'spawn',
+            id: e.id,
+            type: e.netType,
+            x: pos.x,
+            z: pos.z,
+            maxHealth: e.getMaxHealth(),
+            eliteElement: (e.isElite && e.eliteDropElement) ? e.eliteDropElement : undefined,
+            isClone: isClone || undefined,
+            enrageOriginId,
+            bossTier: (e instanceof MilestoneBoss) ? e.waveTier : undefined,
+        };
+    }
+
+    /** Build a DeathMsg for an enemy that just died. */
+    private buildDeathMsg(e: Enemy): DeathMsg {
+        const pos = e.getPosition();
+        const isClone = (e instanceof MilestoneBoss) ? e.isClone : false;
+        // Per-player items (audit #21): a REAL milestone-boss death at an item-bearing
+        // tier carries the tier so the guest spawns its OWN gem — mirrors eliteElement
+        // driving per-player power orbs. Authored regardless of the HOST's ownership
+        // (per-player: the guest may not own it yet); each side's spawnItemDrop does
+        // its own hasItem skip. Clones never drop (same rule as the local pipeline).
+        const itemTier = (e instanceof MilestoneBoss && !isClone && RunItems.itemForTier(e.waveTier) !== null)
+            ? e.waveTier : undefined;
+        return {
+            t: 'death',
+            id: e.id,
+            x: pos.x,
+            z: pos.z,
+            isElite: e.isElite,
+            isClone,
+            reward: e.getReward(),
+            eliteElement: (e.isElite && e.eliteDropElement) ? e.eliteDropElement : undefined,
+            itemTier,
+        };
+    }
+
+    /** Host (M4-8): advance the guest's ghost from its latest InputMsg — the host's
+     *  authoritative simulation of the guest hero. Mirrors HeroController.update's
+     *  input→velocity→arena-clamp at the guest champion's base speed (per-run move
+     *  multipliers + knockback/pull aren't modelled yet — guest reconciliation and a
+     *  later host-event pass close that gap). Coasts on the last input on packet loss. */
+    private _driveGuestGhostFromInput(dt: number): void {
+        if (!this.coopGhost || !this.coopSession) return;
+        const input = this.coopSession.getLatestInput();
+        // Cap + clamp via the SAME pure helpers the guest's replay uses
+        // (integrateMove.ts) so host sim and guest prediction share one math.
+        capInputLen(input?.dx ?? 0, input?.dz ?? 0, this._scratchGhostInput);
+        const speed = CHAMP_BASE_SPEED[this.coopSession.getRemoteChamp() ?? 'barbarian'] ?? 6;
+        this._coopGhostVel.set(this._scratchGhostInput.dx * speed, 0, this._scratchGhostInput.dz * speed);
+        this.coopGhost.setPlayerVelocity(this._coopGhostVel);
+        this.coopGhost.update(dt); // integrates velocity → position + walk/idle + faces velocity
+        // Clamp inside the arena (same buffer HeroController uses for the local hero).
+        const g = this.coopGhost as unknown as { position: Vector3; mesh: Mesh | null };
+        const k = arenaClampScale(g.position.x, g.position.z, this.map?.getArenaRadius() ?? 20);
+        if (k !== 1) {
+            g.position.x *= k;
+            g.position.z *= k;
+            if (g.mesh) { g.mesh.position.x = g.position.x; g.mesh.position.z = g.position.z; }
+        }
+    }
+
+    /** Build a full world snapshot for broadcast to the guest. */
+    private buildSnapshot(): SnapshotMsg {
+        // Heroes: [local hero (id=0), ghost (id=1)]
+        const heroes: SnapshotMsg['heroes'] = [];
+        if (this.hero && this.heroController) {
+            const p = this.hero.getPosition();
+            const ry = this.hero.getFacingY();
+            heroes.push({
+                id: 0,
+                x: p.x,
+                y: p.y,
+                z: p.z,
+                ry,
+                hp: this.heroController.getHealth().current,
+                anim: 0, // best-effort: 0=idle/walk; detailed anim encoding deferred
+                dx: 0, dz: 0, // real values wired in scene task
+                alive: this.heroController.getHealth().current > 0,
+                level: 1, xp: 0, // real values wired in scene task
+            });
+        }
+        if (this.coopGhost) {
+            const gp = this.coopGhost.getPosition();
+            const gry = this.coopGhost.getFacingY();
+            // Part C: carry the host-tracked guest HP in the snapshot so the guest
+            // can apply it as snapshot-authoritative HP instead of computing locally.
+            // M4-8: dx/dz echo the input the host integrated this frame; the guest
+            // reconciles its predicted position against this authoritative (x,z).
+            const gInput = this.coopSession?.getLatestInput();
+            heroes.push({
+                id: 1, x: gp.x, y: gp.y, z: gp.z, ry: gry, hp: this.guestHeroHp, anim: 0,
+                dx: gInput?.dx ?? 0, dz: gInput?.dz ?? 0,
+                alive: this.guestHeroHp > 0,
+                level: 1, xp: 0, // real values wired in scene task (M4-9 progression)
+            });
+        }
+
+        // Enemies: pack each live enemy
+        const enemies: SnapshotMsg['enemies'] = [];
+        if (this.enemyManager) {
+            for (const e of this.enemyManager.getEnemies()) {
+                if (!e.isAlive()) continue;
+                const ep = e.getPosition();
+                const eRy = (e as unknown as { mesh: { rotation: { y: number } } | null }).mesh?.rotation.y ?? 0;
+                const md = e.getMeleeDisplay();
+                const flags = packEnemyFlags({
+                    frozen:   (e as unknown as { isFrozen: boolean }).isFrozen  ?? false,
+                    stunned:  (e as unknown as { isStunned: boolean }).isStunned ?? false,
+                    confused: (e as unknown as { isConfused: boolean }).isConfused ?? false,
+                    flying:   e.isEnemyFlying(),
+                    elite:    e.isElite,
+                    meleePhase: md.phase,
+                });
+                const shieldFrac = e.getShieldFraction();
+                enemies.push({
+                    id: e.id,
+                    x: ep.x,
+                    z: ep.z,
+                    ry: eRy,
+                    hp: e.getHealth(),
+                    flags,
+                    anim: e.getNetAnimCode(), // walk/attack from the melee FSM, or 10+N for a named _skillN clip (see SnapshotEnemy.anim)
+                    ...(shieldFrac !== undefined && { shield: shieldFrac }),
+                });
+            }
+        }
+
+        // Wave state
+        const wave: SnapshotMsg['wave'] = {
+            n: this.waveManager?.getCurrentWave() ?? 0,
+            alive: this.waveManager?.getRemainingEnemiesInWave() ?? 0,
+            inProgress: (this.waveManager?.isWaveInProgress() ? 1 : 0) as 0 | 1,
+            breather: this.waveBreatherRemaining,
+        };
+
+        return {
+            t: 'snapshot',
+            tick: this._snapshotTick,
+            ackSeq: this.coopSession?.getInputAckSeq() ?? 0, // highest guest input seq applied (M4-8)
+            timeScale: this.timeScale,
+            heroes,
+            enemies,
+            wave,
+        };
+    }
+
+    // ── Co-op death / spectate / respawn (M4-11) ─────────────────────────────
+
+    /** The LOCAL hero just died. Single-player ends the run; co-op spectates the
+     *  surviving teammate, or ends the run only when BOTH are down. Wired to the
+     *  host's HeroController death; the guest drives its own death off the snapshot
+     *  alive flag (see the guest apply block), never hp>0. */
+    private onLocalHeroDeath(): void {
+        if (!this.coopSession) { this.buildAndSendRunSummary(); return; } // single-player
+        if (this.isTeammateAlive()) this.enterSpectate();
+        else this.buildAndSendRunSummary();
+    }
+
+    /** Is the OTHER hero still alive? Host's teammate is the guest (guestHeroAlive);
+     *  the guest's teammate is the host (heroes[0].alive in the latest snapshot). */
+    private isTeammateAlive(): boolean {
+        // Host: a teammate exists once the guest is IDENTIFIED (first heroState sets the
+        // remote champ — earlier than the async ghost-mesh load), so a host death during
+        // the ghost-spawn window still spectates rather than ending the run. With no guest
+        // at all, getRemoteChamp() is null → the run ends.
+        if (this.coopSession?.role === 'host') {
+            return this.coopSession.getRemoteChamp() !== null && this.guestHeroAlive;
+        }
+        const snap = this.coopSession?.getLatestSnapshot();
+        return snap?.heroes.find(h => h.id === 0)?.alive ?? false;
+    }
+
+    /** Enter spectate: the local hero goes inert (no input/attack/powers) and fades;
+     *  the camera follows the teammate. Idempotent (guards the spec's double-fire risk). */
+    private enterSpectate(): void {
+        if (this._spectating) return;
+        this._spectating = true;
+        if (this.heroController) this.heroController.spectating = true;
+        const mesh = (this.hero as unknown as { mesh?: { visibility: number } } | null)?.mesh;
+        if (mesh) mesh.visibility = 0.35;
+    }
+
+    /** Revive the local hero at (x,z): clear spectate, restore HP, un-fade. */
+    private respawnLocalHero(x: number, z: number): void {
+        this._spectating = false;
+        this.heroController?.respawn(x, z);
+        const mesh = (this.hero as unknown as { mesh?: { visibility: number } } | null)?.mesh;
+        if (mesh) mesh.visibility = 1;
+    }
+
+    /** Host-authoritative wave-clear revive: bring back the local hero if it was
+     *  down, and reset the guest's authoritative HP/alive + ghost position. The guest
+     *  observes its alive flag flip and exits spectate on its side. */
+    private respawnDeadHeroes(): void {
+        if (this.heroController?.isDeadOrSpectating()) this.respawnLocalHero(-1.5, 0);
+        if (this.coopSession?.role === 'host' && this.coopGhost && !this.guestHeroAlive) {
+            this.guestHeroHp = this.guestHeroMaxHp;
+            this.guestHeroAlive = true;
+            const g = this.coopGhost as unknown as { position: Vector3; mesh: (Mesh & { visibility: number }) | null };
+            g.position.set(1.5, g.position.y, 0);
+            if (g.mesh) { g.mesh.position.x = 1.5; g.mesh.position.z = 0; g.mesh.visibility = 1; }
+        }
+    }
+
+    /** Build the LOCAL hero's end-of-run summary (M4-12). id 0 = host, 1 = guest. */
+    private buildLocalHeroSummary(id: number): CoopHeroSummary {
+        const loadout = (this.powerSlots?.getSlots() ?? [])
             .filter((s): s is NonNullable<typeof s> => s !== null)
             .map(s => ({ name: s.def.name, level: s.state.level, icon: s.def.icon, tier: s.def.tier }));
+        return {
+            id,
+            championType: this.currentChampionType,
+            kills: this.playerStats?.getTotalKills() ?? 0,
+            level: this.levelSystem?.getLevel() ?? 1,
+            xp: Math.round(this.playerStats?.getTotalMoneyEarned() ?? 0),
+            // Guest's waveManager isn't ticked (returns 0), so read the snapshot-mirrored
+            // wave; host/SP use the live waveManager.
+            wave: this.coopSession?.role === 'guest'
+                ? (this._guestWave?.wave ?? 0)
+                : (this.waveManager?.getCurrentWave() ?? 0),
+            loadout,
+        };
+    }
+
+    /** Host / single-player run-over: aggregate the per-hero summaries and show the
+     *  game-over. In co-op the host is the SOLE run-over authority — it broadcasts the
+     *  final result so the guest renders the identical 2-column screen (showCoopGameOver).
+     *  The guest never reaches here for run-over (it waits on onRunOver). */
+    private buildAndSendRunSummary(): void {
+        if (this._runEnded) return; // fire exactly once
+        this._runEnded = true;
+        const role = this.coopSession?.role ?? null;
+        const timeSurvivedSec = (performance.now() - this.runStartTime) / 1000;
+        const waveReached = this.waveManager?.getCurrentWave() ?? 0;
+        const localHero = this.buildLocalHeroSummary(role === 'guest' ? 1 : 0);
+
+        const heroes: CoopHeroSummary[] = [localHero];
+        if (role === 'host' && this._guestSummary) heroes.push(this._guestSummary);
+        if (role === 'host') {
+            this.coopSession?.sendRunOver({ t: 'runOver', timeSurvivedSec, waveReached, heroes });
+        }
 
         const summary: SurvivorsRunSummary = {
             waveReached,
             timeSurvivedSec,
-            kills,
-            goldCollected,
-            levelReached,
-            finalLoadout,
+            kills: localHero.kills,
+            goldCollected: localHero.xp,
+            levelReached: localHero.level,
+            finalLoadout: localHero.loadout,
             championType: this.currentChampionType,
+            heroes: heroes.length > 1 ? heroes.slice().sort((a, b) => a.id - b.id) : undefined,
         };
-
         const gos = this.game.getStateManager().getState('gameOver') as GameOverState;
         if (gos) gos.setSurvivorsSummary(summary);
         this.game.getStateManager().changeState('gameOver');
+    }
+
+    // ── Co-op session wiring (M6 D1) ─────────────────────────────────────────
+
+    /** Create the CoopSession over `transport` and perform ALL game-side wiring.
+     *  Called once from startRun's connect path, and again on a successful resume
+     *  (M6 D1 transparent rejoin) — so everything here must be re-entrant: any
+     *  prior session is disposed first, and once-only scene objects (GuestEnemies)
+     *  are guarded against re-creation. Wiring order mirrors the original inline
+     *  block: session → drop handlers → FX → guest branch | host branch. */
+    private wireCoopSession(transport: NetTransport, localChamp: string): void {
+        // Re-wire support: drop any previous session. dispose() closes the OLD
+        // session's (already-dead) transport — never the new one passed in here.
+        // Carry the old outgoing seq counter into the new session: the host's
+        // persistent session keeps its high `inputSeq` watermark across our
+        // resume, so a counter restarting at 0 would have every post-resume
+        // input dropped as "stale" (movement-locked guest until it caught up).
+        const carrySeq = this.coopSession?.getLocalSeq() ?? 0;
+        this.coopSession?.dispose();
+        this.coopSession = new CoopSession(new NetClient(transport), localChamp, undefined, carrySeq);
+        console.log(`[coop] connected as ${this.coopSession.role}`);
+        // M6 D1: remember role + champ so a later resume can reclaim this exact slot.
+        this._myCoopRole = this.coopSession.role;
+        this._localChampionType = localChamp;
+        // M5-5/6: an unexpected drop of OUR socket, or the relay telling us the
+        // OTHER peer left, both start the grace-window countdown UX — but only OUR
+        // drop drives OUR resume attempts (M6 D1).
+        transport.onClose?.(() => this.onConnectionLost('self'));
+        this.coopSession.onPeerLeft = () => this.onConnectionLost('peer');
+        // M6 D1: the peer came back — explicit relay notice, or (fallback) any
+        // gameplay traffic from them proves they resumed. onPeerBack self-gates on
+        // being in a 'peer'-kind grace window, so the per-message tap is a no-op
+        // during normal play.
+        this.coopSession.onPeerRejoined = () => this.onPeerBack();
+        this.coopSession.onPeerTraffic = () => this.onPeerBack();
+        // Cosmetic-FX replication (both roles): broadcast the local hero's
+        // combat visuals + replay the teammate's. Damage is authoritative
+        // elsewhere, so these carry no gameplay effect.
+        setCoopFxEmit((kind, x, z, tx, tz, hint) =>
+            this.coopSession?.sendFx({ t: 'fx', kind, x, z, tx, tz, hint }));
+        // Hardening: a malformed fx must never abort the backlog drain loop or
+        // the message pump — swallow, warn once (first failure, with the kind).
+        this.coopSession.onFx = (m) => {
+            try {
+                this.playRemoteFx(m);
+            } catch (e) {
+                if (!this._fxDispatchWarned) {
+                    this._fxDispatchWarned = true;
+                    console.warn(`[coop] fx dispatch failed (kind=${m.kind})`, e);
+                }
+            }
+        };
+        // M3: wire guest enemy registry OR host spawn/death hooks.
+        if (this.coopSession.role === 'guest') {
+            // Once-only scene object: the GuestEnemies INSTANCE survives a re-wire
+            // (never recreated mid-run), but its contents do not get to: removal is
+            // driven only by death events, and any death that fired while our socket
+            // was dead is lost forever — stale ids would stay frozen/targetable
+            // zombies. Contract: every (re)wire clears the registry and re-requests
+            // catch-up spawns below, fully rebuilding it from the host's live set.
+            if (!this.guestEnemies) this.guestEnemies = new GuestEnemies(this.game, getCachedEnemyAsset);
+            this.coopSession.onSpawn = (m) => { this._coopDbgSpawns++; this.guestEnemies?.spawn(m); };
+            this.coopSession.onDeath = (m) => {
+                this._coopDbgDeaths++;
+                this.guestEnemies?.death(m.id);
+                // Share death feedback the host produces (DeathMsg carries x/z/
+                // reward/eliteElement): a gold reward float + a small cosmetic
+                // death poof, so on the guest enemies don't just silently vanish.
+                if (this.scene) {
+                    if (m.reward > 0) this.damageNumbers?.showReward(new Vector3(m.x, 0, m.z), m.reward);
+                    // withFxReplay: this burst is itself a replay of a host
+                    // event — without the guard, aoeBurst's 'pe' broadcast
+                    // would echo a phantom ring back to the host.
+                    const scene = this.scene;
+                    withFxReplay(() => aoeBurst(scene, [], m.x, m.z, { radius: m.isElite ? 1.6 : 0.9, damage: 0, element: (m.eliteElement ?? 'physical') as PowerElement }));
+                }
+                // M4-10 (per-player orbs): the guest gets its OWN power orb on
+                // each elite death — magnets to the guest hero, and picking it up
+                // raises the guest's local (non-blocking) power-choice. Fully
+                // independent of the host's orb; both players grow their own build.
+                if (m.eliteElement && this.scene && this.hero) {
+                    const drop = new PowerDrop(
+                        this.scene,
+                        new Vector3(m.x, 0, m.z),
+                        m.eliteElement,
+                        () => this.hero!.getPosition(),
+                        { pickupRadius: 1.5, magnetRadius: 4, magnetSpeed: 12, onPickup: (el) => this.onOrbPickup(el) },
+                    );
+                    this.powerDrops.push(drop);
+                }
+                // Per-player items (audit #21): a milestone-boss death carries its
+                // tier — the guest spawns its OWN item gem, magneting to the guest
+                // hero; pickup grants the GUEST's RunItems/HUD through the exact SP
+                // path (spawnItemDrop → onItemPickup), which also skips tiers the
+                // guest already owns. Fully independent of the host's local gem.
+                if (m.itemTier !== undefined && this.scene && this.hero) {
+                    this.spawnItemDrop(new Vector3(m.x, 0, m.z), m.itemTier);
+                }
+            };
+            // M3b: guest basic-attack reports hits to the host instead of
+            // mutating enemy HP locally. The target/enemy providers themselves
+            // are wired role-aware in startRun (see activeAttackEnemies /
+            // getNearestEnemy) — they read GuestEnemies at call time, so we do
+            // NOT set them here (doing so raced with, and was clobbered by,
+            // startRun's own setTargetProvider/setEnemyProvider once the GLB
+            // load awaits resolved, leaving the guest unable to acquire a target).
+            const ba = this.heroController?.getBasicAttack();
+            if (ba) {
+                ba.damageRouter = (enemy, amount, element) => {
+                    this.coopSession?.sendDamageReport({
+                        t: 'damageReport',
+                        enemyId: enemy.id,
+                        amount,
+                        element,
+                        sourceHeroId: 1,
+                    });
+                };
+            }
+            // M4-9: route ALL power/ability/DoT damage to the host too. Powers
+            // call enemy.takeDamage directly (dozens of sites); this single
+            // redirect catches them so the guest's powers actually hurt the
+            // shared enemies instead of mutating render-only stubs.
+            Enemy.guestDamageRedirect = (enemyId, amount, element) => {
+                this.coopSession?.sendDamageReport({
+                    t: 'damageReport',
+                    enemyId,
+                    amount,
+                    element: element ?? 'physical',
+                    sourceHeroId: 1,
+                });
+            };
+            // M4-9 review fix: route guest CC/DoT (freeze/stun/burn/chill/curse)
+            // to the host too — without this the guest's status powers were inert
+            // on shared enemies (applied to never-ticked render-only stubs).
+            Enemy.guestStatusRedirect = (enemyId, effect, durationS, strength) => {
+                this.coopSession?.sendDamageReport({
+                    t: 'damageReport',
+                    enemyId,
+                    amount: 0,
+                    element: 'physical',
+                    sourceHeroId: 1,
+                    status: { kind: effect, duration: durationS, magnitude: strength },
+                });
+            };
+            // M6 A5: route guest-cast knockback (Smash, dash push, knockback
+            // item) to the host — without this only the guest's render-only
+            // copies moved; the shared enemies were never pushed.
+            Enemy.guestKnockbackRedirect = (enemyId, dirX, dirZ, magnitude) => {
+                this.coopSession?.sendDamageReport({
+                    t: 'damageReport',
+                    enemyId,
+                    amount: 0,
+                    element: 'physical',
+                    sourceHeroId: 1,
+                    knockback: { dx: dirX, dz: dirZ, magnitude },
+                });
+            };
+            // Receive authoritative damage results from host and show damage numbers.
+            this.coopSession.onDamageResult = (m) => {
+                if (this.damageNumbers) {
+                    this.damageNumbers.showDamage(
+                        new Vector3(m.x, 0, m.z),
+                        m.amount,
+                        m.element as PowerElement | undefined,
+                        m.isCrit,
+                    );
+                }
+            };
+            // M4-12: the host owns run-over; render its authoritative 2-column result.
+            this.coopSession.onRunOver = (m) => this.showCoopGameOver(m);
+            // Now that the guest's spawn/death handlers are wired, ask the
+            // host to re-send the current world so we render enemies that
+            // already existed before we joined (catch-up). The host only
+            // emits this in response — it can't, on its own connect (which
+            // happened earlier, into an empty room). On a resume re-wire this
+            // doubles as the resync request (M6 D1) — clear the registry FIRST
+            // so enemies that died on the host while our socket was dead (their
+            // death events went to nobody) don't linger as zombies; the catch-up
+            // spawns rebuild the registry from the host's live set. On the
+            // initial connect the registry is empty, so clear() is a no-op.
+            this.guestEnemies?.clear();
+            this.coopSession.sendRequestState();
+        } else {
+            // host: wire EnemyManager hooks. enemyManager is constructed
+            // in startRun; store closures — they capture `this` so the actual
+            // manager reference is resolved at call time, not wiring time.
+            // The actual setOnEnemySpawned/setOnEnemyDied calls live in startRun
+            // (installed unconditionally, self-gating on coopSession at call time).
+            //
+            // M3b: validate + apply guest damage reports authoritatively.
+            // Uses closures so enemyManager/coopGhost are resolved at call time.
+            this.coopSession.onDamageReport = (m) => {
+                const e = this.enemyManager?.getEnemyById(m.enemyId);
+                const ep = e ? { x: e.getPosition().x, z: e.getPosition().z } : null;
+                const ghost = this.coopGhost;
+                const srcPos = ghost
+                    ? { x: ghost.getPosition().x, z: ghost.getPosition().z }
+                    : undefined;
+                // maxRangeSq = 900 (30u) — covers power/ability reach (fireball,
+                // chain, vortex) beyond basic-attack range, generous for lag.
+                // Co-op peers are trusted, so this gate is anti-garbage, not anti-cheat.
+                if (!validateDamageReport(m, ep, 900, srcPos)) return;
+                if (e) {
+                    // takeDamage fires Enemy.onDamageCallback, which broadcasts the
+                    // damageResult to the guest centrally (M4-9) — no per-report echo.
+                    if (m.amount > 0) e.takeDamage(m.amount, m.element as PowerElement);
+                    // Apply routed CC/DoT host-side (guard amount>0 above so a
+                    // pure-status report doesn't roll a 0-damage crit + echo).
+                    if (m.status) {
+                        e.applyStatusEffect(m.status.kind as StatusEffect, m.status.duration, m.status.magnitude);
+                    }
+                    // M6 A5: apply routed knockback through the BASE implementation —
+                    // the guest's call already went through any subclass scaling
+                    // (BossEnemy ×0.3) before redirecting, so a virtual re-dispatch
+                    // here would double-scale. Base body keeps the alive/CC gating.
+                    if (m.knockback) {
+                        Enemy.prototype.applyKnockback.call(e, m.knockback.dx, m.knockback.dz, m.knockback.magnitude);
+                    }
+                }
+            };
+
+            // Catch-up ON DEMAND: the host connects FIRST (into an empty
+            // room), so emitting catch-up on its own connect broadcasts
+            // to nobody. Instead, wait for the guest to send requestState
+            // (once it's connected + wired) and THEN re-send a spawn for
+            // every live enemy. Without this, every enemy that spawned
+            // before the guest joined is never delivered (guest spawn
+            // count < host spawn count). Future spawns flow through the
+            // self-gating setOnEnemySpawned hook installed synchronously.
+            this.coopSession.onRequestState = () => {
+                const liveNow = this.enemyManager?.getEnemies() ?? [];
+                for (const e of liveNow) this.coopSession?.sendSpawn(this.buildSpawnMsg(e));
+                console.log(`[coop] guest requested state: catch-up sent ${liveNow.length} live enemy spawns`);
+            };
+            // M4-12: keep the latest guest hero summary for run-over aggregation.
+            this.coopSession.onRunSummary = (m) => { this._guestSummary = m.hero; };
+        }
+    }
+
+    // ── Co-op reconnect grace (M5-5/6) ───────────────────────────────────────
+
+    /** A peer dropped: 'self' = OUR socket closed, 'peer' = the relay reported
+     *  peer-left. Both start the same grace window (_updateReconnect ticks it, shows
+     *  the countdown, and decides what happens on expiry), but only 'self' drives
+     *  resume attempts into our vacated slot (M6 D1). Idempotent — except that a
+     *  'self' drop arriving while we were already waiting out a 'peer' drop upgrades
+     *  the kind, so we still try to restore our own socket. */
+    private onConnectionLost(kind: 'self' | 'peer'): void {
+        if (!this.coopSession || this._runEnded) return;
+        if (this._connMachine) {
+            // Already in the grace window. If OUR socket now dropped too, switch to
+            // self-resume — without our own slot back, nothing can recover.
+            if (kind === 'self') this._connLostKind = 'self';
+            return;
+        }
+        this._connLostKind = kind;
+        this._resumeAccumS = 0;
+        this._connMachine = new ConnectionMachine(30);
+        this._connMachine.onPeerLeft(); // connected → reconnecting (30s)
+        console.warn(`[coop] connection lost (room ${this._roomCode ?? '?'}, ${this.coopSession.role}, ${kind === 'self' ? 'our socket dropped' : 'peer left'}) — grace window started`);
+    }
+
+    /** M6 D1: the OTHER peer rejoined while we were waiting out THEIR absence —
+     *  dismiss the grace window and resume play. Our wiring is intact (our socket
+     *  never dropped); the rejoined guest re-sends requestState on its re-wire, so
+     *  the host's existing onRequestState flow pushes it the fresh world state.
+     *  No-op unless we're in a 'peer'-kind reconnect (a 'self' drop recovers via
+     *  _attemptResume, and no traffic arrives on a dead socket anyway). */
+    private onPeerBack(): void {
+        if (this._connMachine?.state !== 'reconnecting' || this._connLostKind !== 'peer') return;
+        console.log('[coop] peer rejoined — resuming play');
+        this._connMachine.onPeerRejoined(); // reconnecting → connected
+        this._endReconnect();               // hide overlay + clear the FSM
+        // The HOST dropped and resumed: spawns/deaths during its gap went to our
+        // (fine) socket via ITS dead one — i.e. were never sent — so our world is
+        // stale. Rebuild it: drop every render copy and re-request catch-up spawns.
+        // Fires exactly once per rejoin (_endReconnect above nulled _connMachine,
+        // so the per-message onPeerTraffic tap no-ops until the next drop) and is
+        // cheap (one requestState; the host re-sends live spawns, spawn() dedups).
+        if (this.coopSession?.role === 'guest') {
+            this.guestEnemies?.clear();
+            this.coopSession.sendRequestState();
+        }
+    }
+
+    /** M6 D1: one resume attempt — reconnect into OUR vacated slot (the Room DO
+     *  restores our role within its grace window). Guarded by _resumeInFlight; a
+     *  failed attempt is swallowed and the next ~1.5s tick retries until the FSM
+     *  window expires (expiry behavior unchanged). */
+    private _attemptResume(): void {
+        const code = this._roomCode;
+        const room = this._roomService;
+        const role = this._myCoopRole;
+        const champ = this._localChampionType;
+        if (!code || !room || !role || !champ) return;
+        this._resumeInFlight = true;
+        room.connect(code, { resume: { role } }).then(
+            (t) => {
+                this._resumeInFlight = false;
+                // The window may have expired (host-solo continue / guest run-over)
+                // or the run ended while the connect was in flight — then there is no
+                // session to re-wire; discard the fresh socket. Also bail if the DO
+                // lost the vacated record (eviction) and re-admitted us as the OTHER
+                // role: a mid-run role swap would invert all authority wiring.
+                if (this._connMachine?.state !== 'reconnecting' || this._runEnded || t.role !== role) {
+                    t.close();
+                    return;
+                }
+                console.log(`[coop] resumed room ${code} as ${t.role} — re-wiring session`);
+                // Re-wire the live run over the new transport. For the guest this
+                // also clears + re-requests the enemy registry (resync); the
+                // periodic snapshot keyframe restores the delta base (M5-7).
+                this.wireCoopSession(t, champ);
+                // OUR slot is restored — but if the OTHER peer left permanently while
+                // our socket was dead, its peer-left notice reached nobody and we'd
+                // hang silently. Don't end the reconnect UX: convert the wait into a
+                // 'peer' wait with a fresh grace window (onPeerRejoined → onPeerLeft
+                // re-arms the same FSM; no new transitions needed). First traffic
+                // from the peer clears it via onPeerBack — within a tick when they're
+                // alive, so the happy path is visually unchanged; if they're really
+                // gone, the existing expiry fallback (host-solo continue / guest
+                // run-over) fires as usual.
+                this._connMachine.onPeerRejoined(); // reconnecting → connected (our resume succeeded)
+                this._connLostKind = 'peer';
+                this._connMachine.onPeerLeft();     // connected → reconnecting: fresh window for the PEER
+            },
+            () => {
+                this._resumeInFlight = false; // swallow; retry on the next tick
+            },
+        );
+    }
+
+    /** Per-frame while a disconnect is pending: count down + update the overlay, then
+     *  on expiry continue solo (host) or end the run (guest). Uses wall-clock dt. */
+    private _updateReconnect(deltaTime: number): void {
+        const cm = this._connMachine;
+        if (!cm) return;
+        cm.tick(deltaTime);
+        // M6 D1: while the window is open because OUR socket dropped, retry a resume
+        // into our vacated slot every ~1.5s (driven by the same render-loop tick).
+        if (cm.state === 'reconnecting' && this._connLostKind === 'self') {
+            this._resumeAccumS += deltaTime;
+            if (this._resumeAccumS >= 1.5 && !this._resumeInFlight) {
+                this._resumeAccumS = 0;
+                this._attemptResume();
+            }
+        }
+        if (!this._reconnectEl) {
+            const el = document.createElement('div');
+            el.style.cssText =
+                'position:fixed;top:0;left:0;right:0;bottom:0;z-index:99998;display:flex;' +
+                'align-items:center;justify-content:center;background:#0008;color:#fda;' +
+                'font:600 20px/1.4 sans-serif;text-align:center;pointer-events:none';
+            document.body.appendChild(el);
+            this._reconnectEl = el;
+        }
+        const secs = Math.ceil(cm.graceRemaining);
+        const role = this.coopSession?.role;
+        // 'self' = OUR socket dropped (we're the one reconnecting); 'peer' = the
+        // teammate dropped (we're waiting for THEM). Subject must match the kind.
+        const self = this._connLostKind === 'self';
+        const headline = self ? 'Connection lost' : 'Teammate disconnected';
+        const action = self ? 'Reconnecting you…' : 'Reconnecting…';
+        const outcome = self
+            ? (role === 'host' ? '(run continues solo if you can’t rejoin)' : '(run ends if you can’t rejoin)')
+            : (role === 'host' ? '(continuing solo if they don’t return)' : '(run ends if the host doesn’t return)');
+        this._reconnectEl.textContent = `${headline}\n${action} ${secs}s\n${outcome}`;
+        this._reconnectEl.style.whiteSpace = 'pre-line';
+
+        if (cm.state === 'closed') {
+            this._endReconnect();
+            if (this.coopSession?.role === 'guest') {
+                // The host (authority) is gone — the guest can't simulate alone.
+                this.buildAndSendRunSummary();
+            } else if (this.heroController?.isDeadOrSpectating()) {
+                // Host is itself down with no teammate left to revive it (powers/attack
+                // are suspended while spectating, so it can't clear a wave) → end the run
+                // rather than soft-lock as an inert spectator.
+                this.buildAndSendRunSummary();
+            } else {
+                // Host-solo continue: fully detach co-op so the host plays as single-player
+                // (drop the ghost + its targeting provider, stop streaming to a dead socket,
+                // re-enable the pause overlay). coopRole becomes null next frame.
+                this.guestHeroAlive = false;
+                this.coopGhost?.dispose();
+                this.coopGhost = null;
+                this.disposeUltChannels(); // M6 C2: the peer is gone — stop its channels
+                this._heroProviders.length = 1; // drop the ghost provider IN PLACE (EnemyManager shares this array)
+                this.coopSession?.dispose();
+                this.coopSession = null;
+                // Stop cosmetic-FX broadcasting too — otherwise isCoopFxActive() stays
+                // true and every cast keeps building JSON hints that go nowhere.
+                setCoopFxEmit(null);
+            }
+        }
+    }
+
+    private _endReconnect(): void {
+        this._connMachine = null;
+        this._reconnectEl?.remove();
+        this._reconnectEl = null;
+        this._connLostKind = null;  // M6 D1 (an in-flight resume self-checks on resolve)
+        this._resumeAccumS = 0;
+        // Invariant: no reconnect state ⇒ no resume considered in flight. A connect
+        // promise that resolves later self-discards (_connMachine is null → it
+        // closes the fresh socket) and resetting the flag again is harmless.
+        this._resumeInFlight = false;
+    }
+
+    /** True when this def's cast() delivers its visuals through the PowerEffects
+     *  primitives (which self-broadcast exact 'pe' FX): all slot ultimates, and any
+     *  fusion whose element pair has a registered autocast archetype. */
+    private castRoutesThroughPrimitives(def: PowerDefinition): boolean {
+        if (def.tier === 'ultimate') return true;
+        if (def.tier === 'fusion' && def.elements?.length === 2) {
+            return !!getAutocastArchetype(archetypeKey(def.elements[0], def.elements[1]));
+        }
+        return false;
+    }
+
+    /** Replay a teammate's cosmetic combat FX (no gameplay effect — damage/CC are
+     *  authoritative via damageReport/snapshot). Dispatches by kind. */
+    private playRemoteFx(m: FxMsg): void {
+        if (!this.scene) return;
+        switch (m.kind) {
+            case 'proj': {
+                const shape = m.hint ?? 'sphere';
+                const element = shape === 'mageBolt' ? 'arcane' : 'physical';
+                spawnCosmeticProjectile(this.scene, shape, m.x, m.z, m.tx ?? m.x, m.tz ?? m.z, element);
+                break;
+            }
+            case 'swing': {
+                const range = m.hint ? parseFloat(m.hint) : 3.5;
+                spawnCosmeticSwingRing(this.scene, m.x, m.z, isNaN(range) ? 3.5 : range);
+                break;
+            }
+            case 'power':
+            case 'ult': {
+                // M6 C2: manual ults send a parameterised JSON hint → exact replay.
+                if (m.kind === 'ult' && this.replayUltimateFx(m)) break;
+                // Cosmetic element-coloured pop at the teammate's cast point (no damage —
+                // enemies=[]). Fallback for casts that don't route through the PowerEffects
+                // primitives (base mage/ranger powers, un-migrated fusion pairs) and for
+                // 'ult' hints that are unknown/malformed (or plain elements: dash, legacy
+                // ults). withFxReplay stops aoeBurst's own 'pe' broadcast from echoing
+                // back to the sender.
+                const PE_ELEMENTS: PowerElement[] = ['fire', 'ice', 'arcane', 'physical', 'storm'];
+                const element = PE_ELEMENTS.includes(m.hint as PowerElement)
+                    ? m.hint as PowerElement
+                    : (m.kind === 'ult' ? 'arcane' : 'physical');
+                const scene = this.scene;
+                withFxReplay(() => aoeBurst(scene, [], m.x, m.z, { radius: m.kind === 'ult' ? 3.5 : 2, damage: 0, element }));
+                break;
+            }
+            case 'ultStart':
+                this.startRemoteUltChannel(m);
+                break;
+            case 'ultStop':
+                // hint = ability id; dispose() also clears the safety timer + map entry.
+                if (m.hint) this.coopUltChannels.get(m.hint)?.dispose();
+                break;
+            case 'abilityClip':
+                this.replayRemoteAbilityClip(m);
+                break;
+            case 'pe': {
+                // Exact power-FX replication (M6 C1): re-run the teammate's PowerEffects
+                // primitive with enemies=[] and zero damage/status — pure cosmetics.
+                // Nothing routes through the guest damage/status redirects, a replayed
+                // vortex can't pull enemies (pull:0 + creation-time isReplay guard), and
+                // withFxReplay() stops the replayed primitive from re-emitting.
+                this.replayPrimitiveFx(m);
+                break;
+            }
+            case 'enemyProj':
+                spawnCosmeticEnemyProjectile(this.scene, m.x, m.z, m.tx ?? m.x, m.tz ?? m.z);
+                break;
+            case 'telegraph':
+                spawnCosmeticTelegraph(this.scene, m.x, m.z, m.tx ?? m.x, m.tz ?? m.z, m.hint === 'pull' ? 'pull' : 'dash');
+                break;
+            default:
+                break;
+        }
+    }
+
+    /** Parse + replay one 'pe' (primitive effect) message. Explicit per-primitive
+     *  allowlist (never dynamic dispatch by string); numeric params are sanitised
+     *  with sane fallbacks + caps; malformed hints are dropped, never thrown. */
+    private replayPrimitiveFx(m: FxMsg): void {
+        const scene = this.scene;
+        if (!scene || !m.hint) return;
+        try {
+            const h = JSON.parse(m.hint) as Record<string, unknown>;
+            const PE_ELEMENTS: PowerElement[] = ['fire', 'ice', 'arcane', 'physical', 'storm'];
+            const element = PE_ELEMENTS.includes(h.e as PowerElement) ? h.e as PowerElement : 'physical';
+            const num = (v: unknown, fallback: number, max: number): number =>
+                typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.min(v, max) : fallback;
+            withFxReplay(() => {
+                switch (h.p) {
+                    case 'aoeBurst':
+                        aoeBurst(scene, [], m.x, m.z, {
+                            radius: num(h.r, 2, 20), damage: 0, element,
+                            ringLifeS: typeof h.l === 'number' ? num(h.l, 0.35, 2) : undefined,
+                        });
+                        break;
+                    case 'bolt':
+                        // One chain segment, replayed verbatim (spawnBolt emits per hop).
+                        spawnBolt(scene, new Vector3(m.x, 1, m.z), new Vector3(m.tx ?? m.x, 1, m.tz ?? m.z), element);
+                        break;
+                    case 'vortex':
+                        // pull:0 + the primitive's creation-time isReplay guard ⇒ the
+                        // replayed vortex can never move this side's enemies; tickDamage
+                        // 0 over enemies=[] ⇒ no gameplay. finalBurst omitted — the
+                        // caster's real final burst arrives as its own 'pe' aoeBurst.
+                        gatherVortex(scene, [], m.x, m.z, {
+                            radius: num(h.r, 4, 20), durationS: num(h.d, 1.5, 8),
+                            pull: 0, tickDamage: 0, element,
+                        });
+                        break;
+                    case 'zone':
+                        persistentZone(scene, [], m.x, m.z, {
+                            radius: num(h.r, 3, 20), durationS: num(h.d, 3, 10), tickDamage: 0, element,
+                            crawlToward: typeof h.cx === 'number' && typeof h.cz === 'number'
+                                ? { x: h.cx, z: h.cz } : undefined,
+                            crawlSpeed: typeof h.cs === 'number' ? num(h.cs, 1.5, 10) : undefined,
+                        });
+                        break;
+                    case 'volley':
+                        omniVolley(scene, [], m.x, m.z, {
+                            count: Math.round(num(h.c, 6, 24)), speed: num(h.s, 16, 40),
+                            damage: 0, element,
+                            lifeS: typeof h.l === 'number' ? num(h.l, 1.2, 4) : undefined,
+                        });
+                        break;
+                    case 'arrow':
+                        // Fixed-point flight target (the enemy's position at emit time);
+                        // impact FX arrives as the impacted primitive's own 'pe'.
+                        arrowStrike(scene, m.x, m.z,
+                            { isAlive: () => true, getPosition: () => ({ x: m.tx ?? m.x, z: m.tz ?? m.z }) },
+                            element, () => { /* cosmetic flight only */ });
+                        break;
+                    default:
+                        break; // unknown primitive name — ignore
+                }
+            });
+        } catch { /* malformed remote hint — drop silently */ }
+    }
+
+    /** M6 C2: parse + replay one EXACT one-shot manual-ultimate visual. Same shape
+     *  as replayPrimitiveFx: explicit ability-id allowlist, sanitised/capped numeric
+     *  params, malformed hints dropped. The AbilityVisuals builders are the very
+     *  code the local cast renders with, minus all damage/CC — and they never emit
+     *  fx, so no withFxReplay wrap is needed. Returns false for non-JSON/unknown
+     *  hints so the caller falls back to the generic element burst. */
+    private replayUltimateFx(m: FxMsg): boolean {
+        const scene = this.scene;
+        if (!scene || !m.hint || !m.hint.startsWith('{')) return false;
+        try {
+            const h = JSON.parse(m.hint) as Record<string, unknown>;
+            switch (h.a) {
+                case 'meteor':
+                    // Same barrage scheduler as the local cast (5 strikes, 120ms
+                    // stagger, scatter ring); each replay strike is visual-only.
+                    // Strikes are setTimeout-staggered, so guard against the run
+                    // having ended before the late ones land.
+                    scheduleMeteorBarrage(new Vector3(m.x, 0, m.z), (target) => {
+                        if (this.scene === scene) createMeteorVisual(scene, target, 4);
+                    });
+                    return true;
+                case 'frostNova':
+                    createFrostNovaVisual(scene); // arena-wide, parameterless
+                    return true;
+                case 'smash':
+                    spawnSmashShockwave(scene, new Vector3(m.x, 0, m.z));
+                    return true;
+                case 'expArrow': {
+                    // Flight to the FIXED point the caster locked at spawn (exact),
+                    // then the blast visual at the impact point.
+                    const r = typeof h.r === 'number' && Number.isFinite(h.r) && h.r > 0
+                        ? Math.min(h.r, 8) : 3;
+                    spawnExplosiveArrowFlight(scene, new Vector3(m.x, 0, m.z),
+                        new Vector3(m.tx ?? m.x, 1.0, m.tz ?? m.z),
+                        (impact) => { if (this.scene === scene) spawnExplosionVisual(scene, impact, r); });
+                    return true;
+                }
+                default:
+                    return false; // unknown ability id → generic burst fallback
+            }
+        } catch { return false; }
+    }
+
+    /** M6 C2: start a cosmetic channelled-ultimate replay (whirlwind hurricane /
+     *  multishot volley) that follows the ghost's interpolated position each frame.
+     *  Lifecycle is airtight: 'ultStop' disposes; a duration+2s safety timeout
+     *  catches a lost stop; exit()/host-solo detach dispose whatever remains. */
+    private startRemoteUltChannel(m: FxMsg): void {
+        const scene = this.scene;
+        if (!scene || !m.hint) return;
+        try {
+            const h = JSON.parse(m.hint) as Record<string, unknown>;
+            const ability = h.a;
+            if (ability !== 'whirlwind' && ability !== 'multishot') return;
+            // One concurrent channel per ability per (single) peer — restart replaces.
+            this.coopUltChannels.get(ability)?.dispose();
+            const d = typeof h.d === 'number' && Number.isFinite(h.d) && h.d > 0 ? Math.min(h.d, 10) : 5;
+            const r = typeof h.r === 'number' && Number.isFinite(h.r) && h.r > 0 ? Math.min(h.r, 20) : 7;
+            // Follow the ghost each frame; until it exists (champ still loading) the
+            // cast point anchors the visual.
+            const fallback = new Vector3(m.x, 0, m.z);
+            const channel = startCosmeticUltChannel(
+                scene, ability,
+                () => this.coopGhost?.getPosition() ?? fallback,
+                () => this.coopGhost?.getFacingY() ?? 0,
+                d, r,
+            );
+            const timer = window.setTimeout(() => entry.dispose(), (d + 2) * 1000);
+            const entry = {
+                dispose: () => {
+                    window.clearTimeout(timer);
+                    channel.dispose(); // idempotent
+                    this.coopUltChannels.delete(ability);
+                },
+            };
+            this.coopUltChannels.set(ability, entry);
+        } catch { /* malformed remote hint — drop silently */ }
+    }
+
+    /** M6 C2: dispose every active cosmetic ult channel (state exit / peer detach). */
+    private disposeUltChannels(): void {
+        for (const c of Array.from(this.coopUltChannels.values())) c.dispose();
+        this.coopUltChannels.clear();
+    }
+
+    /** M6 C2: play the teammate's exact ability body clip on the ghost. The suffix
+     *  is allowlisted against the clips we ourselves can send (COOP_ABILITY_CLIP_
+     *  SUFFIXES); duration/speed are capped. playAbilityClip itself no-ops safely
+     *  when the ghost's rig has no matching clip (e.g. different champion). */
+    private replayRemoteAbilityClip(m: FxMsg): void {
+        if (!m.hint || !this.coopGhost) return;
+        try {
+            const h = JSON.parse(m.hint) as Record<string, unknown>;
+            if (typeof h.s !== 'string' || !COOP_ABILITY_CLIP_SUFFIXES.has(h.s)) return;
+            const d = typeof h.d === 'number' && Number.isFinite(h.d) && h.d > 0
+                ? Math.min(h.d, 10) : undefined;
+            const sp = typeof h.sp === 'number' && Number.isFinite(h.sp)
+                ? Math.min(Math.max(h.sp, 0.1), 5) : 1.0;
+            this.coopGhost.playAbilityClip(h.s, d, sp);
+        } catch { /* malformed remote hint — drop silently */ }
+    }
+
+    /** Guest run-over (M4-12): render the host's authoritative final result. */
+    private showCoopGameOver(m: RunOverMsg): void {
+        if (this._runEnded) return;
+        this._runEnded = true;
+        const me = m.heroes.find(h => h.id === 1) ?? m.heroes[0];
+        const summary: SurvivorsRunSummary = {
+            waveReached: m.waveReached,
+            timeSurvivedSec: m.timeSurvivedSec,
+            kills: me?.kills ?? 0,
+            goldCollected: me?.xp ?? 0,
+            levelReached: me?.level ?? 1,
+            finalLoadout: me?.loadout ?? [],
+            championType: me?.championType ?? this.currentChampionType,
+            heroes: m.heroes.length > 1 ? m.heroes.slice().sort((a, b) => a.id - b.id) : undefined,
+        };
+        const gos = this.game.getStateManager().getState('gameOver') as GameOverState;
+        if (gos) gos.setSurvivorsSummary(summary);
+        this.game.getStateManager().changeState('gameOver');
+    }
+
+    /** On-screen co-op debug box (top-right) — shows the host→guest pipeline live
+     *  so issues are readable without the dev console. Opt-in via `?coopdebug`. */
+    private _updateCoopDebugOverlay(deltaTime: number): void {
+        if (!this._coopDbgEnabled || !this.coopSession) return;
+        this._coopDbgAccumS += deltaTime;
+        if (this._coopDbgAccumS < 0.25) return;
+        this._coopDbgAccumS = 0;
+        if (!this._coopDbgEl) {
+            const el = document.createElement('div');
+            el.style.cssText =
+                'position:fixed;top:8px;right:8px;z-index:99999;background:#000a;color:#3f6;' +
+                'font:11px/1.35 monospace;padding:6px 8px;border:1px solid #0a4;border-radius:4px;' +
+                'white-space:pre;pointer-events:none';
+            document.body.appendChild(el);
+            this._coopDbgEl = el;
+        }
+        const role = this.coopSession.role;
+        const hp = this.hero?.getPosition();
+        const lines = [`COOP role=${role}  spawns=${this._coopDbgSpawns} deaths=${this._coopDbgDeaths}`];
+        if (role === 'host') {
+            lines.push(`enemies(host)=${this.enemyManager?.getEnemies().length ?? 0}`);
+            lines.push(`ghost=${this.coopGhost ? 'Y' : 'N'} guestHP=${Math.round(this.guestHeroHp)}`);
+            // M4-8 diag: is the guest's input arriving, and is the ghost moving from it?
+            const inp = this.coopSession.getLatestInput();
+            const gp = this.coopGhost?.getPosition();
+            lines.push(`in(${inp ? `${inp.dx.toFixed(1)},${inp.dz.toFixed(1)}` : '—'}) seq=${this.coopSession.getInputAckSeq()}`);
+            lines.push(`ghost@(${gp ? `${gp.x.toFixed(1)},${gp.z.toFixed(1)}` : '—'})`);
+        } else {
+            const list = this.guestEnemies?.getEnemies() ?? [];
+            let alive = 0, nearest = Infinity;
+            for (const e of list) {
+                if (!e.isAlive()) continue;
+                alive++;
+                const ep = e.getPosition();
+                const d = Math.hypot(ep.x - (hp?.x ?? 0), ep.z - (hp?.z ?? 0));
+                if (d < nearest) nearest = d;
+            }
+            const snap = this.coopSession.getLatestSnapshot();
+            lines.push(`snaps=${this._coopDbgSnaps} hasSnap=${snap ? 'Y' : 'N'} snapEnemies=${snap?.enemies.length ?? 0}`);
+            // M4-8 diag: my predicted pos vs the host-authoritative heroes[1], + the gap.
+            const h1 = snap?.heroes.find(h => h.id === 1);
+            const gap = (h1 && hp) ? Math.hypot(h1.x - hp.x, h1.z - hp.z) : -1;
+            lines.push(`h1@(${h1 ? `${h1.x.toFixed(1)},${h1.z.toFixed(1)}` : '—'}) gap=${gap.toFixed(1)}`);
+            lines.push(`enemies(local)=${list.length} alive=${alive}`);
+            lines.push(`nearest=${nearest === Infinity ? 'none' : nearest.toFixed(1)}u (ranger~9 melee~3.5)`);
+            const ba = this.heroController?.getBasicAttack();
+            if (ba) {
+                const d = ba.debugState();
+                lines.push(`ATK busy=${d.busy ? 'Y' : 'N'} tgt=${d.hasTarget ? 'Y' : 'N'} dist=${d.dist.toFixed(1)} rng=${d.range.toFixed(1)} cd=${d.cooldown.toFixed(2)}`);
+            }
+        }
+        lines.push(`hero@(${hp?.x.toFixed(1)},${hp?.z.toFixed(1)})`);
+        this._coopDbgEl.textContent = lines.join('\n');
     }
 
     public exit(): void {
@@ -1105,6 +2408,10 @@ export class SurvivorsGameplayState implements GameState {
         Enemy.onRewardCallback = null;
         Enemy.onKillCallback = null;
         Enemy.onShatterCallback = null;
+        Enemy.guestDamageRedirect = null; // M4-9: clear the guest damage redirect
+        Enemy.guestStatusRedirect = null; // M4-9 review fix: clear the guest status redirect
+        Enemy.guestKnockbackRedirect = null; // M6 A5: clear the guest knockback redirect
+        setCoopFxEmit(null);              // cosmetic-FX: stop broadcasting on teardown
         resetPowerEffects();
         if (this.testLabelEl) { this.testLabelEl.remove(); this.testLabelEl = null; }
         this.testMode = false;
@@ -1134,6 +2441,56 @@ export class SurvivorsGameplayState implements GameState {
 
         this.heroController?.dispose();
         this.heroController = null;
+
+        // Co-op M4: drop the per-player slots last (the disposes above ran through
+        // the accessors, writing null into slot0; this releases the slot itself).
+        this.players = [];
+        this.localId = 0;
+
+        this.coopSession?.dispose();
+        this.coopSession = null;
+        // Hardening: drop any lobby stash that never reached startRun() (closes
+        // its un-consumed transport) so a stale handoff can't leak into a later run.
+        clearPendingCoop();
+        this._fxDispatchWarned = false;
+        this.coopGhost?.dispose();
+        this.coopGhost = null;
+        this.coopGhostPending = false;
+        this.disposeUltChannels(); // M6 C2: tear down any in-flight cosmetic ult channel
+        // Part D: reset host-tracked guest-hero HP state and providers array.
+        this.guestHeroHp = 0;
+        this.guestHeroMaxHp = 0;
+        this.guestHeroAlive = true;
+        this._spectating = false;   // M4-11
+        this._runEnded = false;     // M4-11
+        this._guestSummary = null;  // M4-12
+        this._summaryAccumS = 0;    // M4-12
+        this._endReconnect();       // M5-6: tear down any reconnect overlay/FSM
+        this._roomCode = null;
+        // M6 D1: drop resume context (an in-flight attempt self-discards on resolve:
+        // _connMachine is null after _endReconnect, so it closes the fresh socket).
+        this._roomService = null;
+        this._myCoopRole = null;
+        this._localChampionType = null;
+        this._resumeInFlight = false;
+        this._heroProviders = [];
+        // M3: clear guest enemy registry and reset snapshot state.
+        this.guestEnemies?.clear();
+        this.guestEnemies = null;
+        this._guestWave = null;
+        this._coopGhostLastAnim = 0;
+        this._snapshotAccumS = 0;
+        this._snapshotTick = 0;
+        this._lastSentSnapshot = null; // M5-7
+        this._lastGuestSnapTick = -1;
+        this._lastReconcileTick = -1;
+        // Co-op debug overlay teardown + counter reset.
+        this._coopDbgEl?.remove();
+        this._coopDbgEl = null;
+        this._coopDbgAccumS = 0;
+        this._coopDbgSpawns = 0;
+        this._coopDbgDeaths = 0;
+        this._coopDbgSnaps = 0;
 
         this.hero?.dispose();
         this.hero = null;
@@ -1211,10 +2568,151 @@ export class SurvivorsGameplayState implements GameState {
         this.heroController.update(dt);
         if (this.hero) this.hero.update(dt);
 
+        if (this.coopSession) this._updateCoopDebugOverlay(deltaTime);
+        if (this._connMachine) this._updateReconnect(deltaTime); // M5-6 grace countdown
+
+        // --- Co-op M2 sync: broadcast our pose, render the remote ghost ---
+        if (this.coopSession && this.hero) {
+            const hp = this.hero.getPosition();
+            const ry = this.hero.getFacingY();
+            // NOTE(M3): the per-frame object literal here is intentionally simple for
+            // M2; binary encoding + scratch reuse arrive at M3 (spec §3/§6).
+            // anim: 2 while a basic-attack clip is playing so the teammate's ghost can
+            // mirror the swing/shot; 1 otherwise (the ghost derives walk/idle from
+            // its interpolated velocity).
+            // heroState carries the local champion identity + an anim code so the
+            // teammate's ghost mirrors the body animation. 3 = special/ultimate (any
+            // power-slot cast or ult sets glbSpecialTimer → isSpecialActive), 2 = basic
+            // attack, 1 = idle/run (the ghost derives walk/idle from velocity). Special
+            // wins so an ult's cast pose shows even while the basic attack is on cooldown.
+            const heroAnimSrc = this.hero as unknown as { isSpecialActive?: () => boolean; isAttackActive?: () => boolean };
+            const heroAnim = heroAnimSrc.isSpecialActive?.() ? 3 : (heroAnimSrc.isAttackActive?.() ? 2 : 1);
+            this.coopSession.sendLocalPose({ x: hp.x, y: hp.y, z: hp.z, ry }, heroAnim);
+            if (this.coopSession.role === 'guest') {
+                const mv = this.heroController?.getMoveInput();
+                // buttons (dash/ult) carried for M4-9 ability routing; 0 for now.
+                // dt = the same (timeScale-scaled) dt the local sim integrated this
+                // input with — recorded for replay reconciliation (clamped inside).
+                this.coopSession.sendLocalInput(mv?.dx ?? 0, mv?.dz ?? 0, 0, dt);
+            }
+
+            // Render ~100ms in the past for smooth interpolation.
+            const renderT = performance.now() - 100;
+            const champ = this.coopSession.getRemoteChamp();
+            const pose = champ ? this.coopSession.getRemotePose(renderT) : null;
+
+            // Lazily spawn the ghost once we know the teammate's champion. The GLB
+            // asset is REQUIRED: Champion only builds a mesh for barbarian when an
+            // asset is passed, and passing it makes every ghost match the real
+            // hero's GLB look. Loading is async (cached after enter()'s preload).
+            if (champ && !this.coopGhost && !this.coopGhostPending) {
+                this.coopGhostPending = true;
+                const champType = champ as 'barbarian' | 'ranger' | 'mage';
+                const assetP = loadChampionAsset(champType, this.scene!);
+                const ready = assetP ? assetP.catch(() => null) : Promise.resolve(null);
+                void ready.then((asset) => {
+                    this.coopGhostPending = false;
+                    // The run may have ended (exit nulls coopSession) while loading.
+                    if (!this.coopSession || this.coopGhost) return;
+                    this.coopGhost = new Champion(this.game, [], null, champType, asset ?? undefined);
+                    this.coopGhost.controlMode = 'player'; // no AI; placed from network
+                    // M4-8: the host input-integrates the ghost from HERE, so seed it at
+                    // the guest's reported pose — otherwise it would start at the origin
+                    // and the guest's first reconcile would yank it across the arena.
+                    if (this.coopSession.role === 'host') {
+                        const seed = this.coopSession.getRemotePose(performance.now());
+                        if (seed) {
+                            const g = this.coopGhost as unknown as { position: Vector3; mesh: Mesh | null };
+                            g.position.set(seed.x, seed.y, seed.z);
+                            if (g.mesh) { g.mesh.position.x = seed.x; g.mesh.position.z = seed.z; g.mesh.rotation.y = seed.ry; }
+                        }
+                    }
+                    // Shared/tethered camera: set once; reads both heroes' live
+                    // positions each frame. Null-guarded (hero can be nulled on death).
+                    this.heroController?.setCameraFocusProvider(() => {
+                        const self = this.hero?.getPosition();
+                        const mate = this.coopGhost?.getPosition();
+                        if (!self || !mate) return { x: 0, z: 0, height: 20 };
+                        // M4-11: while spectating, follow the surviving teammate alone.
+                        if (this._spectating) return { x: mate.x, z: mate.z, height: 22 };
+                        return computeCameraFocus(
+                            { x: self.x, z: self.z },
+                            { x: mate.x, z: mate.z },
+                            { baseHeight: 20, maxHeight: 30, zoomPerUnit: 0.4 },
+                        );
+                    });
+                    // Part C (Task 9 ghost targeting provider): on the host, push the ghost
+                    // into _heroProviders so enemies target the nearest of both heroes.
+                    // isAlive() returns guestHeroAlive so a dead guest is no longer targeted.
+                    // The _heroProviders array is shared with EnemyManager (same reference),
+                    // so existing enemies pick up the new provider immediately via seekTargets.
+                    if (this.coopSession.role === 'host') {
+                        const ghost = this.coopGhost;
+                        this._heroProviders.push({
+                            getPosition: () => ghost.getPosition(),
+                            isAlive: () => this.guestHeroAlive,
+                        });
+                    }
+                });
+            }
+            if (this.coopGhost) {
+                // Fire the remote hero's clip once on the rising edge (heroState carries
+                // the code). BEFORE update() so it plays this frame. 3 = special/ult,
+                // 2 = basic attack. triggerSpecial outranks triggerAttack (Champion gates
+                // attack while a special is active), so an ult's pose shows correctly.
+                const ranim = this.coopSession.getRemoteAnim();
+                const ghostAnimApi = this.coopGhost as unknown as {
+                    triggerAttack?: (t?: Vector3) => void; triggerSpecial?: () => void;
+                    isSpecialActive?: () => boolean;
+                };
+                if (ranim !== this._coopGhostLastAnim) {
+                    // M6 C2: when an exact ability clip (fx 'abilityClip') is already
+                    // driving the rig, isSpecialActive() is true — skip the generic
+                    // special pose so triggerSpecial doesn't stomp the real clip.
+                    if (ranim === 3) {
+                        if (!ghostAnimApi.isSpecialActive?.()) ghostAnimApi.triggerSpecial?.();
+                    } else if (ranim === 2) ghostAnimApi.triggerAttack?.();
+                }
+                this._coopGhostLastAnim = ranim;
+
+                if (this.coopSession.role === 'host' && this.guestHeroAlive) {
+                    // HOST: the ghost IS the guest hero — simulate it from the guest's
+                    // latest input (authoritative). This replaces M2/M3 pose-copy so the
+                    // guest's position can no longer be laggy/spoofed, and feeds the
+                    // contact-damage + snapshot loops a host-owned position. A DEAD guest's
+                    // ghost holds its last pose (no integration) and is faded (see below).
+                    this._driveGuestGhostFromInput(dt);
+                } else if (this.coopSession.role !== 'host' && pose) {
+                    // GUEST: the ghost is the host hero — render it from the host's pose
+                    // (the host is trivially authoritative for its own hero). Estimate
+                    // velocity from the pose delta to drive walk anim, then snap to pose.
+                    const g = this.coopGhost as unknown as { position: Vector3; mesh: Mesh | null };
+                    if (dt > 1e-4) {
+                        this._coopGhostVel.set((pose.x - g.position.x) / dt, 0, (pose.z - g.position.z) / dt);
+                        this.coopGhost.setPlayerVelocity(this._coopGhostVel);
+                    }
+                    this.coopGhost.update(dt);
+                    g.position.set(pose.x, pose.y, pose.z);
+                    if (g.mesh) {
+                        g.mesh.position.x = pose.x;
+                        g.mesh.position.z = pose.z;
+                        g.mesh.rotation.y = pose.ry; // network yaw, after update()
+                    }
+                }
+            }
+        }
+
+        // M3: determine the co-op role for this frame. null = single-player (no
+        // coopSession) or before the connection handshake completes. The branch is
+        // checked once and reused below so a connection that completes mid-frame
+        // doesn't mix host + guest paths within the same update() call.
+        const coopRole = this.coopSession?.role ?? null;
+
         // Between-wave breather → auto-advance (shop removed). Uses raw wall-clock
         // deltaTime; only ticks here because update() returns early while any blocking
         // overlay is open (so it never advances mid power-choice).
-        if (this.waveBreatherRemaining > 0) {
+        // Guest: the host drives wave progression — never tick the breather locally.
+        if (coopRole !== 'guest' && this.waveBreatherRemaining > 0) {
             this.waveBreatherRemaining -= deltaTime;
             if (this.waveBreatherRemaining <= 0) {
                 this.waveBreatherRemaining = 0;
@@ -1261,17 +2759,142 @@ export class SurvivorsGameplayState implements GameState {
 
         _measure('hero');
 
-        if (this.waveManager) this.waveManager.update(dt);
-        _measure('wave');
-        if (this.enemyManager) this.enemyManager.update(dt);
-        _measure('enemies');
+        // M3 role split: host/single-player run the full authoritative simulation;
+        // guest skips it entirely and instead applies the latest host snapshot to
+        // the render-only GuestEnemies + own hero HP. This is the keystone guard —
+        // changing this 'if' is the only way enemy/wave simulation runs on a guest.
+        if (coopRole !== 'guest') {
+            // Host / single-player: authoritative simulation (unchanged behavior).
+            if (this.waveManager) this.waveManager.update(dt);
+            _measure('wave');
+            if (this.enemyManager) this.enemyManager.update(dt);
+            _measure('enemies');
 
-        // Contact damage
-        this.applyContactDamage(dt);
-        _measure('contact');
+            // Contact damage
+            this.applyContactDamage(dt);
+            _measure('contact');
+        } else {
+            // Guest: do NOT tick enemyManager / waveManager / breather.
+            // Apply the latest host snapshot to drive the render-only enemies
+            // and update the local wave HUD from the snapshot's wave state.
+            const snap = this.coopSession!.getLatestSnapshot();
+            if (snap) {
+                // Drive render-only enemies. Positions go through an interpolation
+                // buffer (same smoothing as the champion ghost): push each NEW
+                // snapshot's positions + HP/flags once (keyed on tick), then
+                // interpolate EVERY frame toward a render time ~100ms in the past.
+                if (this.guestEnemies) {
+                    if (snap.tick !== this._lastGuestSnapTick) {
+                        this._lastGuestSnapTick = snap.tick;
+                        this._coopDbgSnaps++;
+                        this.guestEnemies.pushSnapshot(snap.enemies, performance.now());
+                    }
+                    this.guestEnemies.interpolate(performance.now() - 100, dt);
+                    this.guestEnemies.tickVisuals(dt); // ease HP bars between snapshots
+                }
+                // DIAGNOSTIC (guest, ~1/s): is anything within the hero's attack
+                // reach? Reveals whether "not shooting" is no-target-in-range
+                // (enemies converging elsewhere) vs a fire-path bug.
+                this._coopDiagAccumS += deltaTime;
+                if (this._coopDiagAccumS >= 1) {
+                    this._coopDiagAccumS = 0;
+                    const hp = this.hero?.getPosition();
+                    let nearest = Infinity, alive = 0;
+                    for (const e of this.guestEnemies?.getEnemies() ?? []) {
+                        if (!e.isAlive()) continue;
+                        alive++;
+                        const ep = e.getPosition();
+                        const d = Math.hypot(ep.x - (hp?.x ?? 0), ep.z - (hp?.z ?? 0));
+                        if (d < nearest) nearest = d;
+                    }
+                    const ghost = snap.heroes.find(h => h.id === 1);
+                    console.log(
+                        `[coop-diag guest] hero@(${hp?.x.toFixed(1)},${hp?.z.toFixed(1)}) ` +
+                        `ghost(host-view)@(${ghost?.x.toFixed(1)},${ghost?.z.toFixed(1)}) ` +
+                        `aliveEnemies=${alive} nearest=${nearest === Infinity ? 'none' : nearest.toFixed(1)}u ` +
+                        `(ranger range≈9, melee≈3.5)`,
+                    );
+                }
+                // Mirror the host wave state so the guest HUD shows live info. Mutate in
+                // place to avoid a per-frame allocation.
+                if (this._guestWave) {
+                    this._guestWave.wave = snap.wave.n;
+                    this._guestWave.enemiesAlive = snap.wave.alive;
+                    this._guestWave.inProgress = snap.wave.inProgress === 1;
+                } else {
+                    this._guestWave = { wave: snap.wave.n, enemiesAlive: snap.wave.alive, inProgress: snap.wave.inProgress === 1 };
+                }
+                // Part C: apply this guest hero's authoritative HP from the snapshot.
+                // The guest is hero id=1 in heroes[]. The host computed contact damage
+                // for both heroes so the guest does NOT compute it locally.
+                // heroController is non-null here (update() guards at the top).
+                // M4-12: stream my hero summary to the host (~every 2s) so it can
+                // aggregate the run-over result without a death-timing race.
+                this._summaryAccumS += deltaTime;
+                if (this._summaryAccumS >= 2) {
+                    this._summaryAccumS = 0;
+                    this.coopSession!.sendRunSummary({ t: 'runSummary', hero: this.buildLocalHeroSummary(1) });
+                }
 
-        // Power auto-fire
-        if (this.powerSlots) this.powerSlots.update(dt);
+                const guestEntry = snap.heroes.find(h => h.id === 1);
+                if (guestEntry && this.heroController) {
+                    // M4-11: death / spectate / respawn are driven by the authoritative
+                    // ALIVE FLAG (not hp>0). While dead I spectate (inert) and wait; the
+                    // run-over transition is the host's authoritative RunOverMsg
+                    // (showCoopGameOver), never inferred here. Back up while spectating →
+                    // the host revived me on a wave clear.
+                    const meAlive = guestEntry.alive;
+                    if (!meAlive) {
+                        if (!this._spectating) {
+                            // Push a fresh final summary the instant we die so the host's
+                            // run-over aggregation isn't stale (don't wait for the 2s tick).
+                            this.coopSession!.sendRunSummary({ t: 'runSummary', hero: this.buildLocalHeroSummary(1) });
+                            this.enterSpectate();
+                        }
+                    } else if (this._spectating) {
+                        this.respawnLocalHero(guestEntry.x, guestEntry.z);
+                    }
+
+                    // While alive: apply authoritative HP + reconcile predicted position.
+                    if (meAlive) {
+                        this.heroController.setHealth(guestEntry.hp);
+                        // M6 E2 input-replay reconciliation — ONCE per new snapshot.
+                        // Start from the host-authoritative pose, replay every input the
+                        // host hasn't applied yet (seq > ackSeq) through the SAME
+                        // integration math the local prediction used, then dead-zone/
+                        // lerp/snap the rendered position toward that replayed target.
+                        // Replaying at the guest's CURRENT effective speed keeps the
+                        // replay consistent with its own prediction (residual ≈ 0);
+                        // the host integrates at CHAMP_BASE_SPEED, so speed-multiplier
+                        // divergence shows as a steady sub-snap gap the lerp absorbs.
+                        if (this.hero && snap.tick !== this._lastReconcileTick) {
+                            this._lastReconcileTick = snap.tick;
+                            this.coopSession!.pruneInputHistory(snap.ackSeq);
+                            const predicted = replayInputs(
+                                { x: guestEntry.x, z: guestEntry.z },
+                                this.coopSession!.getUnackedInputs(snap.ackSeq),
+                                this.heroController.getEffectiveMoveSpeed(),
+                                this.map?.getArenaRadius() ?? 20,
+                            );
+                            const lp = this.hero.getPosition();
+                            const gap = Math.hypot(predicted.x - lp.x, predicted.z - lp.z);
+                            if (gap > RECONCILE_DEAD_ZONE) {
+                                const r = reconcilePosition(
+                                    { x: lp.x, z: lp.z },
+                                    predicted,
+                                    RECONCILE_HARD_SNAP, RECONCILE_LERP,
+                                );
+                                this.heroController.reconcileNetworkPosition(r.pos.x, r.pos.z);
+                            }
+                        }
+                    }
+                }
+            }
+            _measure('guestApply');
+        }
+
+        // Power auto-fire (suspended while spectating — the dead local hero does nothing)
+        if (this.powerSlots && !this._spectating) this.powerSlots.update(dt);
         _measure('powers');
 
         // Element visual decorations on the hero's weapon
@@ -1280,8 +2903,8 @@ export class SurvivorsGameplayState implements GameState {
         }
         _measure('elemVis');
 
-        // Manual ultimates (Meteor Strike + Frost Nova)
-        if (this.abilityManager) this.abilityManager.update(dt);
+        // Manual ultimates (Meteor Strike + Frost Nova) — suspended while spectating.
+        if (this.abilityManager && !this._spectating) this.abilityManager.update(dt);
         _measure('abilities');
 
         // Power drops + item drops — tick + swap-pop dead entries in one
@@ -1313,7 +2936,11 @@ export class SurvivorsGameplayState implements GameState {
         // HUD update — reuse the scratch waveInfo struct.
         if (this.hud && this.powerSlots && this.playerStats) {
             let waveInfo: { wave: number; enemiesAlive: number; inProgress: boolean } | undefined;
-            if (this.waveManager) {
+            if (coopRole === 'guest') {
+                // Guest: read wave state from the latest host snapshot (_guestWave);
+                // the local waveManager is idle and would show 0 permanently.
+                waveInfo = this._guestWave ?? undefined;
+            } else if (this.waveManager) {
                 waveInfo = this._scratchWaveInfo;
                 waveInfo.wave = this.waveManager.getCurrentWave();
                 waveInfo.enemiesAlive = this.waveManager.getRemainingEnemiesInWave() ?? 0;
@@ -1333,6 +2960,28 @@ export class SurvivorsGameplayState implements GameState {
         if (this.offscreenIndicators) this.offscreenIndicators.update();
         _measure('offscreenInd');
 
+        // B4 — Host snapshot authoring at ~20 Hz. Accumulate raw deltaTime (not dt)
+        // so the cadence is wall-clock based and isn't slowed by slow-mo overlays.
+        // Only runs when we are the host and have an active session.
+        if (coopRole === 'host' && this.coopSession) {
+            this._snapshotAccumS += deltaTime;
+            if (this._snapshotAccumS >= 0.05) {
+                this._snapshotAccumS = Math.max(0, this._snapshotAccumS - 0.05);
+                const snap = this.buildSnapshot();
+                // M5-7: full keyframe every SNAPSHOT_KEYFRAME_TICKS (≈1s) so a joiner /
+                // dropped delta resyncs; delta-compress the ticks between.
+                const keyframe = !this._lastSentSnapshot
+                    || this._snapshotTick % SurvivorsGameplayState.SNAPSHOT_KEYFRAME_TICKS === 0;
+                if (keyframe) {
+                    this.coopSession.sendEnemySnapshot(snap);
+                } else {
+                    this.coopSession.sendEnemySnapshotDelta(diffSnapshot(this._lastSentSnapshot!, snap));
+                }
+                this._lastSentSnapshot = snap;
+                this._snapshotTick++;
+            }
+        }
+
         if (profile && _times) {
             const totalMs = performance.now() - _t0;
             if (totalMs > 50) {
@@ -1347,6 +2996,12 @@ export class SurvivorsGameplayState implements GameState {
     }
 
     private isPausedForOverlay(): boolean {
+        // Co-op (M4-10): the simulation is SHARED, so a power-choice / replace-slot
+        // overlay must never freeze the loop — the host has to keep simulating and
+        // streaming snapshots while either player picks, and the guest must keep
+        // rendering. The overlay still shows; it just doesn't pause. Single-player
+        // keeps its blocking pause.
+        if (this.coopSession) return false;
         return !!(
             this.powerChoice?.isOpen() ||
             this.replaceSlotOverlay?.isOpen()
@@ -1712,7 +3367,7 @@ export class SurvivorsGameplayState implements GameState {
         ps.basicAttackSpeedMultiplier = 1 + gAtk; // halved per balance pass
         ps.powerDamageMultiplier      = 1 + gp;   // power damage (halved, diminishing)
         ps.powerCooldownMultiplier    = Math.max(0.05, 1 - gp); // power fire rate (halved, diminishing); floored so it never hits 0
-        ps.damageReductionMultiplier  = 1 - g; // lower = tankier
+        ps.damageReductionMultiplier  = Math.max(0.30, 1 - g); // lower = tankier; floored at 0.30 → 70% reduction cap
         ps.critChance                 = b;     // NOT doubled — kept at +0.5%/level
         ps.critDamageMultiplier       = 1.5 * (1 + g);
 
@@ -1745,12 +3400,31 @@ export class SurvivorsGameplayState implements GameState {
     // Private helpers
     // ─────────────────────────────────────────────────────────────────────────
 
+    /**
+     * The enemy list the local hero's attacks should target. Host/single-player
+     * read the authoritative EnemyManager; the co-op guest reads its render-only
+     * GuestEnemies registry (the host's EnemyManager is empty on the guest).
+     *
+     * Evaluated per call so the role is always current. This is what lets
+     * startRun wire the attack providers ONCE, synchronously, even though the
+     * co-op connection (which sets coopSession.role) resolves asynchronously
+     * later — without it, startRun's setTargetProvider/setEnemyProvider would
+     * race with (and clobber) the guest wiring, leaving the guest unable to
+     * acquire a target (tgt=N) and never firing.
+     */
+    private activeAttackEnemies(): Enemy[] {
+        if (this.coopSession?.role === 'guest') {
+            return this.guestEnemies?.getEnemies() ?? [];
+        }
+        return this.enemyManager?.getEnemies() ?? [];
+    }
+
     private getNearestEnemy(): BasicAttackTarget | null {
-        if (!this.enemyManager || !this.hero) return null;
+        if (!this.hero) return null;
         const heroPos = this.hero.getPosition();
         let best: Enemy | null = null;
         let bestDistSq = Infinity;
-        for (const e of this.enemyManager.getEnemies()) {
+        for (const e of this.activeAttackEnemies()) {
             if (!e.isAlive()) continue;
             const dx = e.getPosition().x - heroPos.x;
             const dz = e.getPosition().z - heroPos.z;
@@ -1766,6 +3440,7 @@ export class SurvivorsGameplayState implements GameState {
             position:   captured.getPosition(),
             takeDamage: (n, element) => captured.takeDamage(n, element),
             isAlive:    () => captured.isAlive(),
+            enemy:      captured,
         };
     }
 
@@ -1987,22 +3662,86 @@ export class SurvivorsGameplayState implements GameState {
         }
     }
 
+    /**
+     * Return the starting (max) HP for a given champion type, matching the same
+     * calculation `startRun` uses for the local hero. Used by the host to
+     * initialise guestHeroMaxHp / guestHeroHp when the ghost's class is known.
+     */
+    private champHpFor(type: string): number {
+        const variants: Record<string, number> = {
+            barbarian: 140,
+            ranger:    90,
+            mage:      80,
+        };
+        const base = variants[type] ?? variants['barbarian'];
+        return Math.round(base * DifficultyTuning.playerHpMult);
+    }
+
     private applyContactDamage(deltaTime: number): void {
         if (!this.hero || !this.enemyManager || !this.heroController) return;
         const heroPos = this.hero.getPosition();
         const reductionMult = this.playerStats?.damageReductionMultiplier ?? 1.0;
+
+        // Host co-op: also track ghost position for guest-hero contact checks below.
+        // Single-player: coopRole is null — the guest block is never entered.
+        const coopRole = this.coopSession?.role ?? null;
+        const ghostPos = (coopRole === 'host' && this.coopGhost && this.guestHeroAlive)
+            ? this.coopGhost.getPosition()
+            : null;
+
+        // Lazily initialise guestHeroMaxHp the first time the ghost exists and
+        // guestHeroMaxHp hasn't been set yet. The ghost's champion type is
+        // available from the remote champ string stored in CoopSession.
+        if (coopRole === 'host' && this.coopGhost && this.guestHeroMaxHp === 0) {
+            const remoteChamp = this.coopSession?.getRemoteChamp() ?? 'barbarian';
+            this.guestHeroMaxHp = this.champHpFor(remoteChamp);
+            this.guestHeroHp    = this.guestHeroMaxHp;
+            this.guestHeroAlive = true;
+        }
+
+        const sumR = this.heroRadius + 0.6;
+        const sumRSq = sumR * sumR;
+
         for (const e of this.enemyManager.getEnemies()) {
             // Hero death inside takeDamage triggers state.exit() synchronously,
             // which nulls heroController. Re-check each iteration.
             if (!this.heroController) return;
             if (!e.isAlive()) continue;
             const ePos = e.getPosition();
-            const dx = ePos.x - heroPos.x;
-            const dz = ePos.z - heroPos.z;
-            const distSq = dx * dx + dz * dz;
-            const sumR = this.heroRadius + 0.6;
-            if (distSq < sumR * sumR) {
+
+            // ── Local hero contact (unchanged behaviour for SP + host) ──────────
+            const ldx = ePos.x - heroPos.x;
+            const ldz = ePos.z - heroPos.z;
+            if (ldx * ldx + ldz * ldz < sumRSq) {
                 this.heroController.takeDamage(e.contactDamagePerSecond * deltaTime * reductionMult, ePos);
+            }
+
+            // ── Guest hero contact (host only) ───────────────────────────────────
+            // Apply contact damage against the ghost position; track HP here;
+            // the authoritative value ships to the guest in every snapshot.
+            // Test mode (?test) makes the guest invulnerable too — the host owns
+            // the guest's HP, so this is the guest-side mirror of the local hero's
+            // debugInvulnerable flag (set above when testMode is on).
+            if (ghostPos && this.guestHeroAlive && !this.testMode) {
+                const gdx = ePos.x - ghostPos.x;
+                const gdz = ePos.z - ghostPos.z;
+                if (gdx * gdx + gdz * gdz < sumRSq) {
+                    // No reduction mult here — reductionMult is the HOST's, which doesn't
+                    // apply to the guest (the host doesn't know the guest's reduction). Use
+                    // the raw contact DPS rather than the wrong player's modifier.
+                    const dmg = e.contactDamagePerSecond * deltaTime;
+                    this.guestHeroHp = Math.max(0, this.guestHeroHp - dmg);
+                    if (this.guestHeroHp <= 0 && this.guestHeroAlive) {
+                        this.guestHeroAlive = false;
+                        // Fade the downed guest's ghost (mirrors the local-hero spectate fade).
+                        const gm = (this.coopGhost as unknown as { mesh?: { visibility: number } } | null)?.mesh;
+                        if (gm) gm.visibility = 0.35;
+                        // M4-11: the guest just died. If the host is also down, both are
+                        // dead → end the run; otherwise the guest spectates (it sees its
+                        // alive flag flip in the snapshot) and the host plays on.
+                        if (this.heroController?.isDeadOrSpectating()) this.buildAndSendRunSummary();
+                    }
+                }
             }
         }
     }

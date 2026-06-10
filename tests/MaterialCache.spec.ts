@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterAll } from 'vitest';
-import { NullEngine, Scene, Color3 } from '@babylonjs/core';
-import { getCachedMaterial, getMaterialCacheSize, clearMaterialCache } from '../src/engine/rendering/MaterialCache';
+import { NullEngine, Scene, Color3, StandardMaterial } from '@babylonjs/core';
+import { getCachedMaterial, getMaterialCacheSize, clearMaterialCache, isCachedMaterial } from '../src/engine/rendering/MaterialCache';
 
 // Regression guard for the dominant recurring-freeze root cause.
 //
@@ -22,9 +22,11 @@ import { getCachedMaterial, getMaterialCacheSize, clearMaterialCache } from '../
 const engine = new NullEngine();
 const scene = new Scene(engine);
 
+// File-level so the scene survives until BOTH describes have run.
+afterAll(() => { scene.dispose(); engine.dispose(); });
+
 describe('getCachedMaterial', () => {
     beforeEach(() => clearMaterialCache());
-    afterAll(() => { scene.dispose(); engine.dispose(); });
 
     it('returns the SAME instance for repeated same-key calls (cache actually hits)', () => {
         const a = getCachedMaterial(scene, 'k', m => { m.emissiveColor = new Color3(1, 0, 0); });
@@ -60,5 +62,38 @@ describe('getCachedMaterial', () => {
         // 400 calls across 4 keys → exactly 4 materials, not 400.
         expect(scene.materials.length - before).toBe(4);
         expect(getMaterialCacheSize()).toBe(4);
+    });
+});
+
+// Regression guard for the elite-death visual wipe-out: Enemy._releaseMeshAndAnimations
+// bulk-disposes per-mesh materials with dispose(false, true), and used to dispose the
+// SHARED elite aura/glow/spike materials (getCachedMaterial) on the first elite death
+// of an element. The cache treats key presence as validity, so it kept handing out
+// the dead instance and every other live elite of that element lost its visuals.
+// isCachedMaterial() is the marker bulk-disposal paths use to skip shared materials.
+describe('isCachedMaterial', () => {
+    beforeEach(() => clearMaterialCache());
+
+    it('recognizes materials handed out by the cache', () => {
+        const mat = getCachedMaterial(scene, 'elite_aura_fire', m => { m.alpha = 0.18; });
+        expect(isCachedMaterial(mat)).toBe(true);
+        // Same key, later call — still the same recognized instance.
+        expect(isCachedMaterial(getCachedMaterial(scene, 'elite_aura_fire', () => {}))).toBe(true);
+    });
+
+    it('does not recognize uniquely-owned (non-cached) materials', () => {
+        const unique = new StandardMaterial('perEnemyClone', scene);
+        expect(isCachedMaterial(unique)).toBe(false);
+        unique.dispose();
+    });
+
+    it('forgets instances after clearMaterialCache (no unbounded growth across runs)', () => {
+        const mat = getCachedMaterial(scene, 'elite_glow_ice', m => { m.alpha = 0.4; });
+        clearMaterialCache();
+        expect(isCachedMaterial(mat)).toBe(false);
+        // A fresh material under the same key is recognized again.
+        const next = getCachedMaterial(scene, 'elite_glow_ice', m => { m.alpha = 0.4; });
+        expect(next).not.toBe(mat);
+        expect(isCachedMaterial(next)).toBe(true);
     });
 });

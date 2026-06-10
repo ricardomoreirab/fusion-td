@@ -1,8 +1,11 @@
-import { Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, Color4, Scene, ParticleSystem, Texture, DynamicTexture, Sound, Animation, AnimationGroup, Skeleton, ShadowGenerator } from '@babylonjs/core';
+import { Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, Color4, Scene, ParticleSystem, Texture, DynamicTexture, Sound, Animation, AnimationGroup, Skeleton, ShadowGenerator, Observer } from '@babylonjs/core';
 import { Game } from '../../engine/Game';
 import { EnemyType, StatusEffect } from '../GameTypes';
 import { PowerElement } from '../powers/PowerDefinitions';
 import { StatusStacks, STATUS_TUNING, type RichStatusKind } from '../powers/StatusModel';
+import { type TargetProvider, pickNearestAlive } from './nearestTarget';
+import { isCachedMaterial } from '../../engine/rendering/MaterialCache';
+import type { SnapshotEnemy } from '../../net/Protocol';
 
 // One-time per-enemy-class log when a GLB has no recognizable death clip, so the
 // asset's real clip name can be added to the matcher in _findDeathClip().
@@ -82,6 +85,15 @@ export class Enemy {
      */
     public static onDamageCallback: ((position: Vector3, damage: number, isCrit: boolean, element?: PowerElement) => void) | null = null;
     public static onRewardCallback: ((position: Vector3, reward: number) => void) | null = null;
+    /** Co-op guest only (M4-9): when set, takeDamage reports the hit to the host by id
+     *  and applies nothing locally (host-authoritative). Null on host + single-player. */
+    public static guestDamageRedirect: ((enemyId: number, amount: number, element?: PowerElement) => void) | null = null;
+    /** Co-op guest only (M4-9 review fix): when set, applyStatusEffect reports the CC/DoT
+     *  to the host by id and applies nothing locally. Null on host + single-player. */
+    public static guestStatusRedirect: ((enemyId: number, effect: StatusEffect, durationS: number, strength: number) => void) | null = null;
+    /** Co-op guest only (M6 A5): when set, applyKnockback reports the push to the host
+     *  by id and applies nothing locally. Null on host + single-player. */
+    public static guestKnockbackRedirect: ((enemyId: number, dirX: number, dirZ: number, magnitude: number) => void) | null = null;
     /** Fired exactly once per kill from base die() — independent of the visual
      *  death-effect path (which several subclasses override without calling super).
      *  Used for kill-driven gameplay like the cooldown refund. Position by reference. */
@@ -135,6 +147,22 @@ export class Enemy {
     public contactDamagePerSecond: number = 10;
     public isElite: boolean = false;
     public eliteDropElement: string | null = null;
+    /** Co-op multi-target list. When non-empty, `resolveSeekTarget()` uses
+     *  `pickNearestAlive` to select the closest live provider each frame,
+     *  enabling two-hero threat. Set by EnemyManager in co-op mode; left empty
+     *  in single-player so the legacy `seekTarget` path is used unchanged. */
+    public seekTargets: TargetProvider[] = [];
+    /** Stable per-run ID assigned by EnemyManager at spawn time.
+     *  Defaults to -1 until assigned. Used by the host-authoritative
+     *  co-op snapshot so the guest can match a SnapshotEnemy to its
+     *  local scene object by ID. Single-player never reads this field. */
+    public id: number = -1;
+
+    /** Network type string matching the keys in createEnemyOfType / SpawnMsg.type.
+     *  Set by EnemyManager.spawnSurvivorsEnemy (and the split/clone handlers) right
+     *  after construction, before the host fires onEnemySpawnedCb.
+     *  Defaults to 'basic' as a safe fallback; single-player never reads this. */
+    public netType: string = 'basic';
 
     // Melee-swing tuning (survivors mode). Each subclass overrides these in its
     // constructor; defaults below are tuned for a basic-enemy quick jab.
@@ -159,6 +187,30 @@ export class Enemy {
      *  ~hundreds of animatables ticking in the scene every frame — the leak
      *  that made each subsequent wave's freeze longer than the last. */
     protected glbAnimationGroups: AnimationGroup[] = [];
+
+    // ── Guest-side network visuals (co-op) ──────────────────────────────────
+    // These drive a render-only enemy from host snapshots. They are SEPARATE from
+    // each subclass's host-side anim fields (glbWalkAnim/glbCurrentAnim/…) because
+    // the subclass update() — which owns those — is NEVER ticked on the guest.
+    // Categorised lazily from glbAnimationGroups (which the base already holds).
+    private _netWalkAnim: AnimationGroup | null = null;
+    private _netAttackAnim: AnimationGroup | null = null;
+    private _netCurrentAnim: AnimationGroup | null = null;
+    private _netAnimCategorized = false;
+    /** Lazy lookup of named GLB skill clips (`<prefix>_skillN`) ↔ snapshot anim
+     *  codes 10+N (see SnapshotEnemy.anim). Used by BOTH sides: the host maps
+     *  the currently playing clip → code (getNetAnimCode), the guest maps a
+     *  received code → clip (_applyNetworkAnim). Cleared with the groups in
+     *  _releaseMeshAndAnimations. */
+    private _netSkillClips: { ag: AnimationGroup; code: number }[] | null = null;
+    /** Guest-only corpse tick (playDeathAnimThenDispose). There is no EnemyManager
+     *  corpse list on the guest, so the lingering corpse self-ticks via this
+     *  observer; disposeCorpse() removes it so an early teardown can't leave a
+     *  per-frame callback firing against a released mesh. */
+    private _netCorpseObserver: Observer<Scene> | null = null;
+    private _netCorpseOnDisposed: (() => void) | null = null;
+    /** Host-authoritative HP the displayed bar eases toward (-1 = uninitialised). */
+    private _netHpTarget = -1;
 
     /** Skeletons cloned by GLB instantiation (`instantiateModelsToScene` with
      *  doNotInstantiate:true does a full Skeleton.clone() per instance). Each
@@ -597,7 +649,9 @@ export class Enemy {
         this._tickFlashHit(deltaTime);
 
         // --- Survivors seek-target branch ---
-        if (this.seekTarget) {
+        // Enter when seekTarget is set (single-player) OR seekTargets is populated
+        // (co-op). The resolveSeekTarget() call below handles both paths.
+        if (this.seekTarget || this.seekTargets.length > 0) {
             // Always tick status effects so slow/freeze/stun/burn still work
             this.updateStatusEffects(deltaTime);
 
@@ -607,15 +661,22 @@ export class Enemy {
                 return false;
             }
 
-            // Fetch the hero position ONCE per frame — Champion.getPosition() clones
-            // a fresh Vector3 on each call, so calling it twice per enemy per frame
-            // (once for the swing tick, once for movement) doubles GC pressure and
-            // eventually triggers a stop-the-world pause that looks like a freeze.
-            const targetPos = this.seekTarget.getPosition();
+            // Resolve the live target for this frame. Single-player: always
+            // this.seekTarget. Co-op: nearest-alive from seekTargets.
+            // If the resolved target is null (all providers dead), bail out to
+            // avoid a null-dereference; single-player can never reach this because
+            // the branch entry above already requires seekTarget != null.
+            const resolvedTarget = this.resolveSeekTarget();
+            if (!resolvedTarget) return false;
+
+            // Fetch the target position ONCE per frame — Champion.getPosition()
+            // clones a fresh Vector3 on each call, so calling it twice per enemy
+            // per frame doubles GC pressure and can trigger a stop-the-world pause.
+            const targetPos = resolvedTarget.getPosition() as Vector3;
 
             // Tick the melee-swing state machine BEFORE movement so we can root
             // the enemy (skip movement) during windup + strike frames.
-            this.updateMeleeAttack(deltaTime, targetPos);
+            this.updateMeleeAttack(deltaTime, targetPos, resolvedTarget);
             const rooted = this.meleeRootDuringSwing &&
                 (this.meleeState === 'windup' || this.meleeState === 'strike');
 
@@ -798,6 +859,31 @@ export class Enemy {
         }
     }
 
+    /**
+     * Resolve the active seek target for this frame.
+     *
+     * 0/1 providers (single-player or single-provider co-op):
+     *   Returns `this.seekTarget` directly — byte-identical to the pre-M3 behavior
+     *   (no per-frame distance loop).
+     *
+     * 2+ providers (co-op host with multiple players):
+     *   Delegates to `pickNearestAlive` which walks the array and returns the
+     *   closest live provider. The returned object is structurally compatible with
+     *   `seekTarget` (both have `getPosition()` returning {x,z,...} and optional
+     *   `takeDamage` / `isAlive`). Falls back to null if all providers are dead.
+     */
+    protected resolveSeekTarget(): typeof this.seekTarget {
+        // 2+ providers (co-op host) → nearest alive. 0/1 providers (single-player or
+        // single-provider co-op) → the plain seekTarget field, byte-identical to the
+        // pre-M3 behavior (no per-frame distance loop).
+        if (this.seekTargets.length > 1) {
+            // Co-op: pick nearest alive — cast is safe because TargetProvider is a
+            // structural subset of seekTarget's type (both have getPosition()/{x,z}).
+            return pickNearestAlive(this.position.x, this.position.z, this.seekTargets) as typeof this.seekTarget;
+        }
+        return this.seekTarget;
+    }
+
     /** True while a swing is winding up, striking, or recovering. Subclasses
      *  with their own attack timing (e.g., MilestoneBoss lunge) can check this. */
     public isMeleeAttacking(): boolean { return this.meleeState !== 'idle'; }
@@ -817,9 +903,10 @@ export class Enemy {
      *  every frame. Damage applies on the FIRST frame of 'strike' if the hero is
      *  still inside meleeHitRange — a clean dodge if you backstep on telegraph.
      *  `heroPos` is passed in (not fetched) to avoid an extra Champion.getPosition
-     *  clone per enemy per frame. */
-    private updateMeleeAttack(deltaTime: number, heroPos: Vector3): void {
-        if (!this.canMeleeAttack() || !this.seekTarget) {
+     *  clone per enemy per frame. `target` is the already-resolved seek target for
+     *  this frame so we don't call resolveSeekTarget() a second time. */
+    private updateMeleeAttack(deltaTime: number, heroPos: Vector3, target: typeof this.seekTarget): void {
+        if (!this.canMeleeAttack() || !target) {
             if (this.meleeState !== 'idle') this.cancelMeleeAttack();
             return;
         }
@@ -851,7 +938,7 @@ export class Enemy {
                     if (distSq <= this.meleeHitRange * this.meleeHitRange) {
                         // Pass this.position by reference — triggerHitReaction only
                         // reads it for direction, never stores or mutates it.
-                        this.seekTarget.takeDamage?.(this.meleeHitDamage, this.position);
+                        target.takeDamage?.(this.meleeHitDamage, this.position);
                     }
                     this.meleeStrikeHasHit = true;
                 }
@@ -887,6 +974,12 @@ export class Enemy {
      * @param strength Strength of the effect (e.g., slow percentage, damage per tick)
      */
     public applyStatusEffect(effect: StatusEffect, duration: number, strength: number): void {
+        // Co-op guest: render-only enemies are host-authoritative. Report the CC/DoT to
+        // the host (which applies + ticks it) and do nothing locally — mirrors the
+        // takeDamage redirect. The chill→freeze recursion below also redirects (correct).
+        const sr = Enemy.guestStatusRedirect;
+        if (sr) { sr(this.id, effect, duration, strength); return; }
+
         const currentTime = performance.now();
         const endTime = currentTime + (duration * 1000);
 
@@ -1193,6 +1286,17 @@ export class Enemy {
     public takeDamage(amount: number, element?: PowerElement): boolean {
         if (!this.alive) return false;
 
+        // Co-op guest (M4-9): render-only enemies are host-authoritative. Route the
+        // hit to the host by id and apply NOTHING locally — the host rolls crit /
+        // resistance, mutates HP, and echoes a damageResult (the number). This
+        // catches powers / abilities / DoT uniformly; basic attacks route earlier via
+        // HeroBasicAttack.damageRouter (they never reach takeDamage on the guest).
+        const redirect = Enemy.guestDamageRedirect;
+        if (redirect) {
+            redirect(this.id, amount, element);
+            return false;
+        }
+
         // Roll for crit using the global provider (player run stats). DoT ticks
         // and chained sub-hits all flow through here, so every damage source —
         // basic attack, power, enchantment — gets one crit roll per call.
@@ -1310,6 +1414,16 @@ export class Enemy {
      * scene._activeAnimatables climbed into the thousands with only a few enemies
      * alive, producing multi-second stop-the-world freezes by wave 4+.
      */
+    /**
+     * Free subclass-owned aux visuals that are NOT parented to this.mesh (boss
+     * orbiting wisps, fast-enemy ghost trails, milestone-boss telegraphs, …), so
+     * the mesh-tree release below can't reach them. Overrides MUST be idempotent:
+     * this hook runs on EVERY disposal path — die() (host kill), disposeCorpse()
+     * (corpse release; the ONLY path guest enemies take), and dispose() (teardown).
+     * Base implementation is a no-op.
+     */
+    protected disposeAuxVisuals(): void { /* subclass hook */ }
+
     protected _releaseMeshAndAnimations(): void {
         // Stop + dispose every AnimationGroup that GLB instantiation cloned for
         // this enemy, or the animatables keep running every frame after the mesh
@@ -1320,6 +1434,14 @@ export class Enemy {
         }
         this.glbAnimationGroups.length = 0;
         this.glbDeathAnim = null;
+        // Net-anim caches all point into the groups disposed above — null the lot
+        // so the teardown contract is self-evident (and lazy re-categorization
+        // would start clean if a mesh were ever rebuilt).
+        this._netSkillClips = null;
+        this._netAnimCategorized = false;
+        this._netWalkAnim = null;
+        this._netAttackAnim = null;
+        this._netCurrentAnim = null;
 
         if (this.mesh) {
             // Remove the mesh (+ descendants) from every shadow renderList it was
@@ -1343,12 +1465,20 @@ export class Enemy {
             // Procedural enemy materials are colour-only (no textures), so the `true`
             // is a no-op for them. Leaving this `false` leaked ~one texture per spawn
             // (the steady cross-run scene.textures climb).
+            //
+            // SHARED cached materials (isCachedMaterial) must be skipped: elite
+            // aura/glow/spike meshes parented under this.mesh use getCachedMaterial
+            // — disposing one on the first elite death would blank every other live
+            // elite of that element AND leave the cache handing out a dead material.
+            // Only clearMaterialCache() (run teardown) may dispose those.
             const allMeshes = [this.mesh, ...this.mesh.getChildMeshes(false)];
             for (const m of allMeshes) {
                 const mat = m.material;
                 if (mat) {
                     m.material = null;
-                    try { mat.dispose(false, true); } catch (_) { /* already disposed */ }
+                    if (!isCachedMaterial(mat)) {
+                        try { mat.dispose(false, true); } catch (_) { /* already disposed */ }
+                    }
                 }
             }
             this.mesh.dispose();
@@ -1387,6 +1517,10 @@ export class Enemy {
 
         // Tear down any in-progress melee swing.
         this.cancelMeleeAttack();
+
+        // Unparented aux visuals (wisps/ghost trails/telegraphs) die with the
+        // enemy, not with the lingering corpse.
+        this.disposeAuxVisuals();
 
         // Create death effect (particle burst + reward float text + sound). Runs
         // while the mesh is still present so subclass effects that read it work.
@@ -1505,10 +1639,23 @@ export class Enemy {
         return this.corpseTimeRemaining <= 0;
     }
 
-    /** Release a finished corpse's mesh/skeleton/animation-groups/shadow-casters. */
+    /** Release a finished corpse's mesh/skeleton/animation-groups/shadow-casters.
+     *  Idempotent. Also the early-out for a guest corpse mid-linger: cancels the
+     *  self-tick observer so teardown can't leave it firing on a released mesh. */
     public disposeCorpse(): void {
+        if (this._netCorpseObserver) {
+            this.scene.onBeforeRenderObservable.remove(this._netCorpseObserver);
+            this._netCorpseObserver = null;
+        }
         this.corpseTimeRemaining = 0;
+        // Guest enemies are freed via disposeCorpse() ONLY (never die()/dispose()),
+        // so unparented aux visuals must be released here too (idempotent).
+        this.disposeAuxVisuals();
         this._releaseMeshAndAnimations();
+        this._disposeHealthBarMeshes();   // also free the health bar (idempotent; safe after die())
+        const done = this._netCorpseOnDisposed;
+        this._netCorpseOnDisposed = null;
+        if (done) done();
     }
 
     /** Record the shadow generators this enemy's mesh was registered into, so the
@@ -1611,6 +1758,15 @@ export class Enemy {
     }
 
     /**
+     * Returns the shield fraction (shield/maxShield) as a 0..1 number, or
+     * undefined for enemy types that have no shield. Overridden by ShieldEnemy.
+     * Used by the host snapshot to populate SnapshotEnemy.shield.
+     */
+    public getShieldFraction(): number | undefined {
+        return undefined;
+    }
+
+    /**
      * Get the current path index (how far along the path this enemy is)
      */
     public getPathIndex(): number {
@@ -1632,9 +1788,19 @@ export class Enemy {
     public dispose(): void {
         this.cancelMeleeAttack();
 
+        // Guest corpse self-tick (playDeathAnimThenDispose) — cancel it so it
+        // can't fire against the mesh released below.
+        if (this._netCorpseObserver) {
+            this.scene.onBeforeRenderObservable.remove(this._netCorpseObserver);
+            this._netCorpseObserver = null;
+        }
+
         // Restore any in-progress hit-flash before tearing materials down, so a
         // shared cached material isn't left stuck on HIT_TINT.
         this._restoreFlash();
+
+        // Unparented aux visuals (idempotent — a die()d enemy already freed them).
+        this.disposeAuxVisuals();
 
         // Release the mesh together with its cloned AnimationGroups + per-instance
         // materials (shared with die() so a kill frees the same resources).
@@ -1771,6 +1937,12 @@ export class Enemy {
      */
     public applyKnockback(dirX: number, dirZ: number, magnitude: number): void {
         if (!this.alive) return;
+        // Co-op guest: render-only enemies are host-authoritative. Report the push
+        // (already subclass-scaled — e.g. BossEnemy ×0.3 — by the time it reaches
+        // this base body) and apply nothing locally; the host re-applies it through
+        // the base implementation with its authoritative alive/CC gating.
+        const kr = Enemy.guestKnockbackRedirect;
+        if (kr) { kr(this.id, dirX, dirZ, magnitude); return; }
         if (this.isFrozen || this.isStunned) return;
         this.position.x += dirX * magnitude;
         this.position.z += dirZ * magnitude;
@@ -1779,4 +1951,282 @@ export class Enemy {
         }
     }
 
+    // ── Co-op guest adapter methods ──────────────────────────────────────────
+    // These are ADDITIVE: they are never called in single-player. The host
+    // builds snapshots, the guest calls applyNetworkState() to drive its
+    // locally-instantiated enemy meshes from the host's authoritative state.
+
+    /**
+     * Returns the current melee FSM state as an integer phase (0..3) and a
+     * 0..1 progress through that phase. Used by the host to pack `flags.meleePhase`
+     * into the snapshot so the guest can mirror the swing telegraph visually.
+     *
+     * Phase mapping: idle=0, windup=1, strike=2, cooldown=3
+     */
+    public getMeleeDisplay(): { phase: number; progress: number } {
+        const phaseMap: Record<typeof this.meleeState, number> = {
+            idle: 0, windup: 1, strike: 2, cooldown: 3,
+        };
+        const phase = phaseMap[this.meleeState];
+        let progress = 0;
+        switch (this.meleeState) {
+            case 'windup':   progress = this.meleeWindupDuration   > 0 ? 1 - this.meleeTimer / this.meleeWindupDuration   : 1; break;
+            case 'strike':   progress = this.meleeStrikeDuration   > 0 ? 1 - this.meleeTimer / this.meleeStrikeDuration   : 1; break;
+            case 'cooldown': progress = this.meleeCooldownDuration > 0 ? 1 - this.meleeTimer / this.meleeCooldownDuration : 1; break;
+        }
+        return { phase, progress: Math.max(0, Math.min(1, progress)) };
+    }
+
+    /** Build (once) the list of named GLB skill clips and their snapshot anim
+     *  codes. Clip names follow `<prefix>_skillN` (variants like `_skill2_3`
+     *  map to their base skill, here 12). Empty for procedural enemies and for
+     *  GLBs without skill-named clips. */
+    private _getNetSkillClips(): { ag: AnimationGroup; code: number }[] {
+        if (!this._netSkillClips) {
+            this._netSkillClips = [];
+            for (const ag of this.glbAnimationGroups) {
+                const m = /_skill(\d+)/.exec(ag.name.toLowerCase());
+                if (!m) continue;
+                const n = parseInt(m[1], 10);
+                if (n >= 1 && n <= 3) this._netSkillClips.push({ ag, code: 10 + n });
+            }
+        }
+        return this._netSkillClips;
+    }
+
+    /**
+     * Host-side: the animation code packed into SnapshotEnemy.anim — 1 walk /
+     * 2 attack from the melee FSM, upgraded to 10+N when the GLB clip currently
+     * playing is a named skill (`<prefix>_skillN`), so the guest mirrors the
+     * exact boss/elite skill clip instead of its generic attack fallback.
+     * Only called by the host's buildSnapshot (co-op); never in single-player.
+     */
+    public getNetAnimCode(): number {
+        for (const { ag, code } of this._getNetSkillClips()) {
+            if (ag.isPlaying) return code;
+        }
+        return this.meleeState !== 'idle' ? 2 : 1;
+    }
+
+    /**
+     * Drive this enemy from a host-authoritative snapshot entry (guest side only).
+     * Never called in single-player. Applies the NON-positional state: HP (eased
+     * toward the host value by tickNetworkVisuals), status flags, and GLB clip
+     * selection (walk vs attack) from the snapshot anim code. Position is driven
+     * separately + smoothly via applyNetworkPosition() from an interpolation buffer.
+     */
+    public applyNetworkState(s: SnapshotEnemy): void {
+        if (!this.mesh) return;
+
+        const flags = _unpackEnemyFlagsInline(s.flags);
+
+        // --- Health bar: ease, don't snap ---
+        // Record the host-authoritative HP as the target; tickNetworkVisuals()
+        // lerps the displayed value toward it every frame so the bar drains
+        // smoothly instead of stepping on each (low-rate) snapshot. First
+        // snapshot seeds the display value so there is no initial jump.
+        const hp = Math.max(0, s.hp);
+        // Guest-side hit flash: the host-authoritative HP dropped → this enemy was hit
+        // this snapshot, so flash it (mirrors the host's per-hit flash; the guest never
+        // runs takeDamage on render-only enemies).
+        if (this._netHpTarget >= 0 && hp < this._netHpTarget - 0.5) this.flashHit();
+        if (this._netHpTarget < 0) this.health = hp;
+        this._netHpTarget = hp;
+
+        // --- Status flags ---
+        // Drive the persistent status particles on the guest from flag transitions, so
+        // shared enemies visibly show frozen/stunned/confused (the guest never ticks the
+        // status system that would otherwise spawn these). start on false→true, stop on
+        // true→false. (burn/slow aren't in the flag set yet — see the share-coverage audit.)
+        this._syncNetStatusParticles(this.isFrozen,   flags.frozen,   StatusEffect.FROZEN);
+        this._syncNetStatusParticles(this.isStunned,  flags.stunned,  StatusEffect.STUNNED);
+        this._syncNetStatusParticles(this.isConfused, flags.confused, StatusEffect.CONFUSED);
+        this.isFrozen   = flags.frozen;
+        this.isStunned  = flags.stunned;
+        this.isConfused = flags.confused;
+
+        // --- Animation: drive the GLB clip from the host's anim code ---
+        // 2 = attacking (host melee FSM is past idle), 10+N = named _skillN
+        // clip, anything else = walk. See SnapshotEnemy.anim.
+        this._applyNetworkAnim(s.anim);
+    }
+
+    /** Guest-side per-frame visuals tick: eases the displayed HP bar toward the
+     *  host-authoritative target. Called every frame by GuestEnemies (NOT on the
+     *  host — there the bar is driven directly by takeDamage). */
+    public tickNetworkVisuals(deltaTime: number): void {
+        if (this._netHpTarget < 0 || this.health === this._netHpTarget) return;
+        // Exponential ease (~80ms time constant) — frame-rate independent.
+        const k = 1 - Math.exp(-12 * deltaTime);
+        this.health += (this._netHpTarget - this.health) * k;
+        if (Math.abs(this.health - this._netHpTarget) < 0.5) this.health = this._netHpTarget;
+        if (this.healthBarMesh && !this.healthBarMesh.isDisposed() &&
+            this.healthBarBackgroundMesh && !this.healthBarBackgroundMesh.isDisposed()) {
+            this.updateHealthBar();
+        }
+    }
+
+    /** Guest-side: start/stop the persistent status-particle FX from a flag transition. */
+    private _syncNetStatusParticles(was: boolean, now: boolean, effect: StatusEffect): void {
+        if (now && !was) this.createStatusEffectParticles(effect);
+        else if (!now && was) this.stopStatusEffectParticles(effect);
+    }
+
+    /** Guest-side: switch the GLB clip to attack (anim===2), the named skill
+     *  clip (anim>=10 → _skillN, falling back to attack when this instance has
+     *  no matching clip), or walk. No-op for procedural enemies (no anim
+     *  groups). Categorises the groups lazily from glbAnimationGroups the first
+     *  time it runs.
+     *
+     *  Clips loop (the host loops its current clip too — every playGlbAnim call
+     *  passes loop=true); the `_netCurrentAnim === slot` guard means repeated
+     *  20 Hz snapshots with the same code never restart the clip, and when the
+     *  snapshot code drops back to 1 the walk slot takes over. */
+    private _applyNetworkAnim(anim: number): void {
+        if (this.glbAnimationGroups.length === 0) return;
+        if (!this._netAnimCategorized) {
+            this._netAnimCategorized = true;
+            for (const ag of this.glbAnimationGroups) {
+                const n = ag.name.toLowerCase();
+                if (n.includes('run3')) this._netWalkAnim = ag;
+                else if (!this._netWalkAnim && (n.includes('walk') || n.includes('run'))) this._netWalkAnim = ag;
+                else if (!this._netAttackAnim && (n.includes('attack') || n.includes('hit') ||
+                         n.includes('punch') || n.includes('strike') || n.includes('swing') ||
+                         n.includes('skill'))) this._netAttackAnim = ag;
+            }
+            if (!this._netWalkAnim && this.glbAnimationGroups.length > 0) this._netWalkAnim = this.glbAnimationGroups[0];
+            if (!this._netAttackAnim) this._netAttackAnim = this._netWalkAnim;
+        }
+        let slot: AnimationGroup | null;
+        if (anim >= 10) {
+            slot = this._getNetSkillClips().find(s => s.code === anim)?.ag ?? this._netAttackAnim;
+        } else {
+            slot = anim === 2 ? this._netAttackAnim : this._netWalkAnim;
+        }
+        if (!slot || this._netCurrentAnim === slot) return;
+        if (this._netCurrentAnim) this._netCurrentAnim.stop();
+        slot.start(true);
+        this._netCurrentAnim = slot;
+    }
+
+    /** Set the (interpolated) network position — drives both this.position (so
+     *  getPosition()/targeting see it) and the mesh. Called every frame by the
+     *  guest with a buffered, time-interpolated pose for smooth movement. */
+    public applyNetworkPosition(x: number, y: number, z: number, ry: number): void {
+        if (!this.mesh) return;
+        this.position.x = x;
+        this.position.y = y;
+        this.position.z = z;
+        if (!this.mesh.isDisposed()) {
+            this.mesh.position.copyFrom(this.position);
+            this.mesh.rotation.y = ry;
+        }
+    }
+
+    /** Below this interpolated speed (units/s) the guest's procedural walk
+     *  cycle pauses — mirrors the host freezing the walk pose when an enemy
+     *  isn't actually moving (rooted mid-swing, snapshot stall, knock pause). */
+    private static readonly NET_ANIM_MIN_SPEED = 0.05;
+
+    /**
+     * Guest-only: advance the procedural limb animation from the interpolated
+     * network motion. The guest never ticks enemy AI (update()), which is what
+     * animates procedural parts on the host — without this, non-GLB enemies
+     * (procedural Boss / fallback meshes) slide around as frozen statues.
+     *
+     * No-op for GLB enemies (their net-driven clips via _applyNetworkAnim
+     * already animate them) and while frozen/stunned or (near) stationary.
+     * `speed` is the horizontal speed estimate from the interpolation buffer.
+     * NEVER called on the host — its update() drives the same pose helper
+     * directly, so single-player behaviour is untouched.
+     */
+    public tickNetworkProceduralAnim(deltaTime: number, speed: number): void {
+        if (this.glbAnimationGroups.length > 0) return; // GLB: clips drive it
+        if (!this.alive || !this.mesh || this.mesh.isDisposed()) return;
+        // While frozen/stunned or (near) stationary, HOLD the pose rather than
+        // skip it: applyNetworkPosition rewrites mesh.position from the
+        // ground-level network y every frame, so the pose pass must still run
+        // to re-apply the body-height offset. dt=0 leaves the walk phase (and
+        // thus the stance) unchanged — mirroring the host, which freezes the
+        // pose by returning before its mesh-position copy.
+        const hold = this.isFrozen || this.isStunned || speed < Enemy.NET_ANIM_MIN_SPEED;
+        this.animateProceduralParts(hold ? 0 : deltaTime);
+    }
+
+    /** One frame of procedural part animation: advance the subclass's walk
+     *  phase and pose its limbs. Shared entry point — the host's update()
+     *  calls it inside its own movement/CC gates, and the guest calls it via
+     *  tickNetworkProceduralAnim. Base class has no procedural parts. */
+    protected animateProceduralParts(_deltaTime: number): void {
+        // Subclasses with procedural part animation override this.
+    }
+
+    /**
+     * Guest-only death (driven by a host DeathMsg): play the GLB `<prefix>_dead`
+     * clip, linger, then release through the same leak-safe path as a host kill
+     * (disposeCorpse → skeleton RawTexture + anim groups + per-instance materials
+     * + shadow renderLists). Runs NONE of the host-side death logic — no reward,
+     * no kill/shatter callbacks, no drops; those already happened on the host.
+     *
+     * The caller (GuestEnemies.death) must have removed this enemy from its
+     * registry FIRST, so snapshots/interpolation can no longer drive it, and
+     * keeps it in a lingering set so teardown can disposeCorpse() it early —
+     * `onDisposed` fires exactly once when the corpse is finally released.
+     */
+    public playDeathAnimThenDispose(onDisposed?: () => void): void {
+        if (!this.alive) {
+            // Already a corpse / disposed — honour the contract: caller's lingering
+            // entry must still be pruned so it doesn't pin the Set indefinitely.
+            onDisposed?.();
+            return;
+        }
+        this.alive = false;
+        this._netCorpseOnDisposed = onDisposed ?? null;
+
+        // Mirror what die() stops during the corpse phase: melee swing, hit-flash
+        // tint (shared cached material!), HP bar, persistent status particles.
+        this.cancelMeleeAttack();
+        this._restoreFlash();
+        this._disposeHealthBarMeshes();
+        this.statusEffectParticles.forEach(particleSystem => {
+            particleSystem.stop();
+            particleSystem.dispose(false);
+        });
+        this.statusEffectParticles.clear();
+
+        // No GLB animation (procedural enemy) or no mesh left: nothing to play.
+        if (this.glbAnimationGroups.length === 0 || !this.mesh || this.mesh.isDisposed()) {
+            this.disposeCorpse();
+            return;
+        }
+
+        // Reuses the host's clip lookup + duration estimate; stops the looping
+        // net walk/attack clip and sets corpseTimeRemaining.
+        this._netCurrentAnim = null;
+        this._beginDeathSequence();
+
+        this._netCorpseObserver = this.scene.onBeforeRenderObservable.add(() => {
+            const dt = this.scene.getEngine().getDeltaTime() / 1000;
+            if (this.tickCorpse(dt)) this.disposeCorpse();
+        });
+    }
+
+}
+
+// Inline flag unpacker used by Enemy.applyNetworkState(). Mirrors
+// unpackEnemyFlags in EnemyFlags.ts to avoid pulling the co-op net module
+// into the base Enemy class (which is imported by every enemy subclass and
+// thus every enemy chunk). EnemyFlags.ts is tiny, so inlining is acceptable.
+function _unpackEnemyFlagsInline(bits: number): {
+    frozen: boolean; stunned: boolean; confused: boolean;
+    flying: boolean; elite: boolean; meleePhase: number;
+} {
+    return {
+        frozen:     (bits & 1) !== 0,
+        stunned:    (bits & (1 << 1)) !== 0,
+        confused:   (bits & (1 << 2)) !== 0,
+        flying:     (bits & (1 << 3)) !== 0,
+        elite:      (bits & (1 << 4)) !== 0,
+        meleePhase: (bits >> 5) & 0b11,
+    };
 }

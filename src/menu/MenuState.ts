@@ -7,6 +7,9 @@ import { el } from '../ui/dom';
 import { onTap } from '../ui/interaction';
 import { makeButton } from '../ui/primitives/Button';
 import { LeaderboardOverlay } from '../ui/overlays/Leaderboard';
+import { CoopLobbyOverlay } from '../ui/overlays/CoopLobby';
+import { PrivateRoomService } from '../net/RoomService';
+import { setPendingCoop } from '../survivors/coop/PendingCoop';
 
 export class MenuState implements GameState {
     private game: Game;
@@ -15,6 +18,7 @@ export class MenuState implements GameState {
     private particleSystems: ParticleSystem[] = [];
     private animationCallback: (() => void) | null = null;
     private lbOpen = false;
+    private coopLobby: CoopLobbyOverlay | null = null;
 
     constructor(game: Game) {
         this.game = game;
@@ -55,7 +59,13 @@ export class MenuState implements GameState {
         }
         this.sceneObjects = [];
 
-        // Dispose UI
+        // Dispose UI. The co-op lobby goes FIRST and explicitly: it may hold a
+        // live transport (hosting, waiting for a teammate) whose socket must be
+        // closed to free the room slot — removing its DOM alone wouldn't do that.
+        // On the advance path the lobby already handed the transport off (and
+        // nulled it), so this close can never kill a session being started.
+        this.coopLobby?.dispose();
+        this.coopLobby = null;
         this.gameUI?.dispose();
         this.gameUI = null;
         this.lbOpen = false; // singleton state — clear the guard so the board reopens next time
@@ -93,6 +103,26 @@ export class MenuState implements GameState {
             onClick: () => this.game.getStateManager().changeState('survivors'),
         });
         screen.appendChild(startBtn);
+
+        // Co-op button — opens the host/join lobby. On advance the live transport
+        // is stashed in PendingCoop and the survivors state picks it up in
+        // startRun (taking precedence over the dev ?host/?join URL flow).
+        screen.appendChild(makeButton({
+            label: 'Co-op',
+            variant: 'forged',
+            onClick: () => {
+                if (this.coopLobby) return; // guard against stacking on rapid taps
+                this.coopLobby = new CoopLobbyOverlay(overlay, new PrivateRoomService());
+                this.coopLobby.show({
+                    onAdvance: (cfg) => {
+                        this.coopLobby = null; // lobby already disposed itself
+                        setPendingCoop(cfg);
+                        this.game.getStateManager().changeState('survivors');
+                    },
+                    onClose: () => { this.coopLobby = null; },
+                });
+            },
+        }));
 
         // ── Graphics preset selector ─────────────────────────────────────
         const gfxLabel = el('div', { class: 'screen__label', text: 'Graphics' });

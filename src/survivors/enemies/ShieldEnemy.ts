@@ -478,7 +478,7 @@ export class ShieldEnemy extends Enemy {
     /**
      * Update the shield mesh visual based on shield state
      */
-    private updateShieldVisual(): void {
+    protected updateShieldVisual(): void {
         if (!this.shieldMesh) return;
 
         const shieldFraction = this.maxShield > 0 ? this.shield / this.maxShield : 0;
@@ -622,42 +622,7 @@ export class ShieldEnemy extends Enemy {
 
         // Update walking animation: heavy stomp/march
         if (!this.isFrozen && !this.isStunned && this.currentPathIndex < this.path.length && this.mesh) {
-            this.walkTime += deltaTime * 4; // Slower cadence for heavy paladin march
-
-            // Heavy stomp: pronounced vertical bob with impact
-            const stompPhase = Math.abs(Math.sin(this.walkTime));
-            const bobAmount = stompPhase * 0.08;
-            this.mesh.position.y = this.position.y + 0.70 + bobAmount;
-
-            // Slight forward lean during march
-            this.mesh.rotation.x = Math.sin(this.walkTime) * 0.03;
-
-            // Minimal side-to-side sway (armored = stiff)
-            this.mesh.rotation.z = Math.sin(this.walkTime * 0.5) * 0.03;
-
-            // Legs: alternating heavy stride
-            if (this.leftLeg && this.rightLeg) {
-                this.leftLeg.rotation.x = Math.sin(this.walkTime) * 0.40;
-                this.rightLeg.rotation.x = Math.sin(this.walkTime + Math.PI) * 0.40;
-            }
-
-            // Shield arm: held out to the side, shield bobs with steps
-            if (this.leftArm) {
-                this.leftArm.rotation.x = Math.sin(this.walkTime + Math.PI) * 0.12;
-                this.leftArm.rotation.z = -0.25 + Math.sin(this.walkTime * 0.8) * 0.06;
-            }
-
-            // Sword arm: swings with march cadence
-            if (this.rightArm) {
-                this.rightArm.rotation.x = Math.sin(this.walkTime) * 0.35;
-                this.rightArm.rotation.z = 0.08;
-            }
-
-            // Head: slight nod with march rhythm, minimal side look
-            if (this.head) {
-                this.head.rotation.y = Math.sin(this.walkTime * 0.7) * 0.06;
-                this.head.rotation.x = Math.sin(this.walkTime * 1.2) * 0.04;
-            }
+            this.animateProceduralParts(deltaTime);
 
             // Face direction of movement
             if (this.currentPathIndex < this.path.length) {
@@ -673,6 +638,49 @@ export class ShieldEnemy extends Enemy {
         }
 
         return result;
+    }
+
+    /** Paladin march pose — advances the walk phase and poses the body, legs,
+     *  shield arm, sword arm, and head. Called by update() while marching and
+     *  by tickNetworkProceduralAnim on the guest. */
+    protected animateProceduralParts(deltaTime: number): void {
+        if (!this.mesh) return;
+        this.walkTime += deltaTime * 4; // Slower cadence for heavy paladin march
+
+        // Heavy stomp: pronounced vertical bob with impact
+        const stompPhase = Math.abs(Math.sin(this.walkTime));
+        const bobAmount = stompPhase * 0.08;
+        this.mesh.position.y = this.position.y + 0.70 + bobAmount;
+
+        // Slight forward lean during march
+        this.mesh.rotation.x = Math.sin(this.walkTime) * 0.03;
+
+        // Minimal side-to-side sway (armored = stiff)
+        this.mesh.rotation.z = Math.sin(this.walkTime * 0.5) * 0.03;
+
+        // Legs: alternating heavy stride
+        if (this.leftLeg && this.rightLeg) {
+            this.leftLeg.rotation.x = Math.sin(this.walkTime) * 0.40;
+            this.rightLeg.rotation.x = Math.sin(this.walkTime + Math.PI) * 0.40;
+        }
+
+        // Shield arm: held out to the side, shield bobs with steps
+        if (this.leftArm) {
+            this.leftArm.rotation.x = Math.sin(this.walkTime + Math.PI) * 0.12;
+            this.leftArm.rotation.z = -0.25 + Math.sin(this.walkTime * 0.8) * 0.06;
+        }
+
+        // Sword arm: swings with march cadence
+        if (this.rightArm) {
+            this.rightArm.rotation.x = Math.sin(this.walkTime) * 0.35;
+            this.rightArm.rotation.z = 0.08;
+        }
+
+        // Head: slight nod with march rhythm, minimal side look
+        if (this.head) {
+            this.head.rotation.y = Math.sin(this.walkTime * 0.7) * 0.06;
+            this.head.rotation.x = Math.sin(this.walkTime * 1.2) * 0.04;
+        }
     }
 
     /**
@@ -744,6 +752,29 @@ export class ShieldEnemy extends Enemy {
                 releaseDeathBurst();
             }, 1000);
         }, 1000);
+    }
+
+    /**
+     * Returns the shield fraction (shield/maxShield) for snapshot authoring
+     * (host only). Guest ShieldEnemy instances use applyNetworkState to drive
+     * the dome visual from this value.
+     */
+    public getShieldFraction(): number | undefined {
+        return this.maxShield > 0 ? this.shield / this.maxShield : 0;
+    }
+
+    /**
+     * Guest-side override: drive the dome visual from the host-authoritative
+     * shield fraction carried in the snapshot. The guest's ShieldEnemy never
+     * runs AI or takeDamage, so we set the internal shield state and call
+     * updateShieldVisual directly.
+     */
+    public applyNetworkState(s: import('../../net/Protocol').SnapshotEnemy): void {
+        super.applyNetworkState(s);
+        if (s.shield !== undefined) {
+            this.shield = s.shield * this.maxShield;
+            this.updateShieldVisual();
+        }
     }
 
     /**

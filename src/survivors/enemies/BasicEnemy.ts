@@ -545,37 +545,7 @@ export class BasicEnemy extends Enemy {
 
         // Update walking animation
         if (!this.isFrozen && !this.isStunned && this.currentPathIndex < this.path.length && this.mesh) {
-            this.walkTime += deltaTime * 6; // Slightly faster for a frantic goblin waddle
-
-            // Goblin waddle: body sways side-to-side AND bobs up/down
-            const bobAmount = Math.abs(Math.sin(this.walkTime)) * 0.06;
-            const swayAmount = Math.sin(this.walkTime * 0.5) * 0.04;
-            this.mesh.position.y = this.position.y + 0.65 + bobAmount;
-            this.mesh.rotation.z = Math.sin(this.walkTime) * 0.08; // Torso lean
-
-            // Legs: alternating stride with bent-knee feel
-            if (this.leftLeg && this.rightLeg) {
-                this.leftLeg.rotation.x = Math.sin(this.walkTime) * 0.5;
-                this.rightLeg.rotation.x = Math.sin(this.walkTime + Math.PI) * 0.5;
-            }
-
-            // Shield arm: held out to the side, slight sway
-            if (this.leftArm) {
-                this.leftArm.rotation.x = Math.sin(this.walkTime + Math.PI) * 0.15;
-                this.leftArm.rotation.z = -0.2 + Math.sin(this.walkTime * 0.7) * 0.05;
-            }
-
-            // Sword arm: swings more aggressively
-            if (this.rightArm) {
-                this.rightArm.rotation.x = Math.sin(this.walkTime) * 0.55;
-                this.rightArm.rotation.z = 0.1;
-            }
-
-            // Head: looks around nervously, quick twitches
-            if (this.head) {
-                this.head.rotation.y = Math.sin(this.walkTime * 1.3) * 0.15;
-                this.head.rotation.x = Math.sin(this.walkTime * 0.8) * 0.05;
-            }
+            this.animateProceduralParts(deltaTime);
 
             // Face direction of movement
             if (this.currentPathIndex < this.path.length) {
@@ -591,6 +561,44 @@ export class BasicEnemy extends Enemy {
         }
 
         return result;
+    }
+
+    /** Goblin waddle-march pose — advances the walk phase and poses the limbs.
+     *  Called by update() while marching and by tickNetworkProceduralAnim on
+     *  the guest (which never ticks update()). */
+    protected animateProceduralParts(deltaTime: number): void {
+        if (!this.mesh) return;
+        this.walkTime += deltaTime * 6; // Slightly faster for a frantic goblin waddle
+
+        // Goblin waddle: body sways side-to-side AND bobs up/down
+        const bobAmount = Math.abs(Math.sin(this.walkTime)) * 0.06;
+        const swayAmount = Math.sin(this.walkTime * 0.5) * 0.04;
+        this.mesh.position.y = this.position.y + 0.65 + bobAmount;
+        this.mesh.rotation.z = Math.sin(this.walkTime) * 0.08; // Torso lean
+
+        // Legs: alternating stride with bent-knee feel
+        if (this.leftLeg && this.rightLeg) {
+            this.leftLeg.rotation.x = Math.sin(this.walkTime) * 0.5;
+            this.rightLeg.rotation.x = Math.sin(this.walkTime + Math.PI) * 0.5;
+        }
+
+        // Shield arm: held out to the side, slight sway
+        if (this.leftArm) {
+            this.leftArm.rotation.x = Math.sin(this.walkTime + Math.PI) * 0.15;
+            this.leftArm.rotation.z = -0.2 + Math.sin(this.walkTime * 0.7) * 0.05;
+        }
+
+        // Sword arm: swings more aggressively
+        if (this.rightArm) {
+            this.rightArm.rotation.x = Math.sin(this.walkTime) * 0.55;
+            this.rightArm.rotation.z = 0.1;
+        }
+
+        // Head: looks around nervously, quick twitches
+        if (this.head) {
+            this.head.rotation.y = Math.sin(this.walkTime * 1.3) * 0.15;
+            this.head.rotation.x = Math.sin(this.walkTime * 0.8) * 0.05;
+        }
     }
 
     /**

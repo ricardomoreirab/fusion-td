@@ -1,6 +1,7 @@
 import { Vector3, Scene, ShadowGenerator } from '@babylonjs/core';
 import { Game } from '../../engine/Game';
 import { Enemy, resetDeathBurstBudget } from './Enemy';
+import { type TargetProvider, pickNearestAlive } from './nearestTarget';
 import { BasicEnemy } from './BasicEnemy';
 import { FastEnemy } from './FastEnemy';
 import { TankEnemy } from './TankEnemy';
@@ -12,6 +13,11 @@ import type { WaveManager } from '../WaveManager';
 import { HealerEnemy } from './HealerEnemy';
 import { ShieldEnemy } from './ShieldEnemy';
 import { MiniEnemy } from './MiniEnemy';
+import { RedMeleeMinion } from './RedMeleeMinion';
+import { RedArtilleryCarriage } from './RedArtilleryCarriage';
+import { RedWizard } from './RedWizard';
+import { DragonTurtle } from './DragonTurtle';
+import { redSwapType } from './redSwap';
 import { PlayerStats } from '../PlayerStats';
 import { makeElite } from './EliteSpawner';
 import { DifficultyTuning } from '../DifficultyTuning';
@@ -40,6 +46,10 @@ export class EnemyManager {
         applyPull?: (towardX: number, towardZ: number, speed: number, durationS: number) => void;
         applySlow?: (multiplier: number, durationS: number) => void;
     } | null = null;
+    /** Array version of heroProvider — set by configureSurvivorsMode (Phase 3).
+     *  In single-player this is a single-element array wrapping heroProvider.
+     *  In co-op it contains both heroes' providers so enemies can seek the nearest. */
+    private heroProviders: TargetProvider[] = [];
     private arenaRadius: number = 25;
     private onEliteDeathCallback: (position: Vector3, element: string) => void = () => {};
     private onMilestoneBossDeathCallback: (position: Vector3, waveTier: number) => void = () => {};
@@ -56,6 +66,21 @@ export class EnemyManager {
      *  after load completes. spawnSurvivorsEnemy stages the asset on the matching enemy
      *  class's static pendingAsset slot before constructing the instance. */
     private enemyAssets: Record<string, AssetContainer> = {};
+
+    /** Monotonically-increasing counter assigned to each new enemy as its stable
+     *  per-run `Enemy.id`. Reset to 0 in configureSurvivorsMode (once per run).
+     *  The host uses IDs in snapshots so the guest can match scene objects. */
+    private nextEnemyId: number = 0;
+
+    // ── M3 host hooks ──────────────────────────────────────────────────────────
+    /** Optional callback: called immediately after each enemy is assigned its id
+     *  and pushed into the live list (all 3 spawn sites: main, mini-split, boss-clone).
+     *  No-op in single-player (never set). Host wires this to send a SpawnMsg. */
+    private onEnemySpawnedCb: ((enemy: Enemy) => void) | null = null;
+    /** Optional callback: called in update() at the moment an enemy transitions to
+     *  dead (before it moves to the corpse list). No-op in single-player.
+     *  Host wires this to send a DeathMsg. */
+    private onEnemyDiedCb: ((enemy: Enemy) => void) | null = null;
 
     /** Compounding HP multiplier applied to every NEW enemy spawn this run.
      *  Multiplied by (1 + 0.08) each time the hero picks up a magical orb
@@ -114,20 +139,30 @@ export class EnemyManager {
     }
 
     /**
-     * Configure survivors mode: enemies spawn at arena perimeter and seek the hero.
+     * Configure survivors mode: enemies spawn at arena perimeter and seek the hero(es).
+     *
+     * `heroProviders` is an array of target providers — one in single-player, two in
+     * co-op. Each provider must at minimum satisfy `TargetProvider` (getPosition + optional
+     * isAlive) but may carry the wider hero-provider shape (takeDamage, applyPull, etc.)
+     * which enemies use for contact damage and boss specials. Passing a single-element
+     * array is behavior-identical to the old single-provider API.
      */
     public configureSurvivorsMode(
-        heroProvider: {
-            getPosition: () => Vector3;
+        heroProviders: (TargetProvider & {
             takeDamage?: (amount: number, sourcePos?: Vector3) => void;
-            isAlive?: () => boolean;
             applyPull?: (towardX: number, towardZ: number, speed: number, durationS: number) => void;
             applySlow?: (multiplier: number, durationS: number) => void;
-        },
+        })[],
         arenaRadius: number,
     ): void {
-        this.heroProvider = heroProvider;
+        this.heroProviders = heroProviders;
+        // Keep heroProvider pointing at the first entry for spawn-position / isAlive
+        // guards that still use the wider typed field (getPosition returns Vector3,
+        // takeDamage, applyPull, applySlow). Cast is safe — in practice the providers
+        // passed are always the full hero-provider objects.
+        this.heroProvider = (heroProviders[0] ?? null) as typeof this.heroProvider;
         this.arenaRadius = arenaRadius;
+        this.nextEnemyId = 0; // reset per run
 
         // Also update the mini-enemy split handler so spawned minis seek the hero too
         if (this.splitHandler) {
@@ -143,18 +178,23 @@ export class EnemyManager {
                 const mini = new MiniEnemy(this.game, spawnPos, this.heroProvider ? [] : [...path]);
                 if (this.heroProvider) {
                     mini.seekTarget = this.heroProvider;
+                    mini.seekTargets = this.heroProviders;
                 }
                 this._applyOrbHpBonus(mini);
                 this._registerAsShadowCaster(mini);
+                mini.netType = 'mini';
+                mini.id = this.nextEnemyId++;
                 this.enemies.push(mini);
+                // M3 host hook: notify after id is assigned.
+                if (this.onEnemySpawnedCb) this.onEnemySpawnedCb(mini);
             }
         };
         document.addEventListener('enemySplit', this.splitHandler);
 
         // Listen for boss clone events (from a tier-3/4 MilestoneBoss). Spawns a
-        // weaker twin on the OPPOSITE side of the hero from the origin boss so the
-        // two pincer the player. The clone is linked back to its origin; when it
-        // dies (see update()), the origin enrages.
+        // weaker twin on the OPPOSITE side of the NEAREST hero from the origin boss
+        // so the two pincer the player. The clone is linked back to its origin; when
+        // it dies (see update()), the origin enrages.
         if (this.cloneHandler) {
             document.removeEventListener('bossClone', this.cloneHandler);
         }
@@ -167,8 +207,14 @@ export class EnemyManager {
             const origin = detail.origin;
             if (!this.heroProvider || !origin || !origin.isAlive()) return;
 
-            const heroPos = this.heroProvider.getPosition();
+            // Use nearest-alive hero for the reflect geometry so the clone spawns
+            // on the opposite side of the closest player from the boss. In single-
+            // player this is always heroProviders[0] (identical to the old behavior).
             const op = origin.getPosition();
+            const nearestProvider = pickNearestAlive(op.x, op.z, this.heroProviders) ?? this.heroProviders[0];
+            const heroPos = nearestProvider?.getPosition() as Vector3;
+            if (!heroPos) return;
+
             // Direction hero→away-from-origin = reflect the origin across the hero.
             let dx = heroPos.x - op.x;
             let dz = heroPos.z - op.z;
@@ -188,13 +234,18 @@ export class EnemyManager {
             // Full-strength identical twin; isClone=true suppresses recursive cloning.
             const clone = new MilestoneBoss(this.game, new Vector3(cx, 0, cz), [], tier, 1, true);
             clone.seekTarget = this.heroProvider;
+            clone.seekTargets = this.heroProviders;
             clone.setEnrageOrigin(origin);
             // Mirror the origin's exact max HP so the twin shares the SAME health pool
             // (also captures any orb-HP / strength scaling the origin already received).
             const cloneMax = clone.getMaxHealth();
             if (cloneMax > 0) clone.applyHealthMultiplier(origin.getMaxHealth() / cloneMax);
             this._registerAsShadowCaster(clone);
+            clone.netType = 'boss_milestone';
+            clone.id = this.nextEnemyId++;
             this.enemies.push(clone);
+            // M3 host hook: notify after id is assigned.
+            if (this.onEnemySpawnedCb) this.onEnemySpawnedCb(clone);
           } catch (err) {
             console.error('[clone] boss-clone spawn failed (skipped):', err);
           }
@@ -264,6 +315,21 @@ export class EnemyManager {
      */
     public setOnMilestoneBossDeath(fn: (position: Vector3, waveTier: number) => void): void {
         this.onMilestoneBossDeathCallback = fn;
+    }
+
+    /** M3 host hook: register a callback fired immediately after each enemy spawn
+     *  (all 3 sites: main spawnSurvivorsEnemy, mini-split, boss-clone). The enemy
+     *  already has its stable `id` assigned. No-op when not set (single-player). */
+    public setOnEnemySpawned(cb: (enemy: Enemy) => void): void {
+        this.onEnemySpawnedCb = cb;
+    }
+
+    /** M3 host hook: register a callback fired in update() when an enemy's health
+     *  drops to zero — before it is removed from the live list and moved to corpses.
+     *  The enemy is still in the live enemies array when the callback fires.
+     *  No-op when not set (single-player). */
+    public setOnEnemyDied(cb: (enemy: Enemy) => void): void {
+        this.onEnemyDiedCb = cb;
     }
 
     /** Register a preloaded GLB asset for the given enemy type. spawnSurvivorsEnemy
@@ -339,6 +405,13 @@ export class EnemyManager {
             { cls: SplittingEnemy, key: 'splitting',    build: () => new SplittingEnemy(this.game, farAway, []) },
             { cls: MiniEnemy,      key: 'mini',         build: () => new MiniEnemy(this.game, farAway, []) },
             { cls: ShieldEnemy,    key: 'shield',       build: () => new ShieldEnemy(this.game, farAway, []) },
+            // Wave-10+ red-tier variants — distinct GLBs, so they need their own shader/depth prewarm.
+            { cls: BasicEnemy,  key: 'basic_red',        build: () => new RedMeleeMinion(this.game, farAway, []) },
+            { cls: BasicEnemy,  key: 'basic_red_elite',  build: () => new RedMeleeMinion(this.game, farAway, []) },
+            { cls: FastEnemy,   key: 'fast_red',         build: () => new RedArtilleryCarriage(this.game, farAway, []) },
+            { cls: HealerEnemy, key: 'healer_red',       build: () => new RedWizard(this.game, farAway, []) },
+            { cls: HealerEnemy, key: 'healer_red_elite', build: () => new RedWizard(this.game, farAway, []) },
+            { cls: TankEnemy,   key: 'tank_red',         build: () => new DragonTurtle(this.game, farAway, []) },
         ];
         for (const { cls, key, build } of glbVariants) {
             const asset = this.enemyAssets[key];
@@ -493,6 +566,12 @@ export class EnemyManager {
             }
             return this.enemyAssets[baseType] ?? null;
         };
+
+        // Wave-10+ red-tier swap: tougher red variants replace the blue base enemies.
+        // Rewrites the type string so both the asset lookup and the switch below use it.
+        const waveNow = this.waveManager?.getCurrentWave() ?? 0;
+        type = redSwapType(type, waveNow);
+
         let enemy: Enemy;
         switch (type) {
             case 'basic':    BasicEnemy.pendingAsset = assetFor('basic');
@@ -518,13 +597,30 @@ export class EnemyManager {
                              enemy = new SplittingEnemy(this.game, spawnPos, []); break;
             case 'healer':   HealerEnemy.pendingAsset = assetFor('healer');
                              enemy = new HealerEnemy(this.game, spawnPos, []); break;
+            case 'basic_red':  BasicEnemy.pendingAsset = assetFor('basic_red');
+                               enemy = new RedMeleeMinion(this.game, spawnPos, []); break;
+            case 'fast_red':   FastEnemy.pendingAsset = assetFor('fast_red');
+                               enemy = new RedArtilleryCarriage(this.game, spawnPos, []); break;
+            case 'healer_red': HealerEnemy.pendingAsset = assetFor('healer_red');
+                               enemy = new RedWizard(this.game, spawnPos, []); break;
+            case 'tank_red':   TankEnemy.pendingAsset = assetFor('tank_red');
+                               enemy = new DragonTurtle(this.game, spawnPos, []); break;
             case 'shield':   ShieldEnemy.pendingAsset = assetFor('shield');
                              enemy = new ShieldEnemy(this.game, spawnPos, []); break;
             default:         enemy = new BasicEnemy(this.game, spawnPos, []); break;
         }
 
-        // Set seekTarget BEFORE first update so the seek branch runs immediately
+        // Record the resolved type string on the enemy for the M3 host hook so
+        // buildSpawnMsg can read it without a reverse-lookup. 'boss' resolves to
+        // 'boss_milestone' when a MilestoneBoss was actually created (milestone waves);
+        // that string matches the 'boss_milestone' case in createEnemyOfType.
+        const isMilestoneBoss = enemy instanceof MilestoneBoss;
+        enemy.netType = isMilestoneBoss ? 'boss_milestone' : type;
+
+        // Set seekTarget (single-provider, for legacy contact-damage / grab / slow paths)
+        // AND seekTargets (array, for the nearest-of-N resolver) BEFORE first update.
         enemy.seekTarget = this.heroProvider;
+        enemy.seekTargets = this.heroProviders;
 
         // Apply elite treatment if requested
         if (eliteElement) {
@@ -548,10 +644,13 @@ export class EnemyManager {
         // on any quality level — they're the bulk of spawns and their shadows are visual noise.
         //   low    → scene.shadowsEnabled is off, registration is a no-op anyway.
         //   medium/high → basics skipped; everything else casts.
-        const skipShadow = type === 'basic';
+        const skipShadow = type === 'basic' || type === 'basic_red';
         if (!skipShadow) this._registerAsShadowCaster(enemy);
 
+        enemy.id = this.nextEnemyId++;
         this.enemies.push(enemy);
+        // M3 host hook: notify after id is assigned and enemy is in the live list.
+        if (this.onEnemySpawnedCb) this.onEnemySpawnedCb(enemy);
         const spawnMs = performance.now() - spawnStart;
         if (spawnMs > 50) {
             console.warn(`[spawn] ${type}${eliteElement ? `:${eliteElement}` : ''} took ${Math.round(spawnMs)}ms`);
@@ -601,6 +700,10 @@ export class EnemyManager {
                 }
                 this._removeAt(i);
             } else if (!enemy.isAlive()) {
+                // M3 host hook: fire before reward/removal so the host can send a
+                // DeathMsg while the enemy is still in the live list (has valid id,
+                // position, isElite, eliteDropElement, isClone, reward).
+                if (this.onEnemyDiedCb) this.onEnemyDiedCb(enemy);
                 if (this.playerStats) {
                     this.playerStats.addMoney(enemy.getReward());
                     this.playerStats.addKill();
@@ -673,6 +776,14 @@ export class EnemyManager {
      */
     public getEnemyCount(): number {
         return this.enemies.length;
+    }
+
+    /**
+     * Look up a live enemy by its network id. Linear scan over live enemies —
+     * acceptable for ≤100 enemies (the expected co-op cap).
+     */
+    public getEnemyById(id: number): Enemy | undefined {
+        return this.enemies.find(e => e.id === id);
     }
 
     /**

@@ -464,38 +464,7 @@ export class SplittingEnemy extends Enemy {
 
         // Update walking animation
         if (!this.isFrozen && !this.isStunned && this.currentPathIndex < this.path.length && this.mesh) {
-            this.walkTime += deltaTime * 5;
-
-            // Body sway: side-to-side rock and vertical bob
-            const bobAmount = Math.abs(Math.sin(this.walkTime)) * 0.05;
-            const swayAmount = Math.sin(this.walkTime * 0.6) * 0.06;
-            this.mesh.position.y = this.position.y + 0.40 + bobAmount;
-            this.mesh.rotation.z = swayAmount;
-
-            // Legs: alternating waddle stride
-            if (this.leftLeg) {
-                this.leftLeg.rotation.x = Math.sin(this.walkTime) * 0.4;
-            }
-            if (this.rightLeg) {
-                this.rightLeg.rotation.x = Math.sin(this.walkTime + Math.PI) * 0.4;
-            }
-            if (this.backLeg) {
-                this.backLeg.rotation.x = Math.sin(this.walkTime + Math.PI / 2) * 0.3;
-            }
-
-            // Heads bob independently at different frequencies
-            if (this.headCenter) {
-                this.headCenter.rotation.x = Math.sin(this.walkTime * 1.2) * 0.10;
-                this.headCenter.rotation.y = Math.sin(this.walkTime * 0.7) * 0.08;
-            }
-            if (this.headLeft) {
-                this.headLeft.rotation.x = Math.sin(this.walkTime * 1.0 + 1.0) * 0.12;
-                this.headLeft.rotation.y = Math.sin(this.walkTime * 0.9 + 0.5) * 0.10;
-            }
-            if (this.headRight) {
-                this.headRight.rotation.x = Math.sin(this.walkTime * 1.1 + 2.0) * 0.12;
-                this.headRight.rotation.y = Math.sin(this.walkTime * 0.8 + 1.5) * 0.10;
-            }
+            this.animateProceduralParts(deltaTime);
 
             // Face direction of movement
             if (this.currentPathIndex < this.path.length) {
@@ -511,6 +480,45 @@ export class SplittingEnemy extends Enemy {
         }
 
         return result;
+    }
+
+    /** Multi-headed sway pose — advances the walk phase and poses the body,
+     *  legs, and three heads. Called by update() while waddling and by
+     *  tickNetworkProceduralAnim on the guest. */
+    protected animateProceduralParts(deltaTime: number): void {
+        if (!this.mesh) return;
+        this.walkTime += deltaTime * 5;
+
+        // Body sway: side-to-side rock and vertical bob
+        const bobAmount = Math.abs(Math.sin(this.walkTime)) * 0.05;
+        const swayAmount = Math.sin(this.walkTime * 0.6) * 0.06;
+        this.mesh.position.y = this.position.y + 0.40 + bobAmount;
+        this.mesh.rotation.z = swayAmount;
+
+        // Legs: alternating waddle stride
+        if (this.leftLeg) {
+            this.leftLeg.rotation.x = Math.sin(this.walkTime) * 0.4;
+        }
+        if (this.rightLeg) {
+            this.rightLeg.rotation.x = Math.sin(this.walkTime + Math.PI) * 0.4;
+        }
+        if (this.backLeg) {
+            this.backLeg.rotation.x = Math.sin(this.walkTime + Math.PI / 2) * 0.3;
+        }
+
+        // Heads bob independently at different frequencies
+        if (this.headCenter) {
+            this.headCenter.rotation.x = Math.sin(this.walkTime * 1.2) * 0.10;
+            this.headCenter.rotation.y = Math.sin(this.walkTime * 0.7) * 0.08;
+        }
+        if (this.headLeft) {
+            this.headLeft.rotation.x = Math.sin(this.walkTime * 1.0 + 1.0) * 0.12;
+            this.headLeft.rotation.y = Math.sin(this.walkTime * 0.9 + 0.5) * 0.10;
+        }
+        if (this.headRight) {
+            this.headRight.rotation.x = Math.sin(this.walkTime * 1.1 + 2.0) * 0.12;
+            this.headRight.rotation.y = Math.sin(this.walkTime * 0.8 + 1.5) * 0.10;
+        }
     }
 
     /**

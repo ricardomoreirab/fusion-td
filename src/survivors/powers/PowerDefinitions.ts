@@ -142,6 +142,17 @@ const boltPool: Mesh[] = [];
 let boltPoolInitialized = false;
 
 function acquireBoltSegment(scene: Scene): Mesh {
+    // The pool is module-level so it survives state exits, but Game.cleanupScene()
+    // disposes every scene mesh between states. On the next run the pool would
+    // hold disposed (or other-scene) meshes — re-enabling those renders nothing.
+    // Detect stale entries and rebuild the pool from scratch.
+    if (boltPoolInitialized && boltPool.some(b => b.isDisposed() || b.getScene() !== scene)) {
+        for (const b of boltPool) {
+            if (!b.isDisposed()) b.dispose(); // cached/shared material — keep it
+        }
+        boltPool.length = 0;
+        boltPoolInitialized = false;
+    }
     if (!boltPoolInitialized) {
         for (let i = 0; i < BOLT_POOL_SIZE; i++) {
             const box = MeshBuilder.CreateBox(

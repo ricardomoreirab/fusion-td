@@ -378,16 +378,22 @@ export class BossEnemy extends Enemy {
     public update(deltaTime: number): boolean {
         if (!this.alive || !this.mesh) return false;
 
-        // Update animation time
-        this.animationTime += deltaTime;
-
-        // Animate parts
-        this.animateParts(deltaTime);
+        // Advance animation time + animate parts
+        this.animateProceduralParts(deltaTime);
 
         // Call parent update method (handles movement, status effects, and the
         // melee-swing state machine — which calls onMeleeAttackPhase below for
         // the boss's overhead claw animation).
         return super.update(deltaTime);
+    }
+
+    /** Titan walk pose — advances the animation phase and animates the body,
+     *  legs, head, jaw, arms, crystals, and orbiting wisps. Called by update()
+     *  every frame and by tickNetworkProceduralAnim on the guest (the guest's
+     *  non-milestone boss is always the procedural mesh). */
+    protected animateProceduralParts(deltaTime: number): void {
+        this.animationTime += deltaTime;
+        this.animateParts(deltaTime);
     }
 
     /** Overrides animateParts' idle arm sway with the swing pose while attacking. */
@@ -490,24 +496,17 @@ export class BossEnemy extends Enemy {
     }
 
     /**
-     * Override die() to also clean up orbiting wisps (not parented to mesh)
+     * Free the orbiting wisps — NOT parented to this.mesh (positioned in world
+     * coords by animateParts), so the base mesh-tree release never reaches them.
+     * Runs on every disposal path (die/disposeCorpse/dispose — the corpse path is
+     * the ONLY one guest enemies take). Idempotent: the array is emptied.
+     * dispose(false, true) also frees each wisp's uniquely-owned 'bossOrbitMatN'
+     * StandardMaterial, which a default dispose() would strand in scene.materials.
      */
-    protected die(): void {
-        this.disposeOrbitingWisps();
-        super.die();
-    }
-
-    /**
-     * Clean up resources including orbiting wisps (not parented to mesh)
-     */
-    public dispose(): void {
-        this.disposeOrbitingWisps();
-        super.dispose();
-    }
-
-    private disposeOrbitingWisps(): void {
+    protected disposeAuxVisuals(): void {
+        super.disposeAuxVisuals();
         for (const orb of this.orbitingWisps) {
-            if (!orb.isDisposed()) orb.dispose();
+            if (!orb.isDisposed()) orb.dispose(false, true);
         }
         this.orbitingWisps = [];
     }

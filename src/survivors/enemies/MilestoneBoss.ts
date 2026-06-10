@@ -2,6 +2,7 @@ import { Vector3, MeshBuilder, StandardMaterial, Color3, Mesh, AssetContainer, A
 import { Game } from '../../engine/Game';
 import { BossEnemy } from './BossEnemy';
 import { DifficultyTuning } from '../DifficultyTuning';
+import { emitCoopFx } from '../coop/CoopFx';
 
 /**
  * Special-move state machine. The boss alternates between free movement
@@ -439,8 +440,17 @@ export class MilestoneBoss extends BossEnemy {
         this.lungeState = 'telegraph';
         this.stateTimer = TELEGRAPH_DURATION;
 
-        if (action === 'pull') this.spawnPullTelegraph();
-        else this.spawnDashTelegraph();
+        if (action === 'pull') {
+            this.spawnPullTelegraph();
+            // Broadcast to guest: pull telegraph is a disc at boss origin (no direction).
+            emitCoopFx('telegraph', this.position.x, this.position.z, this.position.x, this.position.z, 'pull');
+        } else {
+            this.spawnDashTelegraph();
+            // Broadcast to guest: dash telegraph from boss origin to dash endpoint.
+            const endX = this.position.x + this.dashDirX * DASH_DISTANCE;
+            const endZ = this.position.z + this.dashDirZ * DASH_DISTANCE;
+            emitCoopFx('telegraph', this.position.x, this.position.z, endX, endZ, 'dash');
+        }
     }
 
     private enterDash(): void {
@@ -595,14 +605,12 @@ export class MilestoneBoss extends BossEnemy {
         super.applyKnockback(dirX, dirZ, magnitude);
     }
 
-    /** Dispose owned visuals not parented to mesh. */
-    public dispose(): void {
+    /** Free the telegraph ring — NOT parented to this.mesh, so the base mesh-tree
+     *  release never reaches it. Runs on every disposal path (die/disposeCorpse/
+     *  dispose — the corpse path is the ONLY one guest enemies take). Idempotent
+     *  (disposeTelegraphRing nulls the ref); BossEnemy's override frees the wisps. */
+    protected disposeAuxVisuals(): void {
+        super.disposeAuxVisuals();
         this.disposeTelegraphRing();
-        super.dispose();
-    }
-
-    protected die(): void {
-        this.disposeTelegraphRing();
-        super.die();
     }
 }

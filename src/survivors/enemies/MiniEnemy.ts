@@ -256,10 +256,7 @@ export class MiniEnemy extends Enemy {
         }
 
         if (!this.isFrozen && !this.isStunned && this.currentPathIndex < this.path.length && this.mesh) {
-            this.walkTime += deltaTime * 8;
-            const bobAmount = Math.abs(Math.sin(this.walkTime)) * 0.04;
-            this.mesh.position.y = this.position.y + 0.28 + bobAmount;
-            this.mesh.rotation.z = Math.sin(this.walkTime) * 0.1;
+            this.animateProceduralParts(deltaTime);
 
             if (this.currentPathIndex < this.path.length) {
                 const targetPoint = this.path[this.currentPathIndex];
@@ -273,6 +270,17 @@ export class MiniEnemy extends Enemy {
         }
 
         return result;
+    }
+
+    /** Scurry bob pose — advances the walk phase and bobs/leans the tiny body.
+     *  Called by update() while scurrying and by tickNetworkProceduralAnim on
+     *  the guest. */
+    protected animateProceduralParts(deltaTime: number): void {
+        if (!this.mesh) return;
+        this.walkTime += deltaTime * 8;
+        const bobAmount = Math.abs(Math.sin(this.walkTime)) * 0.04;
+        this.mesh.position.y = this.position.y + 0.28 + bobAmount;
+        this.mesh.rotation.z = Math.sin(this.walkTime) * 0.1;
     }
 
     protected createDeathEffect(): void {

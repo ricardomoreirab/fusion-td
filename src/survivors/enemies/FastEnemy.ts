@@ -451,78 +451,7 @@ export class FastEnemy extends Enemy {
 
         // Update spectral floating animation
         if (!this.isFrozen && !this.isStunned && this.currentPathIndex < this.path.length) {
-            this.flyTime += deltaTime * 6;
-
-            // Record position history for trail (store last 9 positions in a ring buffer)
-            this.trailPositions.unshift({
-                x: this.position.x,
-                y: this.position.y + 1.3 + Math.sin(this.flyTime * 0.6) * 0.25,
-                z: this.position.z
-            });
-            if (this.trailPositions.length > 9) this.trailPositions.length = 9;
-
-            // Update ghost trail positions (sample every 3 frames back)
-            for (let g = 0; g < this.ghostTrails.length; g++) {
-                const ghost = this.ghostTrails[g];
-                if (ghost.isDisposed()) continue;
-                const histIdx = Math.min((g + 1) * 3, this.trailPositions.length - 1);
-                if (histIdx < this.trailPositions.length) {
-                    const hp = this.trailPositions[histIdx];
-                    ghost.position.set(hp.x, hp.y, hp.z);
-                    ghost.rotation.y = this.mesh ? this.mesh.rotation.y : 0;
-                    ghost.scaling.copyFrom(this.mesh ? this.mesh.scaling : ghost.scaling);
-                }
-            }
-
-            if (this.mesh) {
-                // Ethereal floating: slow sinusoidal hover with slight figure-8
-                const hoverY = Math.sin(this.flyTime * 0.6) * 0.25;
-                this.mesh.position.y = this.position.y + 1.3 + hoverY;
-
-                // Subtle emissive pulse on body
-                const bodyMat = this.mesh.material as StandardMaterial;
-                if (bodyMat) {
-                    const pulse = 0.5 + 0.3 * Math.sin(this.flyTime * 2.5);
-                    bodyMat.emissiveColor = PALETTE.ENEMY_FAST_WISP.scale(pulse);
-                }
-
-                // Gentle body tilt as it sways
-                this.mesh.rotation.z = Math.sin(this.flyTime * 0.4) * 0.12;
-                this.mesh.rotation.x = Math.sin(this.flyTime * 0.3) * 0.06;
-            }
-
-            // Arms: slow eerie reaching motion, slightly out of phase
-            if (this.leftWing && this.rightWing) {
-                // Arms drift up and down like they're beckoning
-                this.leftWing.rotation.z = Math.PI / 6 + Math.sin(this.flyTime * 0.8) * 0.25;
-                this.leftWing.rotation.x = Math.sin(this.flyTime * 0.6 + 0.5) * 0.15;
-                this.rightWing.rotation.z = -Math.PI / 6 - Math.sin(this.flyTime * 0.8 + Math.PI * 0.3) * 0.25;
-                this.rightWing.rotation.x = Math.sin(this.flyTime * 0.6 + 2.0) * 0.15;
-            }
-
-            // Head: slow ominous scanning
-            if (this.head) {
-                this.head.rotation.y = Math.sin(this.flyTime * 0.4) * 0.20;
-                this.head.rotation.x = Math.sin(this.flyTime * 0.25) * 0.08;
-            }
-
-            // Cloak tails: wave like cloth in wind
-            if (this.cloakLeft && this.cloakRight) {
-                this.cloakLeft.rotation.x = 0.3 + Math.sin(this.flyTime * 1.2) * 0.20;
-                this.cloakLeft.rotation.z = Math.sin(this.flyTime * 0.9) * 0.10;
-                this.cloakRight.rotation.x = 0.3 + Math.sin(this.flyTime * 1.2 + Math.PI * 0.5) * 0.20;
-                this.cloakRight.rotation.z = Math.sin(this.flyTime * 0.9 + 1.0) * 0.10;
-            }
-
-            // Tail wisp: orbit and pulse
-            if (this.tailWisp) {
-                this.tailWisp.position.x = Math.sin(this.flyTime * 1.5) * 0.10;
-                this.tailWisp.position.z = Math.cos(this.flyTime * 1.5) * 0.10 - 0.08;
-                this.tailWisp.position.y = -0.65 + Math.sin(this.flyTime * 2.0) * 0.05;
-                // Pulsing scale
-                const pulse = 0.9 + Math.sin(this.flyTime * 3.0) * 0.3;
-                this.tailWisp.scaling = new Vector3(pulse, pulse, pulse);
-            }
+            this.animateProceduralParts(deltaTime);
 
             // Face direction of movement
             if (this.currentPathIndex < this.path.length) {
@@ -538,6 +467,84 @@ export class FastEnemy extends Enemy {
         }
 
         return result;
+    }
+
+    /** Spectral floating pose — advances the fly phase and animates hover,
+     *  ghost trail, arms, cloak, and tail wisp. Called by update() while
+     *  moving and by tickNetworkProceduralAnim on the guest. */
+    protected animateProceduralParts(deltaTime: number): void {
+        this.flyTime += deltaTime * 6;
+
+        // Record position history for trail (store last 9 positions in a ring buffer)
+        this.trailPositions.unshift({
+            x: this.position.x,
+            y: this.position.y + 1.3 + Math.sin(this.flyTime * 0.6) * 0.25,
+            z: this.position.z
+        });
+        if (this.trailPositions.length > 9) this.trailPositions.length = 9;
+
+        // Update ghost trail positions (sample every 3 frames back)
+        for (let g = 0; g < this.ghostTrails.length; g++) {
+            const ghost = this.ghostTrails[g];
+            if (ghost.isDisposed()) continue;
+            const histIdx = Math.min((g + 1) * 3, this.trailPositions.length - 1);
+            if (histIdx < this.trailPositions.length) {
+                const hp = this.trailPositions[histIdx];
+                ghost.position.set(hp.x, hp.y, hp.z);
+                ghost.rotation.y = this.mesh ? this.mesh.rotation.y : 0;
+                ghost.scaling.copyFrom(this.mesh ? this.mesh.scaling : ghost.scaling);
+            }
+        }
+
+        if (this.mesh) {
+            // Ethereal floating: slow sinusoidal hover with slight figure-8
+            const hoverY = Math.sin(this.flyTime * 0.6) * 0.25;
+            this.mesh.position.y = this.position.y + 1.3 + hoverY;
+
+            // Subtle emissive pulse on body
+            const bodyMat = this.mesh.material as StandardMaterial;
+            if (bodyMat) {
+                const pulse = 0.5 + 0.3 * Math.sin(this.flyTime * 2.5);
+                bodyMat.emissiveColor = PALETTE.ENEMY_FAST_WISP.scale(pulse);
+            }
+
+            // Gentle body tilt as it sways
+            this.mesh.rotation.z = Math.sin(this.flyTime * 0.4) * 0.12;
+            this.mesh.rotation.x = Math.sin(this.flyTime * 0.3) * 0.06;
+        }
+
+        // Arms: slow eerie reaching motion, slightly out of phase
+        if (this.leftWing && this.rightWing) {
+            // Arms drift up and down like they're beckoning
+            this.leftWing.rotation.z = Math.PI / 6 + Math.sin(this.flyTime * 0.8) * 0.25;
+            this.leftWing.rotation.x = Math.sin(this.flyTime * 0.6 + 0.5) * 0.15;
+            this.rightWing.rotation.z = -Math.PI / 6 - Math.sin(this.flyTime * 0.8 + Math.PI * 0.3) * 0.25;
+            this.rightWing.rotation.x = Math.sin(this.flyTime * 0.6 + 2.0) * 0.15;
+        }
+
+        // Head: slow ominous scanning
+        if (this.head) {
+            this.head.rotation.y = Math.sin(this.flyTime * 0.4) * 0.20;
+            this.head.rotation.x = Math.sin(this.flyTime * 0.25) * 0.08;
+        }
+
+        // Cloak tails: wave like cloth in wind
+        if (this.cloakLeft && this.cloakRight) {
+            this.cloakLeft.rotation.x = 0.3 + Math.sin(this.flyTime * 1.2) * 0.20;
+            this.cloakLeft.rotation.z = Math.sin(this.flyTime * 0.9) * 0.10;
+            this.cloakRight.rotation.x = 0.3 + Math.sin(this.flyTime * 1.2 + Math.PI * 0.5) * 0.20;
+            this.cloakRight.rotation.z = Math.sin(this.flyTime * 0.9 + 1.0) * 0.10;
+        }
+
+        // Tail wisp: orbit and pulse
+        if (this.tailWisp) {
+            this.tailWisp.position.x = Math.sin(this.flyTime * 1.5) * 0.10;
+            this.tailWisp.position.z = Math.cos(this.flyTime * 1.5) * 0.10 - 0.08;
+            this.tailWisp.position.y = -0.65 + Math.sin(this.flyTime * 2.0) * 0.05;
+            // Pulsing scale
+            const pulse = 0.9 + Math.sin(this.flyTime * 3.0) * 0.3;
+            this.tailWisp.scaling = new Vector3(pulse, pulse, pulse);
+        }
     }
 
     /**
@@ -557,27 +564,14 @@ export class FastEnemy extends Enemy {
      *  Ghosts are NOT parented to this.mesh, so the base mesh dispose never
      *  reaches them; dispose(false, true) also frees the uniquely-named
      *  'fastGhostMat' that default dispose() would strand in scene.materials.
+     *  Runs on every disposal path (die/disposeCorpse/dispose — the corpse path
+     *  is the ONLY one guest enemies take). Idempotent: the array is emptied.
      *  No-op on the GLB path (ghostTrails is empty there). */
-    private disposeGhostTrails(): void {
+    protected disposeAuxVisuals(): void {
+        super.disposeAuxVisuals();
         for (const ghost of this.ghostTrails) {
             if (!ghost.isDisposed()) ghost.dispose(false, true);
         }
         this.ghostTrails = [];
-    }
-
-    /** In-combat death path. The base die() → corpse → disposeCorpse only frees
-     *  this.mesh + its children; the unparented ghost trails would otherwise leak
-     *  (mesh + material) on every kill. */
-    protected die(): void {
-        this.disposeGhostTrails();
-        super.die();
-    }
-
-    /**
-     * Clean up ghost trail meshes in addition to base cleanup (teardown path).
-     */
-    public dispose(): void {
-        this.disposeGhostTrails();
-        super.dispose();
     }
 }

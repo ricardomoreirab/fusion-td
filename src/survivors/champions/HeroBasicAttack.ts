@@ -7,6 +7,7 @@ import { PlayerStats } from '../PlayerStats';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
 import { acquireProjectile, releaseProjectile } from '../../engine/rendering/ProjectilePool';
 import { blendElements } from '../ElementColors';
+import { emitCoopFx } from '../coop/CoopFx';
 
 // Module-level scratch vectors — safe because update() is not reentrant (frames serialize)
 const _scratchA = new Vector3();
@@ -16,6 +17,9 @@ export interface BasicAttackTarget {
     position: Vector3;
     takeDamage: (amount: number, element?: PowerElement) => void;
     isAlive: () => boolean;
+    /** The underlying Enemy instance, if available. Used by the co-op guest to
+     *  route damage to the host even when the proximity re-resolve fails. */
+    enemy?: Enemy;
 }
 
 export type BasicAttackMode = 'projectile' | 'melee';
@@ -50,6 +54,12 @@ export class HeroBasicAttack {
 
     // For melee: reference to full enemy list for AOE
     private enemyProvider: (() => Enemy[]) | null = null;
+
+    /**
+     * When set (co-op guest), a hit reports to the host instead of mutating enemy HP.
+     * Return value ignored; the caller still plays local hit VFX (swing ring / arc).
+     */
+    public damageRouter: ((enemy: Enemy, amount: number, element: string) => void) | null = null;
 
     constructor(
         scene: Scene,
@@ -123,6 +133,25 @@ export class HeroBasicAttack {
             ? this.powerSlots.getMeleeRangeBonus()
             : 0;
         return (this.baseRange + enchantBonus) * this.rangeMultiplier;
+    }
+
+    /** Debug snapshot of every gate the fire path checks — so the co-op overlay can
+     *  show exactly why the attack isn't firing (busy / no-target / out-of-range /
+     *  on-cooldown) without the dev console. */
+    public debugState(): { busy: boolean; hasTarget: boolean; dist: number; range: number; cooldown: number } {
+        const hero = this.hero as { isSpecialActive?: () => boolean; isAttackActive?: () => boolean };
+        const busy =
+            (typeof hero.isSpecialActive === 'function' && hero.isSpecialActive()) ||
+            (typeof hero.isAttackActive  === 'function' && hero.isAttackActive());
+        const t = this.targetProvider();
+        const dist = t ? Vector3.Distance(this.getHeroPosition(), t.position) : -1;
+        return {
+            busy,
+            hasTarget: !!t && (t.isAlive?.() ?? true),
+            dist,
+            range: this.effectiveRange,
+            cooldown: this.cooldown,
+        };
     }
 
     public update(deltaTime: number): void {
@@ -258,6 +287,8 @@ export class HeroBasicAttack {
 
         // Bright sword-arc visual (thick golden torus + sweeping blade trail)
         this.spawnSwingRing(heroPos, range);
+        // Co-op: broadcast the swing so the teammate sees the melee arc (cosmetic).
+        emitCoopFx('swing', heroPos.x, heroPos.z, undefined, undefined, String(range));
 
         // Procedural barbarian spin FX (no-op for GLB champions — they lack barbAxeHead etc).
         const hero = this.hero as any;
@@ -277,7 +308,8 @@ export class HeroBasicAttack {
      *  Whirlwind ticks so both carry the exact same hit modifiers. */
     private applyHit(e: Enemy, fromPos: Vector3, enemies: Enemy[]): void {
         const dmg = this.effectiveDamage;
-        e.takeDamage(dmg, 'physical');
+        if (this.damageRouter) this.damageRouter(e, dmg, 'physical');
+        else e.takeDamage(dmg, 'physical');
 
         const lifestealPct = this.playerStats?.lifestealPct ?? 0;
         if (lifestealPct > 0 && this.healCallback) {
@@ -470,6 +502,7 @@ export class HeroBasicAttack {
             position: virtualTargetPos,
             takeDamage: (amount: number) => target.takeDamage(amount),
             isAlive: () => target.isAlive(),
+            enemy: target.enemy,
         };
         this.spawnProjectile(from, virtualTarget);
     }
@@ -513,6 +546,7 @@ export class HeroBasicAttack {
                 position: e.getPosition(),
                 takeDamage: (amount: number) => e.takeDamage(amount),
                 isAlive: () => e.isAlive(),
+                enemy: e,
             });
         }
         return out;
@@ -520,6 +554,9 @@ export class HeroBasicAttack {
 
     private spawnProjectile(from: Vector3, target: BasicAttackTarget): void {
         const scene = this.scene;
+        // Co-op: broadcast this projectile so the teammate sees the shot (cosmetic only —
+        // damage is already routed authoritatively). No-op in single-player.
+        emitCoopFx('proj', from.x, from.z, target.position.x, target.position.z, this.projectileShape);
         const poolKey = `basic_attack_proj_${this.projectileShape}`;
         const proj = acquireProjectile(scene, poolKey, () => this.createProjectileMesh());
         proj.position.copyFrom(from);
@@ -570,18 +607,28 @@ export class HeroBasicAttack {
             }
 
             if (dist < 0.4) {
-                target.takeDamage(capturedDamage, 'physical');
-                if (this.healCallback && this.playerStats && this.playerStats.lifestealPct > 0) {
-                    this.healCallback(capturedDamage * this.playerStats.lifestealPct);
-                }
-                // Apply enchantments AND knockback on projectile hit — look up the actual
-                // Enemy instance behind the BasicAttackTarget so we have applyKnockback.
+                // Resolve the actual Enemy instance behind the BasicAttackTarget so we
+                // have applyKnockback AND can route damage to the host in co-op.
                 const enemyHit = allEnemies.find(e => {
                     const ep = e.getPosition();
                     const dx = ep.x - target.position.x;
                     const dz = ep.z - target.position.z;
                     return Math.hypot(dx, dz) < 0.5 && e.isAlive();
                 });
+                // Co-op guest: always route to host, never mutate local HP.
+                // Use the proximity-resolved enemy; fall back to the Enemy
+                // carried on the target if the proximity find returned null.
+                const hitEnemy = enemyHit ?? target.enemy;
+                if (this.damageRouter) {
+                    if (hitEnemy) this.damageRouter(hitEnemy, capturedDamage, 'physical');
+                    // guest: never local takeDamage on a shared enemy
+                } else {
+                    target.takeDamage(capturedDamage, 'physical');
+                }
+                if (this.healCallback && this.playerStats && this.playerStats.lifestealPct > 0) {
+                    this.healCallback(capturedDamage * this.playerStats.lifestealPct);
+                }
+                // Apply enchantments AND knockback on projectile hit.
                 if (enemyHit) {
                     const knockback = this.playerStats?.knockbackOnHit ?? 0;
                     if (knockback > 0) {

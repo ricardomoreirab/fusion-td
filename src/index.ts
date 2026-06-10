@@ -10,6 +10,10 @@ window.addEventListener('DOMContentLoaded', () => {
     const game = new Game('renderCanvas');
     game.start().catch(err => console.error('Game failed to start:', err));
 
+    if (new URLSearchParams(window.location.search).has('coopdebug')) {
+        import('./net/coopDebug').then((m) => m.mountCoopDebug());
+    }
+
     // Handle window resize
     window.addEventListener('resize', () => {
         game.resize();

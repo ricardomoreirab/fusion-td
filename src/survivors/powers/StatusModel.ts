@@ -12,6 +12,7 @@ export const STATUS_TUNING = {
     burn:    { tickIntervalS: 0.5, maxStacks: 20, overflowFactor: 2 },
     chill:   { freezeAtStacks: 7, slowPerStack: 0.08, slowFloor: 0.2, freezeDurationS: 2 },
     fragile: { maxStacks: 10, ampPerStack: 0.05 },
+    curse:   { tickIntervalS: 0.5 },
 } as const;
 
 interface Track {
@@ -48,6 +49,7 @@ const EMPTY_TICK_RESULT: StatusTickResult = {
 export class StatusStacks {
     private tracks = new Map<RichStatusKind, Track>();
     private burnTickAcc = 0;
+    private curseTickAcc = 0;
 
     has(kind: RichStatusKind): boolean { return this.tracks.has(kind); }
     stacks(kind: RichStatusKind): number { return this.tracks.get(kind)?.stacks ?? 0; }
@@ -112,7 +114,7 @@ export class StatusStacks {
 
     /** Advance all timers by dtS; return DoT damage + chill slow + expiries. */
     tick(dtS: number, maxHp: number): StatusTickResult {
-        if (this.tracks.size === 0) { this.burnTickAcc = 0; return EMPTY_TICK_RESULT; }
+        if (this.tracks.size === 0) { this.burnTickAcc = 0; this.curseTickAcc = 0; return EMPTY_TICK_RESULT; }
         const out: StatusTickResult = { burnDamage: 0, curseDamage: 0, chillSlowMultiplier: 1, expired: [] };
 
         const burn = this.tracks.get('burn');
@@ -127,7 +129,15 @@ export class StatusStacks {
         }
 
         const curse = this.tracks.get('curse');
-        if (curse) out.curseDamage = maxHp * curse.strength * dtS;
+        if (curse) {
+            this.curseTickAcc += dtS;
+            while (this.curseTickAcc >= STATUS_TUNING.curse.tickIntervalS) {
+                out.curseDamage += maxHp * curse.strength * STATUS_TUNING.curse.tickIntervalS;
+                this.curseTickAcc -= STATUS_TUNING.curse.tickIntervalS;
+            }
+        } else {
+            this.curseTickAcc = 0;
+        }
 
         const chill = this.tracks.get('chill');
         if (chill) {
@@ -138,15 +148,35 @@ export class StatusStacks {
         }
 
         let burnExpired = false;
+        let curseExpired = false;
         for (const [kind, t] of this.tracks) {
             t.remainingS -= dtS;
             if (t.remainingS <= 0) {
                 out.expired.push(kind);
                 if (kind === 'burn') burnExpired = true;
+                if (kind === 'curse') curseExpired = true;
             }
         }
         for (const kind of out.expired) this.tracks.delete(kind);
-        if (burnExpired) this.burnTickAcc = 0;
+        if (burnExpired) {
+            // Flush the sub-interval remainder so the total damage integral is exact.
+            // `burn` was captured above from the same tick call; it's non-null here.
+            // A full tick deals stacks×strength per tickIntervalS, so the tail is
+            // the elapsed fraction of an interval.
+            if (this.burnTickAcc > 0 && burn) {
+                out.burnDamage += burn.stacks * burn.strength
+                    * (this.burnTickAcc / STATUS_TUNING.burn.tickIntervalS);
+            }
+            this.burnTickAcc = 0;
+        }
+        if (curseExpired) {
+            // Flush the sub-interval remainder so the total damage integral is exact.
+            // `curse` was captured above from the same tick call; it's non-null here.
+            if (this.curseTickAcc > 0 && curse) {
+                out.curseDamage += maxHp * curse.strength * this.curseTickAcc;
+            }
+            this.curseTickAcc = 0;
+        }
         return out;
     }
 
@@ -161,11 +191,19 @@ export class StatusStacks {
         const burst = kind === 'burn' ? t.stacks * t.strength * STATUS_TUNING.burn.overflowFactor : 0;
         this.tracks.delete(kind);
         if (kind === 'burn') this.burnTickAcc = 0;
+        if (kind === 'curse') this.curseTickAcc = 0;
         return burst;
     }
 
     clear(kind?: RichStatusKind): void {
-        if (kind) this.tracks.delete(kind);
-        else this.tracks.clear();
+        if (kind) {
+            this.tracks.delete(kind);
+            if (kind === 'burn') this.burnTickAcc = 0;
+            if (kind === 'curse') this.curseTickAcc = 0;
+        } else {
+            this.tracks.clear();
+            this.burnTickAcc = 0;
+            this.curseTickAcc = 0;
+        }
     }
 }

@@ -5,6 +5,7 @@ import { PowerSlotManager } from './powers/PowerSlotManager';
 import { Enemy } from './enemies/Enemy';
 import { PlayerStats } from './PlayerStats';
 import { DashMode } from './abilities/AbilityManager';
+import { capInputLen, arenaClampScale } from './integrateMove';
 
 /** Hero damage-feedback tuning — adjust here, not deep in the update loop. */
 const HIT_REACTION_COOLDOWN_S = 0.5;
@@ -44,6 +45,10 @@ export class HeroController {
     private maxHealth: number;
     private currentHealth: number;
     private isDead: boolean = false;
+    /** Co-op spectate (M4-11): hero is alive in bookkeeping but inert — no input,
+     *  no movement, no basic attack — while waiting to respawn on the next wave clear.
+     *  Camera still follows (so the spectator tracks the surviving teammate). */
+    public spectating: boolean = false;
     private onDeathCallback: () => void = () => {};
 
     // Extra Life (wave-5 boss item): each charge turns the next lethal hit into a
@@ -102,6 +107,11 @@ export class HeroController {
     // Scratch Vector3 fields — reused every frame to eliminate per-frame allocations
     private _scratchVel: Vector3 = new Vector3();
     private _scratchCamTarget: Vector3 = new Vector3();
+    private _scratchInput = { dx: 0, dz: 0 };
+
+    // Co-op: when set, the camera frames this point (+ height) instead of just
+    // the local hero. Lets a shared/tethered camera reuse the existing lerp/shake.
+    private cameraFocusProvider: (() => { x: number; z: number; height: number }) | null = null;
 
     constructor(
         scene: Scene,
@@ -168,9 +178,18 @@ export class HeroController {
         });
     }
 
+    /** Expose the inner HeroBasicAttack so co-op wiring can set damageRouter. */
+    public getBasicAttack(): HeroBasicAttack | null {
+        return this.basicAttack;
+    }
+
     public setExternalInput(dx: number, dz: number): void {
         this.externalDx = dx;
         this.externalDz = dz;
+    }
+
+    public setCameraFocusProvider(fn: (() => { x: number; z: number; height: number }) | null): void {
+        this.cameraFocusProvider = fn;
     }
 
     public setTargetProvider(fn: () => BasicAttackTarget | null): void {
@@ -197,6 +216,24 @@ export class HeroController {
 
     public setOnDeath(fn: () => void): void {
         this.onDeathCallback = fn;
+    }
+
+    public isDeadOrSpectating(): boolean {
+        return this.isDead || this.spectating;
+    }
+
+    /** Co-op respawn (M4-11): clear death + spectate, restore full HP, and place the
+     *  hero at (x,z). Revive charges / shield are untouched (Extra Life is separate). */
+    public respawn(x: number, z: number): void {
+        this.isDead = false;
+        this.spectating = false;
+        // Never inherit an in-flight/aborted dash across a revive (stale invuln or a
+        // teleport-snap to an old dash target).
+        this.dashActive = false;
+        this.isInvulnerable = false;
+        this.dashElapsed = 0;
+        this.currentHealth = this.maxHealth;
+        this.writeHeroPosition(x, 0, z);
     }
 
     /**
@@ -314,6 +351,22 @@ export class HeroController {
         this.currentHealth = Math.min(this.maxHealth, this.currentHealth + amount);
     }
 
+    /**
+     * Snapshot-authoritative HP write from the host (co-op guest side).
+     * Sets currentHealth to the given value (clamped [0, max]) and triggers
+     * the death path if hp reaches 0 — reusing the same flow as takeDamage.
+     * No-op if already dead.
+     */
+    public setHealth(hp: number): void {
+        if (this.isDead) return;
+        this.currentHealth = Math.max(0, Math.min(this.maxHealth, hp));
+        if (this.currentHealth <= 0 && !this.isDead) {
+            this.currentHealth = 0;
+            this.isDead = true;
+            this.onDeathCallback();
+        }
+    }
+
     /** Maximum HP (for percentage-of-max heals). */
     public getMaxHealth(): number {
         return this.maxHealth;
@@ -380,6 +433,17 @@ export class HeroController {
         this.externalSlowUntil = this.elapsedTime + durationS;
     }
 
+    /** Current effective move speed: base × shop/level multiplier × active boss slow.
+     *  This is exactly the speed update() integrates input with — the co-op guest
+     *  passes it to the input replay so the replayed prediction matches the local
+     *  one (M6 E2). Note the HOST simulates the guest at the champion's BASE speed
+     *  (it doesn't know multipliers/slows) — that divergence is documented at the
+     *  replay site and absorbed by the reconcile dead-zone/lerp. */
+    public getEffectiveMoveSpeed(): number {
+        const slow = this.elapsedTime < this.externalSlowUntil ? this.externalSlowMultiplier : 1;
+        return this.moveSpeed * this.moveSpeedMultiplier * slow;
+    }
+
     /** Push player-stats reference into the inner basic-attack instance, and also wire
      *  the lifesteal heal callback to this controller's heal() so lifesteal updates the
      *  real hero HP (not the phantom PlayerStats.health that the HUD doesn't read). */
@@ -402,6 +466,7 @@ export class HeroController {
      * to hero facing for the dash direction in that case.
      */
     public getMoveInput(): { dx: number; dz: number } | null {
+        if (this.isDead || this.spectating) return null; // inert while spectating (sends no co-op input)
         let dx = this.externalDx;
         let dz = this.externalDz;
         if (this.keys['w'] || this.keys['arrowup']) dz += 1;
@@ -446,6 +511,14 @@ export class HeroController {
         }
     }
 
+    /** Co-op guest (M4-8): nudge the predicted local hero toward the host-
+     *  authoritative snapshot position. Writes position + mesh only; velocity is
+     *  untouched so the next update() re-predicts from fresh input. The caller
+     *  decides snap-vs-lerp via reconcilePosition(); this just applies the result. */
+    public reconcileNetworkPosition(x: number, z: number): void {
+        this.writeHeroPosition(x, 0, z);
+    }
+
     /** Internal helper: write a position to both this.position and the mesh, in
      *  the exact same shape Champion.update would naturally produce. */
     private writeHeroPosition(x: number, y: number, z: number): void {
@@ -473,6 +546,16 @@ export class HeroController {
             }
         }
 
+        // ── Co-op spectate / death: hero is inert ──────────────────────────
+        // Zero velocity (Champion.update adds nothing), no input, no basic attack
+        // below. Camera follow still runs so the spectator tracks the survivor.
+        if (this.isDead || this.spectating) {
+            this._scratchVel.set(0, 0, 0);
+            this.hero.setPlayerVelocity(this._scratchVel);
+            // Cancel any dash that was in flight when death/spectate began — otherwise
+            // its invulnerability flag would stick for the whole spectate window.
+            if (this.dashActive) { this.dashActive = false; this.isInvulnerable = false; this.dashElapsed = 0; }
+        } else
         // ── Dash override (Space-bar mobility) ─────────────────────────────
         // When active, position is driven by interpolation between start/target;
         // velocity is forced to zero so Champion.update doesn't add to it. The
@@ -521,14 +604,15 @@ export class HeroController {
             if (this.keys['a'] || this.keys['arrowleft']) dx -= 1;
             if (this.keys['d'] || this.keys['arrowright']) dx += 1;
 
-            // Normalize — cap at magnitude 1, allow joystick analog below 1
-            const len = Math.hypot(dx, dz);
-            if (len > 1) { dx /= len; dz /= len; }
+            // Normalize — cap at magnitude 1, allow joystick analog below 1.
+            // Shared with the co-op input replay (integrateMove.ts) — same math.
+            capInputLen(dx, dz, this._scratchInput);
+            dx = this._scratchInput.dx;
+            dz = this._scratchInput.dz;
 
             // Boss slow: multiplies the player's own move speed only (knockback and
             // pull are external forces and are NOT slowed). Expires on its timer.
-            const slow = this.elapsedTime < this.externalSlowUntil ? this.externalSlowMultiplier : 1;
-            const effectiveSpeed = this.moveSpeed * this.moveSpeedMultiplier * slow;
+            const effectiveSpeed = this.getEffectiveMoveSpeed();
 
             this._scratchVel.set(dx * effectiveSpeed, 0, dz * effectiveSpeed);
 
@@ -557,11 +641,11 @@ export class HeroController {
             this.hero.setPlayerVelocity(this._scratchVel);
         }
 
-        // Clamp hero position inside arena after Champion.update applies velocity
+        // Clamp hero position inside arena after Champion.update applies velocity.
+        // Shared with the co-op input replay (integrateMove.ts) — same math.
         const pos = this.hero.getPosition();
-        const distFromCenter = Math.hypot(pos.x, pos.z);
-        if (distFromCenter > this.arenaRadius - 0.5) {
-            const k = (this.arenaRadius - 0.5) / distFromCenter;
+        const k = arenaClampScale(pos.x, pos.z, this.arenaRadius);
+        if (k !== 1) {
             // hero.getPosition() returns the live position by reference, so write the
             // clamped values straight to it (and the mesh) — no scratch, no double-write.
             const clampedX = pos.x * k;
@@ -575,7 +659,12 @@ export class HeroController {
         }
 
         // Camera follow — position only, rotation is locked at construction.
-        this._scratchCamTarget.set(pos.x, this.cameraHeight, pos.z + this.cameraOffsetZ);
+        // In co-op a focus provider supplies a midpoint + zoomed height; solo
+        // play falls back to the local hero at the constructed height.
+        const focus = this.cameraFocusProvider
+            ? this.cameraFocusProvider()
+            : { x: pos.x, z: pos.z, height: this.cameraHeight };
+        this._scratchCamTarget.set(focus.x, focus.height, focus.z + this.cameraOffsetZ);
         Vector3.LerpToRef(
             this.camera.position,
             this._scratchCamTarget,
@@ -594,8 +683,8 @@ export class HeroController {
             this.cameraShakeTimeRemaining -= deltaTime;
         }
 
-        // Basic auto-attack
-        if (this.basicAttack) this.basicAttack.update(deltaTime);
+        // Basic auto-attack (suspended while spectating / dead)
+        if (this.basicAttack && !this.isDead && !this.spectating) this.basicAttack.update(deltaTime);
     }
 
     public getCamera(): FreeCamera {

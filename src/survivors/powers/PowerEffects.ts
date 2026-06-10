@@ -10,7 +10,8 @@ import { ELEMENT_COLOR } from '../ElementColors';
 import { buildArrowMesh } from './ArrowMesh';
 import { StatusEffect } from '../GameTypes';
 import { getReaction } from './StatusReactions';
-import type { Enemy } from '../enemies/Enemy';
+import { Enemy } from '../enemies/Enemy';
+import { emitCoopFx, isCoopFxActive, isReplayingFx } from '../coop/CoopFx';
 import type { PowerElement, ChampionType } from './PowerDefinitions';
 import type { RichStatusKind } from './StatusModel';
 
@@ -22,6 +23,16 @@ export interface EffectStatus {
 }
 
 const RICH_KINDS: RichStatusKind[] = ['burn', 'chill', 'curse', 'fragile'];
+
+// ── co-op FX replication ('pe' = primitive effect) ───────────────────────────
+// Every VISIBLE primitive below broadcasts a compact 'pe' message at its entry
+// point so the teammate replays the SAME primitive (SurvivorsGameplayState.
+// playRemoteFx) with enemies=[] and zero damage — pure cosmetics, nothing routes
+// through the guest damage/status redirects. Double-gated so:
+//  • single-player pays nothing — isCoopFxActive() is a null check and the JSON
+//    hint is only built once it passes,
+//  • a replayed primitive never re-emits (isReplayingFx()) — no echo loop.
+function shouldEmitFx(): boolean { return isCoopFxActive() && !isReplayingFx(); }
 
 // ── active-effect registry ───────────────────────────────────────────────────
 // Lets resetPowerEffects() tear down any IN-FLIGHT effect (render observer + mesh)
@@ -99,6 +110,10 @@ export interface AoeOpts {
 /** Radial damage to every live enemy within radius + an expanding ring. AoE splash
  *  uses takeDamage directly (reactions fire only on direct hits, not splash). */
 export function aoeBurst(scene: Scene, enemies: Enemy[], x: number, z: number, opts: AoeOpts): void {
+    if (shouldEmitFx()) {
+        emitCoopFx('pe', x, z, undefined, undefined,
+            JSON.stringify({ p: 'aoeBurst', e: opts.element, r: opts.radius, l: opts.ringLifeS }));
+    }
     const r2 = opts.radius * opts.radius;
     for (const e of enemies) {
         if (!e.isAlive()) continue;
@@ -160,8 +175,16 @@ export function resetPowerEffects(): void {
 
 // ── chainHit — bouncing chain, optional split-on-hop ────────────────────────
 /** A fading line bolt between two points. LinesMesh owns its colour (no shared
- *  material to leak); disposed with the observer removed. */
-function spawnBolt(scene: Scene, from: Vector3, to: Vector3, element: PowerElement, lifeS = 0.18): void {
+ *  material to leak); disposed with the observer removed.
+ *  Co-op: chainHit's whole visual is composed of these bolts, and its hop targets
+ *  are enemy-dependent (the teammate can't recompute them), so the 'pe' broadcast
+ *  happens HERE per bolt — the receiver replays each segment verbatim, giving the
+ *  exact chain shape. Bolt count is bounded by chainHit's hit-set de-dup.
+ *  Exported for the co-op replay path only. */
+export function spawnBolt(scene: Scene, from: Vector3, to: Vector3, element: PowerElement, lifeS = 0.18): void {
+    if (shouldEmitFx()) {
+        emitCoopFx('pe', from.x, from.z, to.x, to.z, JSON.stringify({ p: 'bolt', e: element }));
+    }
     const lines = MeshBuilder.CreateLines('fx_bolt', { points: [from, to] }, scene);
     lines.color = ELEMENT_COLOR[element];
     lines.isPickable = false;
@@ -238,6 +261,16 @@ export interface VortexOpts {
 /** A vortex orb at (x,z): pulls live enemies inward each frame, ticks damage, then
  *  emits a final burst. Self-disposing (orb mesh + observer). */
 export function gatherVortex(scene: Scene, enemies: Enemy[], x: number, z: number, opts: VortexOpts): void {
+    if (shouldEmitFx()) {
+        emitCoopFx('pe', x, z, undefined, undefined,
+            JSON.stringify({ p: 'vortex', e: opts.element, r: opts.radius, d: opts.durationS }));
+    }
+    // Captured ONCE at creation: the per-frame observer below outlives the
+    // synchronous withFxReplay() window, so reading isReplayingFx() per frame
+    // would wrongly report false. A replayed vortex must NEVER move enemies —
+    // on the HOST the guest-redirect guard below is null, so without this a
+    // replayed teammate vortex would pull the host's real enemies.
+    const isReplay = isReplayingFx();
     const tickInterval = opts.tickIntervalS ?? 0.2;
     const r2 = opts.radius * opts.radius;
     const orb = MeshBuilder.CreateSphere('fx_vortex', { diameter: 1.0, segments: 8 }, scene);
@@ -258,14 +291,21 @@ export function gatherVortex(scene: Scene, enemies: Enemy[], x: number, z: numbe
         orb.rotation.y += dt * 6;
         const doTick = tickAcc >= tickInterval;
         if (doTick) tickAcc -= tickInterval;
+        // Co-op guest (redirect set): enemies are host-authoritative render copies —
+        // never move them locally or the pull fights the snapshot. Damage/status
+        // below still run (they route to the host via the redirects). A cosmetic
+        // REPLAY (isReplay) must not move enemies on either role.
+        const canMoveEnemies = !Enemy.guestDamageRedirect && !isReplay;
         for (const e of enemies) {
             if (!e.isAlive()) continue;
             const p = e.getPosition();
             const dx = x - p.x, dz = z - p.z;
             if (dx * dx + dz * dz > r2) continue;
-            // Pull inward (mutates the by-ref position; enemy.update copies it to the mesh).
-            p.x += dx * opts.pull * dt;
-            p.z += dz * opts.pull * dt;
+            if (canMoveEnemies) {
+                // Pull inward (mutates the by-ref position; enemy.update copies it to the mesh).
+                p.x += dx * opts.pull * dt;
+                p.z += dz * opts.pull * dt;
+            }
             if (doTick) {
                 e.takeDamage(opts.tickDamage, opts.element);
                 applyStatus(e, opts.status);
@@ -299,6 +339,12 @@ export interface ZoneOpts {
 /** A flat ground disc that ticks damage to enemies inside it for `durationS`, and
  *  can creep toward a point. Cached frozen material; faded via visibility; self-disposing. */
 export function persistentZone(scene: Scene, enemies: Enemy[], x: number, z: number, opts: ZoneOpts): void {
+    if (shouldEmitFx()) {
+        emitCoopFx('pe', x, z, undefined, undefined, JSON.stringify({
+            p: 'zone', e: opts.element, r: opts.radius, d: opts.durationS,
+            cx: opts.crawlToward?.x, cz: opts.crawlToward?.z, cs: opts.crawlSpeed,
+        }));
+    }
     const tickInterval = opts.tickIntervalS ?? 0.5;
     const crawlSpeed = opts.crawlSpeed ?? 1.5;
     let cx = x, cz = z;
@@ -365,6 +411,10 @@ export interface VolleyOpts {
 /** Fire `count` projectiles outward in evenly-spaced directions from (x,z). Each
  *  damages the first live enemy it touches, then is recycled. Pooled via ProjectilePool. */
 export function omniVolley(scene: Scene, enemies: Enemy[], x: number, z: number, opts: VolleyOpts): void {
+    if (shouldEmitFx()) {
+        emitCoopFx('pe', x, z, undefined, undefined,
+            JSON.stringify({ p: 'volley', e: opts.element, c: opts.count, s: opts.speed, l: opts.lifeS }));
+    }
     const lifeS = opts.lifeS ?? 1.2;
     const hr2 = (opts.hitRadius ?? 0.6) ** 2;
     interface Shot { mesh: import('@babylonjs/core').Mesh; vx: number; vz: number; t: number; done: boolean; }
@@ -437,11 +487,26 @@ export function deliverAutocast(
 const ARROW_SPEED = 26;
 const ARROW_MAX_TRAVEL_S = 2.0;
 
+/** Minimal target surface for arrow flight. Enemy satisfies it structurally; the
+ *  co-op replay passes a fixed point (the target's position at emit time) so the
+ *  cosmetic arrow needs no Enemy at all. */
+export interface ArrowFlightTarget {
+    isAlive(): boolean;
+    getPosition(): { x: number; z: number };
+}
+
 /** Fire an arrow from (fromX,fromZ) toward `target`; on impact (or target death /
  *  timeout) call onImpact(x,z) exactly once. The arrow mesh (cached material by
  *  element) is disposed on impact, and the flight observer is torn down cross-run
- *  via the active-effect registry. onImpact is NOT called on cross-run teardown. */
-export function arrowStrike(scene: Scene, fromX: number, fromZ: number, target: Enemy, element: PowerElement, onImpact: (x: number, z: number) => void): void {
+ *  via the active-effect registry. onImpact is NOT called on cross-run teardown.
+ *  Co-op: the replayed arrow flies to the target's position AT EMIT TIME (a fixed
+ *  point — close enough over a ~0.5s flight); its impact FX arrives as the
+ *  impacted primitive's own 'pe' message, so the replay onImpact is a no-op. */
+export function arrowStrike(scene: Scene, fromX: number, fromZ: number, target: ArrowFlightTarget, element: PowerElement, onImpact: (x: number, z: number) => void): void {
+    if (shouldEmitFx()) {
+        const tp0 = target.getPosition();
+        emitCoopFx('pe', fromX, fromZ, tp0.x, tp0.z, JSON.stringify({ p: 'arrow', e: element }));
+    }
     const proj = buildArrowMesh(scene, `fx_arrow_${element}`, ELEMENT_COLOR[element]);
     proj.position.set(fromX, 1, fromZ);
     let elapsed = 0;
