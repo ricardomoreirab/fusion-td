@@ -35,6 +35,12 @@ export class CoopSession {
     onRequestState?:  () => void;
     /** M5-6: the relay reported the other peer left (drives the reconnect grace UX). */
     onPeerLeft?:      () => void;
+    /** M6 D1: the relay reported the dropped peer resumed its slot. */
+    onPeerRejoined?:  () => void;
+    /** M6 D1: any gameplay message arrived from the peer (heroState/snapshot/delta/
+     *  input/fx/requestState). Fallback rejoin signal: traffic proves the peer is
+     *  back even if the relay's peer-rejoined was missed (DO eviction edge). */
+    onPeerTraffic?:   () => void;
     /** Cosmetic FX produced by the remote hero (projectiles/casts/ults) to replay. */
     onFx?:            (msg: FxMsg)            => void;
     // M4-12: host receives the guest's periodic hero summary; guest receives the
@@ -48,16 +54,18 @@ export class CoopSession {
         private now: () => number = () => performance.now(),
     ) {
         this.client.onHeroState = (m) => {
+            this.onPeerTraffic?.();
             this.remoteChamp = m.champ;
             this.remoteAnim = m.anim;
             this.remoteBuffer.push(this.now(), { x: m.x, y: m.y, z: m.z, ry: m.ry });
         };
 
         // M3 guest-side wiring. A full snapshot (keyframe) refreshes the delta base.
-        this.client.onSnapshot      = (m) => { this.latestSnapshot = m; this.baseSnapshot = m; };
+        this.client.onSnapshot      = (m) => { this.onPeerTraffic?.(); this.latestSnapshot = m; this.baseSnapshot = m; };
         // M5-7: apply a delta onto the held base IFF it builds on the tick we have;
         // otherwise drop it (we missed the keyframe) and wait for the next keyframe.
         this.client.onSnapshotDelta = (d) => {
+            this.onPeerTraffic?.();
             if (this.baseSnapshot && d.baseTick === this.baseSnapshot.tick) {
                 const full = applyDelta(this.baseSnapshot, d);
                 this.latestSnapshot = full;
@@ -68,13 +76,15 @@ export class CoopSession {
         this.client.onDeath         = (m) => { this.onDeath?.(m); };
         this.client.onDamageReport  = (m) => { this.onDamageReport?.(m); };
         this.client.onDamageResult  = (m) => { this.onDamageResult?.(m); };
-        this.client.onRequestState  = () => { this.onRequestState?.(); };
+        this.client.onRequestState  = () => { this.onPeerTraffic?.(); this.onRequestState?.(); };
         this.client.onRunSummary    = (m) => { this.onRunSummary?.(m); };
         this.client.onRunOver       = (m) => { this.onRunOver?.(m); };
         this.client.onPeerLeft      = () => { this.onPeerLeft?.(); };
-        this.client.onFx            = (m) => { this.onFx?.(m); };
+        this.client.onPeerRejoined  = () => { this.onPeerRejoined?.(); };
+        this.client.onFx            = (m) => { this.onPeerTraffic?.(); this.onFx?.(m); };
         // M4 host-side: keep only the newest guest input (drop out-of-order/stale).
         this.client.onInput = (m) => {
+            this.onPeerTraffic?.();
             if (m.seq < this.inputSeq) return; // ignore reordered older frames
             this.inputSeq = m.seq;
             this.latestInput = m;

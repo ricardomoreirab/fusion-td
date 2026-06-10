@@ -1639,6 +1639,12 @@ export class SurvivorsGameplayState implements GameState {
         // drop drives OUR resume attempts (M6 D1).
         transport.onClose?.(() => this.onConnectionLost('self'));
         this.coopSession.onPeerLeft = () => this.onConnectionLost('peer');
+        // M6 D1: the peer came back — explicit relay notice, or (fallback) any
+        // gameplay traffic from them proves they resumed. onPeerBack self-gates on
+        // being in a 'peer'-kind grace window, so the per-message tap is a no-op
+        // during normal play.
+        this.coopSession.onPeerRejoined = () => this.onPeerBack();
+        this.coopSession.onPeerTraffic = () => this.onPeerBack();
         // Cosmetic-FX replication (both roles): broadcast the local hero's
         // combat visuals + replay the teammate's. Damage is authoritative
         // elsewhere, so these carry no gameplay effect.
@@ -1836,6 +1842,19 @@ export class SurvivorsGameplayState implements GameState {
         this._connMachine = new ConnectionMachine(30);
         this._connMachine.onPeerLeft(); // connected → reconnecting (30s)
         console.warn(`[coop] connection lost (room ${this._roomCode ?? '?'}, ${this.coopSession.role}, ${kind === 'self' ? 'our socket dropped' : 'peer left'}) — grace window started`);
+    }
+
+    /** M6 D1: the OTHER peer rejoined while we were waiting out THEIR absence —
+     *  dismiss the grace window and resume play. Our wiring is intact (our socket
+     *  never dropped); the rejoined guest re-sends requestState on its re-wire, so
+     *  the host's existing onRequestState flow pushes it the fresh world state.
+     *  No-op unless we're in a 'peer'-kind reconnect (a 'self' drop recovers via
+     *  _attemptResume, and no traffic arrives on a dead socket anyway). */
+    private onPeerBack(): void {
+        if (this._connMachine?.state !== 'reconnecting' || this._connLostKind !== 'peer') return;
+        console.log('[coop] peer rejoined — resuming play');
+        this._connMachine.onPeerRejoined(); // reconnecting → connected
+        this._endReconnect();               // hide overlay + clear the FSM
     }
 
     /** M6 D1: one resume attempt — reconnect into OUR vacated slot (the Room DO

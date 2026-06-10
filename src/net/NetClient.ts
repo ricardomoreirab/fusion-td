@@ -13,6 +13,8 @@ export class NetClient {
     private rttMs = 0;
 
     onPeerLeft?: () => void;
+    /** M6 D1: the relay reported the dropped peer resumed its slot. */
+    onPeerRejoined?: () => void;
     onHeroState?: (msg: HeroStateMsg) => void;
 
     // M3: host-authoritative enemy sync hooks
@@ -133,6 +135,9 @@ export class NetClient {
             }
             case 'peer-left':
                 this.onPeerLeft?.();
+                break;
+            case 'peer-rejoined':
+                this.onPeerRejoined?.();
                 break;
             case 'heroState':
                 this.onHeroState?.(msg);

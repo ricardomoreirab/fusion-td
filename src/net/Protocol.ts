@@ -5,6 +5,8 @@ export type NetRole = 'host' | 'guest';
 
 export interface HelloMsg { t: 'hello'; role: NetRole }
 export interface PeerLeftMsg { t: 'peer-left' }
+/** Relay → surviving peer: the dropped peer resumed its slot (M6 D1). */
+export interface PeerRejoinedMsg { t: 'peer-rejoined'; role?: NetRole }
 export interface PingMsg { t: 'ping'; seq: number; sent: number }
 export interface PongMsg { t: 'pong'; seq: number; sent: number }
 
@@ -118,13 +120,13 @@ export interface RunOverMsg { t: 'runOver'; timeSurvivedSec: number; waveReached
 export interface FxMsg { t: 'fx'; kind: string; x: number; z: number; tx?: number; tz?: number; hint?: string }
 
 export type NetMessage =
-    | HelloMsg | PeerLeftMsg | PingMsg | PongMsg | HeroStateMsg
+    | HelloMsg | PeerLeftMsg | PeerRejoinedMsg | PingMsg | PongMsg | HeroStateMsg
     | SnapshotMsg | SpawnMsg | DeathMsg | DamageReportMsg | DamageResultMsg
     | WaveStartMsg | WaveClearMsg | InputMsg | RequestStateMsg
     | RunSummaryMsg | RunOverMsg | SnapshotDelta | FxMsg;
 
 const KNOWN_TAGS = new Set([
-    'hello', 'peer-left', 'ping', 'pong', 'heroState',
+    'hello', 'peer-left', 'peer-rejoined', 'ping', 'pong', 'heroState',
     'snapshot', 'spawn', 'death', 'damageReport', 'damageResult',
     'wave-start', 'wave-clear', 'input', 'requestState',
     'runSummary', 'runOver', 'snapshotDelta', 'fx',

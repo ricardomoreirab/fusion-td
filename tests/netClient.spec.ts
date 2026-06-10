@@ -32,4 +32,14 @@ describe('NetClient', () => {
         host.flush();
         expect(left).toBe(true);
     });
+
+    it('notifies peer-rejoined (M6 D1)', () => {
+        const [host, guest] = FakeTransport.pair();
+        let rejoined = false;
+        const ca = new NetClient(host);
+        ca.onPeerRejoined = () => { rejoined = true; };
+        guest.send('event', JSON.stringify({ t: 'peer-rejoined', role: 'guest' }));
+        host.flush();
+        expect(rejoined).toBe(true);
+    });
 });

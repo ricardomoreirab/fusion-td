@@ -36,4 +36,31 @@ describe('CoopSession', () => {
         expect(pose!.x).toBeGreaterThan(0);
         expect(pose!.x).toBeLessThan(10);
     });
+
+    it('relays peer-rejoined and reports gameplay traffic (M6 D1 rejoin detection)', () => {
+        const [a, b] = FakeTransport.pair();
+        const host = new CoopSession(new NetClient(a), 'barbarian', () => 0);
+        const guestClient = new NetClient(b);
+        let rejoined = 0;
+        let traffic = 0;
+        host.onPeerRejoined = () => { rejoined++; };
+        host.onPeerTraffic = () => { traffic++; };
+
+        // Relay's explicit notice → onPeerRejoined, NOT gameplay traffic.
+        b.send('event', JSON.stringify({ t: 'peer-rejoined', role: 'guest' }));
+        a.flush();
+        expect(rejoined).toBe(1);
+        expect(traffic).toBe(0);
+
+        // Gameplay messages from the peer → onPeerTraffic (fallback rejoin signal).
+        guestClient.sendHeroState({ seq: 1, x: 0, y: 0, z: 0, ry: 0, champ: 'mage', anim: 0 });
+        a.flush();
+        expect(traffic).toBe(1);
+        guestClient.sendInput({ seq: 1, dx: 0, dz: 1, buttons: 0 });
+        a.flush();
+        expect(traffic).toBe(2);
+        guestClient.sendRequestState();
+        a.flush();
+        expect(traffic).toBe(3);
+    });
 });
