@@ -864,6 +864,9 @@ export class SurvivorsGameplayState implements GameState {
         // allocations. Cleared in exit() so the menu / game-over states never
         // see calls from a stale run.
         this.damageNumbers = new DamageNumberManager(this.game);
+        // Infinite map: enemies render sunk by the globe curvature relative to
+        // the hero (render-only — gameplay positions stay flat).
+        Enemy.curveDropFn = curveDropAt;
         Enemy.onDamageCallback = (position, damage, isCrit, element) => {
             this.damageNumbers?.showDamage(position, damage, element, isCrit);
             // M4-9: mirror EVERY host-side damage number to the guest — its own routed
@@ -2413,6 +2416,7 @@ export class SurvivorsGameplayState implements GameState {
 
         Enemy.onDamageCallback = null;
         Enemy.onRewardCallback = null;
+        Enemy.curveDropFn = null; // globe drop off outside a run
         Enemy.onKillCallback = null;
         Enemy.onShatterCallback = null;
         Enemy.guestDamageRedirect = null; // M4-9: clear the guest damage redirect

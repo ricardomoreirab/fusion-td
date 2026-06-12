@@ -85,6 +85,14 @@ export class Enemy {
      */
     public static onDamageCallback: ((position: Vector3, damage: number, isCrit: boolean, element?: PowerElement) => void) | null = null;
     public static onRewardCallback: ((position: Vector3, reward: number) => void) | null = null;
+    /** Render-only globe-curvature hook (infinite map). When set, mesh and
+     *  health-bar Y positions sink by drop(x, z) — gameplay `this.position`
+     *  stays flat (all distances/AI/network use flat space). Static so host
+     *  enemies AND guest render copies share it; wired in startRun and cleared
+     *  in SurvivorsGameplayState.exit() like the guest*Redirect statics. */
+    public static curveDropFn: ((x: number, z: number) => number) | null = null;
+    /** This frame's drop for this enemy — computed once per update/network tick. */
+    protected _curveDropY = 0;
     /** Co-op guest only (M4-9): when set, takeDamage reports the hit to the host by id
      *  and applies nothing locally (host-authoritative). Null on host + single-player. */
     public static guestDamageRedirect: ((enemyId: number, amount: number, element?: PowerElement) => void) | null = null;
@@ -513,7 +521,7 @@ export class Enemy {
         if (!this.mesh || !this.healthBarMesh || !this.healthBarBackgroundMesh) return;
 
         const { width } = this._barDims();
-        const y = this.position.y + this.barHeightOffset;
+        const y = this.position.y + this.barHeightOffset - this._curveDropY; // follow the globe drop
 
         // Calculate health percentage
         const healthPercent = Math.max(0, this.health / this.maxHealth);
@@ -694,8 +702,11 @@ export class Enemy {
                 this._scratchDir.normalize();
             }
 
+            this._curveDropY = Enemy.curveDropFn
+                ? Enemy.curveDropFn(this.position.x, this.position.z) : 0;
             if (this.mesh && !this.mesh.isDisposed()) {
                 this.mesh.position.copyFrom(this.position);
+                this.mesh.position.y -= this._curveDropY; // render-only globe drop
                 if (dist > 0.01) {
                     this.mesh.rotation.y = Math.atan2(-this._scratchDir.x, -this._scratchDir.z);
                 }
@@ -808,6 +819,7 @@ export class Enemy {
         // Update mesh position if it still exists
         if (this.mesh && !this.mesh.isDisposed()) {
             this.mesh.position.copyFrom(this.position);
+            this.mesh.position.y -= this._curveDropY; // render-only globe drop
         }
         
         // Update health bar position if it still exists
@@ -1948,6 +1960,7 @@ export class Enemy {
         this.position.z += dirZ * magnitude;
         if (this.mesh && !this.mesh.isDisposed()) {
             this.mesh.position.copyFrom(this.position);
+            this.mesh.position.y -= this._curveDropY; // render-only globe drop
         }
     }
 
@@ -2117,8 +2130,11 @@ export class Enemy {
         this.position.x = x;
         this.position.y = y;
         this.position.z = z;
+        // Guest render copy: same render-only globe drop as the host's update().
+        this._curveDropY = Enemy.curveDropFn ? Enemy.curveDropFn(x, z) : 0;
         if (!this.mesh.isDisposed()) {
             this.mesh.position.copyFrom(this.position);
+            this.mesh.position.y -= this._curveDropY;
             this.mesh.rotation.y = ry;
         }
     }
