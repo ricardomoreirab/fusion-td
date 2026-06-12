@@ -708,6 +708,7 @@ export class HeroController {
     }
 
     public dispose(): void {
+        this.basicAttack?.dispose(); // shared flight observer + streak pool
         this.camera.dispose();
     }
 }

@@ -1302,12 +1302,17 @@ export class SurvivorsGameplayState implements GameState {
         // cap, wider blades (foreshortening at grazing angles keeps it reading
         // dense). The radial fade clips it just past the cap rim so the horizon
         // crest stays grassy without blades floating over open sky.
+        // LOD: 2 curve segments (12 verts vs 20 — curve detail is invisible at
+        // distance) and no influencer bend loop (characters never reach it),
+        // which together cut this layer's vertex cost to a fraction.
         this.grassFar = createProceduralGrass(scene, {
             tileSize: GRASS_FAR_TILE_SIZE,
             curveRadius: GLOBE_RADIUS,
             bladeCount: Math.floor(bladeCountForQuality(GameSettings.getGraphicsQuality()) / 2),
             bladeWidth: 0.12,
             bladeHeight: 0.50,
+            bladeSegments: 2,
+            influencers: false,
             fadeStart: GRASS_FAR_FADE_START,
             fadeEnd: GRASS_FAR_FADE_END,
             directionalLight: this.shadowSourceLight ?? undefined,
@@ -1315,8 +1320,6 @@ export class SurvivorsGameplayState implements GameState {
             colorRoot: new Color3(0.18, 0.26, 0.10),
             colorTip:  new Color3(0.55, 0.78, 0.30),
             colorDry:  new Color3(0.72, 0.65, 0.32),
-            influencerRadius: 0.9,
-            influencerStrength: 0.55,
         });
 
 
@@ -2895,7 +2898,6 @@ export class SurvivorsGameplayState implements GameState {
                 }
             }
             this.grass.setInfluencers(influencers);
-            this.grassFar?.setInfluencers(influencers);
         }
 
         _measure('hero');

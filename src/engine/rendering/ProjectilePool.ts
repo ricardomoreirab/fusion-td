@@ -93,9 +93,7 @@ export function releaseProjectile(key: string, mesh: Mesh): void {
 
 /**
  * Dispose all pooled meshes and clear all pools.
- * Call this alongside clearMaterialCache() on full scene reset.
- *
- * TODO: wire into game scene-cleanup path.
+ * Called alongside clearMaterialCache() from SurvivorsGameplayState.exit().
  */
 export function clearProjectilePools(): void {
     for (const pool of pools.values()) {

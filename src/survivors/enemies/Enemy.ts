@@ -4,7 +4,7 @@ import { EnemyType, StatusEffect } from '../GameTypes';
 import { PowerElement } from '../powers/PowerDefinitions';
 import { StatusStacks, STATUS_TUNING, type RichStatusKind } from '../powers/StatusModel';
 import { type TargetProvider, pickNearestAlive } from './nearestTarget';
-import { isCachedMaterial } from '../../engine/rendering/MaterialCache';
+import { isCachedMaterial, getCachedMaterial } from '../../engine/rendering/MaterialCache';
 import type { SnapshotEnemy } from '../../net/Protocol';
 
 // One-time per-enemy-class log when a GLB has no recognizable death clip, so the
@@ -25,6 +25,22 @@ export const HEALTH_COLOR_RED    = new Color3(0.8, 0.2, 0.2);
  *  bars always draw ON TOP of the enemy mesh — they stay visible no matter how
  *  large the model is (big bosses used to occlude their own bar). */
 export const HEALTH_BAR_RENDER_GROUP = 1;
+
+/** Health-fill color band. Bar color changes by SWAPPING between the three
+ *  shared cached materials below — never by mutating a material's color, which
+ *  would recolor every enemy at once (the materials are shared + frozen). */
+export type HealthBarBand = 'green' | 'yellow' | 'red';
+
+/** Shared cached fill material for a band. One frozen StandardMaterial per band
+ *  for ALL enemies (was: 1 fresh material per enemy per spawn). */
+export function healthBarFillMaterial(scene: Scene, band: HealthBarBand): StandardMaterial {
+    const color = band === 'green' ? HEALTH_COLOR_GREEN
+        : band === 'yellow' ? HEALTH_COLOR_YELLOW : HEALTH_COLOR_RED;
+    return getCachedMaterial(scene, `healthBarFillMat_${band}`, m => {
+        m.diffuseColor = color;
+        m.specularColor = Color3.Black();
+    });
+}
 
 // Per-hit emissive tint — module-level constant so flashHit doesn't allocate
 // a fresh Color3 on every damage event (every chain-lightning sub-hit etc.).
@@ -120,6 +136,9 @@ export class Enemy {
     protected healthBarMesh: Mesh | null = null;
     protected healthBarBackgroundMesh: Mesh | null = null;
     protected healthBarOutlineMesh: Mesh | null = null;
+    /** Current fill-color band — the (shared) fill material is swapped only when
+     *  this changes, instead of reassigning a color every frame. */
+    protected _barBand: HealthBarBand | null = null;
 
     // HP-bar tier driven visual tweaks (set via applyHealthBarTier or subclass override).
     // Normal: thin bar. Elite: 1.5× wider, orange frame. Boss: 2.5× wider,
@@ -413,51 +432,58 @@ export class Enemy {
 
         const { width, height } = this._barDims();
         const y = this.position.y + this.barHeightOffset;
+        this._barBand = null; // force the fill-material assignment in updateHealthBar
 
-        // Frame color + glow per tier
-        let frameColor: Color3;
-        let frameEmissive: Color3;
-        if (this.barTier === 'boss') {
-            frameColor    = new Color3(1.0, 0.20, 0.15);
-            frameEmissive = new Color3(0.55, 0.10, 0.05);
-        } else if (this.barTier === 'elite') {
-            frameColor    = new Color3(1.0, 0.55, 0.15);
-            frameEmissive = new Color3(0.35, 0.18, 0.04);
-        } else {
-            frameColor    = new Color3(0, 0, 0);
-            frameEmissive = Color3.Black();
+        // All bar materials are shared cached instances (healthBarFillMaterial +
+        // the frame/bg variants below) — was 3 fresh StandardMaterials per spawn.
+
+        // Frame: elite/boss get a dedicated glowing outline mesh behind the bar.
+        // The basic tier (the bulk of the horde) skips it — its background IS the
+        // frame-sized near-black slab, same framed look with one less mesh each.
+        if (this.barTier === 'boss' || this.barTier === 'elite') {
+            this.healthBarOutlineMesh = MeshBuilder.CreateBox('healthBarOutline', {
+                width:  width  + 0.08,
+                height: height + 0.06,
+                depth:  0.04,
+            }, this.scene);
+            this.healthBarOutlineMesh.position = new Vector3(this.position.x, y, this.position.z);
+            this.healthBarOutlineMesh.material = getCachedMaterial(
+                this.scene, `healthBarFrameMat_${this.barTier}`, m => {
+                    if (this.barTier === 'boss') {
+                        m.diffuseColor  = new Color3(1.0, 0.20, 0.15);
+                        m.emissiveColor = new Color3(0.55, 0.10, 0.05);
+                    } else {
+                        m.diffuseColor  = new Color3(1.0, 0.55, 0.15);
+                        m.emissiveColor = new Color3(0.35, 0.18, 0.04);
+                    }
+                    m.specularColor = Color3.Black();
+                });
+            this.healthBarOutlineMesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
         }
 
-        // Outline / frame (slightly larger than background)
-        this.healthBarOutlineMesh = MeshBuilder.CreateBox('healthBarOutline', {
-            width:  width  + 0.08,
-            height: height + 0.06,
-            depth:  0.04,
+        // Background. Basic tier: frame-sized near-black slab (doubles as the
+        // frame). Elite/boss: classic gray inset behind the fill.
+        const basicTier = this.barTier !== 'boss' && this.barTier !== 'elite';
+        this.healthBarBackgroundMesh = MeshBuilder.CreateBox('healthBarBg', {
+            width:  basicTier ? width  + 0.08 : width,
+            height: basicTier ? height + 0.06 : height,
+            depth: 0.05,
         }, this.scene);
-        this.healthBarOutlineMesh.position = new Vector3(this.position.x, y, this.position.z);
-        const outlineMaterial = new StandardMaterial('healthBarOutlineMaterial', this.scene);
-        outlineMaterial.diffuseColor  = frameColor;
-        outlineMaterial.emissiveColor = frameEmissive;
-        outlineMaterial.specularColor = Color3.Black();
-        this.healthBarOutlineMesh.material = outlineMaterial;
-
-        // Background (gray)
-        this.healthBarBackgroundMesh = MeshBuilder.CreateBox('healthBarBg', { width, height, depth: 0.05 }, this.scene);
         this.healthBarBackgroundMesh.position = new Vector3(this.position.x, y, this.position.z);
-        const bgMaterial = new StandardMaterial('healthBarBgMaterial', this.scene);
-        bgMaterial.diffuseColor  = new Color3(0.3, 0.3, 0.3);
-        bgMaterial.specularColor = Color3.Black();
-        this.healthBarBackgroundMesh.material = bgMaterial;
+        this.healthBarBackgroundMesh.material = basicTier
+            ? getCachedMaterial(this.scene, 'healthBarBgFrameMat', m => {
+                m.diffuseColor  = new Color3(0.05, 0.05, 0.05);
+                m.specularColor = Color3.Black();
+            })
+            : getCachedMaterial(this.scene, 'healthBarBgMat', m => {
+                m.diffuseColor  = new Color3(0.3, 0.3, 0.3);
+                m.specularColor = Color3.Black();
+            });
 
-        // Foreground (green health fill)
+        // Foreground (health fill) — material assigned by updateHealthBar's band swap.
         this.healthBarMesh = MeshBuilder.CreateBox('healthBar', { width, height, depth: 0.06 }, this.scene);
         this.healthBarMesh.position = new Vector3(this.position.x, y, this.position.z);
-        const healthMaterial = new StandardMaterial('healthBarMaterial', this.scene);
-        healthMaterial.diffuseColor  = HEALTH_COLOR_GREEN;
-        healthMaterial.specularColor = Color3.Black();
-        this.healthBarMesh.material = healthMaterial;
 
-        this.healthBarOutlineMesh.billboardMode    = Mesh.BILLBOARDMODE_ALL;
         this.healthBarBackgroundMesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
         this.healthBarMesh.billboardMode           = Mesh.BILLBOARDMODE_ALL;
 
@@ -470,10 +496,10 @@ export class Enemy {
                     height: height + 0.02,
                     depth:  0.07,
                 }, this.scene);
-                const segMat = new StandardMaterial(`segMat_${i}`, this.scene);
-                segMat.diffuseColor  = Color3.Black();
-                segMat.specularColor = Color3.Black();
-                seg.material        = segMat;
+                seg.material = getCachedMaterial(this.scene, 'healthBarSegMat', m => {
+                    m.diffuseColor  = Color3.Black();
+                    m.specularColor = Color3.Black();
+                });
                 seg.billboardMode   = Mesh.BILLBOARDMODE_ALL;
                 seg.position        = new Vector3(this.position.x, y, this.position.z);
                 this.barSegmentMeshes.push(seg);
@@ -533,15 +559,9 @@ export class Enemy {
         const offset = (1 - healthPercent) * (width * 0.5);
         this.healthBarMesh.position.x = this.position.x - offset;
 
-        // Update health bar color based on health percentage (use cached Color3 to avoid per-frame allocs)
-        const material = this.healthBarMesh.material as StandardMaterial;
-        if (healthPercent > 0.6) {
-            material.diffuseColor = HEALTH_COLOR_GREEN;
-        } else if (healthPercent > 0.3) {
-            material.diffuseColor = HEALTH_COLOR_YELLOW;
-        } else {
-            material.diffuseColor = HEALTH_COLOR_RED;
-        }
+        // Update health bar color band (swaps the shared cached material — only
+        // when the band actually changes, never a per-frame material write).
+        this.applyHealthBarBand(healthPercent);
 
         // Position outline behind everything
         if (this.healthBarOutlineMesh && !this.healthBarOutlineMesh.isDisposed()) {
@@ -577,32 +597,36 @@ export class Enemy {
         }
     }
 
-    /** Dispose only the health-bar meshes/materials (keeps the enemy alive). */
+    /** Swap the fill mesh's shared cached material when the health band changes.
+     *  Shared by the base and subclass updateHealthBar overrides. */
+    protected applyHealthBarBand(healthPercent: number): void {
+        const band: HealthBarBand = healthPercent > 0.6 ? 'green'
+            : healthPercent > 0.3 ? 'yellow' : 'red';
+        if (band !== this._barBand && this.healthBarMesh) {
+            this._barBand = band;
+            this.healthBarMesh.material = healthBarFillMaterial(this.scene, band);
+        }
+    }
+
+    /** Dispose only the health-bar meshes (keeps the enemy alive). Bar materials
+     *  are SHARED cached instances — never dispose them here (that would break
+     *  every other live bar referencing them; clearMaterialCache() frees them on
+     *  run teardown). Only the per-instance boss label material/texture is freed. */
     private _disposeHealthBarMeshes(): void {
         if (this.healthBarMesh) {
-            const m = this.healthBarMesh.material;
             this.healthBarMesh.dispose();
-            if (m) m.dispose();
             this.healthBarMesh = null;
         }
         if (this.healthBarBackgroundMesh) {
-            const m = this.healthBarBackgroundMesh.material;
             this.healthBarBackgroundMesh.dispose();
-            if (m) m.dispose();
             this.healthBarBackgroundMesh = null;
         }
         if (this.healthBarOutlineMesh) {
-            const m = this.healthBarOutlineMesh.material;
             this.healthBarOutlineMesh.dispose();
-            if (m) m.dispose();
             this.healthBarOutlineMesh = null;
         }
         for (const seg of this.barSegmentMeshes) {
-            if (seg && !seg.isDisposed()) {
-                const m = seg.material;
-                seg.dispose();
-                if (m) m.dispose();
-            }
+            if (seg && !seg.isDisposed()) seg.dispose();
         }
         this.barSegmentMeshes = [];
         if (this.barLabelMesh) {

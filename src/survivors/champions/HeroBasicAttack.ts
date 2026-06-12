@@ -1,4 +1,4 @@
-import { Scene, Vector3, MeshBuilder, Mesh, Color3 } from '@babylonjs/core';
+import { Scene, Vector3, MeshBuilder, Mesh, Color3, Observer } from '@babylonjs/core';
 import { Champion } from './Champion';
 import { PowerSlotManager } from '../powers/PowerSlotManager';
 import { EnchantmentHitContext, PowerElement } from '../powers/PowerDefinitions';
@@ -29,6 +29,28 @@ export type ProjectileShape = 'sphere' | 'arrow' | 'mageBolt';
 /** Delay between the main melee swing and each queued follow-up spin. */
 const EXTRA_SPIN_DELAY = 0.15;
 
+/** In-flight projectile state, advanced by the ONE shared per-frame observer
+ *  (was: one observer registered per projectile — dozens of live observers
+ *  with attack-speed builds). */
+interface ProjectileFlight {
+    proj: Mesh;
+    poolKey: string;
+    target: BasicAttackTarget;
+    shape: ProjectileShape;
+    trailColor: Color3;
+    trailTimer: number;
+    capturedDamage: number;
+    heroPos: Vector3;
+    allEnemies: Enemy[];
+    /** Seconds in flight — released at 3s as a safety net. */
+    age: number;
+}
+
+/** Fading trail puff driven by the shared observer (meshes pooled). */
+interface StreakPuff { mesh: Mesh; elapsed: number; }
+const STREAK_LIFETIME_S = 0.22;
+const STREAK_POOL_MAX = 48;
+
 export class HeroBasicAttack {
     private scene: Scene;
     private hero: Champion;
@@ -54,6 +76,12 @@ export class HeroBasicAttack {
 
     // For melee: reference to full enemy list for AOE
     private enemyProvider: (() => Enemy[]) | null = null;
+
+    // Shared flight machinery: ONE observer advances every projectile + streak.
+    private liveProjectiles: ProjectileFlight[] = [];
+    private liveStreaks: StreakPuff[] = [];
+    private streakPool: Mesh[] = [];
+    private flightObserver: Observer<Scene> | null = null;
 
     /**
      * When set (co-op guest), a hit reports to the host instead of mutating enemy HP.
@@ -612,99 +640,138 @@ export class HeroBasicAttack {
         if (this.projectileShape === 'arrow') {
             proj.rotation.y = Math.atan2(target.position.x - from.x, target.position.z - from.z);
         }
-        // Element-colored streak behind the arrow while it flies (gold when no
-        // elements are equipped yet).
-        const trailColor = tint ?? new Color3(1, 0.85, 0.5);
-        let trailTimer = 0;
 
-        const speed = 22;
-        const startTime = performance.now() / 1000;
-        // Snapshot damage at fire time — projectile carries that value; upgrades
-        // mid-flight don't retroactively buff already-fired arrows.
-        const capturedDamage = this.effectiveDamage;
-        const heroPos = from;
-        const allEnemies = this.enemyProvider ? this.enemyProvider() : [];
-        const shape = this.projectileShape;
+        // Hand the flight to the single shared observer (see updateFlights).
+        this.liveProjectiles.push({
+            proj,
+            poolKey,
+            target,
+            shape: this.projectileShape,
+            // Element-colored streak behind the arrow while it flies (gold when
+            // no elements are equipped yet).
+            trailColor: tint ?? new Color3(1, 0.85, 0.5),
+            trailTimer: 0,
+            // Snapshot damage at fire time — projectile carries that value;
+            // upgrades mid-flight don't retroactively buff already-fired arrows.
+            capturedDamage: this.effectiveDamage,
+            heroPos: from,
+            allEnemies: this.enemyProvider ? this.enemyProvider() : [],
+            age: 0,
+        });
+        this.ensureFlightObserver();
+    }
 
-        const observer = this.scene.onBeforeRenderObservable.add(() => {
-            if (!observer) return;
-            if (!target.isAlive()) {
-                releaseProjectile(poolKey, proj);
-                this.scene.onBeforeRenderObservable.remove(observer);
-                return;
-            }
-            _scratchA.copyFrom(target.position);
-            _scratchA.y = 1;
-            _scratchA.subtractToRef(proj.position, _scratchB);
-            const dist = _scratchB.length();
-
-            // Orient arrow to face travel direction
-            if (shape === 'arrow' && dist > 0.01) {
-                proj.rotation.y = Math.atan2(_scratchB.x, _scratchB.z);
-            }
-
-            if (dist < 0.4) {
-                // Resolve the actual Enemy instance behind the BasicAttackTarget so we
-                // have applyKnockback AND can route damage to the host in co-op.
-                const enemyHit = allEnemies.find(e => {
-                    const ep = e.getPosition();
-                    const dx = ep.x - target.position.x;
-                    const dz = ep.z - target.position.z;
-                    return Math.hypot(dx, dz) < 0.5 && e.isAlive();
-                });
-                // Co-op guest: always route to host, never mutate local HP.
-                // Use the proximity-resolved enemy; fall back to the Enemy
-                // carried on the target if the proximity find returned null.
-                const hitEnemy = enemyHit ?? target.enemy;
-                if (this.damageRouter) {
-                    if (hitEnemy) this.damageRouter(hitEnemy, capturedDamage, 'physical');
-                    // guest: never local takeDamage on a shared enemy
-                } else {
-                    target.takeDamage(capturedDamage, 'physical');
-                }
-                if (this.healCallback && this.playerStats && this.playerStats.lifestealPct > 0) {
-                    this.healCallback(capturedDamage * this.playerStats.lifestealPct);
-                }
-                // Apply enchantments AND knockback on projectile hit.
-                if (enemyHit) {
-                    const knockback = this.playerStats?.knockbackOnHit ?? 0;
-                    if (knockback > 0) {
-                        // Direction: hero → impact point (matches projectile travel direction).
-                        const tx = target.position.x - heroPos.x;
-                        const tz = target.position.z - heroPos.z;
-                        const tlen = Math.hypot(tx, tz);
-                        if (tlen > 0.001) {
-                            enemyHit.applyKnockback(tx / tlen, tz / tlen, knockback);
-                        }
-                    }
-                    if (this.powerSlots) {
-                        this.applyEnchantments(enemyHit, heroPos, allEnemies);
-                    }
-                }
-                releaseProjectile(poolKey, proj);
-                this.scene.onBeforeRenderObservable.remove(observer);
-                return;
-            }
+    /** Lazily register the ONE observer that advances every live projectile and
+     *  trail puff. Replaces the old observer-per-projectile/per-puff pattern,
+     *  whose observer count scaled with attack speed. */
+    private ensureFlightObserver(): void {
+        if (this.flightObserver) return;
+        this.flightObserver = this.scene.onBeforeRenderObservable.add(() => {
             const dt = this.scene.getEngine().getDeltaTime() / 1000;
-            const step = Math.min(dist, speed * dt);
-            _scratchB.normalize();
-            _scratchB.scaleInPlace(step);
-            proj.position.addInPlace(_scratchB);
 
-            if (shape === 'arrow' || shape === 'mageBolt') {
-                trailTimer += dt;
-                if (trailTimer >= 0.06) {
-                    trailTimer = 0;
-                    this.spawnFlightStreak(proj.position, trailColor);
+            // Backwards with swap-remove so releases don't shift the array.
+            for (let i = this.liveProjectiles.length - 1; i >= 0; i--) {
+                if (!this.stepProjectile(this.liveProjectiles[i], dt)) {
+                    this.liveProjectiles[i] = this.liveProjectiles[this.liveProjectiles.length - 1];
+                    this.liveProjectiles.pop();
                 }
             }
 
-            // Safety: release after 3s of flight
-            if (performance.now() / 1000 - startTime > 3) {
-                releaseProjectile(poolKey, proj);
-                this.scene.onBeforeRenderObservable.remove(observer);
+            for (let i = this.liveStreaks.length - 1; i >= 0; i--) {
+                const s = this.liveStreaks[i];
+                s.elapsed += dt;
+                const t = Math.min(s.elapsed / STREAK_LIFETIME_S, 1);
+                s.mesh.scaling.setAll(1 - t);
+                s.mesh.visibility = 1 - t;
+                if (t >= 1) {
+                    this.releaseStreak(s.mesh);
+                    this.liveStreaks[i] = this.liveStreaks[this.liveStreaks.length - 1];
+                    this.liveStreaks.pop();
+                }
             }
         });
+    }
+
+    /** Advance one projectile by dt. Returns false when the flight ended (the
+     *  projectile has been released back to the pool). */
+    private stepProjectile(f: ProjectileFlight, dt: number): boolean {
+        const { proj, target } = f;
+        if (!target.isAlive()) {
+            releaseProjectile(f.poolKey, proj);
+            return false;
+        }
+        _scratchA.copyFrom(target.position);
+        _scratchA.y = 1;
+        _scratchA.subtractToRef(proj.position, _scratchB);
+        const dist = _scratchB.length();
+
+        // Orient arrow to face travel direction
+        if (f.shape === 'arrow' && dist > 0.01) {
+            proj.rotation.y = Math.atan2(_scratchB.x, _scratchB.z);
+        }
+
+        if (dist < 0.4) {
+            // Resolve the actual Enemy instance behind the BasicAttackTarget so we
+            // have applyKnockback AND can route damage to the host in co-op. The
+            // target usually carries its Enemy; the O(n) proximity find is only the
+            // fallback for providers that don't set it.
+            const hitEnemy = target.enemy ?? f.allEnemies.find(e => {
+                const ep = e.getPosition();
+                const dx = ep.x - target.position.x;
+                const dz = ep.z - target.position.z;
+                return dx * dx + dz * dz < 0.25 && e.isAlive();
+            });
+            // Co-op guest: always route to host, never mutate local HP.
+            if (this.damageRouter) {
+                if (hitEnemy) this.damageRouter(hitEnemy, f.capturedDamage, 'physical');
+                // guest: never local takeDamage on a shared enemy
+            } else {
+                target.takeDamage(f.capturedDamage, 'physical');
+            }
+            if (this.healCallback && this.playerStats && this.playerStats.lifestealPct > 0) {
+                this.healCallback(f.capturedDamage * this.playerStats.lifestealPct);
+            }
+            // Apply enchantments AND knockback on projectile hit.
+            if (hitEnemy) {
+                const knockback = this.playerStats?.knockbackOnHit ?? 0;
+                if (knockback > 0) {
+                    // Direction: hero → impact point (matches projectile travel direction).
+                    const tx = target.position.x - f.heroPos.x;
+                    const tz = target.position.z - f.heroPos.z;
+                    const tlen = Math.hypot(tx, tz);
+                    if (tlen > 0.001) {
+                        hitEnemy.applyKnockback(tx / tlen, tz / tlen, knockback);
+                    }
+                }
+                if (this.powerSlots) {
+                    this.applyEnchantments(hitEnemy, f.heroPos, f.allEnemies);
+                }
+            }
+            releaseProjectile(f.poolKey, proj);
+            return false;
+        }
+
+        const speed = 22;
+        const step = Math.min(dist, speed * dt);
+        _scratchB.normalize();
+        _scratchB.scaleInPlace(step);
+        proj.position.addInPlace(_scratchB);
+
+        if (f.shape === 'arrow' || f.shape === 'mageBolt') {
+            f.trailTimer += dt;
+            if (f.trailTimer >= 0.06) {
+                f.trailTimer = 0;
+                this.spawnFlightStreak(proj.position, f.trailColor);
+            }
+        }
+
+        // Safety: release after 3s of flight
+        f.age += dt;
+        if (f.age > 3) {
+            releaseProjectile(f.poolKey, proj);
+            return false;
+        }
+        return true;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -734,12 +801,20 @@ export class HeroBasicAttack {
         }
     }
 
-    /** Small fading puff behind an in-flight projectile. Material is cached by
-     *  color hex (one per element blend — bounded); the fade is mesh-local
-     *  (scaling + visibility) so the shared material is never mutated. */
+    /** Small fading puff behind an in-flight projectile. Meshes come from a
+     *  pool (was: a fresh sphere + observer every 0.06s per arrow); the fade is
+     *  driven by the shared flight observer. Material is cached by color hex
+     *  (one per element blend — bounded) and never mutated. */
     private spawnFlightStreak(position: Vector3, color: Color3): void {
         const scene = this.scene;
-        const puff = MeshBuilder.CreateSphere('basicAttackStreak', { diameter: 0.14, segments: 3 }, scene);
+        let puff = this.streakPool.pop();
+        if (!puff) {
+            puff = MeshBuilder.CreateSphere('basicAttackStreak', { diameter: 0.14, segments: 3 }, scene);
+            puff.isPickable = false;
+        }
+        puff.setEnabled(true);
+        puff.scaling.setAll(1);
+        puff.visibility = 1;
         puff.position.copyFrom(position);
         puff.material = getCachedMaterial(scene, `basicAttackStreakMat_${color.toHexString()}`, m => {
             m.emissiveColor = color;
@@ -747,18 +822,32 @@ export class HeroBasicAttack {
             m.disableLighting = true;
             m.alpha = 0.7;
         });
-        const duration = 0.22;
-        let elapsed = 0;
-        const obs = scene.onBeforeRenderObservable.add(() => {
-            elapsed += scene.getEngine().getDeltaTime() / 1000;
-            const t = Math.min(elapsed / duration, 1);
-            puff.scaling.setAll(1 - t);
-            puff.visibility = 1 - t;
-            if (t >= 1) {
-                puff.dispose(); // cached/shared material — keep it
-                scene.onBeforeRenderObservable.remove(obs);
-            }
-        });
+        this.liveStreaks.push({ mesh: puff, elapsed: 0 });
+    }
+
+    /** Return a faded puff to the pool (or dispose past the cap). */
+    private releaseStreak(mesh: Mesh): void {
+        if (this.streakPool.length < STREAK_POOL_MAX) {
+            mesh.setEnabled(false);
+            this.streakPool.push(mesh);
+        } else {
+            mesh.dispose(); // cached/shared material — keep it
+        }
+    }
+
+    /** Tear down the shared flight observer, live projectiles, and the streak
+     *  pool. Called from HeroController.dispose() on run exit. */
+    public dispose(): void {
+        if (this.flightObserver) {
+            this.scene.onBeforeRenderObservable.remove(this.flightObserver);
+            this.flightObserver = null;
+        }
+        for (const f of this.liveProjectiles) releaseProjectile(f.poolKey, f.proj);
+        this.liveProjectiles.length = 0;
+        for (const s of this.liveStreaks) s.mesh.dispose();
+        this.liveStreaks.length = 0;
+        for (const m of this.streakPool) m.dispose();
+        this.streakPool.length = 0;
     }
 
     private getHeroPosition(): Vector3 {

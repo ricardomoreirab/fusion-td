@@ -28,11 +28,9 @@ import {
 
 const SHADER_KEY = 'ktgGrass';
 
-// Blade geometry constants. 4 segments → 5 height levels per side, 2 edges,
+// Default blade curve segments. 4 segments → 5 height levels per side, 2 edges,
 // 2 faces (front + back). 5 × 2 × 2 = 20 verts, 16 triangles per blade.
 const BLADE_SEGS = 4;
-const BLADE_DIVS = BLADE_SEGS + 1;
-const BLADE_VERTS_PER_SIDE = BLADE_DIVS * 2;
 
 /** Max simultaneous character displacement sources passed to the shader.
  *  Mirrors the const MAX_INFLUENCERS in the vertex shader. */
@@ -153,6 +151,9 @@ void main(void) {
     // along the XZ vector from influencer to blade. Falloff is (1 - d/r)²,
     // so the effect dies off smoothly past the radius. Tips bend more than
     // roots via hpct². No branching — far-away unused slots just contribute 0.
+    // Compiled out entirely (INFLUENCERS define) for layers whose blades
+    // characters never reach — this loop dominates the vertex cost.
+#ifdef INFLUENCERS
     vec2 push = vec2(0.0);
     for (int i = 0; i < 16; i++) {
         vec2 to = worldPos.xz - uInfluencers[i].xz;
@@ -171,6 +172,7 @@ void main(void) {
     push *= uInfluencerStrength * pushJitter * pushWobble * hpct * hpct;
     worldPos.x += push.x;
     worldPos.z += push.y;
+#endif
 
     // Subtle ambient sway so blades aren't completely still when no one's
     // nearby — much smaller amplitude than before since the headline motion
@@ -286,15 +288,17 @@ void main(void) {
 // any custom vertex attributes.
 // ──────────────────────────────────────────────────────────────────────────────
 
-function buildBladeMesh(scene: Scene, width: number, height: number): Mesh {
+function buildBladeMesh(scene: Scene, width: number, height: number, segs: number = BLADE_SEGS): Mesh {
+    const divs = segs + 1;
+    const vertsPerSide = divs * 2;
     const positions: number[] = [];
     const uvs: number[] = [];
     const indices: number[] = [];
 
     for (let face = 0; face < 2; face++) {
         const side = face === 0 ? 1 : -1;
-        for (let i = 0; i < BLADE_DIVS; i++) {
-            const t = i / BLADE_SEGS;
+        for (let i = 0; i < divs; i++) {
+            const t = i / segs;
             positions.push(-0.5 * width, t * height, side);
             uvs.push(0, t);
             positions.push(0.5 * width, t * height, side);
@@ -304,13 +308,13 @@ function buildBladeMesh(scene: Scene, width: number, height: number): Mesh {
 
     // Front face winding.
     let vc = 0;
-    for (let seg = 0; seg < BLADE_SEGS; seg++) {
+    for (let seg = 0; seg < segs; seg++) {
         indices.push(vc + 0, vc + 1, vc + 2, vc + 2, vc + 1, vc + 3);
         vc += 2;
     }
     // Back face — reversed winding so the back triangles face the opposite way.
-    vc = BLADE_VERTS_PER_SIDE;
-    for (let seg = 0; seg < BLADE_SEGS; seg++) {
+    vc = vertsPerSide;
+    for (let seg = 0; seg < segs; seg++) {
         indices.push(vc + 2, vc + 1, vc + 0, vc + 3, vc + 1, vc + 2);
         vc += 2;
     }
@@ -361,6 +365,13 @@ export interface ProceduralGrassOptions {
      *  so blades never float past the terrain cap's rim. Omit = no fade. */
     fadeStart?: number;
     fadeEnd?: number;
+    /** Curve segments per blade (default 4 → 20 verts). Far-field layers can
+     *  drop to 2 (12 verts) — the curve detail is invisible at distance. */
+    bladeSegments?: number;
+    /** false compiles the shader WITHOUT the 16-influencer bend loop (the
+     *  dominant vertex cost). Use for layers characters never walk through.
+     *  setInfluencers becomes a no-op. Default true. */
+    influencers?: boolean;
 }
 
 export interface ProceduralGrass {
@@ -385,7 +396,7 @@ export function createProceduralGrass(scene: Scene, opts: ProceduralGrassOptions
     const width = opts.bladeWidth ?? 0.10;
     const height = opts.bladeHeight ?? 0.55;
     const rootY = opts.rootY ?? 0.003;
-    const blade = buildBladeMesh(scene, width, height);
+    const blade = buildBladeMesh(scene, width, height, opts.bladeSegments ?? BLADE_SEGS);
 
     // Per-instance world matrices — position + Y-rotation + non-uniform scale.
     const matrices = new Float32Array(opts.bladeCount * 16);
@@ -433,6 +444,8 @@ export function createProceduralGrass(scene: Scene, opts: ProceduralGrassOptions
         samplersList.push('uShadowMap');
         defines.push('#define RECEIVE_SHADOWS');
     }
+    const usingInfluencers = opts.influencers !== false;
+    if (usingInfluencers) defines.push('#define INFLUENCERS');
 
     const mat = new ShaderMaterial(
         'proceduralGrassMat',
@@ -550,6 +563,7 @@ export function createProceduralGrass(scene: Scene, opts: ProceduralGrassOptions
             mat.setFloat('uTorchRange', params.range);
         },
         setInfluencers: (positions: Vector3[]) => {
+            if (!usingInfluencers) return; // loop compiled out — uniforms unused
             const n = Math.min(positions.length, MAX_INFLUENCERS);
             for (let i = 0; i < n; i++) {
                 const p = positions[i];

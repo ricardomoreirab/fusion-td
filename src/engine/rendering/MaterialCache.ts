@@ -7,11 +7,8 @@
  *
  * Lifecycle:
  *   - The cache is module-level and persists for the lifetime of the process.
- *   - It is NOT automatically cleared on scene disposal. If you need to release
- *     GPU resources (e.g., on a full scene restart), call clearMaterialCache()
- *     explicitly from your scene-cleanup path.
- *
- * TODO: wire clearMaterialCache() into the game's cleanupScene / scene-reset flow.
+ *   - It is NOT automatically cleared on scene disposal. clearMaterialCache()
+ *     is called from SurvivorsGameplayState.exit() (run teardown).
  */
 
 import { Material, Scene, StandardMaterial } from '@babylonjs/core';
