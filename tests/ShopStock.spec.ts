@@ -27,6 +27,9 @@ describe('rarityWeights', () => {
     it('shifts weight toward high rarity late', () => {
         expect(rarityWeights(12).epic).toBeGreaterThan(rarityWeights(2).epic);
     });
+    it('uses the wave 7-10 bracket', () => {
+        expect(rarityWeights(8)).toEqual({ common: 25, rare: 40, epic: 28, legendary: 7 });
+    });
 });
 
 describe('rerollCost', () => {
@@ -79,6 +82,7 @@ describe('rollStock', () => {
         for (let seed = 0; seed < 10; seed++) {
             const rng = seqRng([0.1 * seed + 0.05, 0.37, 0.83, 0.59, 0.21, 0.94, 0.45, 0.68, 0.12]);
             const stock = rollStock(ITEM_CATALOG, { ...baseOpts, rng });
+            expect(stock.length).toBe(STOCK_SIZE); // soft cap must not shrink the stock
             const perSlot: Record<string, number> = {};
             for (const item of stock) perSlot[item.slot] = (perSlot[item.slot] ?? 0) + 1;
             for (const n of Object.values(perSlot)) expect(n).toBeLessThanOrEqual(SLOT_SOFT_CAP);
