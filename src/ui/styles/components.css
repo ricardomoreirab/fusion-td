@@ -337,153 +337,117 @@
 }
 .choice-card__sub { white-space: pre-line; }
 
-/* ── Shop overlay ────────────────────────────────────────────── */
-.shop-gold {
-  font-family: var(--ff-display);
-  font-weight: 700;
-  font-size: var(--fs-400);
-  color: #ffd700;
-  text-align: center;
-  letter-spacing: 0.06em;
-  padding: var(--s-1) 0;
-}
-
-/* Widescreen armory: give the panel an explicit width (not just max-width)
-   so the auto-fit grid has room to form multiple columns — a shrink-to-fit
-   flex column would otherwise collapse the grid to a single column. The
-   explicit max-width also overrides .modal-panel's 680px cap. */
+/* ── Shop overlay (Gribble's Traveling Emporium) ──────────────
+   New itemization shop. The panel needs an explicit width (not just
+   max-width) so the 3-column card grid has room to form; it also
+   overrides .modal-panel's 680px cap. Vertical overflow is handled by
+   .modal-panel's max-height: 92vh + overflow: auto. */
 .modal-panel--shop {
-  width: min(1040px, 96vw);
-  max-width: min(1040px, 96vw);
-  /* The 4×2 grid fits without horizontal scroll — hide the stray bottom
-     scrollbar the auto-fit grid used to produce. */
+  width: min(880px, 92vw);
+  max-width: min(880px, 92vw);
   overflow-x: hidden;
 }
+.shop-header {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: var(--s-3);
+}
+.shop-quip {
+  font-family: var(--ff-body); font-style: italic;
+  font-size: var(--fs-200); color: var(--c-parchment-dim);
+}
+.shop-gold {
+  font-family: var(--ff-display); font-weight: 700;
+  font-size: var(--fs-400); color: #ffd84a;
+  letter-spacing: 0.06em; white-space: nowrap;
+}
+
 .shop-grid {
   display: grid;
-  /* Fixed 4 columns → 8 items lay out as a clean 4×2 block. */
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: var(--s-2);
 }
 
-/* Individual shop item card */
-.shop-item {
+/* Item card — rarity color arrives via the --accent custom prop
+   (set inline from RARITY_COLOR by ShopOverlay). */
+.shop-card {
   --accent: var(--c-gold);
-  display: flex;
-  flex-direction: row;
-  align-items: stretch;
+  position: relative;
+  display: flex; flex-direction: column; gap: 2px;
+  padding: var(--s-2) var(--s-2) calc(var(--s-6) + var(--s-1));
   border-radius: var(--r-sm);
   background: linear-gradient(180deg, #1c1710, #0e0b08);
-  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 2px 6px rgba(0,0,0,0.5);
   cursor: pointer;
   transition: transform 100ms ease, box-shadow 120ms ease;
-  overflow: hidden;
-  min-height: 72px;
 }
-.shop-item:hover:not(.shop-item--capped) {
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.08),
-    0 0 10px color-mix(in srgb, var(--accent) 40%, transparent);
+.shop-card:hover {
+  transform: translateY(-2px);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 0 12px color-mix(in srgb, var(--accent) 40%, transparent);
 }
-.shop-item:active:not(.shop-item--capped) { transform: scale(0.97); }
-
-/* Left glyph emblem strip */
-.shop-item__emblem {
-  flex: 0 0 auto;
-  width: 38px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: var(--fs-400);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  border-right: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+.shop-card:active { transform: scale(0.97); }
+.shop-card--poor { opacity: 0.55; filter: saturate(0.6); }
+.shop-card--poor .shop-card__price { color: var(--c-blood); }
+.shop-card__kind {
+  font-family: var(--ff-body); font-weight: 800; font-size: var(--fs-100);
+  text-transform: uppercase; letter-spacing: 0.1em; color: var(--accent);
 }
-
-/* Right content area */
-.shop-item__content {
-  flex: 1 1 auto;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  padding: var(--s-2) var(--s-2) var(--s-1) var(--s-2);
-  gap: 2px;
+.shop-card__emblem { font-size: clamp(20px, 4vw, 26px); line-height: 1.4; }
+.shop-card__name {
+  font-family: var(--ff-display); font-weight: 700; font-size: var(--fs-200);
+  color: var(--c-parchment); margin-bottom: var(--s-1);
 }
-
-.shop-item__name {
-  font-family: var(--ff-display);
-  font-weight: 700;
-  font-size: var(--fs-200);
-  color: var(--c-parchment);
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.shop-card__stat { font-family: var(--ff-body); font-size: var(--fs-100); color: #b8e6b8; }
+.shop-card__effect { font-family: var(--ff-body); font-size: var(--fs-100); color: #ffd84a; margin-top: 3px; }
+.shop-card__set { font-family: var(--ff-body); font-size: var(--fs-100); color: var(--accent); margin-top: 3px; }
+.shop-card__replaces { font-family: var(--ff-body); font-size: var(--fs-100); color: var(--c-parchment-faint); margin-top: 3px; }
+.shop-card__flavor {
+  font-family: var(--ff-body); font-size: var(--fs-100); font-style: italic;
+  color: var(--c-parchment-dim); opacity: 0.8; margin-top: var(--s-1);
+}
+.shop-card__price {
+  position: absolute; bottom: var(--s-2); right: var(--s-2);
+  font-family: var(--ff-display); font-weight: 700; font-size: var(--fs-200);
+  color: #ffd84a;
 }
 
-.shop-item__desc {
-  font-family: var(--ff-body);
-  font-size: var(--fs-100);
-  color: var(--c-parchment-dim);
-  line-height: 1.3;
-  white-space: pre-line;
-  overflow: hidden;
-  flex: 1 1 auto;
+/* Equipment strip — what the hero is currently wearing. */
+.shop-equip {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: var(--s-1);
+}
+.shop-equip__cell {
+  --accent: var(--c-iron);
+  text-align: center;
+  padding: var(--s-1) 2px;
+  border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  border-radius: var(--r-sm);
+  background: var(--c-stone-900);
+}
+.shop-equip__cell--empty { opacity: 0.45; }
+.shop-equip__glyph { font-size: clamp(14px, 3vw, 18px); }
+.shop-equip__slot {
+  font-family: var(--ff-body); font-size: 9px;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--c-parchment-faint);
+}
+.shop-equip__name {
+  font-family: var(--ff-body); font-size: 10px; color: var(--c-parchment);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
-.shop-item__cost {
-  font-family: var(--ff-display);
-  font-weight: 700;
-  font-size: var(--fs-200);
-  color: #ffd700;
-  text-align: right;
-  letter-spacing: 0.04em;
-  margin-top: var(--s-1);
+.shop-footer {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: var(--s-2); flex-wrap: wrap;
 }
+.shop-reroll--poor { opacity: 0.5; pointer-events: none; }
 
-/* Unaffordable state — dim card; cost in red */
-.shop-item--unafford {
-  opacity: 0.75;
-}
-.shop-item--unafford .shop-item__cost {
-  color: var(--c-blood);
-}
-
-/* Capped state — greyed out, no pointer */
-.shop-item--capped {
-  cursor: default;
-  opacity: 0.45;
-  border-color: rgba(80,80,80,0.35);
-}
-.shop-item--capped .shop-item__emblem {
-  background: rgba(30,30,30,0.4);
-  border-right-color: rgba(80,80,80,0.2);
-}
-.shop-item--capped .shop-item__name {
-  color: #666;
-}
-
-/* Start Next Wave button — wide but inset from the panel borders so it
-   doesn't crowd the edges. */
-.shop-start-btn {
-  align-self: center;
-  width: calc(100% - var(--s-4) * 2);
-  justify-content: center;
-  margin-top: var(--s-2);
-}
-
-/* Narrow portrait phones — 2 columns (8 items → 2×4) instead of a cramped 4. */
+/* Mobile: 2-column card grid, 3-column equip strip. */
 @media (max-width: 720px) {
   .shop-grid { grid-template-columns: repeat(2, 1fr); }
+  .shop-equip { grid-template-columns: repeat(3, 1fr); }
 }
-
-/* Narrow landscape phones — compress grid */
-@media (max-height: 430px) {
-  .shop-grid { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--s-1); }
-  .shop-item { min-height: 58px; }
-  .shop-item__emblem { width: 32px; }
-}
-
 /* ── Full-screen menu / screen ───────────────────────────── */
 .screen {
   position: absolute; inset: 0;
