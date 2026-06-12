@@ -413,9 +413,10 @@ export class HeroController {
         this.basicAttack?.applyAttackHitsInRadius(center, radius);
     }
 
-    /** Increase max HP (and current HP) by amount — used by the Vitality shop item. */
+    /** Adjust max HP by amount (may be negative when equipment is replaced). */
     public addMaxHealth(amount: number): void {
         this.maxHealth += amount;
+        if (amount < 0) this.currentHealth = Math.min(this.currentHealth, this.maxHealth);
     }
 
     /**

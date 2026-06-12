@@ -816,6 +816,10 @@ export class SurvivorsGameplayState implements GameState {
         this.levelSystem = new LevelSystem();
         this.baseMaxHealth = heroHp;
         this.appliedMaxHpBonus = 0;
+        // Unconditional reset (not just in the solo block below) so a fresh run
+        // never inherits stale equipment-fold state from a previous one.
+        this.equipTracker = newEquipFoldTracker();
+        this.equipMaxHpApplied = 0;
         this.playerStats.setXpSink((amount) => {
             this.awardXp(amount);
             // Itemization: Midas-style effects see every gold income (null in co-op).
@@ -2970,8 +2974,11 @@ export class SurvivorsGameplayState implements GameState {
         // Sits below the isPausedForOverlay() early-return on purpose: the setup
         // timer + proximity checks freeze while the shop UI (or any overlay) is
         // open, exactly like the breather above.
+        // Always tick the stand itself: it must keep animating through 'departing'
+        // after endShoppingPhase() has already returned shopPhase to 'none'
+        // (cheap; no-ops when idle).
+        this.merchantStand?.update(deltaTime);
         if (this.shopPhase !== 'none' && this.merchantStand) {
-            this.merchantStand.update(deltaTime);
             if (this.shopPhase === 'arriving') {
                 this.shopSetupRemaining -= deltaTime;
                 if (this.shopSetupRemaining <= 0) {
