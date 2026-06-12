@@ -708,7 +708,7 @@ export class EnemyManager {
                 // position, isElite, eliteDropElement, isClone, reward).
                 if (this.onEnemyDiedCb) this.onEnemyDiedCb(enemy);
                 if (this.playerStats) {
-                    this.playerStats.addMoney(enemy.getReward());
+                    this.playerStats.addMoney(Math.round(enemy.getReward() * this.playerStats.goldGainMultiplier));
                     this.playerStats.addKill();
                 }
                 if (enemy.isElite && enemy.eliteDropElement) {

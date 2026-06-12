@@ -77,6 +77,14 @@ export class PlayerStats {
     /** How many times each shop item has been purchased */
     public purchaseCounts: Record<string, number> = {};
 
+    // ── Equipment (shop itemization) stat fields ────────────────────────────
+    /** Multiplier applied to basic-attack damage only (equipment weapons). */
+    public basicDamageMultiplier: number = 1.0;
+    /** Multiplier applied to gold earned from kills (equipment gold-find). */
+    public goldGainMultiplier: number = 1.0;
+    /** Fraction of max HP regenerated per second (equipment regen). */
+    public hpRegenPctPerSec: number = 0;
+
     /** Optional sink: every gold-income amount is mirrored here (folded into XP). */
     private xpSink: ((amount: number) => void) | null = null;
     /** Route gold income into the XP/level system. Set once by SurvivorsGameplayState. */
@@ -154,6 +162,14 @@ export class PlayerStats {
         }
         this.totalMoneyEarned += amount;
         this.xpSink?.(amount); // gold income folds into XP
+    }
+
+    /** Add gold WITHOUT feeding the XP sink or the earned-total tracker.
+     *  Used for shop sell-back credits — refunds are not income. */
+    public refundGold(amount: number): void {
+        if (!this.unlimitedMoney) {
+            this.money += amount;
+        }
     }
 
     /**
