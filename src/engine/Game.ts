@@ -44,6 +44,10 @@ export class Game {
      *  scene.blockMaterialDirtyMechanism (true) means new lights added later
      *  never reach the already-compiled material shaders. */
     private heroTorch!: PointLight;
+    // Post-fx handles for the late-wave performance trim (setPostFxReduced).
+    private renderPipeline: DefaultRenderingPipeline | null = null;
+    private glowLayer: GlowLayer | null = null;
+    private postFxDefaults = { bloomWeight: 0.4, bloomKernel: 64, glowIntensity: 0.4 };
 
     constructor(canvasId: string) {
         // Lightweight constructor — only resolve the canvas. Everything else
@@ -275,6 +279,7 @@ export class Game {
         const glowLayer = new GlowLayer('glowLayer', this.scene, { mainTextureRatio: 0.5 });
         glowLayer.intensity = 0.4;
         glowLayer.blurKernelSize = 16; // default 32 — half the blur work per frame
+        this.glowLayer = glowLayer;
 
         // Tilted isometric beta angle: ~60° from pole (30° above horizon)
         // gives a dramatic 3/4 view that shows tower sides clearly
@@ -334,11 +339,38 @@ export class Game {
         pipeline.bloomWeight    = isLowEnd ? 0.25 : 0.40;
         pipeline.bloomScale     = isLowEnd ? 0.25 : 0.50; // RT size factor
         pipeline.bloomKernel    = isLowEnd ? 32   : 64;
+        this.renderPipeline = pipeline;
+        // Snapshot the configured values so setPostFxReduced(false) restores
+        // exactly this (isLowEnd-dependent) baseline.
+        this.postFxDefaults = {
+            bloomWeight: pipeline.bloomWeight,
+            bloomKernel: pipeline.bloomKernel,
+            glowIntensity: glowLayer.intensity,
+        };
 
         // ImageProcessing left disabled. Re-enable per-feature later if we
         // want a specific look — but blanket enabling it stacks tone-mapping
         // + vignette on top of an already low-dynamic-range scene.
         pipeline.imageProcessingEnabled = false;
+    }
+
+    /**
+     * Late-wave performance trim: swap the post-fx between the configured
+     * baseline and a reduced set (half bloom kernel, lighter bloom weight,
+     * dimmer glow). Render-quality only — gameplay untouched. bloomScale is
+     * deliberately NOT touched (its setter rebuilds the whole bloom chain).
+     * SurvivorsGameplayState escalates into this when the FPS EMA sags in
+     * late waves and resets it (false) on run teardown.
+     */
+    public setPostFxReduced(reduced: boolean): void {
+        const d = this.postFxDefaults;
+        if (this.renderPipeline) {
+            this.renderPipeline.bloomKernel = reduced ? Math.min(32, d.bloomKernel) : d.bloomKernel;
+            this.renderPipeline.bloomWeight = reduced ? d.bloomWeight * 0.75 : d.bloomWeight;
+        }
+        if (this.glowLayer) {
+            this.glowLayer.intensity = reduced ? d.glowIntensity * 0.5 : d.glowIntensity;
+        }
     }
 
     /**

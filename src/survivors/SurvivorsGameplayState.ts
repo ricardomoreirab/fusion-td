@@ -376,6 +376,12 @@ export class SurvivorsGameplayState implements GameState {
     private grassFar: ReturnType<typeof createProceduralGrass> | null = null;
     private shadowSourceLight: DirectionalLight | null = null;
     private shadowGenerator: ShadowGenerator | null = null;
+    /** Slow FPS EMA (~8s time constant) sampled across each wave — read at wave
+     *  clear by maybeTrimPerformance to decide late-wave quality stepdowns. */
+    private _fpsEma = 60;
+    /** One-way per-run quality ratchet: 0 full, 1 reduced post-fx, 2 + slower
+     *  shadow refresh. Reset (with the post-fx baseline) in exit(). */
+    private _perfTrimLevel = 0;
     private torchShadowGenerator: ShadowGenerator | null = null;
     // After this wave clears, enemies stop casting shadows: the hordes grow large
     // enough that the per-caster shadow-map cost outweighs the visual detail. The
@@ -1027,6 +1033,7 @@ export class SurvivorsGameplayState implements GameState {
             const clearedWave = this.waveManager?.getCurrentWave() ?? 0;
             this.checkResourceBudget(clearedWave);
             this.maybeDisableEnemyShadows(clearedWave);
+            this.maybeTrimPerformance(clearedWave);
             // M4-11: revive any spectating teammate at the wave break (arena is empty,
             // so respawning at center is safe). Host-authoritative — the guest sees its
             // alive flag flip true in the next snapshot and exits spectate.
@@ -1567,7 +1574,10 @@ export class SurvivorsGameplayState implements GameState {
                     meleePhase: md.phase,
                 });
                 const shieldFrac = e.getShieldFraction();
-                enemies.push({
+                // Plain literal + conditional assignment (no spread): this runs
+                // per enemy at 20 Hz on the host, and the short-circuit-spread
+                // pattern allocates a throwaway object per enemy per snapshot.
+                const entry: SnapshotMsg['enemies'][number] = {
                     id: e.id,
                     x: ep.x,
                     z: ep.z,
@@ -1575,8 +1585,9 @@ export class SurvivorsGameplayState implements GameState {
                     hp: e.getHealth(),
                     flags,
                     anim: e.getNetAnimCode(), // walk/attack from the melee FSM, or 10+N for a named _skillN clip (see SnapshotEnemy.anim)
-                    ...(shieldFrac !== undefined && { shield: shieldFrac }),
-                });
+                };
+                if (shieldFrac !== undefined) entry.shield = shieldFrac;
+                enemies.push(entry);
             }
         }
 
@@ -2646,6 +2657,12 @@ export class SurvivorsGameplayState implements GameState {
         clearMaterialCache();
         clearProjectilePools();
 
+        // Restore the post-fx baseline if the late-wave quality trim engaged
+        // this run (the pipeline + glow layer are persistent, Game-owned).
+        if (this._perfTrimLevel > 0) this.game.setPostFxReduced(false);
+        this._perfTrimLevel = 0;
+        this._fpsEma = 60;
+
         this.scene = null;
         this.timeScale = 1.0;
         this.runPerks = { damageMultiplier: 1.0, moveSpeedMultiplier: 1.0, attackRangeMultiplier: 1.0 };
@@ -2654,6 +2671,12 @@ export class SurvivorsGameplayState implements GameState {
     public update(deltaTime: number): void {
         // If game hasn't started yet (champion select showing), skip game updates
         if (!this.heroController) return;
+
+        // FPS EMA for the late-wave quality trim — real (unscaled) dt, so the
+        // slow-mo orb doesn't read as a frame-rate collapse.
+        if (deltaTime > 0) {
+            this._fpsEma += (1 / deltaTime - this._fpsEma) * Math.min(1, deltaTime / 8);
+        }
 
         // True pause while any blocking overlay is open (power choice, replace-slot, shop)
         if (this.isPausedForOverlay()) return;
@@ -3790,6 +3813,25 @@ export class SurvivorsGameplayState implements GameState {
             `  (arena is empty at wave clear, so growth above the cache budget = orphaned ` +
             `resources; the largest bucket names the leaking allocation site.)`,
         );
+    }
+
+    /** Late-wave dynamic quality trim (one-way ratchet per run): if the FPS EMA
+     *  sagged below ~42 during the cleared wave, step render quality down —
+     *  level 1 reduces post-fx (bloom kernel/weight + glow), level 2 also renders
+     *  the directional shadow map every 3rd frame. Checked at wave clear so the
+     *  (cheap) adjustments land during the breather, not mid-combat. Reset in
+     *  exit() via game.setPostFxReduced(false). */
+    private maybeTrimPerformance(clearedWave: number): void {
+        if (this._fpsEma >= 42 || this._perfTrimLevel >= 2) return;
+        this._perfTrimLevel++;
+        if (this._perfTrimLevel === 1) {
+            this.game.setPostFxReduced(true);
+            console.info(`[perf-trim] wave ${clearedWave} cleared at ≈${Math.round(this._fpsEma)} fps → reduced post-fx (level 1)`);
+        } else {
+            const map = this.shadowGenerator?.getShadowMap();
+            if (map) map.refreshRate = 3;
+            console.info(`[perf-trim] wave ${clearedWave} cleared at ≈${Math.round(this._fpsEma)} fps → shadow map every 3rd frame (level 2)`);
+        }
     }
 
     private stopLongTaskObserver(): void {
