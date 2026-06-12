@@ -9,6 +9,11 @@ describe('ItemCatalog integrity', () => {
         expect(ids.size).toBe(ITEM_CATALOG.length);
     });
 
+    it('glyphs are unique (the icon is the item\'s visual identity in the shop)', () => {
+        const glyphs = ITEM_CATALOG.map(i => i.glyph);
+        expect(new Set(glyphs).size).toBe(glyphs.length);
+    });
+
     it('every item has a valid slot, rarity, glyph and flavor', () => {
         for (const item of ITEM_CATALOG) {
             expect(EQUIP_SLOTS).toContain(item.slot);
