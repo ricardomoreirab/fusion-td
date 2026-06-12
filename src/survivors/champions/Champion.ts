@@ -2074,9 +2074,12 @@ export class Champion extends Enemy {
             if (key === '') {
                 for (const w of this.glbWeaponMats) w.mat.emissiveColor.copyFrom(w.baseEmissive);
             } else {
+                // Kept subtle (0.35): emissive ADDS over the albedo, so a strong
+                // tint flattens the axe texture — this strength colors the weapon
+                // while its painted detail still reads through.
                 const blend = blendElements(this.activeElementSnapshot as PowerElement[]);
                 for (const w of this.glbWeaponMats) {
-                    w.mat.emissiveColor.copyFrom(blend).scaleInPlace(0.75);
+                    w.mat.emissiveColor.copyFrom(blend).scaleInPlace(0.35);
                 }
             }
             return;
