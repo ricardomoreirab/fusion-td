@@ -1,16 +1,26 @@
-import { Scene, Mesh, MeshBuilder, StandardMaterial } from '@babylonjs/core';
-import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
-import { makeFlatShaded } from '../../engine/rendering/LowPolyMaterial';
-import { PROP_RECYCLE_DIST } from './constants';
+import { Scene, Mesh, InstancedMesh, AssetContainer, LoadAssetContainerAsync, Quaternion, Vector3 } from '@babylonjs/core';
+import { PROP_RECYCLE_DIST, GLOBE_RADIUS } from './constants';
 import { curveDropAt } from './curvature';
 
 export const PROP_MIN_R = 45; // just past the spawn ring / horizon
 export const PROP_MAX_R = 65;
-const PROP_COUNT = 18;
+
+const PACK_URL = 'assets/low_poly_forest_tree_pack.glb';
+/** Tallest background tree is normalised to this world height; everything else
+ *  in the pack keeps its authored proportions relative to it (ferns/shrubs stay
+ *  small, rocks stay rock-sized). */
+const TALLEST_TREE_HEIGHT = 6.5;
+/** Bases sink this far into the ground so trunks/rocks sit IN the grass, not
+ *  on it — plus extra with tilt (see update) so the up-slope base edge never
+ *  hangs in the air ("floating" look). */
+const PROP_EMBED = 0.45;
+/** Atlas meshes shorter than this fraction of the tallest tree are ground
+ *  cover (ferns/shrubs) — placed in multiples, allowed closer to the hero. */
+const GROUND_COVER_FRACTION = 0.3;
 
 /** Pure recycle placement: random ring position PROP_MIN_R..PROP_MAX_R from the
  *  hero. If the hero is moving, bias the angle to ±110° around the travel
- *  direction so trees roll in over the horizon ahead; stationary → any angle.
+ *  direction so props roll in over the horizon ahead; stationary → any angle.
  *  randAngle/randR ∈ [0,1) are injected for testability. */
 export function computeRecycledPosition(
     heroX: number, heroZ: number,
@@ -25,179 +35,189 @@ export function computeRecycledPosition(
     return { x: heroX + Math.cos(theta) * r, z: heroZ + Math.sin(theta) * r };
 }
 
+interface PropVariant {
+    /** Hidden source meshes (transform baked to identity). Multi-mesh variants
+     *  (high-poly trunk + branches) instance every part, parented to part 0. */
+    sources: Mesh[];
+    /** Uniform scale applied to instances of this variant. */
+    scale: number;
+    /** Ground offset so the variant's bounding-box floor sits on y=0. */
+    baseY: number;
+    /** How many copies of this variant to scatter around the map. */
+    copies: number;
+}
+
+interface PlacedProp {
+    root: InstancedMesh;
+    baseY: number;
+    /** Random yaw assigned at placement/recycle; combined per-frame with the
+     *  globe-tangent tilt into root.rotationQuaternion. */
+    yaw: number;
+}
+
+// Scratch objects for the per-frame tilt math (no per-frame allocations).
+const _tiltAxis = new Vector3();
+const _tiltQ = new Quaternion();
+const _yawQ = new Quaternion();
+
 /**
- * Pool of detailed low-poly trees that drift past as the hero runs and
- * silently recycle to a fresh spot beyond the horizon once left behind —
- * the motion cue that sells the rotating-globe illusion.
+ * Pool of forest props from the low_poly_forest_tree_pack GLB (12 unique
+ * trees + ferns/shrubs, 9 rocks, 4 high-poly trunk+branch trees). Every
+ * variant in the pack is placed exactly once around the hero; props that
+ * fall behind silently recycle to a fresh spot beyond the horizon — the
+ * motion cue that sells the rotating-globe illusion.
  *
- * Three species (pine / oak / autumn birch), each a trunk root mesh with
- * branches + flat-shaded canopy parts parented to it, so moving/rotating
- * the root carries the whole tree and the render-only curvature drop
- * applies once at the root. Canopies use TWO leaf tones per species
- * (lit top lobes + a dark under-canopy) for depth. Non-colliding
- * decoration: no pathing impact. Materials come from the bounded-key
- * material cache (8 keys, never per-instance) and are freed by exit()'s
- * clearMaterialCache().
+ * The GLB loads async; until it resolves update() is a no-op and the field
+ * is simply empty. Sources are hidden, transform-baked to identity, and
+ * instanced (shared materials — no per-instance clones, no material-cache
+ * involvement). dispose() removes instances first, then the container
+ * (which owns the pack's meshes/materials/textures).
  */
 export class PropField {
-    private props: { mesh: Mesh; baseY: number }[] = [];
+    private props: PlacedProp[] = [];
+    private container: AssetContainer | null = null;
+    private disposed = false;
 
     constructor(scene: Scene) {
-        const mat = (key: string, r: number, g: number, b: number): StandardMaterial =>
-            getCachedMaterial(scene, key, m => {
-                m.diffuseColor.set(r, g, b);
-                m.specularColor.set(0, 0, 0);
-            });
-        const trunkMat = () => mat('globeTreeTrunk', 0.36, 0.25, 0.16);
+        void this.load(scene);
+    }
 
-        /** Faceted canopy lobe: icosahedron, flat-shaded so every face catches
-         *  the key light separately — the chunky "3D" low-poly read. */
-        const lobe = (name: string, diameter: number, material: StandardMaterial, parent: Mesh,
-                      x: number, y: number, z: number, yRot: number): void => {
-            const blob = MeshBuilder.CreatePolyhedron(name, { type: 3, size: diameter / 2 }, scene);
-            makeFlatShaded(blob);
-            blob.material = material;
-            blob.parent = parent;
-            blob.position.set(x, y, z);
-            blob.rotation.y = yRot;
-            // Slight squash so canopies read as foliage masses, not balls.
-            blob.scaling.set(1, 0.85, 1);
-            blob.isPickable = false;
-        };
+    private async load(scene: Scene): Promise<void> {
+        let container: AssetContainer;
+        try {
+            container = await LoadAssetContainerAsync(PACK_URL, scene);
+        } catch (err) {
+            console.error('[globe] forest pack failed to load — prop field stays empty:', err);
+            return;
+        }
+        if (this.disposed) { container.dispose(); return; }
+        this.container = container;
+        container.addAllToScene();
 
-        /** Short tilted branch cylinder poking from the trunk into the canopy. */
-        const branch = (name: string, parent: Mesh, y: number, yRot: number, tilt: number, len: number): void => {
-            const b = MeshBuilder.CreateCylinder(name,
-                { height: len, diameterBottom: 0.16, diameterTop: 0.07, tessellation: 5 }, scene);
-            b.material = trunkMat();
-            b.parent = parent;
-            b.position.y = y;
-            b.rotation.set(0, yRot, tilt);
-            // Shift outward along the tilt so the branch base meets the trunk.
-            b.position.x = Math.sin(tilt) * len * 0.5 * Math.cos(yRot);
-            b.position.z = -Math.sin(tilt) * len * 0.5 * Math.sin(yRot);
-            b.isPickable = false;
-        };
+        // ── Bake every leaf mesh to identity ─────────────────────────────────
+        // The Sketchfab FBX wraps everything in transform nodes (unit scale,
+        // axis rotation). setParent(null) folds the ancestor chain into the
+        // node transform; baking folds that into the vertices, so instances
+        // need no parent bookkeeping at all.
+        const leaves: Mesh[] = [];
+        for (const m of container.meshes) {
+            if (!(m instanceof Mesh) || m.getTotalVertices() === 0) continue;
+            m.setParent(null);
+            m.computeWorldMatrix(true);
+            m.bakeCurrentTransformIntoVertices();
+            m.refreshBoundingInfo();
+            m.isVisible = false;
+            m.isPickable = false;
+            leaves.push(m);
+        }
 
-        /** Root flare: a stubby wider ring at the trunk base. */
-        const rootFlare = (name: string, parent: Mesh, trunkH: number, dia: number): void => {
-            const f = MeshBuilder.CreateCylinder(name,
-                { height: 0.35, diameterBottom: dia, diameterTop: dia * 0.55, tessellation: 7 }, scene);
-            makeFlatShaded(f);
-            f.material = trunkMat();
-            f.parent = parent;
-            f.position.y = -trunkH / 2 + 0.17;
-            f.isPickable = false;
-        };
+        // ── Group leaves into variants ───────────────────────────────────────
+        const atlas = leaves.filter(m => m.name.startsWith('Background_Tree_Atlas'));
+        const rocks = leaves.filter(m => m.name.startsWith('Rocks'));
+        // High-poly trees: pair Tree_Trunk_XX[.nnn] with Tree_Branches_XX[.nnn]
+        // by their shared suffix (e.g. "01.002" → trunk 01.002 + branches 01.002).
+        const suffixOf = (name: string, prefix: string) =>
+            name.replace(prefix, '').split('_')[0]; // "Tree_Trunk_01.002_..." → "01.002"
+        const trunks = leaves.filter(m => m.name.startsWith('Tree_Trunk_'));
+        const branches = leaves.filter(m => m.name.startsWith('Tree_Branches_'));
+        const hiPoly: Mesh[][] = trunks.map(t => {
+            const suffix = suffixOf(t.name, 'Tree_Trunk_');
+            const match = branches.filter(b => suffixOf(b.name, 'Tree_Branches_') === suffix);
+            return [t, ...match];
+        });
 
-        const makers: ((i: number) => { mesh: Mesh; baseY: number })[] = [
-            (i) => { // pine — tall trunk, root flare, 4 stacked flat-shaded cones
-                const trunkH = 2.4;
-                const trunk = MeshBuilder.CreateCylinder(`globeProp_pine_${i}`,
-                    { height: trunkH, diameterBottom: 0.55, diameterTop: 0.3, tessellation: 7 }, scene);
-                makeFlatShaded(trunk);
-                trunk.material = trunkMat();
-                rootFlare(`globeProp_pine_${i}_root`, trunk, trunkH, 1.0);
-                const leaf = mat('globeTreeLeafPine', 0.10, 0.32, 0.14);
-                const leafDark = mat('globeTreeLeafPineDark', 0.06, 0.22, 0.10);
-                // Four canopy tiers; the lowest uses the dark tone (under-canopy shadow).
-                const tiers: [number, number, number, StandardMaterial][] = [ // [dia, height, yCentre, mat]
-                    [3.8, 2.0, trunkH / 2 + 0.5, leafDark],
-                    [3.1, 2.0, trunkH / 2 + 1.5, leaf],
-                    [2.3, 1.8, trunkH / 2 + 2.6, leaf],
-                    [1.4, 1.6, trunkH / 2 + 3.6, leaf],
-                ];
-                for (let t = 0; t < tiers.length; t++) {
-                    const [d, h, y, m] = tiers[t];
-                    const cone = MeshBuilder.CreateCylinder(`globeProp_pine_${i}_c${t}`,
-                        { height: h, diameterBottom: d, diameterTop: 0.05, tessellation: 7 }, scene);
-                    makeFlatShaded(cone);
-                    cone.material = m;
-                    cone.parent = trunk;
-                    cone.position.y = y;
-                    cone.rotation.y = t * 0.45; // de-align tier facets
-                    cone.isPickable = false;
-                }
-                return { mesh: trunk, baseY: trunkH / 2 };
-            },
-            (i) => { // oak — stout trunk, root flare, 3 branches, 6-lobe two-tone canopy
-                const trunkH = 2.0;
-                const trunk = MeshBuilder.CreateCylinder(`globeProp_oak_${i}`,
-                    { height: trunkH, diameterBottom: 0.75, diameterTop: 0.42, tessellation: 7 }, scene);
-                makeFlatShaded(trunk);
-                trunk.material = trunkMat();
-                rootFlare(`globeProp_oak_${i}_root`, trunk, trunkH, 1.25);
-                branch(`globeProp_oak_${i}_b0`, trunk, trunkH / 2 - 0.3, 0.4, 0.7, 1.5);
-                branch(`globeProp_oak_${i}_b1`, trunk, trunkH / 2 - 0.5, 2.5, -0.6, 1.3);
-                branch(`globeProp_oak_${i}_b2`, trunk, trunkH / 2 - 0.1, 4.4, 0.55, 1.2);
-                const leaf = mat('globeTreeLeafOak', 0.22, 0.45, 0.16);
-                const leafDark = mat('globeTreeLeafOakDark', 0.13, 0.30, 0.10);
-                // Dark under-canopy lobes first, lit lobes on top.
-                lobe(`globeProp_oak_${i}_u0`, 2.4, leafDark, trunk,  0.5, trunkH / 2 + 0.7,  0.4, 0.3);
-                lobe(`globeProp_oak_${i}_u1`, 2.2, leafDark, trunk, -0.7, trunkH / 2 + 0.8, -0.3, 1.1);
-                lobe(`globeProp_oak_${i}_l0`, 2.8, leaf, trunk,  0.0, trunkH / 2 + 1.6,  0.0, 0.0);
-                lobe(`globeProp_oak_${i}_l1`, 1.9, leaf, trunk,  1.1, trunkH / 2 + 1.2,  0.4, 0.7);
-                lobe(`globeProp_oak_${i}_l2`, 1.8, leaf, trunk, -1.0, trunkH / 2 + 1.3, -0.5, 1.4);
-                lobe(`globeProp_oak_${i}_l3`, 1.6, leaf, trunk,  0.1, trunkH / 2 + 2.5, -0.2, 2.1);
-                return { mesh: trunk, baseY: trunkH / 2 };
-            },
-            (i) => { // autumn birch — slim pale trunk, 2 branches, amber two-tone lobes
-                const trunkH = 2.8;
-                const trunk = MeshBuilder.CreateCylinder(`globeProp_birch_${i}`,
-                    { height: trunkH, diameterBottom: 0.4, diameterTop: 0.2, tessellation: 6 }, scene);
-                makeFlatShaded(trunk);
-                trunk.material = mat('globeTreeTrunkBirch', 0.72, 0.70, 0.62);
-                branch(`globeProp_birch_${i}_b0`, trunk, trunkH / 2 - 0.6, 1.0, 0.65, 1.1);
-                branch(`globeProp_birch_${i}_b1`, trunk, trunkH / 2 - 0.2, 3.8, -0.55, 1.0);
-                const leaf = mat('globeTreeLeafAutumn', 0.74, 0.48, 0.12);
-                const leafDark = mat('globeTreeLeafAutumnDark', 0.55, 0.32, 0.08);
-                lobe(`globeProp_birch_${i}_u0`, 1.8, leafDark, trunk, -0.3, trunkH / 2 + 0.6, -0.2, 0.5);
-                lobe(`globeProp_birch_${i}_l0`, 2.1, leaf, trunk,  0.1, trunkH / 2 + 1.2,  0.1, 0.0);
-                lobe(`globeProp_birch_${i}_l1`, 1.5, leaf, trunk,  0.5, trunkH / 2 + 2.0,  0.3, 0.9);
-                lobe(`globeProp_birch_${i}_l2`, 1.2, leaf, trunk, -0.5, trunkH / 2 + 1.9, -0.3, 1.7);
-                return { mesh: trunk, baseY: trunkH / 2 };
-            },
+        const heightOf = (ms: Mesh[]) => Math.max(...ms.map(m => {
+            const bb = m.getBoundingInfo().boundingBox;
+            return bb.maximum.y - bb.minimum.y;
+        }));
+        const floorOf = (ms: Mesh[]) => Math.min(...ms.map(m => m.getBoundingInfo().boundingBox.minimum.y));
+
+        // One shared factor keeps the pack's authored proportions: the tallest
+        // background tree becomes TALLEST_TREE_HEIGHT, ferns/rocks stay relative.
+        const packScale = TALLEST_TREE_HEIGHT / Math.max(heightOf(atlas), 0.001);
+
+        // Every pack element appears: tall trees once, rocks twice, ground
+        // cover (ferns/shrubs) three times, high-poly trees once.
+        const coverCutoff = TALLEST_TREE_HEIGHT * GROUND_COVER_FRACTION;
+        const variants: PropVariant[] = [
+            ...atlas.map(m => {
+                const h = heightOf([m]) * packScale;
+                return { sources: [m], scale: packScale, baseY: -floorOf([m]) * packScale,
+                         copies: h < coverCutoff ? 3 : 1 };
+            }),
+            ...rocks.map(m => ({ sources: [m], scale: packScale, baseY: -floorOf([m]) * packScale, copies: 2 })),
+            ...hiPoly.map(ms => ({ sources: ms, scale: packScale, baseY: -floorOf(ms) * packScale, copies: 1 })),
         ];
 
-        for (let i = 0; i < PROP_COUNT; i++) {
-            const prop = makers[i % makers.length](i);
-            prop.mesh.isPickable = false;
-            // Per-tree variety without per-instance materials: scale + spin.
-            // Trees are horizon set-pieces — keep them reasonably large.
-            const s = 1.0 + Math.random() * 0.6;
-            prop.mesh.scaling.setAll(s);
-            prop.baseY *= s;
-            // Initial scatter: anywhere in the visible field (full circle, radius
-            // 10..PROP_MAX_R) so the run doesn't start on an empty plain.
-            const theta = Math.random() * Math.PI * 2;
-            const r = 10 + Math.random() * (PROP_MAX_R - 10);
-            prop.mesh.position.set(Math.cos(theta) * r, prop.baseY, Math.sin(theta) * r);
-            prop.mesh.rotation.y = Math.random() * Math.PI * 2;
-            this.props.push(prop);
+        // ── Scatter all copies around the start area ─────────────────────────
+        for (let i = 0; i < variants.length; i++) {
+            const v = variants[i];
+            for (let c = 0; c < v.copies; c++) {
+                const jitter = 0.85 + Math.random() * 0.4;
+                const parts = v.sources.map((src, p) =>
+                    src.createInstance(`globeProp_${i}_${c}_${p}`));
+                const root = parts[0];
+                for (let p = 1; p < parts.length; p++) parts[p].parent = root;
+                for (const part of parts) part.isPickable = false;
+                root.scaling.setAll(v.scale * jitter);
+                const theta = Math.random() * Math.PI * 2;
+                const r = 12 + Math.random() * (PROP_MAX_R - 12);
+                const baseY = v.baseY * jitter;
+                root.position.set(Math.cos(theta) * r, baseY, Math.sin(theta) * r);
+                root.rotationQuaternion = Quaternion.Identity(); // driven by update()
+                this.props.push({ root, baseY, yaw: Math.random() * Math.PI * 2 });
+            }
         }
     }
 
-    /** Per-frame: recycle left-behind trees ahead of the hero + apply the
+    /** Per-frame: recycle left-behind props ahead of the hero + apply the
      *  render-only curvature drop. dirX/dirZ = hero travel direction (any
      *  magnitude; ~zero means stationary → full-circle recycle). */
     public update(heroX: number, heroZ: number, dirX: number, dirZ: number): void {
         for (const p of this.props) {
-            const dx = p.mesh.position.x - heroX;
-            const dz = p.mesh.position.z - heroZ;
+            let dx = p.root.position.x - heroX;
+            let dz = p.root.position.z - heroZ;
             if (dx * dx + dz * dz > PROP_RECYCLE_DIST * PROP_RECYCLE_DIST) {
                 const np = computeRecycledPosition(heroX, heroZ, dirX, dirZ, Math.random(), Math.random());
-                p.mesh.position.x = np.x;
-                p.mesh.position.z = np.z;
-                p.mesh.rotation.y = Math.random() * Math.PI * 2;
+                p.root.position.x = np.x;
+                p.root.position.z = np.z;
+                p.yaw = Math.random() * Math.PI * 2;
+                dx = np.x - heroX;
+                dz = np.z - heroZ;
             }
-            p.mesh.position.y = p.baseY - curveDropAt(p.mesh.position.x, p.mesh.position.z);
+            // Plant the prop perpendicular to the curved surface: lean it AWAY
+            // from the hero by the globe tangent angle atan(d/R). Without this,
+            // props stay bolt-vertical while the surface tilts (~30° at the
+            // horizon) and read as "rising out of the ground" when approached
+            // instead of rotating over the curve.
+            const d = Math.hypot(dx, dz);
+            let tilt = 0;
+            if (d > 1e-3 && p.root.rotationQuaternion) {
+                tilt = Math.atan(d / GLOBE_RADIUS);
+                _tiltAxis.set(dz / d, 0, -dx / d); // up × radial → lean-away axis
+                Quaternion.RotationAxisToRef(_tiltAxis, tilt, _tiltQ);
+                Quaternion.RotationYawPitchRollToRef(p.yaw, 0, 0, _yawQ);
+                _tiltQ.multiplyToRef(_yawQ, p.root.rotationQuaternion);
+            }
+
+            // Embed the base in the ground — a flat constant plus extra with
+            // tilt, so the up-slope edge of a leaning base never hangs in the
+            // air ("floating" look).
+            p.root.position.y = p.baseY - PROP_EMBED - Math.sin(tilt) * 0.8
+                - curveDropAt(p.root.position.x, p.root.position.z);
         }
     }
 
     public dispose(): void {
-        // mesh.dispose() recurses into the parented branch/canopy parts by
-        // default. Materials are cache-owned (clearMaterialCache frees them).
-        for (const p of this.props) p.mesh.dispose();
+        this.disposed = true;
+        // Instances first (they reference container-owned sources), then the
+        // container, which owns the pack's meshes, materials and textures.
+        for (const p of this.props) {
+            for (const child of p.root.getChildMeshes()) child.dispose();
+            p.root.dispose();
+        }
         this.props = [];
+        this.container?.dispose();
+        this.container = null;
     }
 }
