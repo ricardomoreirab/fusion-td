@@ -112,7 +112,7 @@ export class ItemEffectRuntime {
                 if (e === target || !e.isAlive()) continue;
                 const p = e.getPosition();
                 const dSq = (p.x - tp.x) ** 2 + (p.z - tp.z) ** 2;
-                if (dSq < bestDistSq) { bestDistSq = dSq; best = e; }
+                if (dSq <= bestDistSq) { bestDistSq = dSq; best = e; } // <= : spec says bounce range "≤ 8u"
             }
             if (best) {
                 const bp = best.getPosition();

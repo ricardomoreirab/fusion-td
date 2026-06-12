@@ -1,5 +1,5 @@
 // tests/ItemEffectRuntime.spec.ts
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
     CHRONO_COOLDOWN_S, ECHO_CHANCE, ItemEffectRuntime, MIDAS_NOVA_GOLD,
     RAGE_DAMAGE_BONUS, SHOCKWAVE_EVERY_HITS, THORNS_MULTIPLIER,
@@ -115,6 +115,19 @@ describe('midas', () => {
         expect(ctx.damage).toHaveBeenCalledTimes(near.length);
         // damage scales with wave: 25 + 5×wave(5) = 50
         expect((ctx.damage as any).mock.calls[0][1]).toBe(50);
+    });
+
+    it('double-pay bonus gold also feeds the nova accumulator (intentional 2x on doubled kills)', () => {
+        // roll always passes → every onGoldEarned doubles; the re-entrant bonus
+        // call adds to novaAccum too, since bonus gold IS earned gold.
+        const near = [makeEnemy(1, 0)];
+        const ctx = makeCtx({ rng: () => 0.01, enemiesNear: () => near });
+        const rt = new ItemEffectRuntime(ctx);
+        activate(rt, 'midas');
+        (ctx.addGold as any).mockImplementation((n: number) => rt.onGoldEarned(n));
+        rt.onGoldEarned(MIDAS_NOVA_GOLD / 2); // 75 earned + 75 double-pay = 150 → exactly one nova
+        expect(ctx.addGold).toHaveBeenCalledTimes(1);
+        expect(ctx.fx.coinNova).toHaveBeenCalledTimes(1);
     });
 });
 
