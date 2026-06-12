@@ -1186,14 +1186,19 @@ export class SurvivorsGameplayState implements GameState {
         const envBase = 'https://raw.githubusercontent.com/CedricGuillemet/dump/master/starryassets/env/';
         const envFiles = ['px.png', 'py.png', 'pz.png', 'nx.png', 'ny.png', 'nz.png'].map(f => envBase + f);
 
-        // ── Env cube + skybox ─────────────────────────────────────────────────
-        const envTexture = CubeTexture.CreateFromImages(envFiles, scene);
-        // Use the env as scene IBL so the rigged GLB heroes pick up nice reflections.
-        // intensity reduced 0.6 → 0.25 — IBL was adding a huge uniform ambient
-        // term on every surface, which is the dominant cause of the "full bright"
-        // / flat look. 0.25 still gives heroes some sky reflection.
-        scene.environmentTexture = envTexture;
-        scene.environmentIntensity = 0.25;
+        // ── Env cube (IBL only) ──────────────────────────────────────────────
+        // Skipped on the NullEngine fallback (no WebGPU/WebGL): the cube upload
+        // takes the GL path with no GL context and crashes in the image-load
+        // handler ("reading 'TEXTURE_CUBE_MAP_POSITIVE_X' of undefined").
+        if (!this.game.isGpuUnavailable()) {
+            const envTexture = CubeTexture.CreateFromImages(envFiles, scene);
+            // Use the env as scene IBL so the rigged GLB heroes pick up nice reflections.
+            // intensity reduced 0.6 → 0.25 — IBL was adding a huge uniform ambient
+            // term on every surface, which is the dominant cause of the "full bright"
+            // / flat look. 0.25 still gives heroes some sky reflection.
+            scene.environmentTexture = envTexture;
+            scene.environmentIntensity = 0.25;
+        }
 
         // Gradient + stars sky dome (globe map): warm dusk band at the curved
         // horizon fading to indigo overhead, so the space above the world's rim
