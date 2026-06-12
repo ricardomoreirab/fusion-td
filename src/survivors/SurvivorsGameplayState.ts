@@ -3,7 +3,9 @@ import '@babylonjs/loaders/glTF';
 import { AdvancedDynamicTexture } from '@babylonjs/gui';
 import { Game } from '../engine/Game';
 import { GameState } from '../engine/GameState';
-import { SurvivorsArena } from './SurvivorsArena';
+import { GlobeGround } from './globe/GlobeGround';
+import { setCurveOrigin, clearCurveOrigin, curveDropAt } from './globe/curvature';
+import { GLOBE_RADIUS, GRASS_TILE_SIZE } from './globe/constants';
 import { StatusEffect } from './GameTypes';
 import { Champion } from './champions/Champion';
 import { HeroController } from './HeroController';
@@ -239,7 +241,7 @@ export class SurvivorsGameplayState implements GameState {
     private game: Game;
     private scene: Scene | null = null;
     private ui: AdvancedDynamicTexture | null = null;
-    private map: SurvivorsArena | null = null;
+    private map: GlobeGround | null = null;
     private hero: Champion | null = null;
 
     // ── Per-player slots (co-op M4) — see PlayerSlot above. The local player's six
@@ -366,6 +368,7 @@ export class SurvivorsGameplayState implements GameState {
     // textures + skybox material otherwise leak one set per run.
     private skyTexture: CubeTexture | null = null;
     private skyMaterial: BackgroundMaterial | null = null;
+    private skyDome: Mesh | null = null;
 
     // Gameplay systems
     private enemyManager: EnemyManager | null = null;
@@ -507,7 +510,7 @@ export class SurvivorsGameplayState implements GameState {
         this.shadowSourceLight = keyLight;
 
         // Build base scene resources first
-        this.map = new SurvivorsArena(this.scene, 25);
+        this.map = new GlobeGround(this.scene);
 
         // Layer on the ancient-ruins ambience: skybox, warm spot, env IBL, stone ground texture
         this.applyRuinsAmbience();
@@ -664,7 +667,7 @@ export class SurvivorsGameplayState implements GameState {
         this.heroController = new HeroController(
             this.scene,
             this.hero,
-            this.map.getArenaRadius(),
+            Infinity, // infinite map — arenaClampScale(…, Infinity) never clamps
             variant.speed,
             heroHp,
             championType,
@@ -818,7 +821,9 @@ export class SurvivorsGameplayState implements GameState {
                 },
             },
         ];
-        this.enemyManager.configureSurvivorsMode(this._heroProviders, this.map.getArenaRadius());
+        // Infinite map: arenaRadius=Infinity disables EnemyManager's interior
+        // clamp; the spawn ring is the SPAWN_RING_RADIUS constant now.
+        this.enemyManager.configureSurvivorsMode(this._heroProviders, Infinity);
 
         // Hand over enemy GLB assets so EnemyManager.spawnSurvivorsEnemy can stage them
         // on the per-class pendingAsset slots before construction. Loaded lazily (await
@@ -1181,6 +1186,7 @@ export class SurvivorsGameplayState implements GameState {
         skyTex.coordinatesMode = Texture.SKYBOX_MODE;
         skyMat.reflectionTexture = skyTex;
         skydome.material = skyMat;
+        this.skyDome = skydome;
         // Track the cloned sky texture + material for disposal in exit().
         this.skyTexture = skyTex;
         this.skyMaterial = skyMat;
@@ -1249,7 +1255,8 @@ export class SurvivorsGameplayState implements GameState {
         // WebGL and WebGPU. 8000 hardware-instanced blades with vertex
         // lighting and a sin-based wind sway.
         this.grass = createProceduralGrass(scene, {
-            arenaRadius: this.map?.getArenaRadius() ?? 20,
+            tileSize: GRASS_TILE_SIZE,
+            curveRadius: GLOBE_RADIUS,
             bladeCount: bladeCountForQuality(GameSettings.getGraphicsQuality()),
             bladeWidth: 0.06,
             bladeHeight: 0.45,
@@ -1447,7 +1454,7 @@ export class SurvivorsGameplayState implements GameState {
         this.coopGhost.update(dt); // integrates velocity → position + walk/idle + faces velocity
         // Clamp inside the arena (same buffer HeroController uses for the local hero).
         const g = this.coopGhost as unknown as { position: Vector3; mesh: Mesh | null };
-        const k = arenaClampScale(g.position.x, g.position.z, this.map?.getArenaRadius() ?? 20);
+        const k = arenaClampScale(g.position.x, g.position.z, Infinity); // infinite map
         if (k !== 1) {
             g.position.x *= k;
             g.position.z *= k;
@@ -2500,6 +2507,7 @@ export class SurvivorsGameplayState implements GameState {
 
         this.map?.dispose();
         this.map = null;
+        clearCurveOrigin(); // globe drop reads 0 everywhere until the next run
 
         this.grass?.dispose();
         this.grass = null;
@@ -2526,6 +2534,8 @@ export class SurvivorsGameplayState implements GameState {
         this.skyTexture = null;
         this.skyMaterial?.dispose();
         this.skyMaterial = null;
+        this.skyDome?.dispose();
+        this.skyDome = null;
 
         // Free the cross-run GPU resource pools. By now every survivors mesh that
         // referenced these (hero, enemies, drops, projectiles) has been disposed
@@ -2696,6 +2706,8 @@ export class SurvivorsGameplayState implements GameState {
                     if (g.mesh) {
                         g.mesh.position.x = pose.x;
                         g.mesh.position.z = pose.z;
+                        // Render-only globe drop — gameplay pose stays flat.
+                        g.mesh.position.y = pose.y - curveDropAt(pose.x, pose.z);
                         g.mesh.rotation.y = pose.ry; // network yaw, after update()
                     }
                 }
@@ -2718,6 +2730,30 @@ export class SurvivorsGameplayState implements GameState {
                 this.waveBreatherRemaining = 0;
                 this.waveManager?.startNextWave();
             }
+        }
+
+        // ── Infinite-map globe upkeep ──────────────────────────────────────
+        // Order matters: set the curve origin FIRST so every render-side
+        // curveDropAt() call this frame (enemies, drops, props) uses the
+        // hero's current position.
+        if (this.hero) {
+            const hp = this.hero.getPosition();
+            setCurveOrigin(hp.x, hp.z);
+            this.map?.update(hp.x, hp.z);
+            // Skydome is a 1000-unit box; follow the hero so a long run never
+            // walks out of it. (Position-only — material untouched.)
+            if (this.skyDome) {
+                this.skyDome.position.x = hp.x;
+                this.skyDome.position.z = hp.z;
+            }
+            // Directional shadow frustum is a fixed ±30-unit ortho box around
+            // the light — keep it centred on the hero. Snap to 0.5 u so the
+            // shadow texels don't shimmer as the hero moves.
+            if (this.shadowSourceLight) {
+                this.shadowSourceLight.position.x = Math.round((hp.x + 8) * 2) / 2;
+                this.shadowSourceLight.position.z = Math.round((hp.z + 8) * 2) / 2;
+            }
+            this.grass?.setHeroPos(hp); // grass treadmill recentre
         }
 
         // Keep the procedural-grass shader's torch uniforms in sync with the
@@ -2874,7 +2910,7 @@ export class SurvivorsGameplayState implements GameState {
                                 { x: guestEntry.x, z: guestEntry.z },
                                 this.coopSession!.getUnackedInputs(snap.ackSeq),
                                 this.heroController.getEffectiveMoveSpeed(),
-                                this.map?.getArenaRadius() ?? 20,
+                                Infinity, // infinite map — replay must match the unclamped local sim
                             );
                             const lp = this.hero.getPosition();
                             const gap = Math.hypot(predicted.x - lp.x, predicted.z - lp.z);
