@@ -1,5 +1,6 @@
 import { Scene, Vector3, Mesh, MeshBuilder, Color3 } from '@babylonjs/core';
 import { getCachedMaterial } from '../engine/rendering/MaterialCache';
+import { curveDropAt } from './globe/curvature';
 import { ItemId } from './RunItems';
 
 /** Visual color per item — matches the HUD slot color so the link reads. */
@@ -97,9 +98,11 @@ export class ItemDrop {
             this.pillar.position.z = this.mesh.position.z;
         }
 
-        // Idle hover + slow spin
+        // Idle hover + slow spin (sunk by the render-only globe drop)
         const t = (performance.now() - this.spawnTime) / 1000;
-        this.mesh.position.y = 0.8 + Math.sin(t * 2.0) * 0.15;
+        const itemCurveDrop = curveDropAt(this.mesh.position.x, this.mesh.position.z);
+        this.mesh.position.y = 0.8 + Math.sin(t * 2.0) * 0.15 - itemCurveDrop;
+        this.pillar.position.y = 4 - itemCurveDrop;
         this.mesh.rotation.y = t * 1.2;
     }
 

@@ -13,6 +13,10 @@ const KNOCKBACK_SPEED         = 7.0;   // units / sec
 const KNOCKBACK_DURATION_S    = 0.15;
 const CAMERA_SHAKE_MAGNITUDE  = 0.6;   // world units added to camera position XZ per shake frame
 const CAMERA_SHAKE_DURATION_S = 0.10;
+
+/** How far ahead of the hero the camera aims — pushes the hero toward the
+ *  lower-centre of the frame so the curved horizon is visible up top. */
+const CAMERA_AIM_AHEAD = 4;
 const BLOOD_BURST_COUNT       = 12;
 
 /** Per-class basic-attack configuration */
@@ -128,21 +132,24 @@ export class HeroController {
         this.maxHealth = maxHealth;
         this.currentHealth = maxHealth;
 
-        // Pick camera parameters based on viewport width at construction time.
-        // On narrow mobile screens (< 700px) pull the camera in closer so the hero
-        // appears larger and more close-range threats are visible.
+        // Globe-map camera: lower + tilted back so the curved horizon and sky
+        // are framed with the hero lower-centre (enemies crest the curve ahead).
+        // Heights are starting values from the design spec — tune in-browser.
+        // On narrow mobile screens (< 700px) pull the camera in slightly closer.
         const viewportWidth = scene.getEngine().getRenderWidth();
         if (viewportWidth < 700) {
-            this.cameraHeight = 16;    // closer than desktop (20)
-            this.cameraOffsetZ = -3;   // less tilt back
+            this.cameraHeight = 8;
+            this.cameraOffsetZ = -9;
         } else {
-            this.cameraHeight = 20;
-            this.cameraOffsetZ = -5;   // slight tilt back for depth
+            this.cameraHeight = 9;
+            this.cameraOffsetZ = -11;
         }
 
-        // Top-down follow camera — replace the old isometric camera from Game.setupScene
+        // Tilted follow camera — replace the old isometric camera from Game.setupScene.
+        // Aim a few units AHEAD of the hero so the hero sits lower on screen
+        // and the top of the frame shows the horizon + sky.
         this.camera = new FreeCamera('heroCam', new Vector3(0, this.cameraHeight, this.cameraOffsetZ), scene);
-        this.camera.setTarget(Vector3.Zero());
+        this.camera.setTarget(new Vector3(0, 0, CAMERA_AIM_AHEAD));
         // Snapshot the look-down rotation once. We never call setTarget() again — only
         // position is lerped per frame. Calling setTarget() each frame recomputes rotation
         // from the lerped position, producing a tiny drift each frame that reads as the

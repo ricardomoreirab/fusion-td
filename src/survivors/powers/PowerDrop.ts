@@ -1,5 +1,6 @@
 import { Scene, Vector3, Mesh, MeshBuilder, Color3 } from '@babylonjs/core';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
+import { curveDropAt } from '../globe/curvature';
 import { ELEMENT_COLOR as ELEMENT_COLORS } from '../ElementColors';
 
 export interface PowerDropOpts {
@@ -72,7 +73,8 @@ export class PowerDrop {
         }
 
         // Idle bob
-        this.mesh.position.y = 0.6 + Math.sin(performance.now() / 200) * 0.1;
+        this.mesh.position.y = 0.6 + Math.sin(performance.now() / 200) * 0.1
+            - curveDropAt(this.mesh.position.x, this.mesh.position.z); // render-only globe drop
     }
 
     /**

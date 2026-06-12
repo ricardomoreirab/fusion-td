@@ -1,4 +1,4 @@
-import { Engine, EngineFactory, AbstractEngine, Scene, Vector3, HemisphericLight, PointLight, Color3, ArcRotateCamera, Camera, GlowLayer, WebGPUEngine, DefaultRenderingPipeline } from '@babylonjs/core';
+import { Engine, EngineFactory, AbstractEngine, NullEngine, Scene, Vector3, HemisphericLight, PointLight, Color3, ArcRotateCamera, Camera, GlowLayer, WebGPUEngine, DefaultRenderingPipeline } from '@babylonjs/core';
 import { GameState } from './GameState';
 import { MenuState } from '../menu/MenuState';
 import { SurvivorsGameplayState } from '../survivors/SurvivorsGameplayState';
@@ -60,12 +60,26 @@ export class Game {
      * don't support it (Safari at time of writing). EngineFactory.CreateAsync
      * handles both cases and returns the right thing — we just await it.
      */
+    private gpuUnavailable = false;
+
     private async createEngine(): Promise<AbstractEngine> {
         try {
             const engine = await EngineFactory.CreateAsync(this.canvas, {
                 antialias: true,
                 stencil: true,
             });
+            // EngineFactory's last-resort fallback is a NullEngine (no WebGPU
+            // AND no WebGL — e.g. headless browsers without a GPU flag, or
+            // broken driver blacklists). A NullEngine "runs" but renders
+            // nothing, leaving a black canvas, and cube-texture loads crash
+            // in the WebGL upload path (no GL context). Surface a clear
+            // message and let callers skip GPU-only extras.
+            if (engine instanceof NullEngine) {
+                this.gpuUnavailable = true;
+                console.error('[engine] No GPU rendering available — WebGPU and WebGL are both unsupported in this browser. The game cannot render.');
+                this.showGpuUnavailableBanner();
+                return engine;
+            }
             // Babylon picks WebGPU automatically when supported. Log which we got.
             const usingWebGPU = engine instanceof WebGPUEngine;
             console.info(`[engine] initialised: ${usingWebGPU ? 'WebGPU' : 'WebGL'}`);
@@ -473,6 +487,22 @@ export class Game {
      *  Champion.enableTorch reparents it to the hero mesh and sets intensity. */
     public getHeroTorch(): PointLight {
         return this.heroTorch;
+    }
+
+    /** True when EngineFactory fell back to a NullEngine (no WebGPU, no WebGL).
+     *  GPU-only extras (env cube textures, etc.) should be skipped — they crash
+     *  on the GL-less engine. */
+    public isGpuUnavailable(): boolean {
+        return this.gpuUnavailable;
+    }
+
+    /** Visible explanation for the black canvas when no GPU API exists. */
+    private showGpuUnavailableBanner(): void {
+        const div = document.createElement('div');
+        div.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;' +
+            'background:#7a1f1f;color:#fff;font:14px sans-serif;padding:10px 16px;text-align:center;';
+        div.textContent = 'This browser has no GPU rendering support (WebGPU and WebGL unavailable) — the game cannot be displayed.';
+        document.body.appendChild(div);
     }
 
     public getScene(): Scene {

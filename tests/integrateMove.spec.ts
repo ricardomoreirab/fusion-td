@@ -106,3 +106,16 @@ describe('integrateMove', () => {
     expect(z).toBeGreaterThan(1); // still made progress along the rim
   });
 });
+
+describe('infinite map (arenaRadius = Infinity)', () => {
+    it('arenaClampScale never clamps', () => {
+        expect(arenaClampScale(1e6, 1e6, Infinity)).toBe(1);
+        expect(arenaClampScale(0, 0, Infinity)).toBe(1);
+    });
+
+    it('integrateMove walks unbounded', () => {
+        let p = { x: 24.9, z: 0 };
+        for (let i = 0; i < 100; i++) p = integrateMove(p.x, p.z, 1, 0, 7, 0.1, Infinity);
+        expect(p.x).toBeCloseTo(24.9 + 100 * 0.7, 6); // straight through the old wall
+    });
+});

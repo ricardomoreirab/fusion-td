@@ -21,6 +21,7 @@ import { redSwapType } from './redSwap';
 import { PlayerStats } from '../PlayerStats';
 import { makeElite } from './EliteSpawner';
 import { DifficultyTuning } from '../DifficultyTuning';
+import { SPAWN_RING_RADIUS } from '../globe/constants';
 
 export class EnemyManager {
     private game: Game;
@@ -549,7 +550,9 @@ export class EnemyManager {
 
         const heroPos = this.heroProvider.getPosition();
         const theta = Math.random() * Math.PI * 2;
-        const r = this.arenaRadius + 2;
+        // Infinite map: spawn just past the visual horizon so enemies crest the
+        // curve from a random direction (theta above is already angle-uniform).
+        const r = SPAWN_RING_RADIUS;
         const spawnPos = new Vector3(
             heroPos.x + Math.cos(theta) * r,
             0,

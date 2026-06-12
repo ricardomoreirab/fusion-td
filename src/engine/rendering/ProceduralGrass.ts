@@ -70,6 +70,11 @@ uniform vec3 uInfluencers[16];
 uniform float uInfluencerRadius;
 uniform float uInfluencerStrength;
 
+// Infinite-map treadmill + globe curvature (see src/survivors/globe/).
+uniform vec3 uHeroPos;
+uniform float uTileSize;
+uniform float uCurveRadius;
+
 #ifdef RECEIVE_SHADOWS
 uniform mat4 uShadowVP;
 #endif
@@ -123,6 +128,17 @@ void main(void) {
     vec4 wp4 = finalWorld * vec4(lpos, 1.0);
     vec3 worldPos = wp4.xyz;
     vec3 worldNorm = normalize(mat3(finalWorld) * lnorm);
+
+    // Infinite-map treadmill: wrap the whole blade (instance origin world3, not
+    // the vertex — the blade must wrap as a unit) into a uTileSize² tile centred
+    // on the hero, then sink it by the globe curvature. The wrap offset is a
+    // multiple of uTileSize, so a blade's wrapped position is stable until it
+    // crosses the tile edge (always far behind the camera).
+    vec2 rel = world3.xz - uHeroPos.xz;
+    vec2 wrapOffset = (mod(rel + 0.5 * uTileSize, uTileSize) - 0.5 * uTileSize) - rel;
+    worldPos.xz += wrapOffset;
+    vec2 rootToHero = (world3.xz + wrapOffset) - uHeroPos.xz;
+    worldPos.y -= dot(rootToHero, rootToHero) / (2.0 * uCurveRadius);
 
     // Character displacement — each influencer pushes nearby blades outward
     // along the XZ vector from influencer to blade. Falloff is (1 - d/r)²,
@@ -304,7 +320,12 @@ function buildBladeMesh(scene: Scene, width: number, height: number): Mesh {
 // ──────────────────────────────────────────────────────────────────────────────
 
 export interface ProceduralGrassOptions {
-    arenaRadius: number;
+    /** Edge length of the toroidal grass tile centred on the hero. Blades are
+     *  placed once in this square; the vertex shader wraps them around the
+     *  hero as it moves (treadmill — zero per-frame buffer updates). */
+    tileSize: number;
+    /** Globe curvature radius (same R the rest of the world uses). */
+    curveRadius: number;
     bladeCount: number;
     rootY?: number;
     bladeWidth?: number;
@@ -335,6 +356,9 @@ export interface ProceduralGrass {
      *  as they pass through. Up to 16 positions; extras are dropped. Call
      *  every frame with current positions of hero + visible enemies. */
     setInfluencers: (positions: Vector3[]) => void;
+    /** Per-frame: the hero's world position — centre of the wrap tile and
+     *  origin of the curvature drop. */
+    setHeroPos: (position: Vector3) => void;
     dispose: () => void;
 }
 
@@ -355,14 +379,18 @@ export function createProceduralGrass(scene: Scene, opts: ProceduralGrassOptions
     const tmpPos = new Vector3();
     const tmpScale = new Vector3(1, 1, 1);
     for (let i = 0; i < opts.bladeCount; i++) {
-        const r = Math.sqrt(Math.random()) * opts.arenaRadius * 0.96;
-        const theta = Math.random() * Math.PI * 2;
         const yRot = Math.random() * Math.PI * 2;
         const widthMult = 0.85 + Math.random() * 0.5;
         const tallSkew = Math.pow(Math.random(), 3.0);
         const heightMult = 0.7 + tallSkew * 1.8;
         tmpScale.set(widthMult, heightMult, 1);
-        tmpPos.set(Math.cos(theta) * r, rootY, Math.sin(theta) * r);
+        // Uniform square tile — the vertex shader wraps blades toroidally
+        // around the hero, so placement is a tile, not a disc.
+        tmpPos.set(
+            (Math.random() - 0.5) * opts.tileSize,
+            rootY,
+            (Math.random() - 0.5) * opts.tileSize,
+        );
         Matrix.ComposeToRef(tmpScale, Quaternion.RotationAxis(Vector3.UpReadOnly, yRot), tmpPos, tmp);
         tmp.copyToArray(matrices, i * 16);
     }
@@ -381,6 +409,7 @@ export function createProceduralGrass(scene: Scene, opts: ProceduralGrassOptions
         'uLightDir', 'uLightColor', 'uAmbient',
         'uTorchPos', 'uTorchColor', 'uTorchIntensity', 'uTorchRange',
         'uInfluencers', 'uInfluencerRadius', 'uInfluencerStrength',
+        'uHeroPos', 'uTileSize', 'uCurveRadius',
     ];
     const samplersList: string[] = [];
     const defines: string[] = [];
@@ -404,6 +433,9 @@ export function createProceduralGrass(scene: Scene, opts: ProceduralGrassOptions
     mat.backFaceCulling = false;
 
     mat.setFloat('uWindStrength', opts.windStrength ?? 0.18);
+    mat.setVector3('uHeroPos', Vector3.Zero());
+    mat.setFloat('uTileSize', opts.tileSize);
+    mat.setFloat('uCurveRadius', opts.curveRadius);
     mat.setColor3('uColorRoot', opts.colorRoot ?? new Color3(0.10, 0.14, 0.05));
     mat.setColor3('uColorTip', opts.colorTip ?? new Color3(0.45, 0.65, 0.22));
     mat.setColor3('uColorDry', opts.colorDry ?? new Color3(0.62, 0.55, 0.22));
@@ -516,6 +548,9 @@ export function createProceduralGrass(scene: Scene, opts: ProceduralGrassOptions
             // loop instead of Array.from for less per-frame GC pressure.
             for (let i = 0; i < influencerBuf.length; i++) influencerArr[i] = influencerBuf[i];
             mat.setArray3('uInfluencers', influencerArr);
+        },
+        setHeroPos: (position: Vector3) => {
+            mat.setVector3('uHeroPos', position);
         },
         dispose: () => {
             if (tickObserver) scene.onBeforeRenderObservable.remove(tickObserver);
