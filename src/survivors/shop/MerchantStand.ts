@@ -100,7 +100,7 @@ export class MerchantStand {
             ]);
         } catch (err) {
             console.error('[merchant] GLB load failed — merchant stays away:', err);
-            if (seq === this.buildSeq && this.state === 'arriving') this.state = 'none';
+            if (seq === this.buildSeq && (this.state === 'arriving' || this.state === 'open')) this.state = 'none';
             return;
         }
         // A despawn()/dispose() (or a later respawn) while the load was in
@@ -116,8 +116,10 @@ export class MerchantStand {
         this.instantiate(cart, 'merchant_cart', CART_HEIGHT, Vector3.Zero());
         this.instantiate(goblin, 'merchant_goblin', GOBLIN_HEIGHT, GOBLIN_OFFSET);
 
-        // Play the goblin's idle animation if either GLB has one.
-        const idle = this.animGroups.find(g => /idle/i.test(g.name)) ?? this.animGroups[0];
+        // Play the goblin's idle animation if it has one. No name-blind
+        // fallback: the cart GLB ships a stray Camera turntable action that
+        // must never autoplay.
+        const idle = this.animGroups.find(g => /idle/i.test(g.name));
         idle?.start(true);
 
         // Replay a bark that fired while the GLBs were still loading.
