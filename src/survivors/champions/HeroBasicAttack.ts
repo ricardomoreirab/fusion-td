@@ -364,7 +364,11 @@ export class HeroBasicAttack {
         }
 
         this.applyEnchantments(e, fromPos, enemies);
-        this.onHitCallback?.(e, dmg);
+        // Item-effect hit hook — host/single-player only (mirrors the projectile
+        // path's guard; the co-op guest routes damage via damageRouter).
+        if (!this.damageRouter) {
+            this.onHitCallback?.(e, dmg);
+        }
     }
 
     /** Apply full basic-attack hits to every enemy within `radius` of `center`.

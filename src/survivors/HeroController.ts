@@ -329,6 +329,8 @@ export class HeroController {
         if (this.isDead) return;
         if (this.isInvulnerable || this.shieldTimer > 0 || this.debugInvulnerable) return;
         this.currentHealth -= amount;
+        // Fires before the revive-charge check: `amount` is the pre-revive damage
+        // that landed; a revive may still absorb the lethal outcome below.
         this.onHurtCallback?.(amount);
         if (this.currentHealth <= 0) {
             // Extra Life: spend a charge to revive at full HP with a timed shield
