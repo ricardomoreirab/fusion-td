@@ -1,4 +1,4 @@
-import { Scene, Mesh, MeshBuilder, ShaderMaterial, Effect, AssetContainer, LoadAssetContainerAsync, Matrix, PBRMaterial, Texture } from '@babylonjs/core';
+import { Scene, Mesh, MeshBuilder, ShaderMaterial, Effect, AssetContainer, LoadAssetContainerAsync, Matrix, PBRMaterial, Texture, Color3 } from '@babylonjs/core';
 
 const SHADER_KEY = 'ktgGlobeSky';
 const SKY_GLB_URL = 'assets/unreal_engine_4_sky.glb';
@@ -7,6 +7,9 @@ const SKY_GLB_URL = 'assets/unreal_engine_4_sky.glb';
 const SKY_RADIUS = 420;
 /** Cloud pan speed (texture U per second) — slow drift. */
 const CLOUD_PAN_SPEED = 0.0015;
+/** Dusk tint multiplied into the (unlit) sky texture — the raw UE4 clouds are
+ *  a bright midday sky and wash out the game's torch-lit mood. */
+const SKY_TINT = new Color3(0.42, 0.48, 0.74);
 
 // Texture-free gradient sky used INSTANTLY while the GLB skydome streams in
 // (and kept forever if it fails to load): warm-blue twilight band at the
@@ -141,8 +144,13 @@ export class GlobeSky {
         if (mat) {
             mat.backFaceCulling = false;     // dome must read from the inside
             mat.disableDepthWrite = true;    // pure background — never occludes
-            if (mat instanceof PBRMaterial && mat.albedoTexture instanceof Texture) {
-                this.cloudTexture = mat.albedoTexture; // panned in update()
+            if (mat instanceof PBRMaterial) {
+                // Unlit PBR: final colour = albedoColor × texture, so a single
+                // colour write darkens the whole dome toward dusk.
+                mat.albedoColor = SKY_TINT.clone();
+                if (mat.albedoTexture instanceof Texture) {
+                    this.cloudTexture = mat.albedoTexture; // panned in update()
+                }
             }
         }
         this.skyDome = dome;
