@@ -18,7 +18,8 @@ export function newEquipFoldTracker(): EquipFoldTracker {
  *  applyLevelBonuses() re-assigns the level-derived fields — it multiplies/adds
  *  on top of those assignments, which makes the whole recompute idempotent.
  *  Max-HP is NOT handled here (the state applies it as a hero-controller delta,
- *  mirroring the level system's appliedMaxHpBonus pattern). */
+ *  mirroring the level system's appliedMaxHpBonus pattern).
+ *  The ONLY valid call site is SurvivorsGameplayState.applyLevelBonuses() — never call this standalone (a bare re-fold would compound every multiplier). */
 export function foldEquipmentStats(
     ps: PlayerStats,
     agg: EquipmentAggregates,
@@ -31,7 +32,7 @@ export function foldEquipmentStats(
     ps.powerCooldownMultiplier    *= agg.cooldownMult;
     ps.damageReductionMultiplier  *= agg.damageTakenMult;
     ps.critChance                 += agg.critChance;
-    ps.critDamageMultiplier       += agg.critDamage;
+    ps.critDamageMultiplier       += agg.critDamage; // safe without a tracker: applyLevelBonuses re-ASSIGNS this field every recompute (unlike lifesteal/knockback, which only RunItems += s)
 
     // Fields owned exclusively by equipment (nothing else writes them):
     ps.basicDamageMultiplier = agg.basicDamageMult;

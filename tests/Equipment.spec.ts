@@ -159,4 +159,18 @@ describe('foldEquipmentStats', () => {
         recompute(ps, eq, t);
         expect(ps.basicDamageMultiplier).toBe(1);
     });
+
+    it('folds cooldown, damage-taken and gold-gain with the right signs', () => {
+        const ps = new PlayerStats(120, 10000);
+        const eq = new Equipment(ps);
+        const t = newEquipFoldTracker();
+        eq.buy(itemById('mindcrown')!, 0);             // −8% power cooldowns
+        eq.buy(itemById('juggernaut_legplates')!, 0);  // −15% damage taken (+1 knockback)
+        eq.buy(itemById('gribbles_lucky_coin')!, 0);   // +10% gold (+5% crit)
+        recompute(ps, eq, t);
+        expect(ps.powerCooldownMultiplier).toBeCloseTo(0.95 * 0.92);   // lower = faster
+        expect(ps.damageReductionMultiplier).toBeCloseTo(0.95 * 0.85); // lower = tankier
+        expect(ps.goldGainMultiplier).toBeCloseTo(1.10);
+        expect(ps.knockbackOnHit).toBeCloseTo(1);
+    });
 });

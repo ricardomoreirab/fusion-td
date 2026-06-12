@@ -67,7 +67,7 @@ export class Equipment {
         const old = this.slots.get(def.slot) ?? null;
         const credit = old ? sellValueOf(old.pricePaid) : 0;
         if (this.stats.getGold() + credit < price) return false;
-        if (credit >= price) {
+        if (credit > price) {
             this.stats.refundGold(credit - price);
         } else {
             this.stats.spendGold(price - credit);
@@ -98,19 +98,19 @@ export class Equipment {
     }
 
     private foldMods(agg: EquipmentAggregates, mods: ItemStatMods): void {
-        if (mods.basicDamagePct)  agg.basicDamageMult *= 1 + mods.basicDamagePct / 100;
-        if (mods.powerDamagePct)  agg.powerDamageMult *= 1 + mods.powerDamagePct / 100;
-        if (mods.attackSpeedPct)  agg.attackSpeedMult *= 1 + mods.attackSpeedPct / 100;
-        if (mods.moveSpeedPct)    agg.moveSpeedMult   *= 1 + mods.moveSpeedPct / 100;
-        if (mods.cooldownPct)     agg.cooldownMult    *= 1 - mods.cooldownPct / 100;
-        if (mods.damageTakenPct)  agg.damageTakenMult *= 1 - mods.damageTakenPct / 100;
-        if (mods.goldGainPct)     agg.goldGainMult    *= 1 + mods.goldGainPct / 100;
-        if (mods.critChance)      agg.critChance      += mods.critChance;
-        if (mods.critDamage)      agg.critDamage      += mods.critDamage;
-        if (mods.lifesteal)       agg.lifesteal       += mods.lifesteal;
-        if (mods.maxHealth)       agg.maxHealth       += mods.maxHealth;
-        if (mods.hpRegenPctPerSec) agg.hpRegenPctPerSec += mods.hpRegenPctPerSec;
-        if (mods.knockback)       agg.knockback       += mods.knockback;
+        if (mods.basicDamagePct  !== undefined) agg.basicDamageMult *= 1 + mods.basicDamagePct / 100;
+        if (mods.powerDamagePct  !== undefined) agg.powerDamageMult *= 1 + mods.powerDamagePct / 100;
+        if (mods.attackSpeedPct  !== undefined) agg.attackSpeedMult *= 1 + mods.attackSpeedPct / 100;
+        if (mods.moveSpeedPct    !== undefined) agg.moveSpeedMult   *= 1 + mods.moveSpeedPct / 100;
+        if (mods.cooldownPct     !== undefined) agg.cooldownMult    *= 1 - mods.cooldownPct / 100;
+        if (mods.damageTakenPct  !== undefined) agg.damageTakenMult *= 1 - mods.damageTakenPct / 100;
+        if (mods.goldGainPct     !== undefined) agg.goldGainMult    *= 1 + mods.goldGainPct / 100;
+        if (mods.critChance      !== undefined) agg.critChance      += mods.critChance;
+        if (mods.critDamage      !== undefined) agg.critDamage      += mods.critDamage;
+        if (mods.lifesteal       !== undefined) agg.lifesteal       += mods.lifesteal;
+        if (mods.maxHealth       !== undefined) agg.maxHealth       += mods.maxHealth;
+        if (mods.hpRegenPctPerSec !== undefined) agg.hpRegenPctPerSec += mods.hpRegenPctPerSec;
+        if (mods.knockback       !== undefined) agg.knockback       += mods.knockback;
     }
 
     public reset(): void {
