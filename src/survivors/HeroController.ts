@@ -66,6 +66,8 @@ export class HeroController {
      *  Camera still follows (so the spectator tracks the surviving teammate). */
     public spectating: boolean = false;
     private onDeathCallback: () => void = () => {};
+    /** Item-effect hook: fired with the post-mitigation damage actually applied. */
+    private onHurtCallback: ((amount: number) => void) | null = null;
 
     // Extra Life (wave-5 boss item): each charge turns the next lethal hit into a
     // full-HP revive plus a timed invulnerability shield instead of death.
@@ -327,6 +329,7 @@ export class HeroController {
         if (this.isDead) return;
         if (this.isInvulnerable || this.shieldTimer > 0 || this.debugInvulnerable) return;
         this.currentHealth -= amount;
+        this.onHurtCallback?.(amount);
         if (this.currentHealth <= 0) {
             // Extra Life: spend a charge to revive at full HP with a timed shield
             // instead of dying. The shield gate above blocks further hits this frame.
@@ -343,6 +346,11 @@ export class HeroController {
             return;
         }
         this.triggerHitReaction(sourcePos);
+    }
+
+    /** Item-effect hook: fired with the post-mitigation damage actually applied. */
+    public setOnHurt(fn: ((amount: number) => void) | null): void {
+        this.onHurtCallback = fn;
     }
 
     /** Grant one Extra Life revive charge (called by RunItems on item pickup). */
