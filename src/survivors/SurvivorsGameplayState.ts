@@ -1,10 +1,17 @@
-import { Scene, Vector3, Color3, Color4, DirectionalLight, AssetContainer, LoadAssetContainerAsync, CubeTexture, Texture, MeshBuilder, Mesh, BackgroundMaterial, ShadowGenerator, KeyboardEventTypes, Observer } from '@babylonjs/core';
+import { Scene, Vector3, Color3, Color4, DirectionalLight, AssetContainer, LoadAssetContainerAsync, CubeTexture, MeshBuilder, Mesh, ShadowGenerator, KeyboardEventTypes, Observer } from '@babylonjs/core';
+// WebGPU cube-texture upload support is a SIDE-EFFECT module in Babylon's ES
+// build. It used to ride in transitively via the BackgroundMaterial import
+// (removed with the old env-cube skybox); without it, CreateFromImages on a
+// WebGPU engine falls back to the WebGL path and crashes in the image loader
+// (reading gl.TEXTURE_CUBE_MAP_POSITIVE_X of undefined).
+import '@babylonjs/core/Engines/WebGPU/Extensions/engine.cubeTexture';
 import '@babylonjs/loaders/glTF';
 import { AdvancedDynamicTexture } from '@babylonjs/gui';
 import { Game } from '../engine/Game';
 import { GameState } from '../engine/GameState';
 import { GlobeGround } from './globe/GlobeGround';
 import { PropField } from './globe/PropField';
+import { GlobeSky } from './globe/GlobeSky';
 import { setCurveOrigin, clearCurveOrigin, curveDropAt } from './globe/curvature';
 import { GLOBE_RADIUS, GRASS_TILE_SIZE } from './globe/constants';
 import { StatusEffect } from './GameTypes';
@@ -372,9 +379,7 @@ export class SurvivorsGameplayState implements GameState {
     // Per-run env/sky GPU resources — tracked so exit() can dispose them.
     // cleanupScene() only frees meshes/particles/ADT textures, so these cube
     // textures + skybox material otherwise leak one set per run.
-    private skyTexture: CubeTexture | null = null;
-    private skyMaterial: BackgroundMaterial | null = null;
-    private skyDome: Mesh | null = null;
+    private globeSky: GlobeSky | null = null;
 
     // Gameplay systems
     private enemyManager: EnemyManager | null = null;
@@ -1190,18 +1195,10 @@ export class SurvivorsGameplayState implements GameState {
         scene.environmentTexture = envTexture;
         scene.environmentIntensity = 0.25;
 
-        const skydome = MeshBuilder.CreateBox('ruinsSky', { size: 1000, sideOrientation: Mesh.BACKSIDE }, scene);
-        skydome.rotation.y = Math.PI;
-        skydome.isPickable = false;
-        const skyMat = new BackgroundMaterial('ruinsSkyMat', scene);
-        const skyTex = envTexture.clone();
-        skyTex.coordinatesMode = Texture.SKYBOX_MODE;
-        skyMat.reflectionTexture = skyTex;
-        skydome.material = skyMat;
-        this.skyDome = skydome;
-        // Track the cloned sky texture + material for disposal in exit().
-        this.skyTexture = skyTex;
-        this.skyMaterial = skyMat;
+        // Gradient + stars sky dome (globe map): warm dusk band at the curved
+        // horizon fading to indigo overhead, so the space above the world's rim
+        // isn't a black void. The env cube above stays for IBL reflections only.
+        this.globeSky = new GlobeSky(scene);
 
         // (Removed ruinsSpot SpotLight — it didn't cast shadows and was
         // washing out the directional's shadows at world origin where the
@@ -2547,12 +2544,8 @@ export class SurvivorsGameplayState implements GameState {
             this.scene.environmentTexture.dispose();
             this.scene.environmentTexture = null;
         }
-        this.skyTexture?.dispose();
-        this.skyTexture = null;
-        this.skyMaterial?.dispose();
-        this.skyMaterial = null;
-        this.skyDome?.dispose();
-        this.skyDome = null;
+        this.globeSky?.dispose();
+        this.globeSky = null;
 
         // Free the cross-run GPU resource pools. By now every survivors mesh that
         // referenced these (hero, enemies, drops, projectiles) has been disposed
@@ -2757,12 +2750,8 @@ export class SurvivorsGameplayState implements GameState {
             const hp = this.hero.getPosition();
             setCurveOrigin(hp.x, hp.z);
             this.map?.update(hp.x, hp.z);
-            // Skydome is a 1000-unit box; follow the hero so a long run never
-            // walks out of it. (Position-only — material untouched.)
-            if (this.skyDome) {
-                this.skyDome.position.x = hp.x;
-                this.skyDome.position.z = hp.z;
-            }
+            // Sky dome follows the hero so a long run never walks out of it.
+            this.globeSky?.update(hp.x, hp.z);
             // Directional shadow frustum is a fixed ±30-unit ortho box around
             // the light — keep it centred on the hero. Snap to 0.5 u so the
             // shadow texels don't shimmer as the hero moves.
