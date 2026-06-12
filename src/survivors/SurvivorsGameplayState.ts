@@ -942,12 +942,14 @@ export class SurvivorsGameplayState implements GameState {
             this.powerSlots.addPower(variant.startPower);
         }
 
-        // When a power-slot fires, trigger the ranger's special-attack animation.
-        // No-op for non-ranger champs (triggerSpecial type-guards on championType).
+        // When a power-slot fires, play a cast animation. Ranger/mage reuse the
+        // NORMAL attack clip for power autocasts — the special clip is reserved
+        // for the manual Q/E ultimates (AbilityManager → triggerSpecial /
+        // playAbilityClip). The barbarian keeps the special swing for power casts.
         this.powerSlots.setOnCast((slot) => {
-            const hero = this.hero as { triggerSpecial?: () => void } | null;
-            if (hero && typeof hero.triggerSpecial === 'function') {
-                hero.triggerSpecial();
+            if (this.hero) {
+                if (this.hero.championType === 'barbarian') this.hero.triggerSpecial();
+                else this.hero.triggerAttack();
             }
             // Co-op (M6 C1): fusion + ultimate casts now replicate their EXACT visuals
             // via the PowerEffects primitives ('pe' messages emitted inside each

@@ -590,14 +590,20 @@ export class Champion extends Enemy {
         mage:      0.45,
     };
 
-    /** Seconds between triggerSpecial() starting the cast clip and the clip's
-     *  visual release point. PowerSlotManager delays the actual power cast by
-     *  this much so the projectile leaves the hand exactly on the release pose.
-     *  0 for procedural champions (no clip to sync against). */
+    /** Seconds between the power-cast animation starting and the clip's visual
+     *  release point. PowerSlotManager delays the actual power cast by this much
+     *  so the projectile leaves the hand exactly on the release pose. Synced to
+     *  whichever clip a power cast actually plays: the special swing on the
+     *  barbarian, the NORMAL attack clip on ranger/mage (their special clip is
+     *  reserved for the Q/E ultimates). 0 for procedural champions. */
     public getCastReleaseDelay(): number {
-        if (!this.championAsset || !this.championAnims.special) return 0;
-        const dur = ((this as any).glbSpecialDurationActual as number | undefined)
-            ?? Champion.GLB_SPECIAL_DURATION;
+        if (!this.championAsset) return 0;
+        const usesSpecial = this.championType === 'barbarian';
+        const clip = usesSpecial ? this.championAnims.special : this.championAnims.attack;
+        if (!clip) return 0;
+        const dur = usesSpecial
+            ? (((this as any).glbSpecialDurationActual as number | undefined) ?? Champion.GLB_SPECIAL_DURATION)
+            : (((this as any).glbAttackDurationActual as number | undefined) ?? Champion.GLB_ATTACK_DURATION);
         const frac = Champion.CAST_RELEASE_FRACTION[this.championType];
         return Math.min(0.6, Math.max(0.05, dur * frac));
     }
