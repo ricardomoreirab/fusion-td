@@ -1,6 +1,6 @@
 import { Vector3, MeshBuilder, Mesh, Color3, Color4, ParticleSystem, StandardMaterial, AssetContainer, AnimationGroup, TransformNode, PointLight, Material } from '@babylonjs/core';
 import { Game } from '../../engine/Game';
-import { Enemy } from '../enemies/Enemy';
+import { Enemy, getStatusEffectTexture } from '../enemies/Enemy';
 import { EnemyManager } from '../enemies/EnemyManager';
 import { StatusEffect } from '../GameTypes';
 import { PALETTE } from '../../engine/rendering/StyleConstants';
@@ -66,6 +66,11 @@ export class Champion extends Enemy {
     // decorations and spin-trail particle emitters attach here — the procedural
     // part refs (barbAxeHead / rangerBow / mageStaffOrb) stay null on this path.
     private glbWeaponAnchor: Mesh | null = null;
+
+    // GLB path: per-instance cloned materials that belong to the weapon primitive
+    // (e.g. Aulus' '*_weapon' material). Element tint drives their emissive
+    // directly; baseEmissive restores the resting look when no elements are active.
+    private glbWeaponMats: { mat: StandardMaterial; baseEmissive: Color3 }[] = [];
 
     // Barbarian berserker animated parts
     private barbKiltFlaps: Mesh[] = [];
@@ -420,6 +425,22 @@ export class Champion extends Enemy {
                 ws.z !== 0 ? 1 / ws.z : 1,
             );
             this.glbWeaponAnchor = anchor;
+        }
+
+        // Weapon tint hook: Aulus' axe ships as its own primitive with a dedicated
+        // '*_weapon' material (cloned per instance by instantiateModelsToScene), so
+        // the element tint can drive its emissive directly. Miya/Framis bake body +
+        // weapon into one material — no entry collected; the particle aura alone
+        // carries their element glow.
+        for (const m of this.mesh.getChildMeshes(false)) {
+            const matName = m.material?.name?.toLowerCase() ?? '';
+            if (matName.includes('weapon')) {
+                const mat = m.material as StandardMaterial;
+                this.glbWeaponMats.push({
+                    mat,
+                    baseEmissive: mat.emissiveColor?.clone() ?? new Color3(0, 0, 0),
+                });
+            }
         }
 
         // Categorize the GLB's animation clips by name. Accept aliases per slot since
@@ -1835,12 +1856,19 @@ export class Champion extends Enemy {
             this.barbFootDustPs.dispose();
             this.barbFootDustPs = null;
         }
-        // Free the per-element aura particle systems.
+        // Free the per-element aura particle systems. dispose(false): the
+        // particleTexture is the SHARED status-effect texture singleton.
         for (const ps of this.elementAuraPs.values()) {
             ps.stop();
-            ps.dispose();
+            ps.dispose(false);
         }
         this.elementAuraPs.clear();
+        // GLB weapon tint: restore the resting emissive (the cloned material
+        // itself is freed by the GLB teardown).
+        for (const w of this.glbWeaponMats) {
+            try { w.mat.emissiveColor.copyFrom(w.baseEmissive); } catch (_) { /* disposed */ }
+        }
+        this.glbWeaponMats = [];
         // Storm bolts share ONE per-champion material — dispose meshes, then the
         // material once. (Default mesh.dispose() does NOT free materials; without
         // this the material leaks onto the never-disposed shared scene.)
@@ -2022,12 +2050,33 @@ export class Champion extends Enemy {
         return null;
     }
 
-    /** Tint the procedural weapon mesh with the blended element color ("the axe
-     *  is frozen / burning"). GLB champions skip this — their weapon is baked
-     *  into the skinned mesh, so the particle aura alone carries the effect.
+    /** Tint the weapon with the blended element color ("the axe is frozen /
+     *  burning"). GLB path: drives the emissive of the weapon primitive's own
+     *  per-instance cloned material (Aulus' axe); champions whose GLB bakes the
+     *  weapon into the body material (Miya/Framis) rely on the particle aura.
+     *  Procedural path: swaps the weapon mesh's material for a unique tint mat.
      *  While tinted, the mage orb's idle pulse writes to the detached
      *  mageOrbMat (harmless); it resumes if all elements are removed. */
     private updateWeaponTint(activeElements: Set<string>): void {
+        const key = Array.from(activeElements).sort().join('+');
+        if (key === this.weaponTintKey) return;
+        this.weaponTintKey = key;
+
+        // GLB path — emissive write on the weapon's cloned material (renders even
+        // though the scene blocks material-dirty: color uniforms need no recompile).
+        if (this.glbWeaponMats.length > 0) {
+            if (key === '') {
+                for (const w of this.glbWeaponMats) w.mat.emissiveColor.copyFrom(w.baseEmissive);
+            } else {
+                const blend = blendElements(this.activeElementSnapshot as PowerElement[]);
+                for (const w of this.glbWeaponMats) {
+                    w.mat.emissiveColor.copyFrom(blend).scaleInPlace(0.75);
+                }
+            }
+            return;
+        }
+
+        // Procedural path.
         let weapon: Mesh | null = null;
         switch (this.championType) {
             case 'barbarian': weapon = this.barbAxeHead; break;
@@ -2035,10 +2084,6 @@ export class Champion extends Enemy {
             case 'mage':      weapon = this.mageStaffOrb; break;
         }
         if (!weapon || weapon.isDisposed()) return;
-
-        const key = Array.from(activeElements).sort().join('+');
-        if (key === this.weaponTintKey) return;
-        this.weaponTintKey = key;
 
         if (key === '') {
             if (this.weaponOrigMat && this.weaponOrigMat.mesh === weapon) {
@@ -2063,57 +2108,60 @@ export class Champion extends Enemy {
         }
     }
 
-    /** One small persistent additive particle aura per element, anchored at the
-     *  weapon. Untextured square particles — same style as the spin trails. */
+    /** One persistent additive particle aura per element, anchored at the
+     *  weapon. Uses the shared soft-dot status texture so particles read as a
+     *  glow, not hard squares — auras must dispose with ps.dispose(false) so
+     *  the shared texture survives. */
     private createElementAura(element: PowerElement, anchor: Mesh): ParticleSystem {
         const c = ELEMENT_COLOR[element];
-        const ps = new ParticleSystem(`heroAura_${element}`, 32, this.scene);
+        const ps = new ParticleSystem(`heroAura_${element}`, 48, this.scene);
         ps.emitter = anchor;
+        ps.particleTexture = getStatusEffectTexture(this.scene);
         ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
         ps.color1 = new Color4(c.r, c.g, c.b, 1);
         ps.color2 = new Color4(c.r * 0.7, c.g * 0.7, c.b * 0.7, 1);
         ps.colorDead = new Color4(c.r * 0.15, c.g * 0.15, c.b * 0.15, 0);
-        ps.minEmitBox = new Vector3(-0.22, -0.05, -0.22);
-        ps.maxEmitBox = new Vector3(0.22, 0.35, 0.22);
+        ps.minEmitBox = new Vector3(-0.28, -0.05, -0.28);
+        ps.maxEmitBox = new Vector3(0.28, 0.45, 0.28);
         ps.gravity = Vector3.Zero();
         switch (element) {
             case 'fire': // rising embers
-                ps.minSize = 0.06; ps.maxSize = 0.16;
-                ps.minLifeTime = 0.35; ps.maxLifeTime = 0.7;
-                ps.emitRate = 26;
+                ps.minSize = 0.16; ps.maxSize = 0.38;
+                ps.minLifeTime = 0.35; ps.maxLifeTime = 0.8;
+                ps.emitRate = 42;
                 ps.direction1 = new Vector3(-0.25, 0.6, -0.25);
                 ps.direction2 = new Vector3(0.25, 1.3, 0.25);
                 ps.minEmitPower = 0.4; ps.maxEmitPower = 1.0;
                 break;
             case 'ice': // slow falling frost mist
-                ps.minSize = 0.10; ps.maxSize = 0.22;
-                ps.minLifeTime = 0.6; ps.maxLifeTime = 1.1;
-                ps.emitRate = 14;
+                ps.minSize = 0.20; ps.maxSize = 0.42;
+                ps.minLifeTime = 0.6; ps.maxLifeTime = 1.2;
+                ps.emitRate = 24;
                 ps.direction1 = new Vector3(-0.2, -0.05, -0.2);
                 ps.direction2 = new Vector3(0.2, 0.25, 0.2);
                 ps.minEmitPower = 0.1; ps.maxEmitPower = 0.4;
                 ps.gravity = new Vector3(0, -0.7, 0);
                 break;
             case 'storm': // fast crackling sparks
-                ps.minSize = 0.03; ps.maxSize = 0.08;
-                ps.minLifeTime = 0.08; ps.maxLifeTime = 0.2;
-                ps.emitRate = 44;
+                ps.minSize = 0.09; ps.maxSize = 0.20;
+                ps.minLifeTime = 0.1; ps.maxLifeTime = 0.25;
+                ps.emitRate = 64;
                 ps.direction1 = new Vector3(-1, -0.5, -1);
                 ps.direction2 = new Vector3(1, 1, 1);
                 ps.minEmitPower = 1.2; ps.maxEmitPower = 2.6;
                 break;
             case 'arcane': // slow swirling motes
-                ps.minSize = 0.07; ps.maxSize = 0.14;
-                ps.minLifeTime = 0.8; ps.maxLifeTime = 1.4;
-                ps.emitRate = 12;
+                ps.minSize = 0.15; ps.maxSize = 0.32;
+                ps.minLifeTime = 0.8; ps.maxLifeTime = 1.5;
+                ps.emitRate = 20;
                 ps.direction1 = new Vector3(-0.4, 0.1, -0.4);
                 ps.direction2 = new Vector3(0.4, 0.5, 0.4);
                 ps.minEmitPower = 0.15; ps.maxEmitPower = 0.5;
                 break;
             case 'physical': // sparse white glints
-                ps.minSize = 0.04; ps.maxSize = 0.10;
-                ps.minLifeTime = 0.25; ps.maxLifeTime = 0.55;
-                ps.emitRate = 8;
+                ps.minSize = 0.10; ps.maxSize = 0.22;
+                ps.minLifeTime = 0.25; ps.maxLifeTime = 0.6;
+                ps.emitRate = 14;
                 ps.direction1 = new Vector3(-0.5, 0.2, -0.5);
                 ps.direction2 = new Vector3(0.5, 0.9, 0.5);
                 ps.minEmitPower = 0.3; ps.maxEmitPower = 0.9;
@@ -2132,7 +2180,7 @@ export class Champion extends Enemy {
             new Color3(1.0, 0.95, 0.4), 0.95, this.scene);
         for (let i = 0; i < 3; i++) {
             const bolt = MeshBuilder.CreateBox(`heroStormBolt_${i}`, {
-                width: 0.025, height: 0.38, depth: 0.025,
+                width: 0.05, height: 0.5, depth: 0.05,
             }, this.scene);
             bolt.material = this.stormBoltMat;
             bolt.parent = anchor;
