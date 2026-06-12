@@ -619,3 +619,40 @@
 .lb-name-input:focus { border-color: var(--c-gold-hi); }
 .lb-name-input--err { border-color: var(--c-blood); }
 .btn--disabled { opacity: 0.55; pointer-events: none; }
+
+/* ── Gold pill ─────────────────────────────────────────────── */
+.pill--gold {
+  --accent: var(--c-gold);
+  color: var(--c-gold-hi);
+  letter-spacing: 0.06em;
+}
+.pill--gold .pill__txt { color: #ffd84a; }
+
+/* ── Horn button (next-wave during shopping phase) ────────────
+   Centered bottom, above the two bottom clusters (which hug the
+   bottom edge). 118 px of clearance keeps it above the tallest
+   bottom cluster (two-row power+item stack ≈ 90 px on desktop).
+   On portrait phones the clusters can grow taller — bump to 110px
+   from the bottom so it never overlaps the slot rows.            */
+.hud__horn {
+  position: absolute;
+  bottom: 118px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: var(--s-2) 20px;
+  cursor: pointer;
+  pointer-events: auto;
+  white-space: nowrap;
+}
+.hud__horn-label {
+  font-family: var(--ff-display);
+  font-weight: 700;
+  font-size: var(--fs-300);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #ffd84a;
+  text-shadow: 0 1px 2px #000;
+}
+@media (pointer: coarse) {
+  .hud__horn { bottom: 110px; padding: var(--s-3) 20px; min-height: 44px; display: flex; align-items: center; }
+}

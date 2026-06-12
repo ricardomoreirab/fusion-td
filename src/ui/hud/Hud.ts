@@ -48,6 +48,7 @@ export class Hud {
   private hpPill: PillController;
   private wavePill: PillController;
   private levelPill: PillController;
+  private goldPill: PillController;
 
   private powerSlots: IconSlotController[] = [];
   private itemSlots: Record<ItemId, IconSlotController | null> = {
@@ -63,12 +64,15 @@ export class Hud {
 
   private pauseIcon!: HTMLDivElement;
   private vignette!: HTMLDivElement;
+  private hornBtn!: HTMLDivElement;
+  private onHorn: () => void = () => {};
   private lowHpTime = 0;
 
   // diff trackers
   private prevHp = -1;
   private prevLevel = -1;
   private prevWaveInProgress = false;
+  private prevGold = -1;
 
   constructor(gameUI: GameUI, abilityManager?: AbilityManager, game?: Game) {
     this.gameUI = gameUI;
@@ -78,12 +82,13 @@ export class Hud {
     this.root = el('div', { class: 'hud' });
     gameUI.layer('hud').appendChild(this.root);
 
-    // Top bar: [HP | wave | level] — the level pill carries the XP-progress fill.
+    // Top bar: [HP | wave | level | gold] — HP + level carry fill bars; gold does not.
     const topBar = el('div', { class: 'hud__topbar' });
     this.hpPill = makePill('hp');
     this.wavePill = makePill('wave');
     this.levelPill = makePill('level');
-    topBar.append(this.hpPill.root, this.wavePill.root, this.levelPill.root);
+    this.goldPill = makePill('gold');
+    topBar.append(this.hpPill.root, this.wavePill.root, this.levelPill.root, this.goldPill.root);
     this.root.appendChild(topBar);
 
     // Bottom-left cluster: 4 power slots + 4 item slots.
@@ -137,6 +142,13 @@ export class Hud {
     pauseBtn.appendChild(this.pauseIcon);
     onTap(pauseBtn, () => this.togglePause());
     this.root.appendChild(pauseBtn);
+
+    // "Sound the horn" — starts the next wave during the merchant/shopping phase.
+    this.hornBtn = el('div', { class: 'hud__horn frame frame--lite interactive', attrs: { role: 'button' } });
+    this.hornBtn.appendChild(el('div', { class: 'hud__horn-label', text: '⚔ Next wave' }));
+    this.hornBtn.style.display = 'none';
+    onTap(this.hornBtn, () => this.onHorn());
+    this.root.appendChild(this.hornBtn);
 
     // Low-HP vignette lives on the fx layer.
     this.vignette = el('div', { class: 'hud__vignette' });
@@ -265,6 +277,19 @@ export class Hud {
 
   /** Flash the level pill on level-up (called by the gameplay state). */
   flashXpBar(): void { flashClass(this.levelPill.root, 'pill--pulse'); }
+
+  /** Update the gold pill (called every frame by the gameplay state). */
+  setGold(gold: number): void {
+    if (gold === this.prevGold) return;
+    if (this.prevGold >= 0 && gold > this.prevGold) flashClass(this.goldPill.root, 'pill--pulse');
+    this.prevGold = gold;
+    this.goldPill.setText(`🪙 ${gold}`);
+  }
+
+  setOnHorn(fn: () => void): void { this.onHorn = fn; }
+  setHornVisible(visible: boolean): void {
+    this.hornBtn.style.display = visible ? '' : 'none';
+  }
 
   // Stubs completed in later tasks (kept so the API exists from the start).
   pulseItem(id: ItemId): void { this.itemPulse[id] = true; }
