@@ -33,11 +33,14 @@ export class GlobeGround {
 
         // Bake the globe curvature into the geometry once: each vertex sinks by
         // curveDrop of its distance from the cap centre (where the hero stands).
+        // NB: setVerticesData, not updateVerticesData — CreateGround's buffers
+        // are non-updatable by default and updateVerticesData silently no-ops
+        // on them (the cap would stay flat).
         const pos = ground.getVerticesData(VertexBuffer.PositionKind)!.slice();
         for (let i = 0; i < pos.length; i += 3) {
             pos[i + 1] -= curveDrop(pos[i], pos[i + 2]);
         }
-        ground.updateVerticesData(VertexBuffer.PositionKind, pos);
+        ground.setVerticesData(VertexBuffer.PositionKind, pos);
         ground.createNormals(false); // re-light the curved surface
 
         this.grassTexture = new GrassProceduralTexture('grassTex', 256, scene);
