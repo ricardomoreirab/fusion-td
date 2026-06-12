@@ -61,6 +61,12 @@ export class Champion extends Enemy {
     // Barbarian axe head — weapon anchor for element decorations
     private barbAxeHead: Mesh | null = null;
 
+    // GLB path: invisible anchor mesh parented to the rig's weapon bone
+    // ('Bip001 Prop1' on Miya/Framis, 'Bip001 R Hand' on Aulus). Element
+    // decorations and spin-trail particle emitters attach here — the procedural
+    // part refs (barbAxeHead / rangerBow / mageStaffOrb) stay null on this path.
+    private glbWeaponAnchor: Mesh | null = null;
+
     // Barbarian berserker animated parts
     private barbKiltFlaps: Mesh[] = [];
     private barbBeltTrophy: Mesh | null = null;
@@ -119,9 +125,14 @@ export class Champion extends Enemy {
         walk: AnimationGroup | null;
         attack: AnimationGroup | null;
         special: AnimationGroup | null;
+        death: AnimationGroup | null;
         all: AnimationGroup[];
-    } = { idle: null, walk: null, attack: null, special: null, all: [] };
+    } = { idle: null, walk: null, attack: null, special: null, death: null, all: [] };
     private championCurrentAnim: AnimationGroup | null = null;
+    /** True while the GLB death clip is playing/holding — the per-frame anim selector,
+     *  triggerAttack and triggerSpecial all defer to it so the fallen pose isn't overridden.
+     *  Cleared by clearDeath() on co-op respawn. */
+    private glbDeathPlaying: boolean = false;
     /** Seconds remaining of forced-attack animation. Higher-priority than walk/idle while > 0.
      *  Distinct from the legacy this.attackTimer (auto-attack cooldown for path-walking mode). */
     private glbAttackTimer: number = 0;
@@ -221,14 +232,16 @@ export class Champion extends Enemy {
      *  to the classic red blood trail. */
     private startBarbSpinFx(): void {
         const elems = this.activeElementSnapshot as PowerElement[];
+        // Works on both paths: procedural axe head, or the GLB weapon-bone anchor.
+        const axeAnchor = this.getWeaponAnchor();
 
         // ===== Axe-head trail particles =====
-        if (this.barbAxeHead && elems.length > 0 && this.barbSpinElemPs.length === 0) {
+        if (axeAnchor && elems.length > 0 && this.barbSpinElemPs.length === 0) {
             for (const el of elems) {
                 const c = ELEMENT_COLOR[el];
                 if (!c) continue;
-                const ps = new ParticleSystem(`barbSpinElem_${el}`, 48, this.scene);
-                ps.emitter = this.barbAxeHead;
+                const ps = new ParticleSystem(`barbSpinElem_${el}`, 64, this.scene);
+                ps.emitter = axeAnchor;
                 ps.minEmitBox = new Vector3(-0.2, -0.2, -0.2);
                 ps.maxEmitBox = new Vector3(0.2, 0.2, 0.2);
                 ps.color1 = new Color4(c.r, c.g, c.b, 1);
@@ -248,9 +261,9 @@ export class Champion extends Enemy {
                 ps.start();
                 this.barbSpinElemPs.push(ps);
             }
-        } else if (this.barbAxeHead && elems.length === 0 && !this.barbSpinBloodPs) {
+        } else if (axeAnchor && elems.length === 0 && !this.barbSpinBloodPs) {
             const ps = new ParticleSystem('barbSpinBlood', 60, this.scene);
-            ps.emitter = this.barbAxeHead;
+            ps.emitter = axeAnchor;
             ps.minEmitBox = new Vector3(-0.2, -0.2, -0.2);
             ps.maxEmitBox = new Vector3(0.2, 0.2, 0.2);
             ps.color1 = new Color4(0.7, 0.10, 0.05, 1);
@@ -375,11 +388,35 @@ export class Champion extends Enemy {
             }
         }
 
+        // Weapon anchor: GLB weapons are skinned into the body mesh, driven by a
+        // prop bone ('Bip001 Prop1' on Miya/Framis) or the right hand ('Bip001 R
+        // Hand' on Aulus, whose axe has no dedicated prop bone). Parent an
+        // invisible anchor mesh to that node so element decorations and the
+        // barbarian spin-trail emitters ride the weapon through every animation.
+        const weaponNode =
+            this.mesh.getDescendants(false).find(n => n.name.includes('Prop1')) ??
+            this.mesh.getDescendants(false).find(n => n.name.includes('R Hand'));
+        if (weaponNode && weaponNode instanceof TransformNode) {
+            const anchor = new Mesh('glbWeaponAnchor', scene);
+            anchor.isVisible = false;
+            anchor.parent = weaponNode;
+            // Counter-scale so decorations parented here render at world size even
+            // though rig nodes carry import scaling.
+            weaponNode.computeWorldMatrix(true);
+            const ws = weaponNode.absoluteScaling;
+            anchor.scaling.set(
+                ws.x !== 0 ? 1 / ws.x : 1,
+                ws.y !== 0 ? 1 / ws.y : 1,
+                ws.z !== 0 ? 1 / ws.z : 1,
+            );
+            this.glbWeaponAnchor = anchor;
+        }
+
         // Categorize the GLB's animation clips by name. Accept aliases per slot since
         // different rigs/export tools use different conventions. "special" matches power-
         // slot attacks (Fire Arrow / Frost Shards / etc.) — usually a longer/more dramatic
         // clip than the basic shoot.
-        this.championAnims = { idle: null, walk: null, attack: null, special: null, all: [...inst.animationGroups] };
+        this.championAnims = { idle: null, walk: null, attack: null, special: null, death: null, all: [...inst.animationGroups] };
         // Register the cloned GLB anim groups + skeleton on the inherited fields
         // so the base teardown (dispose() -> _releaseMeshAndAnimations) stops the
         // hero's animatables and frees its bone-matrix texture. Without this the
@@ -391,7 +428,9 @@ export class Champion extends Enemy {
         for (const ag of inst.animationGroups) {
             console.log(`  - "${ag.name}"`);
             const n = ag.name.toLowerCase();
-            if (this.championAnims.idle == null && (n.includes('idle') || n === 'stand' || n.includes('aim'))) {
+            if (this.championAnims.death == null && (n.includes('dead') || n.includes('death') || n.includes('die'))) {
+                this.championAnims.death = ag;
+            } else if (this.championAnims.idle == null && (n.includes('idle') || n === 'stand' || n.includes('aim'))) {
                 this.championAnims.idle = ag;
             } else if (this.championAnims.walk == null && (n.includes('walk') || n.includes('run'))) {
                 this.championAnims.walk = ag;
@@ -481,6 +520,7 @@ export class Champion extends Enemy {
      *  during the attack timer the model turns to face the target. */
     public triggerAttack(targetPos?: Vector3): void {
         if (!this.championAsset) return;
+        if (this.glbDeathPlaying) return; // a corpse doesn't swing
         // Don't interrupt the special animation. Per-frame logic already prioritises
         // special over attack, but triggerAttack force-stops the current clip and
         // starts attack, which without this guard would cut the whirlwind short.
@@ -500,6 +540,7 @@ export class Champion extends Enemy {
      *  etc.) fires. Plays the special animation; higher priority than the basic attack. */
     public triggerSpecial(): void {
         if (!this.championAsset) return;
+        if (this.glbDeathPlaying) return; // a corpse doesn't cast
         const dur = (this as any).glbSpecialDurationActual ?? Champion.GLB_SPECIAL_DURATION;
         this.glbSpecialTimer = dur;
         const special = this.championAnims.special;
@@ -508,6 +549,64 @@ export class Champion extends Enemy {
             special.start(false);
             this.championCurrentAnim = special;
         }
+    }
+
+    /** Per-class fraction of the special clip at which the cast visually
+     *  "releases" (hand swing / staff thrust completes). Tuned by eye per rig. */
+    private static readonly CAST_RELEASE_FRACTION: Record<'barbarian' | 'ranger' | 'mage', number> = {
+        barbarian: 0.40,
+        ranger:    0.35,
+        mage:      0.45,
+    };
+
+    /** Seconds between triggerSpecial() starting the cast clip and the clip's
+     *  visual release point. PowerSlotManager delays the actual power cast by
+     *  this much so the projectile leaves the hand exactly on the release pose.
+     *  0 for procedural champions (no clip to sync against). */
+    public getCastReleaseDelay(): number {
+        if (!this.championAsset || !this.championAnims.special) return 0;
+        const dur = ((this as any).glbSpecialDurationActual as number | undefined)
+            ?? Champion.GLB_SPECIAL_DURATION;
+        const frac = Champion.CAST_RELEASE_FRACTION[this.championType];
+        return Math.min(0.6, Math.max(0.05, dur * frac));
+    }
+
+    /** Elements of the currently equipped powers (latest per-frame snapshot from
+     *  updateElementVisuals). Used by AbilityManager to tint whirlwind FX. */
+    public getActiveElements(): PowerElement[] {
+        return this.activeElementSnapshot as PowerElement[];
+    }
+
+    /** True while the death clip is playing or holding its final fallen frame. */
+    public isDeathPlaying(): boolean {
+        return this.glbDeathPlaying;
+    }
+
+    /** Play the GLB death clip once and hold the fallen pose (co-op spectate / downed).
+     *  Cancels any in-flight attack/special so the body crumples cleanly. If the asset
+     *  has no death clip it still flags death + fires the golden burst so callers can
+     *  rely on a consistent "downed" state. Idempotent. */
+    public triggerDeath(): void {
+        if (this.glbDeathPlaying) return;
+        this.glbDeathPlaying = true;
+        this.glbAttackTimer = 0;
+        this.glbSpecialTimer = 0;
+        this.createChampionDeathEffect();
+        const death = this.championAnims.death;
+        if (!death) return; // no clip — body just stays in its last pose; burst played above
+        death.speedRatio = 1.0;
+        if (this.championCurrentAnim) this.championCurrentAnim.stop();
+        death.start(false); // play once; AnimationGroup holds the final frame when it ends
+        this.championCurrentAnim = death;
+    }
+
+    /** Clear the downed state and resume normal animation (co-op wave-clear respawn). */
+    public clearDeath(): void {
+        if (!this.glbDeathPlaying) return;
+        this.glbDeathPlaying = false;
+        if (this.championAnims.death) this.championAnims.death.stop();
+        this.championCurrentAnim = null;
+        if (this.championAnims.idle) this.playChampionAnim('idle');
     }
 
     /** Play a specific GLB animation clip (looked up by suffix match) as a forced
@@ -1141,7 +1240,10 @@ export class Champion extends Enemy {
             if (usingChampionGLB) {
                 const baseY = this.position.y;
                 this.mesh.position.y = baseY;
-                if (this.glbSpecialTimer > 0) {
+                if (this.glbDeathPlaying) {
+                    // Death clip is playing (or holding its final fallen frame). Don't let
+                    // idle/walk/attack reclaim the rig — it stays down until clearDeath().
+                } else if (this.glbSpecialTimer > 0) {
                     this.glbSpecialTimer = Math.max(0, this.glbSpecialTimer - deltaTime);
                     // DON'T re-call playChampionAnim('special') here — triggerSpecial /
                     // playAbilityClip already started the right clip (possibly a custom
@@ -1872,6 +1974,9 @@ export class Champion extends Enemy {
     }
 
     private getWeaponAnchor(): Mesh | null {
+        if (this.glbWeaponAnchor && !this.glbWeaponAnchor.isDisposed()) {
+            return this.glbWeaponAnchor;
+        }
         switch (this.championType) {
             case 'barbarian': return this.barbAxeHead ?? this.swordArm;
             case 'ranger':    return this.rangerBow ?? this.swordArm;

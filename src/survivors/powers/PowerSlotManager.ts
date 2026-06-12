@@ -19,6 +19,12 @@ export class PowerSlotManager {
     /** Fires whenever any power slot's cast() runs (after cooldown elapsed).
      *  Used to drive hero attack animations for special/power attacks. */
     private onCastCallback: ((slot: PowerSlot) => void) | null = null;
+    /** Seconds between the cast animation starting and the power actually firing
+     *  (the clip's visual release point). Default 0 = fire immediately, which
+     *  keeps procedural champions and unit tests on the old same-frame behavior. */
+    private castDelayProvider: () => number = () => 0;
+    /** Casts waiting for their animation wind-up to reach the release point. */
+    private pendingCasts: { slot: PowerSlot; timer: number }[] = [];
 
     constructor(
         scene: Scene,
@@ -171,6 +177,13 @@ export class PowerSlotManager {
         this.onCastCallback = fn;
     }
 
+    /** Wire the animation wind-up: when a slot fires, the cast animation starts
+     *  immediately but the actual cast() is deferred by the provided seconds so
+     *  the projectile leaves the hand on the clip's release pose. */
+    public setCastDelayProvider(fn: () => number): void {
+        this.castDelayProvider = fn;
+    }
+
     /** Generous "is any enemy near enough for a power to matter" radius. Powers all
      *  have different ranges (some global, some AOE around hero) — using one big
      *  number avoids per-power range bookkeeping and just answers the question
@@ -193,6 +206,22 @@ export class PowerSlotManager {
 
     public update(deltaTime: number): void {
         const cooldownMult = this.cooldownMultiplierProvider();
+        // Fire any casts whose animation wind-up reached the release point. The
+        // context is built fresh here so the projectile spawns from the hero's
+        // CURRENT position, not where it stood when the wind-up started.
+        if (this.pendingCasts.length > 0) {
+            for (let i = this.pendingCasts.length - 1; i >= 0; i--) {
+                const pending = this.pendingCasts[i];
+                pending.timer -= deltaTime;
+                if (pending.timer > 0) continue;
+                this.pendingCasts.splice(i, 1);
+                // The slot may have been replaced/fused mid-wind-up — skip if gone.
+                if (!this.slots.includes(pending.slot) || !pending.slot.def.cast) continue;
+                const castCtx = this.buildContext();
+                castCtx.element = pending.slot.def.element;
+                pending.slot.def.cast(pending.slot.state, castCtx);
+            }
+        }
         // Cooldowns are measured in seconds, so on the vast majority of frames no
         // slot reaches ready. Defer the O(n) target scan and the context object
         // allocation until a slot is actually ready to fire — when nothing fires
@@ -221,9 +250,16 @@ export class PowerSlotManager {
                 }
                 if (!hasTarget) continue; // hold the cooldown, don't fire into empty arena
                 if (slot.def.cast) {
-                    if (!ctx) ctx = this.buildContext();
-                    ctx.element = slot.def.element;
-                    slot.def.cast(slot.state, ctx);
+                    const delay = this.castDelayProvider();
+                    if (delay > 0) {
+                        // Animation starts now (callback below); the actual cast fires
+                        // at the clip's release point.
+                        this.pendingCasts.push({ slot, timer: delay });
+                    } else {
+                        if (!ctx) ctx = this.buildContext();
+                        ctx.element = slot.def.element;
+                        slot.def.cast(slot.state, ctx);
+                    }
                     // Only a real cast drives the special-attack animation — a slot with
                     // no cast() (a pure tick power) must not retrigger it every cooldown.
                     if (this.onCastCallback) this.onCastCallback(slot);
@@ -296,6 +332,7 @@ export class PowerSlotManager {
 
     /** Dispose all persistent slot data via each slot's def.dispose hook. */
     public dispose(): void {
+        this.pendingCasts.length = 0;
         for (const slot of this.slots) {
             this.disposeSlotData(slot);
         }

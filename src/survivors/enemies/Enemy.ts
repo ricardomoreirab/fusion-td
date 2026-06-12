@@ -675,7 +675,12 @@ export class Enemy {
             // avoid a null-dereference; single-player can never reach this because
             // the branch entry above already requires seekTarget != null.
             const resolvedTarget = this.resolveSeekTarget();
-            if (!resolvedTarget) return false;
+            if (!resolvedTarget) {
+                // All targets dead (co-op both-down / downed lone hero) — abandon any
+                // in-progress swing so we don't strike empty space and idle in place.
+                if (this.meleeState !== 'idle') this.cancelMeleeAttack();
+                return false;
+            }
 
             // Fetch the target position ONCE per frame — Champion.getPosition()
             // clones a fresh Vector3 on each call, so calling it twice per enemy
@@ -893,6 +898,14 @@ export class Enemy {
             // structural subset of seekTarget's type (both have getPosition()/{x,z}).
             return pickNearestAlive(this.position.x, this.position.z, this.seekTargets) as typeof this.seekTarget;
         }
+        // Single provider (single-player or single-provider co-op): return it directly.
+        // MUST NOT null out a dead lone target — that idles the enemy in place, and on a
+        // co-op host (always seekTargets[0]) a downed host with effectively one provider
+        // would freeze every enemy (they stop moving AND the host streams static
+        // positions → guest sees a frozen, unkillable board). A dead host being targetable
+        // here only happens when there is no live second provider; the run-end logic
+        // (onLocalHeroDeath / both-down) handles that case instead. Dead-host exclusion
+        // for the real 2-player case is done above via pickNearestAlive (skips isAlive===false).
         return this.seekTarget;
     }
 

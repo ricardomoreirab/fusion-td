@@ -72,10 +72,24 @@ function acquireWhirlwindRing(scene: Scene): Mesh {
     ) as Mesh;
 }
 
-/** One expanding whirlwind ground ring at `center` (pooled; scale-only fade). */
-export function spawnWhirlwindRing(scene: Scene, center: Vector3, radius: number): void {
+/** One expanding whirlwind ground ring at `center` (pooled; scale-only fade).
+ *  `tint` recolors the ring to the caster's blended power elements — cached per
+ *  blend hex (bounded: element subsets are finite). */
+export function spawnWhirlwindRing(scene: Scene, center: Vector3, radius: number, tint?: Color3): void {
     const ring = acquireWhirlwindRing(scene);
     const isPooled = whirlwindPool.indexOf(ring) >= 0;
+
+    ring.material = tint
+        ? getCachedMaterial(scene, `whirlwindRingMat_${tint.toHexString()}`, m => {
+            m.emissiveColor = tint.scale(1.15);
+            m.diffuseColor = new Color3(0, 0, 0);
+            m.alpha = 0.85;
+        })
+        : getCachedMaterial(scene, 'whirlwindRingMat', m => {
+            m.emissiveColor = new Color3(0.5, 0.8, 1.0);
+            m.diffuseColor = new Color3(0, 0, 0);
+            m.alpha = 0.85;
+        });
 
     // Diameter stored as scaling; pool torus has diameter=1.0, so scale by target.
     const targetScale = radius * 0.6;
@@ -119,6 +133,7 @@ export function spawnHurricaneVisual(
     getCenter: () => Vector3 | null,
     durationS: number,
     radius: number,
+    tint?: Color3,
 ): { dispose: () => void } {
     const start = getCenter() ?? new Vector3(0, 0, 0);
 
@@ -131,9 +146,17 @@ export function spawnHurricaneVisual(
     vortexPs.emitter = vortexEmitter;
     vortexPs.minEmitBox = new Vector3(-radius * 0.5, 0, -radius * 0.5);
     vortexPs.maxEmitBox = new Vector3(radius * 0.5, 0.3, radius * 0.5);
-    vortexPs.color1 = new Color4(0.85, 0.90, 0.97, 0.9); // pale storm white
-    vortexPs.color2 = new Color4(0.55, 0.62, 0.72, 0.8); // grey-blue
-    vortexPs.colorDead = new Color4(0.30, 0.34, 0.40, 0);
+    if (tint) {
+        // Element-charged whirlwind: debris glows in the blended power color.
+        vortexPs.color1 = new Color4(
+            Math.min(1, tint.r * 1.2 + 0.15), Math.min(1, tint.g * 1.2 + 0.15), Math.min(1, tint.b * 1.2 + 0.15), 0.9);
+        vortexPs.color2 = new Color4(tint.r * 0.7, tint.g * 0.7, tint.b * 0.7, 0.8);
+        vortexPs.colorDead = new Color4(tint.r * 0.25, tint.g * 0.25, tint.b * 0.25, 0);
+    } else {
+        vortexPs.color1 = new Color4(0.85, 0.90, 0.97, 0.9); // pale storm white
+        vortexPs.color2 = new Color4(0.55, 0.62, 0.72, 0.8); // grey-blue
+        vortexPs.colorDead = new Color4(0.30, 0.34, 0.40, 0);
+    }
     vortexPs.minSize = 0.08;
     vortexPs.maxSize = 0.30;
     vortexPs.minLifeTime = 0.6;
@@ -165,12 +188,19 @@ export function spawnHurricaneVisual(
     const FUNNEL_RINGS = 7;
     const FUNNEL_HEIGHT = 4.5;
     const funnelLife = durationS;
-    const funnelMat = getCachedMaterial(scene, 'hurricaneFunnelMat', m => {
-        m.emissiveColor = new Color3(0.7, 0.85, 1.0); // pale storm-blue
-        m.diffuseColor = new Color3(0, 0, 0);
-        m.alpha = 0.5;
-        m.backFaceCulling = false;
-    });
+    const funnelMat = tint
+        ? getCachedMaterial(scene, `hurricaneFunnelMat_${tint.toHexString()}`, m => {
+            m.emissiveColor = tint.scale(1.1);
+            m.diffuseColor = new Color3(0, 0, 0);
+            m.alpha = 0.5;
+            m.backFaceCulling = false;
+        })
+        : getCachedMaterial(scene, 'hurricaneFunnelMat', m => {
+            m.emissiveColor = new Color3(0.7, 0.85, 1.0); // pale storm-blue
+            m.diffuseColor = new Color3(0, 0, 0);
+            m.alpha = 0.5;
+            m.backFaceCulling = false;
+        });
     const funnelRings: Mesh[] = [];
     for (let i = 0; i < FUNNEL_RINGS; i++) {
         const ring = MeshBuilder.CreateTorus(

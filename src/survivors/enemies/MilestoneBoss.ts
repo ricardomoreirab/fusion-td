@@ -326,10 +326,11 @@ export class MilestoneBoss extends BossEnemy {
             this.mesh.position.y = this.position.y;
             this.mesh.rotation.x = 0;
             this.mesh.rotation.z = 0;
+            const animTarget = this.resolveSeekTarget();
             if (this.isFrozen || this.isStunned) {
                 this.playGlbAnim(this.glbIdleAnim, true);
-            } else if (this.seekTarget) {
-                const heroPos = this.seekTarget.getPosition();
+            } else if (animTarget) {
+                const heroPos = animTarget.getPosition();
                 const dx = heroPos.x - this.position.x;
                 const dz = heroPos.z - this.position.z;
                 const distSq = dx * dx + dz * dz;
@@ -347,12 +348,13 @@ export class MilestoneBoss extends BossEnemy {
     }
 
     private updateHeroVelocity(deltaTime: number): void {
-        if (!this.seekTarget || deltaTime <= 0) {
+        const target = this.resolveSeekTarget();
+        if (!target || deltaTime <= 0) {
             this.heroVelX = 0;
             this.heroVelZ = 0;
             return;
         }
-        const heroPos = this.seekTarget.getPosition();
+        const heroPos = target.getPosition();
         if (this.hasLastHeroPos) {
             this.heroVelX = (heroPos.x - this.lastHeroX) / deltaTime;
             this.heroVelZ = (heroPos.z - this.lastHeroZ) / deltaTime;
@@ -377,7 +379,7 @@ export class MilestoneBoss extends BossEnemy {
                 // boss commits to one attack at a time (no swing-cancelled-by-special).
                 if (this.isMeleeAttacking()) return;
                 this.lungeTimer -= deltaTime;
-                if (this.lungeTimer <= 0 && this.seekTarget) {
+                if (this.lungeTimer <= 0 && this.resolveSeekTarget()) {
                     this.enterTelegraph(this.nextAction());
                 }
                 return;
@@ -415,8 +417,11 @@ export class MilestoneBoss extends BossEnemy {
     }
 
     private enterTelegraph(action: SpecialAction): void {
-        if (!this.seekTarget) return;
-        const heroPos = this.seekTarget.getPosition();
+        // Aim at the nearest LIVE hero, not the raw seekTarget (always provider[0] —
+        // a dead co-op host). resolveSeekTarget returns null when no hero is alive.
+        const target = this.resolveSeekTarget();
+        if (!target) { this.enterWalking(); return; }
+        const heroPos = target.getPosition();
 
         // Tier 2+ leads the hero by their current velocity over PREDICT_LEAD_TIME.
         let aimX = heroPos.x;
@@ -464,8 +469,8 @@ export class MilestoneBoss extends BossEnemy {
         this.disposeTelegraphRing();
         this.lungeState = 'pulling';
         this.stateTimer = PULL_DURATION;
-        // Yank the hero toward the (now rooted) boss for the pull duration.
-        this.seekTarget?.applyPull?.(this.position.x, this.position.z, PULL_SPEED, PULL_DURATION);
+        // Yank the nearest LIVE hero toward the (now rooted) boss for the pull duration.
+        this.resolveSeekTarget()?.applyPull?.(this.position.x, this.position.z, PULL_SPEED, PULL_DURATION);
     }
 
     private enterRecover(): void {
@@ -488,13 +493,15 @@ export class MilestoneBoss extends BossEnemy {
         this.dashDistanceRemaining -= step;
 
         // Slash AoE: the dash deals damage to the hero it passes through (once per
-        // dash). The slash carries knockback via the source position.
-        if (!this.dashHasHit && this.seekTarget) {
-            const heroPos = this.seekTarget.getPosition();
+        // dash). The slash carries knockback via the source position. Nearest-live hero
+        // only — a dead co-op host (raw seekTarget) must not soak the slash.
+        const dashTarget = this.resolveSeekTarget();
+        if (!this.dashHasHit && dashTarget) {
+            const heroPos = dashTarget.getPosition();
             const dx = heroPos.x - this.position.x;
             const dz = heroPos.z - this.position.z;
             if (dx * dx + dz * dz <= DASH_SLASH_RADIUS * DASH_SLASH_RADIUS) {
-                this.seekTarget.takeDamage?.(this.dashSlashDamage, this.position);
+                dashTarget.takeDamage?.(this.dashSlashDamage, this.position);
                 this.dashHasHit = true;
             }
         }
@@ -509,13 +516,14 @@ export class MilestoneBoss extends BossEnemy {
     /** Resolve the grab: if the hero is within slam range when the pull ends, hit
      *  them and slow them. A clean dodge (dashing out of range) avoids both. */
     private applyPullSlam(): void {
-        if (!this.seekTarget) return;
-        const heroPos = this.seekTarget.getPosition();
+        const target = this.resolveSeekTarget();
+        if (!target) return;
+        const heroPos = target.getPosition();
         const dx = heroPos.x - this.position.x;
         const dz = heroPos.z - this.position.z;
         if (dx * dx + dz * dz <= PULL_SLAM_RADIUS * PULL_SLAM_RADIUS) {
-            this.seekTarget.takeDamage?.(this.pullSlamDamage, this.position);
-            this.seekTarget.applySlow?.(PULL_SLOW_MULT, PULL_SLOW_DURATION);
+            target.takeDamage?.(this.pullSlamDamage, this.position);
+            target.applySlow?.(PULL_SLOW_MULT, PULL_SLOW_DURATION);
         }
     }
 

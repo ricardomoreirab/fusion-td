@@ -438,35 +438,47 @@ export class HeroBasicAttack {
     // Projectile
     // ─────────────────────────────────────────────────────────────────────────
 
-    /** Build the projectile mesh for this attack's configured shape. */
+    /** Build the projectile mesh for this attack's configured shape.
+     *
+     *  IMPORTANT: every shape is merged into a SINGLE mesh with its facing baked
+     *  into the vertices (forward = +Z). The projectile pool resets rotation on
+     *  reuse (acquireProjectile), so orientation must NOT live in the transform —
+     *  the old per-part `rotation.x = PI/2` was wiped on the first pool reuse and
+     *  arrows flew as unrotated vertical sticks. A single mesh also means the
+     *  cached material covers the whole arrow (tip + fletching used to render
+     *  with the default gray material). */
     private createProjectileMesh(): Mesh {
         const scene = this.scene;
         switch (this.projectileShape) {
             case 'arrow': {
-                // Elongated shaft with a cone tip and fletching fins
+                // Shaft + cone tip + two crossed fletching fins, built along +Y
                 const shaft = MeshBuilder.CreateCylinder('arrowShaft',
-                    { height: 0.6, diameterTop: 0.04, diameterBottom: 0.04, tessellation: 6 }, scene);
+                    { height: 0.62, diameterTop: 0.04, diameterBottom: 0.04, tessellation: 6 }, scene);
                 const tip = MeshBuilder.CreateCylinder('arrowTip',
-                    { height: 0.15, diameterTop: 0, diameterBottom: 0.10, tessellation: 6 }, scene);
-                tip.position.y = 0.375; // tip at the front end of the shaft
-                tip.parent = shaft;
-                const fletching = MeshBuilder.CreateBox('arrowFletch',
-                    { width: 0.10, height: 0.10, depth: 0.02 }, scene);
-                fletching.position.y = -0.30;
-                fletching.parent = shaft;
-                // Rotate so the shaft points along the Z axis (flight direction set per-frame)
-                shaft.rotation.x = Math.PI / 2;
-                return shaft;
+                    { height: 0.18, diameterTop: 0, diameterBottom: 0.11, tessellation: 6 }, scene);
+                tip.position.y = 0.39; // tip at the front end of the shaft
+                const fletchA = MeshBuilder.CreateBox('arrowFletchA',
+                    { width: 0.13, height: 0.12, depth: 0.025 }, scene);
+                fletchA.position.y = -0.28;
+                const fletchB = MeshBuilder.CreateBox('arrowFletchB',
+                    { width: 0.025, height: 0.12, depth: 0.13 }, scene);
+                fletchB.position.y = -0.28;
+                const merged = Mesh.MergeMeshes([shaft, tip, fletchA, fletchB], true, false)!;
+                merged.name = 'basicArrow';
+                merged.rotation.x = Math.PI / 2; // point the shaft along +Z…
+                merged.bakeCurrentTransformIntoVertices(); // …and bake it so pool resets can't undo it
+                return merged;
             }
             case 'mageBolt': {
-                // Slightly larger glowing orb with a halo ring
+                // Glowing orb with a halo ring perpendicular to the flight axis
                 const orb = MeshBuilder.CreateSphere('mageBolt',
                     { diameter: 0.4, segments: 4 }, scene);
                 const halo = MeshBuilder.CreateTorus('mageBoltHalo',
                     { diameter: 0.55, thickness: 0.05, tessellation: 12 }, scene);
-                halo.parent = orb;
                 halo.rotation.x = Math.PI / 2;
-                return orb;
+                const merged = Mesh.MergeMeshes([orb, halo], true, false)!;
+                merged.name = 'mageBoltMerged';
+                return merged;
             }
             case 'sphere':
             default:
@@ -562,8 +574,23 @@ export class HeroBasicAttack {
         proj.position.copyFrom(from);
         proj.position.y = 1;
 
-        const matKey = `basic_attack_proj_mat_${this.projectileShape}`;
+        // Element-matched tint: blend the colors of every equipped power element
+        // (same rule as the barbarian's swing arc). The material is cached by the
+        // blend's hex — element subsets are finite, so the cache stays bounded.
+        const activeElements = this.powerSlots
+            ? Array.from(this.powerSlots.getActiveElements())
+            : [];
+        const tint = activeElements.length > 0 ? blendElements(activeElements) : null;
+        const matKey = tint
+            ? `basic_attack_proj_mat_${this.projectileShape}_${tint.toHexString()}`
+            : `basic_attack_proj_mat_${this.projectileShape}`;
         proj.material = getCachedMaterial(scene, matKey, m => {
+            if (tint) {
+                m.emissiveColor = tint.scale(1.1);
+                m.diffuseColor  = tint.scale(0.3);
+                m.disableLighting = true;
+                return;
+            }
             switch (this.projectileShape) {
                 case 'arrow':
                     m.emissiveColor = new Color3(0.7, 0.5, 0.3);
@@ -579,6 +606,16 @@ export class HeroBasicAttack {
                     break;
             }
         });
+
+        // Face the target immediately — the per-frame orient below only runs from
+        // the next render, which left one frame of stale (pool-reset) facing.
+        if (this.projectileShape === 'arrow') {
+            proj.rotation.y = Math.atan2(target.position.x - from.x, target.position.z - from.z);
+        }
+        // Element-colored streak behind the arrow while it flies (gold when no
+        // elements are equipped yet).
+        const trailColor = tint ?? new Color3(1, 0.85, 0.5);
+        let trailTimer = 0;
 
         const speed = 22;
         const startTime = performance.now() / 1000;
@@ -654,6 +691,14 @@ export class HeroBasicAttack {
             _scratchB.scaleInPlace(step);
             proj.position.addInPlace(_scratchB);
 
+            if (shape === 'arrow' || shape === 'mageBolt') {
+                trailTimer += dt;
+                if (trailTimer >= 0.06) {
+                    trailTimer = 0;
+                    this.spawnFlightStreak(proj.position, trailColor);
+                }
+            }
+
             // Safety: release after 3s of flight
             if (performance.now() / 1000 - startTime > 3) {
                 releaseProjectile(poolKey, proj);
@@ -687,6 +732,33 @@ export class HeroBasicAttack {
                 enc.slot.def.onHit(enemy, enc.level, ctx);
             }
         }
+    }
+
+    /** Small fading puff behind an in-flight projectile. Material is cached by
+     *  color hex (one per element blend — bounded); the fade is mesh-local
+     *  (scaling + visibility) so the shared material is never mutated. */
+    private spawnFlightStreak(position: Vector3, color: Color3): void {
+        const scene = this.scene;
+        const puff = MeshBuilder.CreateSphere('basicAttackStreak', { diameter: 0.14, segments: 3 }, scene);
+        puff.position.copyFrom(position);
+        puff.material = getCachedMaterial(scene, `basicAttackStreakMat_${color.toHexString()}`, m => {
+            m.emissiveColor = color;
+            m.diffuseColor = new Color3(0, 0, 0);
+            m.disableLighting = true;
+            m.alpha = 0.7;
+        });
+        const duration = 0.22;
+        let elapsed = 0;
+        const obs = scene.onBeforeRenderObservable.add(() => {
+            elapsed += scene.getEngine().getDeltaTime() / 1000;
+            const t = Math.min(elapsed / duration, 1);
+            puff.scaling.setAll(1 - t);
+            puff.visibility = 1 - t;
+            if (t >= 1) {
+                puff.dispose(); // cached/shared material — keep it
+                scene.onBeforeRenderObservable.remove(obs);
+            }
+        });
     }
 
     private getHeroPosition(): Vector3 {

@@ -25,7 +25,8 @@ export class TankEnemy extends Enemy {
     private glbAttackHoldTimer: number = 0;
     private static readonly GLB_ATTACK_RANGE = 4.0;
     private static readonly GLB_ATTACK_HOLD = 0.8;
-    private static readonly GLB_SCALE = 1.6;
+    /** GLB mesh scale. Instance field so subclasses (DragonTurtle) can shrink/grow. */
+    protected glbScale: number = 1.6;
 
     constructor(game: Game, position: Vector3, path: Vector3[]) {
         // Tank enemy has low speed, 5x health, high damage, and high reward
@@ -78,7 +79,7 @@ export class TankEnemy extends Enemy {
         for (const root of inst.rootNodes) {
             root.parent = this.mesh;
             if ('scaling' in root && root.scaling) {
-                (root as TransformNode).scaling.scaleInPlace(TankEnemy.GLB_SCALE);
+                (root as TransformNode).scaling.scaleInPlace(this.glbScale);
             }
             // 180° Y flip — same pattern as BasicEnemy GLB. Enemy.update's seek-rotation
             // expects the model to be authored facing -z.

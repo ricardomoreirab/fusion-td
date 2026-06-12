@@ -132,6 +132,75 @@ function spawnTrailParticle(
     });
 }
 
+/**
+ * Quick expanding flash sphere at an impact point — shared by the mage spells
+ * (fireball burst core, frost-shard hits, lightning strike points). Material is
+ * cached per color hex (bounded — one per element palette entry); fade is
+ * mesh-local (scaling + visibility) so the shared material is never mutated.
+ */
+function spawnImpactFlash(scene: Scene, position: Vector3, color: Color3, scale: number = 1): void {
+    const flash = MeshBuilder.CreateSphere('impactFlash', { diameter: 0.5 * scale, segments: 3 }, scene);
+    flash.position.copyFrom(position);
+    flash.material = getCachedMaterial(scene, `impactFlashMat_${color.toHexString()}`, m => {
+        m.emissiveColor = color;
+        m.diffuseColor = new Color3(0, 0, 0);
+        m.disableLighting = true;
+        m.alpha = 0.85;
+    });
+    const duration = 0.18;
+    let elapsed = 0;
+    const obs = scene.onBeforeRenderObservable.add(() => {
+        elapsed += scene.getEngine().getDeltaTime() / 1000;
+        const t = Math.min(elapsed / duration, 1);
+        flash.scaling.setAll(1 + t * 1.6);
+        flash.visibility = 1 - t;
+        if (t >= 1) {
+            flash.dispose(); // cached/shared material — keep it
+            scene.onBeforeRenderObservable.remove(obs);
+        }
+    });
+}
+
+/**
+ * Expanding + fading ground ring (Arcane Nova waves, fireball scorch). Cached
+ * material per color; fade via mesh.visibility. Optional delay staggers waves.
+ */
+function spawnExpandingRing(
+    scene: Scene,
+    center: Vector3,
+    radius: number,
+    color: Color3,
+    opts: { delayMs?: number; thickness?: number; duration?: number } = {},
+): void {
+    const make = () => {
+        const ring = MeshBuilder.CreateTorus('expandRing', {
+            diameter: 1.0, thickness: opts.thickness ?? 0.25, tessellation: 32,
+        }, scene);
+        ring.position.set(center.x, 0.3, center.z);
+        ring.material = getCachedMaterial(scene, `expandRingMat_${color.toHexString()}`, m => {
+            m.emissiveColor = color;
+            m.diffuseColor = new Color3(0, 0, 0);
+            m.disableLighting = true;
+            m.alpha = 0.7;
+        });
+        const duration = opts.duration ?? 0.4;
+        let elapsed = 0;
+        const obs = scene.onBeforeRenderObservable.add(() => {
+            elapsed += scene.getEngine().getDeltaTime() / 1000;
+            const t = Math.min(elapsed / duration, 1);
+            const s = radius * 2 * (0.35 + 0.65 * t);
+            ring.scaling.set(s, 1, s); // unit torus — scaling IS the diameter
+            ring.visibility = 1 - t * t;
+            if (t >= 1) {
+                ring.dispose(); // cached/shared material — keep it
+                scene.onBeforeRenderObservable.remove(obs);
+            }
+        });
+    };
+    if (opts.delayMs && opts.delayMs > 0) setTimeout(make, opts.delayMs);
+    else make();
+}
+
 // =============================================================================
 // BOLT SEGMENT POOL — 30 pre-allocated unit-depth boxes (5 segs × 6 bolts).
 // Boxes are created with depth=1.0; callers set scaling.z = segLen per use.
@@ -290,6 +359,17 @@ const mageFireDef: PowerDefinition = {
         });
         innerSphere.parent = outerCone;
 
+        // Spinning ember halo around the flame body (perpendicular to flight)
+        const halo = MeshBuilder.CreateTorus('fireballHalo',
+            { diameter: 0.5, thickness: 0.05, tessellation: 10 }, ctx.scene) as Mesh;
+        halo.material = getCachedMaterial(ctx.scene, 'fireball_halo_mat', m => {
+            m.emissiveColor = new Color3(1, 0.6, 0.1);
+            m.diffuseColor = new Color3(0, 0, 0);
+            m.disableLighting = true;
+            m.alpha = 0.6;
+        });
+        halo.parent = outerCone;
+
         const proj = outerCone;
 
         const target = best;
@@ -300,8 +380,8 @@ const mageFireDef: PowerDefinition = {
         let flameTime = 0;
 
         const cleanup = () => {
-            innerSphere.parent = null;
-            innerSphere.dispose();
+            // dispose() recurses into children (innerSphere + halo); cached
+            // materials are shared and survive.
             outerCone.dispose();
         };
 
@@ -325,8 +405,9 @@ const mageFireDef: PowerDefinition = {
             // Tip of cone points forward; cone is built along Y; rotate so Y aligns with dir
             proj.rotation.x = -Math.PI / 2;
 
-            // Flame wobble on scale
+            // Flame wobble on scale + halo spin around the flight axis
             proj.scaling.y = 0.9 + 0.2 * Math.sin(flameTime * 40);
+            halo.rotation.y = flameTime * 9;
 
             // Trail particle
             if (lastTrailTime >= 0.05) {
@@ -337,6 +418,10 @@ const mageFireDef: PowerDefinition = {
             if (dist < 0.5) {
                 target.takeDamage(damage, ctx.element);
                 target.applyStatusEffect(StatusEffect.BURNING, 3, 3.0);
+                // Impact burst: bright flash core + scorch ring on the ground
+                spawnImpactFlash(ctx.scene, proj.position, new Color3(1, 0.75, 0.3), 1.4);
+                spawnExpandingRing(ctx.scene, proj.position, 1.1, new Color3(1, 0.45, 0.05),
+                    { thickness: 0.16, duration: 0.3 });
                 cleanup();
                 ctx.scene.onBeforeRenderObservable.remove(observer);
                 return;
@@ -387,6 +472,22 @@ const mageIceDef: PowerDefinition = {
             m.diffuseColor = new Color3(0, 0, 0);
         });
 
+        // Two smaller flanking shards trailing the main spear — reads as a
+        // shard CLUSTER instead of a single lonely crystal. Local offsets are
+        // pre-divided by the parent's (0.4, 1.5, 0.4) scaling.
+        const sideMat = getCachedMaterial(ctx.scene, 'frost_proj_side_mat', m => {
+            m.emissiveColor = new Color3(0.65, 0.92, 1.0);
+            m.diffuseColor = new Color3(0, 0, 0);
+        });
+        for (let s = -1; s <= 1; s += 2) {
+            const side = MeshBuilder.CreatePolyhedron(`frostCrystalSide${s}`,
+                { type: 1, size: 0.11 }, ctx.scene) as Mesh;
+            side.material = sideMat;
+            side.position.set(s * 0.6, -0.18, 0);
+            side.scaling.set(1, 0.8, 1);
+            side.parent = proj;
+        }
+
         const target = best;
         const damage = mageIceDef.damageFor(state) * ctx.damageMultiplier;
         const speed = 20;
@@ -420,6 +521,10 @@ const mageIceDef: PowerDefinition = {
             if (dist < 0.4) {
                 target.takeDamage(damage, ctx.element);
                 target.applyStatusEffect(StatusEffect.SLOWED, 2, 0.5);
+                // Icy shatter flash + brief frost ring at the point of impact
+                spawnImpactFlash(ctx.scene, proj.position, new Color3(0.6, 0.9, 1.0), 1.1);
+                spawnExpandingRing(ctx.scene, proj.position, 0.8, new Color3(0.4, 0.8, 1.0),
+                    { thickness: 0.12, duration: 0.25 });
                 proj.dispose();
                 ctx.scene.onBeforeRenderObservable.remove(observer);
                 return;
@@ -463,21 +568,18 @@ const mageArcaneDef: PowerDefinition = {
             }
         }
 
-        const ring = MeshBuilder.CreateTorus('novaRing', {
-            diameter: radius * 2,
-            thickness: 0.25,
-            tessellation: 32,
-        }, ctx.scene);
-        ring.position.copyFrom(ctx.heroPosition);
-        ring.position.y = 0.3;
-        ring.material = getCachedMaterial(ctx.scene, 'nova_ring_mat', m => {
-            m.emissiveColor = new Color3(0.8, 0.3, 1.0);
-            m.alpha = 0.7;
-        });
-        setTimeout(() => { if (!ring.isDisposed()) ring.dispose(); }, 350);
+        // Two staggered expanding ring waves (the old single static ring popped
+        // in at full size and vanished — these animate outward) + a center pulse.
+        const novaCenter = ctx.heroPosition.clone();
+        spawnExpandingRing(ctx.scene, novaCenter, radius, new Color3(0.8, 0.3, 1.0),
+            { thickness: 0.25, duration: 0.4 });
+        spawnExpandingRing(ctx.scene, novaCenter, radius, new Color3(0.6, 0.25, 0.9),
+            { thickness: 0.16, duration: 0.4, delayMs: 110 });
+        const flashPos = novaCenter.clone(); flashPos.y = 1.2;
+        spawnImpactFlash(ctx.scene, flashPos, new Color3(0.85, 0.5, 1.0), 2.2);
 
         // Swirling purple particles launched outward from ring edge
-        const particleCount = 7;
+        const particleCount = 10;
         const purpleColor = new Color3(0.7, 0.2, 1.0);
         for (let i = 0; i < particleCount; i++) {
             const angle = (i / particleCount) * Math.PI * 2;
@@ -752,6 +854,8 @@ const mageStormDef: PowerDefinition = {
             const from = seg.from.clone(); from.y = 1;
             const to = seg.to.clone(); to.y = 1;
             spawnJaggedBolt(ctx.scene, from, to, boltColor, 0.2);
+            // Bright strike flash where each chain lands
+            spawnImpactFlash(ctx.scene, to, new Color3(1.0, 0.95, 0.55), 1.2);
         }
     },
 };

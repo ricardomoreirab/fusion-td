@@ -309,6 +309,9 @@ export class SurvivorsGameplayState implements GameState {
     private guestHeroAlive = true;
     /** M4-11: the LOCAL hero is dead and spectating the surviving teammate (co-op). */
     private _spectating = false;
+    /** "YOU DIED — waiting to respawn" banner shown while the local hero is downed
+     *  (co-op spectate). Created lazily in the 'overlay' layer; removed on respawn/exit. */
+    private _downedBanner: HTMLElement | null = null;
     /** M4-11: the run has ended (both heroes down / SP death) — guards the game-over
      *  transition so it fires exactly once even if host + guest both detect it. */
     private _runEnded = false;
@@ -948,6 +951,14 @@ export class SurvivorsGameplayState implements GameState {
                 const p = this.hero?.getPosition();
                 if (p) emitCoopFx('power', p.x, p.z, undefined, undefined, slot.def.element);
             }
+        });
+
+        // Sync power casts to the cast animation: the special clip starts on the
+        // onCast callback above, and the actual cast() (projectile spawn) is
+        // deferred to the clip's visual release point. 0 for procedural champs.
+        this.powerSlots.setCastDelayProvider(() => {
+            const hero = this.hero as { getCastReleaseDelay?: () => number } | null;
+            return hero?.getCastReleaseDelay?.() ?? 0;
         });
 
         // Wire enemy provider and power slots into HeroController for melee AOE + enchantments.
@@ -1593,16 +1604,58 @@ export class SurvivorsGameplayState implements GameState {
         if (this._spectating) return;
         this._spectating = true;
         if (this.heroController) this.heroController.spectating = true;
+        // Play the champion's death animation (GLB `_dead` clip) and crumple in place.
+        (this.hero as unknown as { triggerDeath?: () => void } | null)?.triggerDeath?.();
         const mesh = (this.hero as unknown as { mesh?: { visibility: number } } | null)?.mesh;
-        if (mesh) mesh.visibility = 0.35;
+        // Keep the body mostly visible so the death animation reads; still slightly
+        // ghosted to signal the inert spectate state.
+        if (mesh) mesh.visibility = 0.6;
+        this.showDownedBanner();
     }
 
     /** Revive the local hero at (x,z): clear spectate, restore HP, un-fade. */
     private respawnLocalHero(x: number, z: number): void {
         this._spectating = false;
+        (this.hero as unknown as { clearDeath?: () => void } | null)?.clearDeath?.();
         this.heroController?.respawn(x, z);
         const mesh = (this.hero as unknown as { mesh?: { visibility: number } } | null)?.mesh;
         if (mesh) mesh.visibility = 1;
+        this.hideDownedBanner();
+    }
+
+    /** Show the centered "YOU DIED — waiting to respawn next wave" overlay while the
+     *  local hero is down. pointer-events:none so it never blocks the spectated view. */
+    private showDownedBanner(): void {
+        if (this._downedBanner || !this.gameUI) return;
+        const banner = document.createElement('div');
+        banner.style.cssText = [
+            'position:absolute', 'top:18%', 'left:50%', 'transform:translateX(-50%)',
+            'text-align:center', 'pointer-events:none', 'user-select:none',
+            'font-family:Cinzel, Georgia, serif', 'z-index:50',
+        ].join(';');
+        const title = document.createElement('div');
+        title.textContent = 'YOU DIED';
+        title.style.cssText = [
+            'font-size:clamp(34px, 7vw, 64px)', 'font-weight:700', 'letter-spacing:0.08em',
+            'color:#e8434a', 'text-shadow:0 2px 14px rgba(0,0,0,0.85), 0 0 22px rgba(232,67,74,0.45)',
+        ].join(';');
+        const sub = document.createElement('div');
+        sub.textContent = 'Waiting to respawn next wave…';
+        sub.style.cssText = [
+            'margin-top:10px', 'font-size:clamp(14px, 2.4vw, 22px)', 'font-weight:400',
+            'letter-spacing:0.04em', 'color:#e8d9b8',
+            'text-shadow:0 1px 6px rgba(0,0,0,0.9)',
+            'animation:coop-wait-pulse 1.6s ease-in-out infinite',
+        ].join(';');
+        banner.append(title, sub);
+        this.gameUI.layer('overlay').append(banner);
+        this._downedBanner = banner;
+    }
+
+    /** Remove the downed banner (respawn / exit). */
+    private hideDownedBanner(): void {
+        this._downedBanner?.remove();
+        this._downedBanner = null;
     }
 
     /** Host-authoritative wave-clear revive: bring back the local hero if it was
@@ -1613,6 +1666,7 @@ export class SurvivorsGameplayState implements GameState {
         if (this.coopSession?.role === 'host' && this.coopGhost && !this.guestHeroAlive) {
             this.guestHeroHp = this.guestHeroMaxHp;
             this.guestHeroAlive = true;
+            (this.coopGhost as unknown as { clearDeath?: () => void }).clearDeath?.();
             const g = this.coopGhost as unknown as { position: Vector3; mesh: (Mesh & { visibility: number }) | null };
             g.position.set(1.5, g.position.y, 0);
             if (g.mesh) { g.mesh.position.x = 1.5; g.mesh.position.z = 0; g.mesh.visibility = 1; }
@@ -2484,6 +2538,7 @@ export class SurvivorsGameplayState implements GameState {
         this.guestHeroMaxHp = 0;
         this.guestHeroAlive = true;
         this._spectating = false;   // M4-11
+        this.hideDownedBanner();
         this._runEnded = false;     // M4-11
         this._guestSummary = null;  // M4-12
         this._summaryAccumS = 0;    // M4-12
@@ -3764,10 +3819,15 @@ export class SurvivorsGameplayState implements GameState {
             const ePos = e.getPosition();
 
             // ── Local hero contact (unchanged behaviour for SP + host) ──────────
-            const ldx = ePos.x - heroPos.x;
-            const ldz = ePos.z - heroPos.z;
-            if (ldx * ldx + ldz * ldz < sumRSq) {
-                this.heroController.takeDamage(e.contactDamagePerSecond * deltaTime * reductionMult, ePos);
+            // A dead/spectating hero registers no contact — otherwise enemies pile on
+            // the downed body (the co-op "immortal tank"). takeDamage already no-ops
+            // while dead, but skipping here also stops the hit-reaction/threat on a corpse.
+            if (!this.heroController.isDeadOrSpectating()) {
+                const ldx = ePos.x - heroPos.x;
+                const ldz = ePos.z - heroPos.z;
+                if (ldx * ldx + ldz * ldz < sumRSq) {
+                    this.heroController.takeDamage(e.contactDamagePerSecond * deltaTime * reductionMult, ePos);
+                }
             }
 
             // ── Guest hero contact (host only) ───────────────────────────────────
@@ -3787,9 +3847,12 @@ export class SurvivorsGameplayState implements GameState {
                     this.guestHeroHp = Math.max(0, this.guestHeroHp - dmg);
                     if (this.guestHeroHp <= 0 && this.guestHeroAlive) {
                         this.guestHeroAlive = false;
-                        // Fade the downed guest's ghost (mirrors the local-hero spectate fade).
+                        // Play the guest ghost's death animation + fade it (mirrors the
+                        // local-hero spectate fade). The ghost is a full Champion, so it
+                        // crumples on the host's screen too.
+                        (this.coopGhost as unknown as { triggerDeath?: () => void } | null)?.triggerDeath?.();
                         const gm = (this.coopGhost as unknown as { mesh?: { visibility: number } } | null)?.mesh;
-                        if (gm) gm.visibility = 0.35;
+                        if (gm) gm.visibility = 0.6;
                         // M4-11: the guest just died. If the host is also down, both are
                         // dead → end the run; otherwise the guest spectates (it sees its
                         // alive flag flip in the snapshot) and the host plays on.

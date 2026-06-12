@@ -7,6 +7,8 @@ import { PlayerStats } from '../PlayerStats';
 import { StatusEffect } from '../GameTypes';
 import { createEmissiveMaterial } from '../../engine/rendering/LowPolyMaterial';
 import { emitCoopFx, isCoopFxActive } from '../coop/CoopFx';
+import { blendElements } from '../ElementColors';
+import { PowerElement } from '../powers/PowerDefinitions';
 import {
     scheduleMeteorBarrage, createMeteorVisual, createFrostNovaVisual,
     spawnSmashShockwave, spawnHurricaneVisual, spawnWhirlwindRing,
@@ -491,9 +493,15 @@ export class AbilityManager {
         const radius = 7;
         const duration = 5.0;
 
+        // Element-charged whirlwind: tint the hurricane + ground rings with the
+        // blend of the equipped power elements (storm-grey default with none).
+        const heroElems = (this.hero as { getActiveElements?: () => PowerElement[] } | null)
+            ?.getActiveElements?.() ?? [];
+        const tint = heroElems.length > 0 ? blendElements(heroElems) : undefined;
+
         // Updraft particles + spinning funnel cloud, following the hero (extracted to
         // AbilityVisuals so the co-op channel replays the identical look on the ghost).
-        const hurricane = spawnHurricaneVisual(this.scene, () => this.getHeroPosition(), duration, radius);
+        const hurricane = spawnHurricaneVisual(this.scene, () => this.getHeroPosition(), duration, radius, tint);
 
         // Co-op (M6 C2): a persistent channel — the teammate starts a cosmetic
         // hurricane that follows the ghost, and stops it on 'ultStop' (or a
@@ -526,9 +534,9 @@ export class AbilityManager {
                         }
                     }
                 }
-                spawnWhirlwindRing(this.scene, pos, radius);
+                spawnWhirlwindRing(this.scene, pos, radius, tint);
                 // Secondary outer ring — 1.4× scale, lighter, layered concentric tornado read.
-                spawnWhirlwindRing(this.scene, pos, radius * 1.4);
+                spawnWhirlwindRing(this.scene, pos, radius * 1.4, tint);
                 // Keep champion body spinning
                 if (this.hero && typeof this.hero.triggerSpinAttack === 'function') {
                     this.hero.triggerSpinAttack();

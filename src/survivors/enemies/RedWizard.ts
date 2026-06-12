@@ -41,12 +41,14 @@ export class RedWizard extends HealerEnemy {
      * launches the instant the hero steps into range.
      */
     protected performSupportBehavior(deltaTime: number): void {
-        if (!this.seekTarget || this.isFrozen || this.isStunned) return;
+        // Nearest LIVE hero — a dead co-op host (raw seekTarget) is no longer a target.
+        const target = this.resolveSeekTarget();
+        if (!target || this.isFrozen || this.isStunned) return;
 
         this.attackTimer -= deltaTime;
         if (this.attackTimer > 0) return;
 
-        const heroPos = this.seekTarget.getPosition();
+        const heroPos = target.getPosition();
         const dx = heroPos.x - this.position.x;
         const dz = heroPos.z - this.position.z;
         if (dx * dx + dz * dz > RedWizard.ATTACK_RANGE * RedWizard.ATTACK_RANGE) return;
@@ -87,7 +89,9 @@ export class RedWizard extends HealerEnemy {
         bolt.position.copyFrom(origin);
         bolt.setEnabled(true);
 
-        const seekTarget = this.seekTarget;
+        // Track the same live hero the bolt was aimed at; the in-flight isAlive guard
+        // below still cancels it if that hero goes down before impact.
+        const seekTarget = this.resolveSeekTarget();
         const startTime = performance.now();
 
         const observer = this.scene.onBeforeRenderObservable.add(() => {

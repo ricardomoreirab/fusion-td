@@ -9,12 +9,16 @@ import { TankEnemy } from './TankEnemy';
  * stages the dragon-turtle GLB on TankEnemy.pendingAsset before constructing this class.
  */
 export class DragonTurtle extends TankEnemy {
+    // Smaller than the base TankEnemy/lava-golem (1.6) — a tough wall, not a giant.
+    protected glbScale: number = 1.2;
+
     constructor(game: Game, position: Vector3, path: Vector3[]) {
         super(game, position, path);
 
         // Red tier override (TankEnemy base: 150 HP). speed / damage / cooldown unchanged.
-        this.health = 1500;
-        this.maxHealth = 1500;
+        // Hard but reasonable: ~4.7× the base tank rather than 10×.
+        this.health = 700;
+        this.maxHealth = 700;
 
         if (new.target === DragonTurtle) this._initEnemyVisuals();
     }
