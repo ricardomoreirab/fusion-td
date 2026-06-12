@@ -1,15 +1,17 @@
-import { Scene, Mesh, InstancedMesh, AssetContainer, LoadAssetContainerAsync, Quaternion, Vector3 } from '@babylonjs/core';
+import { Scene, Mesh, InstancedMesh, AssetContainer, LoadAssetContainerAsync, Quaternion, Vector3, Matrix } from '@babylonjs/core';
 import { PROP_RECYCLE_DIST, GLOBE_RADIUS } from './constants';
 import { curveDropAt } from './curvature';
 
-export const PROP_MIN_R = 45; // just past the spawn ring / horizon
-export const PROP_MAX_R = 65;
+// Tight band just around the horizon: recycled trees crest into view quickly
+// instead of waiting 20+ units below the curve — keeps the forward view wooded.
+export const PROP_MIN_R = 38;
+export const PROP_MAX_R = 58;
 
 const PACK_URL = 'assets/low_poly_forest_tree_pack.glb';
 /** Tallest background tree is normalised to this world height; everything else
  *  in the pack keeps its authored proportions relative to it (ferns/shrubs stay
  *  small, rocks stay rock-sized). */
-const TALLEST_TREE_HEIGHT = 6.5;
+const TALLEST_TREE_HEIGHT = 11; // ~5× hero height — proper forest scale
 /** Bases sink this far into the ground so trunks/rocks sit IN the grass, not
  *  on it — plus extra with tilt (see update) so the up-slope base edge never
  *  hangs in the air ("floating" look). */
@@ -111,6 +113,14 @@ export class PropField {
             leaves.push(m);
         }
 
+        // ── Re-center each variant's geometry on its own base ───────────────
+        // The pack authors every element at an offset from the pack origin, so
+        // a baked mesh's pivot is NOT under the tree. Tilting around that
+        // displaced pivot levers the whole prop into the air (the "floating"
+        // bug). Translate each variant group so the pivot sits at the centre
+        // of its base (bbox centre-x/z, floor-y) — done per GROUP so the
+        // high-poly trunk+branch pairs stay aligned (see grouping below).
+
         // ── Group leaves into variants ───────────────────────────────────────
         const atlas = leaves.filter(m => m.name.startsWith('Background_Tree_Atlas'));
         const rocks = leaves.filter(m => m.name.startsWith('Rocks'));
@@ -130,23 +140,43 @@ export class PropField {
             const bb = m.getBoundingInfo().boundingBox;
             return bb.maximum.y - bb.minimum.y;
         }));
-        const floorOf = (ms: Mesh[]) => Math.min(...ms.map(m => m.getBoundingInfo().boundingBox.minimum.y));
+
+        /** Translate a variant group so its combined bbox base-centre lands on
+         *  the origin (pivot under the trunk). Same offset for every part. */
+        const recenter = (ms: Mesh[]): void => {
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, minZ = Infinity, maxZ = -Infinity;
+            for (const m of ms) {
+                const bb = m.getBoundingInfo().boundingBox;
+                minX = Math.min(minX, bb.minimum.x); maxX = Math.max(maxX, bb.maximum.x);
+                minZ = Math.min(minZ, bb.minimum.z); maxZ = Math.max(maxZ, bb.maximum.z);
+                minY = Math.min(minY, bb.minimum.y);
+            }
+            const t = Matrix.Translation(-(minX + maxX) / 2, -minY, -(minZ + maxZ) / 2);
+            for (const m of ms) {
+                m.bakeTransformIntoVertices(t);
+                m.refreshBoundingInfo();
+            }
+        };
 
         // One shared factor keeps the pack's authored proportions: the tallest
         // background tree becomes TALLEST_TREE_HEIGHT, ferns/rocks stay relative.
         const packScale = TALLEST_TREE_HEIGHT / Math.max(heightOf(atlas), 0.001);
 
-        // Every pack element appears: tall trees once, rocks twice, ground
-        // cover (ferns/shrubs) three times, high-poly trees once.
+        // Pivot under every variant's base, then scatter in force — full
+        // forest ambiance: tall trees ×3, ground cover ×4, rocks ×3,
+        // high-poly trees ×2.
+        const groups: Mesh[][] = [...atlas.map(m => [m]), ...rocks.map(m => [m]), ...hiPoly];
+        for (const g of groups) recenter(g);
+
         const coverCutoff = TALLEST_TREE_HEIGHT * GROUND_COVER_FRACTION;
         const variants: PropVariant[] = [
             ...atlas.map(m => {
                 const h = heightOf([m]) * packScale;
-                return { sources: [m], scale: packScale, baseY: -floorOf([m]) * packScale,
-                         copies: h < coverCutoff ? 3 : 1 };
+                return { sources: [m], scale: packScale, baseY: 0,
+                         copies: h < coverCutoff ? 4 : 3 };
             }),
-            ...rocks.map(m => ({ sources: [m], scale: packScale, baseY: -floorOf([m]) * packScale, copies: 2 })),
-            ...hiPoly.map(ms => ({ sources: ms, scale: packScale, baseY: -floorOf(ms) * packScale, copies: 1 })),
+            ...rocks.map(m => ({ sources: [m], scale: packScale, baseY: 0, copies: 3 })),
+            ...hiPoly.map(ms => ({ sources: ms, scale: packScale, baseY: 0, copies: 2 })),
         ];
 
         // ── Scatter all copies around the start area ─────────────────────────
