@@ -1,6 +1,7 @@
 import { Vector3, MeshBuilder, StandardMaterial, Color3, Color4, ParticleSystem, Texture, Mesh, AssetContainer, AnimationGroup, TransformNode, Quaternion } from '@babylonjs/core';
 import { Game } from '../../engine/Game';
-import { Enemy, HEALTH_COLOR_GREEN, HEALTH_COLOR_YELLOW, HEALTH_COLOR_RED, tryAcquireDeathBurst, releaseDeathBurst } from './Enemy';
+import { Enemy, tryAcquireDeathBurst, scheduleDeathBurstTeardown } from './Enemy';
+import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../engine/rendering/LowPolyMaterial';
 import { PALETTE } from '../../engine/rendering/StyleConstants';
 
@@ -167,35 +168,25 @@ export class MiniEnemy extends Enemy {
 
     protected createHealthBar(): void {
         if (!this.mesh) return;
+        this._barBand = null; // force the fill-material assignment in updateHealthBar
 
-        this.healthBarOutlineMesh = MeshBuilder.CreateBox('healthBarOutline', {
-            width: 0.65, height: 0.10, depth: 0.03
-        }, this.scene);
-        this.healthBarOutlineMesh.position = new Vector3(this.position.x, this.position.y + 1.0, this.position.z);
-        const outlineMat = new StandardMaterial('healthBarOutlineMat', this.scene);
-        outlineMat.diffuseColor = new Color3(0, 0, 0);
-        outlineMat.specularColor = Color3.Black();
-        this.healthBarOutlineMesh.material = outlineMat;
-
+        // Two meshes, shared cached materials (see Enemy.createHealthBar): the
+        // frame-sized near-black background doubles as the outline.
         this.healthBarBackgroundMesh = MeshBuilder.CreateBox('healthBarBg', {
-            width: 0.6, height: 0.06, depth: 0.04
+            width: 0.65, height: 0.10, depth: 0.04
         }, this.scene);
         this.healthBarBackgroundMesh.position = new Vector3(this.position.x, this.position.y + 1.0, this.position.z);
-        const bgMat = new StandardMaterial('healthBarBgMat', this.scene);
-        bgMat.diffuseColor = new Color3(0.3, 0.3, 0.3);
-        bgMat.specularColor = Color3.Black();
-        this.healthBarBackgroundMesh.material = bgMat;
+        this.healthBarBackgroundMesh.material = getCachedMaterial(this.scene, 'healthBarBgFrameMat', m => {
+            m.diffuseColor  = new Color3(0.05, 0.05, 0.05);
+            m.specularColor = Color3.Black();
+        });
 
+        // Health fill — material assigned by updateHealthBar's band swap.
         this.healthBarMesh = MeshBuilder.CreateBox('healthBar', {
             width: 0.6, height: 0.06, depth: 0.05
         }, this.scene);
         this.healthBarMesh.position = new Vector3(this.position.x, this.position.y + 1.0, this.position.z);
-        const healthMat = new StandardMaterial('healthBarMat', this.scene);
-        healthMat.diffuseColor = new Color3(0.2, 0.8, 0.2);
-        healthMat.specularColor = Color3.Black();
-        this.healthBarMesh.material = healthMat;
 
-        this.healthBarOutlineMesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
         this.healthBarBackgroundMesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
         this.healthBarMesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
         this.updateHealthBar();
@@ -208,16 +199,8 @@ export class MiniEnemy extends Enemy {
         const offset = (1 - healthPercent) * 0.3;
         this.healthBarMesh.position.x = this.position.x - offset;
 
-        const material = this.healthBarMesh.material as StandardMaterial;
-        if (healthPercent > 0.6) material.diffuseColor = HEALTH_COLOR_GREEN;
-        else if (healthPercent > 0.3) material.diffuseColor = HEALTH_COLOR_YELLOW;
-        else material.diffuseColor = HEALTH_COLOR_RED;
+        this.applyHealthBarBand(healthPercent);
 
-        if (this.healthBarOutlineMesh && !this.healthBarOutlineMesh.isDisposed()) {
-            this.healthBarOutlineMesh.position.x = this.position.x;
-            this.healthBarOutlineMesh.position.y = this.position.y + 1.0;
-            this.healthBarOutlineMesh.position.z = this.position.z;
-        }
         this.healthBarBackgroundMesh.position.x = this.position.x;
         this.healthBarBackgroundMesh.position.y = this.position.y + 1.0;
         this.healthBarBackgroundMesh.position.z = this.position.z;
@@ -315,7 +298,7 @@ export class MiniEnemy extends Enemy {
         ps.maxEmitPower = 2;
         ps.start();
         this.game.getAssetManager().playSound('enemyDeath');
-        setTimeout(() => { ps.stop(); setTimeout(() => { ps.dispose(); releaseDeathBurst(); }, 500); }, 500);
+        scheduleDeathBurstTeardown(this.scene, ps, 0.5);
 
         // Gold reward float
         this.showGoldRewardText(this.position.clone());

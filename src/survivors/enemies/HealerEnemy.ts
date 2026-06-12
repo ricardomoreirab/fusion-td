@@ -1,6 +1,6 @@
 import { Vector3, MeshBuilder, StandardMaterial, Color3, Color4, ParticleSystem, Mesh, AssetContainer, AnimationGroup, TransformNode, Quaternion } from '@babylonjs/core';
 import { Game } from '../../engine/Game';
-import { Enemy, getStatusEffectTexture, tryAcquireDeathBurst, releaseDeathBurst } from './Enemy';
+import { Enemy, getStatusEffectTexture, tryAcquireDeathBurst, scheduleDeathBurstTeardown } from './Enemy';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../engine/rendering/LowPolyMaterial';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
 import { PALETTE } from '../../engine/rendering/StyleConstants';
@@ -485,18 +485,12 @@ export class HealerEnemy extends Enemy {
         // Play sound effect
         this.game.getAssetManager().playSound('enemyDeath');
 
-        // Stop and dispose after 1 second. dispose(false) so the SHARED
-        // status-effect texture (getStatusEffectTexture) is NOT destroyed —
-        // the default dispose() passes disposeTexture=true, which would tear the
-        // shared texture out from under every other enemy's live status particles
-        // and force a synchronous re-create on the next getStatusEffectTexture.
-        setTimeout(() => {
-            particleSystem.stop();
-            setTimeout(() => {
-                particleSystem.dispose(false);
-                releaseDeathBurst();
-            }, 1000);
-        }, 1000);
+        // Emit 1s, dispose when the last particle expires (render-loop driven —
+        // see scheduleDeathBurstTeardown). disposeTexture=false preserves the
+        // SHARED status-effect texture (getStatusEffectTexture) — disposing it
+        // would destroy the singleton out from under other enemies' live status
+        // particles, forcing a sync re-create.
+        scheduleDeathBurstTeardown(this.scene, particleSystem, 1.0, false);
     }
 
     /**

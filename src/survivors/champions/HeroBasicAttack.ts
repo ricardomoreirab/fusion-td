@@ -563,7 +563,12 @@ export class HeroBasicAttack {
         const range = this.effectiveRange;
         const rangeSq = range * range;
 
-        const candidates: { e: Enemy; d2: number }[] = [];
+        // Top-k selection (k = extra projectiles, ≤ ~6): keep a small sorted
+        // array of the nearest candidates instead of collecting + full-sorting
+        // every enemy in range — this runs once per volley at ranger fire rates.
+        const need = total - 1;
+        const bestE: Enemy[] = [];
+        const bestD2: number[] = [];
         for (const e of this.enemyProvider()) {
             if (!e.isAlive()) continue;
             const ep = e.getPosition();
@@ -575,13 +580,16 @@ export class HeroBasicAttack {
             const dz = ep.z - heroPos.z;
             const d2 = dx * dx + dz * dz;
             if (d2 > rangeSq) continue;
-            candidates.push({ e, d2 });
+            if (bestD2.length === need && d2 >= bestD2[need - 1]) continue;
+            // Insert sorted (k is tiny — linear shift beats any cleverness).
+            let at = bestD2.length;
+            while (at > 0 && bestD2[at - 1] > d2) at--;
+            bestD2.splice(at, 0, d2);
+            bestE.splice(at, 0, e);
+            if (bestD2.length > need) { bestD2.pop(); bestE.pop(); }
         }
-        candidates.sort((a, b) => a.d2 - b.d2);
 
-        const need = total - 1;
-        for (let i = 0; i < Math.min(need, candidates.length); i++) {
-            const e = candidates[i].e;
+        for (const e of bestE) {
             out.push({
                 position: e.getPosition(),
                 takeDamage: (amount: number) => e.takeDamage(amount),

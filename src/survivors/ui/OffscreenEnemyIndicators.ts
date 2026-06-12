@@ -99,13 +99,15 @@ export class OffscreenEnemyIndicators {
             const ex = cx + Math.cos(ang) * (cx - margin);
             const ey = cy + Math.sin(ang) * (cy - margin);
 
+            const styleKey = `${size}|${border}|${bg}`;
             let dot = this.active.get(e);
             if (!dot) {
-                dot = new Rectangle(`offscreenEnemyDot_${Math.random()}`);
+                dot = new Rectangle(`offscreenEnemyDot_${e.id}`);
                 // Size/background MUST be set before addControl. A Rectangle
                 // added at its default 100%/transparent state never recovers
                 // visibility when those props are set later in the same frame.
                 dot.color        = '#ffffff';
+                dot.metadata     = styleKey;
                 dot.width        = `${size}px`;
                 dot.height       = `${size}px`;
                 dot.thickness    = border;
@@ -113,14 +115,17 @@ export class OffscreenEnemyIndicators {
                 dot.cornerRadius = size / 2;
                 this.ui.addControl(dot);
                 this.active.set(e, dot);
+            } else if (dot.metadata !== styleKey) {
+                // Re-style only when the tier styling actually changed (e.g.
+                // EliteSpawner promoting a regular spawn to elite) — not every
+                // frame. The style key is stashed on the control's metadata.
+                dot.metadata     = styleKey;
+                dot.width        = `${size}px`;
+                dot.height       = `${size}px`;
+                dot.thickness    = border;
+                dot.background   = bg;
+                dot.cornerRadius = size / 2;
             }
-            // Re-style every frame so tier upgrades (e.g. EliteSpawner
-            // promoting a regular spawn to elite) immediately reflect.
-            dot.width        = `${size}px`;
-            dot.height       = `${size}px`;
-            dot.thickness    = border;
-            dot.background   = bg;
-            dot.cornerRadius = size / 2;
             // Position in ADT space (center-origin) as percentages — px values
             // get scaled by idealWidth and land off-screen at non-800 viewports.
             dot.left = `${((ex - cx) / sw) * 100}%`;

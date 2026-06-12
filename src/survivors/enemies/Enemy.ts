@@ -82,6 +82,67 @@ export function resetDeathBurstBudget(): void {
     _activeDeathBursts = 0;
 }
 
+// ── Death-burst teardown reaper ───────────────────────────────────────────────
+// Drives stop + dispose of death-burst ParticleSystems from the render loop
+// instead of nested setTimeout chains: timers drift under load, pile up in the
+// event queue on mass AoE kills, and can fire on already-disposed systems after
+// run teardown. One lazily-created observer walks the (tiny, ≤18) live list.
+interface BurstTeardown {
+    ps: ParticleSystem;
+    /** Seconds of emission left before stop() is called. */
+    emitRemainingS: number;
+    /** Forwarded to ps.dispose(disposeTexture) — false preserves the SHARED
+     *  status-effect texture (getStatusEffectTexture singleton). */
+    disposeTexture: boolean;
+    stopped: boolean;
+    /** Set when the system was disposed externally (run teardown). */
+    dead: boolean;
+}
+const _liveBursts: BurstTeardown[] = [];
+let _burstReaper: Observer<Scene> | null = null;
+
+/** Emit for `emitS` seconds, then dispose once the last particle expires.
+ *  Releases the death-burst budget slot exactly once, even if the run tears
+ *  the system down first. Caller must have acquired the slot and started ps. */
+export function scheduleDeathBurstTeardown(
+    scene: Scene,
+    ps: ParticleSystem,
+    emitS: number,
+    disposeTexture: boolean = true,
+): void {
+    const entry: BurstTeardown = { ps, emitRemainingS: emitS, disposeTexture, stopped: false, dead: false };
+    // Fires on BOTH reaper disposal and external (teardown) disposal.
+    ps.onDisposeObservable.addOnce(() => {
+        entry.dead = true;
+        releaseDeathBurst();
+    });
+    _liveBursts.push(entry);
+    if (_burstReaper) return;
+    _burstReaper = scene.onBeforeRenderObservable.add(() => {
+        const dt = scene.getEngine().getDeltaTime() / 1000;
+        for (let i = _liveBursts.length - 1; i >= 0; i--) {
+            const b = _liveBursts[i];
+            if (!b.dead) {
+                if (!b.stopped) {
+                    b.emitRemainingS -= dt;
+                    if (b.emitRemainingS <= 0) { b.ps.stop(); b.stopped = true; }
+                } else if (!b.ps.isAlive()) {
+                    // Emission stopped and the last particle expired.
+                    b.ps.dispose(b.disposeTexture); // → onDispose sets dead + releases budget
+                }
+            }
+            if (b.dead) {
+                _liveBursts[i] = _liveBursts[_liveBursts.length - 1];
+                _liveBursts.pop();
+            }
+        }
+        if (_liveBursts.length === 0 && _burstReaper) {
+            scene.onBeforeRenderObservable.remove(_burstReaper);
+            _burstReaper = null;
+        }
+    });
+}
+
 export class Enemy {
     /**
      * Global crit provider — set once at run start by SurvivorsGameplayState.
@@ -1742,7 +1803,7 @@ export class Enemy {
             ps.maxEmitPower = 3;
             ps.gravity = new Vector3(0, -5, 0);
             ps.start();
-            setTimeout(() => { ps.stop(); setTimeout(() => { ps.dispose(); releaseDeathBurst(); }, 600); }, 150);
+            scheduleDeathBurstTeardown(this.scene, ps, 0.15);
         }
 
         // --- Gold reward float-up text ---

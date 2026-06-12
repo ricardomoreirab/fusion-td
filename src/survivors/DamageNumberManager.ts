@@ -21,6 +21,11 @@ interface DamageNumberSlot {
     maxLifetime: number;
     startY: number;
     critScale: number;
+    /** `text|color|fontSize` of the last drawText — identical re-shows skip the
+     *  canvas redraw AND the GPU texture upload (the per-show cost that's left
+     *  after pooling). Repeats are the common case: every non-crit hit of the
+     *  same power renders the same string. */
+    lastDrawn: string;
 }
 
 const POOL_SIZE = 24;
@@ -71,6 +76,7 @@ export class DamageNumberManager {
                 maxLifetime: 0,
                 startY: 0,
                 critScale: 1.0,
+                lastDrawn: '',
             });
         }
     }
@@ -94,6 +100,9 @@ export class DamageNumberManager {
     }
 
     private drawText(slot: DamageNumberSlot, text: string, color: string, fontSize: number): void {
+        const key = `${text}|${color}|${fontSize}`;
+        if (slot.lastDrawn === key) return; // texture already shows exactly this
+        slot.lastDrawn = key;
         const ctx = slot.texture.getContext() as CanvasRenderingContext2D;
         ctx.clearRect(0, 0, TEX_WIDTH, TEX_HEIGHT);
 
