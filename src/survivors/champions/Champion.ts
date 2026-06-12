@@ -1,4 +1,4 @@
-import { Vector3, MeshBuilder, Mesh, Color3, Color4, ParticleSystem, StandardMaterial, AssetContainer, AnimationGroup, TransformNode, PointLight } from '@babylonjs/core';
+import { Vector3, MeshBuilder, Mesh, Color3, Color4, ParticleSystem, StandardMaterial, AssetContainer, AnimationGroup, TransformNode, PointLight, Material } from '@babylonjs/core';
 import { Game } from '../../engine/Game';
 import { Enemy } from '../enemies/Enemy';
 import { EnemyManager } from '../enemies/EnemyManager';
@@ -110,8 +110,18 @@ export class Champion extends Enemy {
     private torchBaseIntensity: number = 0;
     private torchFlickerTime: number = 0;
 
-    // Per-element weapon decoration meshes, created lazily on first activation
-    private elementDecorations: Map<string, Mesh[]> = new Map();
+    // Per-element weapon aura particle systems, created lazily on first activation.
+    private elementAuraPs: Map<string, ParticleSystem> = new Map();
+    // Storm-only flickering bolt meshes + their shared (per-champion) material.
+    private stormBolts: Mesh[] = [];
+    private stormBoltMat: StandardMaterial | null = null;
+    private stormFlickerTimer: number = 0;
+    // Weapon tint — ONE unfrozen emissive material per champion instance,
+    // recolored in place as the active element combo changes. Deliberately NOT a
+    // shared cached material: flashHitRed() mutates mesh materials' emissiveColor.
+    private weaponTintMat: StandardMaterial | null = null;
+    private weaponOrigMat: { mesh: Mesh; mat: Material | null } | null = null;
+    private weaponTintKey: string | null = null;
 
     /** Optional preloaded GLB asset for whichever champion class this is (Miya for ranger,
      *  Aulus for barbarian, etc.). When present, createMesh instantiates the GLB and
@@ -1825,20 +1835,33 @@ export class Champion extends Enemy {
             this.barbFootDustPs.dispose();
             this.barbFootDustPs = null;
         }
-        // Free per-element weapon decorations: meshes AND their unique emissive
-        // materials. The decoration meshes are children of the weapon anchor, so a
-        // recursive mesh.dispose() during die()/teardown frees the meshes but NOT
-        // their materials (the procedural-hero die() path deliberately skips
-        // child-material disposal at Champion.ts ~1752). Without this, ~12-17
-        // materials leak per run onto the never-disposed shared scene.
-        for (const meshes of this.elementDecorations.values()) {
-            for (const m of meshes) {
-                const mat = m.material;
-                try { if (!m.isDisposed()) m.dispose(); } catch (_) { /* already disposed */ }
-                try { mat?.dispose(); } catch (_) { /* already disposed */ }
-            }
+        // Free the per-element aura particle systems.
+        for (const ps of this.elementAuraPs.values()) {
+            ps.stop();
+            ps.dispose();
         }
-        this.elementDecorations.clear();
+        this.elementAuraPs.clear();
+        // Storm bolts share ONE per-champion material — dispose meshes, then the
+        // material once. (Default mesh.dispose() does NOT free materials; without
+        // this the material leaks onto the never-disposed shared scene.)
+        for (const b of this.stormBolts) {
+            try { if (!b.isDisposed()) b.dispose(); } catch (_) { /* already disposed */ }
+        }
+        this.stormBolts = [];
+        if (this.stormBoltMat) {
+            try { this.stormBoltMat.dispose(); } catch (_) { /* already disposed */ }
+            this.stormBoltMat = null;
+        }
+        // Weapon tint: restore the original material, then free the unique tint mat.
+        if (this.weaponOrigMat && !this.weaponOrigMat.mesh.isDisposed()) {
+            this.weaponOrigMat.mesh.material = this.weaponOrigMat.mat;
+        }
+        this.weaponOrigMat = null;
+        if (this.weaponTintMat) {
+            try { this.weaponTintMat.dispose(); } catch (_) { /* already disposed */ }
+            this.weaponTintMat = null;
+        }
+        this.weaponTintKey = null;
         if (this.flashHitRedRestoreTimer !== null) {
             clearTimeout(this.flashHitRedRestoreTimer);
             this.flashHitRedRestoreTimer = null;
@@ -1950,7 +1973,9 @@ export class Champion extends Enemy {
     // =========================================================================
 
     /**
-     * Show/hide per-element decoration meshes on the weapon anchor.
+     * Drive the elemental weapon-glow visuals: an emissive tint on the weapon
+     * mesh (procedural champions) plus one particle aura per active element,
+     * and flickering bolt meshes while storm is active.
      * Call once per frame with the set of active power elements.
      */
     public updateElementVisuals(activeElements: Set<string>): void {
@@ -1959,17 +1984,29 @@ export class Champion extends Enemy {
         const anchor = this.getWeaponAnchor();
         if (!anchor) return;
 
-        const allElements = ['fire', 'ice', 'arcane', 'physical', 'storm'];
+        this.updateWeaponTint(activeElements);
+
+        const allElements: PowerElement[] = ['fire', 'ice', 'arcane', 'physical', 'storm'];
         for (const element of allElements) {
             const shouldShow = activeElements.has(element);
-            let meshes = this.elementDecorations.get(element);
-            if (shouldShow && !meshes) {
-                meshes = this.createElementDecoration(element, anchor);
-                this.elementDecorations.set(element, meshes);
+            let ps = this.elementAuraPs.get(element);
+            if (shouldShow && !ps) {
+                ps = this.createElementAura(element, anchor);
+                this.elementAuraPs.set(element, ps);
             }
-            if (meshes) {
-                for (const m of meshes) m.setEnabled(shouldShow);
+            if (ps) {
+                if (shouldShow && !ps.isStarted()) ps.start();
+                else if (!shouldShow && ps.isStarted()) ps.stop();
             }
+        }
+
+        const stormActive = activeElements.has('storm');
+        if (stormActive && this.stormBolts.length === 0) {
+            this.createStormBolts(anchor);
+        }
+        if (this.stormBolts.length > 0) {
+            for (const b of this.stormBolts) b.setEnabled(stormActive);
+            if (stormActive) this.flickerStormBolts(this.lastDeltaTime);
         }
     }
 
@@ -1985,86 +2022,143 @@ export class Champion extends Enemy {
         return null;
     }
 
-    private createElementDecoration(element: string, anchor: Mesh): Mesh[] {
-        const meshes: Mesh[] = [];
-        const scene = this.scene;
-        switch (element) {
-            case 'fire': {
-                // 3 small flame cones arranged around the weapon
-                for (let i = 0; i < 3; i++) {
-                    const flame = MeshBuilder.CreateCylinder(`heroFire_${i}_${this.championType}`, {
-                        height: 0.35, diameterTop: 0, diameterBottom: 0.18, tessellation: 6,
-                    }, scene);
-                    flame.material = createEmissiveMaterial(`heroFireMat_${i}_${this.championType}`,
-                        new Color3(1.0, 0.45, 0.05), 0.9, scene);
-                    flame.parent = anchor;
-                    const angle = (i / 3) * Math.PI * 2;
-                    flame.position = new Vector3(Math.cos(angle) * 0.25, 0.3, Math.sin(angle) * 0.25);
-                    makeFlatShaded(flame);
-                    meshes.push(flame);
-                }
-                break;
-            }
-            case 'ice': {
-                // 3 cyan crystal shards
-                for (let i = 0; i < 3; i++) {
-                    const crystal = MeshBuilder.CreatePolyhedron(`heroIce_${i}_${this.championType}`,
-                        { type: 1, size: 0.10 }, scene);
-                    crystal.material = createEmissiveMaterial(`heroIceMat_${i}_${this.championType}`,
-                        new Color3(0.4, 0.85, 1.0), 0.6, scene);
-                    crystal.parent = anchor;
-                    const angle = (i / 3) * Math.PI * 2 + 0.5;
-                    crystal.position = new Vector3(Math.cos(angle) * 0.30, 0.1, Math.sin(angle) * 0.30);
-                    crystal.scaling.y = 1.5;
-                    makeFlatShaded(crystal);
-                    meshes.push(crystal);
-                }
-                break;
-            }
-            case 'arcane': {
-                // 2 purple orbs hovering near the weapon
-                for (let i = 0; i < 2; i++) {
-                    const orb = MeshBuilder.CreateSphere(`heroArcane_${i}_${this.championType}`,
-                        { diameter: 0.14, segments: 4 }, scene);
-                    orb.material = createEmissiveMaterial(`heroArcaneMat_${i}_${this.championType}`,
-                        new Color3(0.7, 0.3, 1.0), 0.8, scene);
-                    orb.parent = anchor;
-                    orb.position = new Vector3(i === 0 ? 0.35 : -0.35, 0.45, 0);
-                    meshes.push(orb);
-                }
-                break;
-            }
-            case 'physical': {
-                // 4 small white sparkle polyhedra
-                for (let i = 0; i < 4; i++) {
-                    const sparkle = MeshBuilder.CreatePolyhedron(`heroPhys_${i}_${this.championType}`,
-                        { type: 0, size: 0.06 }, scene);
-                    sparkle.material = createEmissiveMaterial(`heroPhysMat_${i}_${this.championType}`,
-                        new Color3(0.95, 0.95, 1.0), 0.7, scene);
-                    sparkle.parent = anchor;
-                    const angle = (i / 4) * Math.PI * 2;
-                    sparkle.position = new Vector3(Math.cos(angle) * 0.40, 0.25, Math.sin(angle) * 0.40);
-                    makeFlatShaded(sparkle);
-                    meshes.push(sparkle);
-                }
-                break;
-            }
-            case 'storm': {
-                // 3 yellow zigzag bolt boxes
-                for (let i = 0; i < 3; i++) {
-                    const bolt = MeshBuilder.CreateBox(`heroStorm_${i}_${this.championType}`,
-                        { width: 0.03, height: 0.4, depth: 0.03 }, scene);
-                    bolt.material = createEmissiveMaterial(`heroStormMat_${i}_${this.championType}`,
-                        new Color3(1.0, 0.95, 0.4), 0.9, scene);
-                    bolt.parent = anchor;
-                    const angle = (i / 3) * Math.PI * 2;
-                    bolt.position = new Vector3(Math.cos(angle) * 0.30, 0.35, Math.sin(angle) * 0.30);
-                    bolt.rotation.z = 0.4;
-                    meshes.push(bolt);
-                }
-                break;
-            }
+    /** Tint the procedural weapon mesh with the blended element color ("the axe
+     *  is frozen / burning"). GLB champions skip this — their weapon is baked
+     *  into the skinned mesh, so the particle aura alone carries the effect.
+     *  While tinted, the mage orb's idle pulse writes to the detached
+     *  mageOrbMat (harmless); it resumes if all elements are removed. */
+    private updateWeaponTint(activeElements: Set<string>): void {
+        let weapon: Mesh | null = null;
+        switch (this.championType) {
+            case 'barbarian': weapon = this.barbAxeHead; break;
+            case 'ranger':    weapon = this.rangerBow; break;
+            case 'mage':      weapon = this.mageStaffOrb; break;
         }
-        return meshes;
+        if (!weapon || weapon.isDisposed()) return;
+
+        const key = Array.from(activeElements).sort().join('+');
+        if (key === this.weaponTintKey) return;
+        this.weaponTintKey = key;
+
+        if (key === '') {
+            if (this.weaponOrigMat && this.weaponOrigMat.mesh === weapon) {
+                weapon.material = this.weaponOrigMat.mat;
+            }
+            return;
+        }
+
+        const blend = blendElements(this.activeElementSnapshot as PowerElement[]);
+        if (!this.weaponTintMat) {
+            this.weaponTintMat = new StandardMaterial(
+                `heroWeaponTint_${this.championType}`, this.scene);
+            this.weaponTintMat.specularColor = Color3.Black();
+        }
+        this.weaponTintMat.emissiveColor.copyFrom(blend).scaleInPlace(0.85);
+        this.weaponTintMat.diffuseColor.copyFrom(blend).scaleInPlace(0.35);
+        if (weapon.material !== this.weaponTintMat) {
+            if (!this.weaponOrigMat) {
+                this.weaponOrigMat = { mesh: weapon, mat: weapon.material };
+            }
+            weapon.material = this.weaponTintMat;
+        }
+    }
+
+    /** One small persistent additive particle aura per element, anchored at the
+     *  weapon. Untextured square particles — same style as the spin trails. */
+    private createElementAura(element: PowerElement, anchor: Mesh): ParticleSystem {
+        const c = ELEMENT_COLOR[element];
+        const ps = new ParticleSystem(`heroAura_${element}`, 32, this.scene);
+        ps.emitter = anchor;
+        ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
+        ps.color1 = new Color4(c.r, c.g, c.b, 1);
+        ps.color2 = new Color4(c.r * 0.7, c.g * 0.7, c.b * 0.7, 1);
+        ps.colorDead = new Color4(c.r * 0.15, c.g * 0.15, c.b * 0.15, 0);
+        ps.minEmitBox = new Vector3(-0.22, -0.05, -0.22);
+        ps.maxEmitBox = new Vector3(0.22, 0.35, 0.22);
+        ps.gravity = Vector3.Zero();
+        switch (element) {
+            case 'fire': // rising embers
+                ps.minSize = 0.06; ps.maxSize = 0.16;
+                ps.minLifeTime = 0.35; ps.maxLifeTime = 0.7;
+                ps.emitRate = 26;
+                ps.direction1 = new Vector3(-0.25, 0.6, -0.25);
+                ps.direction2 = new Vector3(0.25, 1.3, 0.25);
+                ps.minEmitPower = 0.4; ps.maxEmitPower = 1.0;
+                break;
+            case 'ice': // slow falling frost mist
+                ps.minSize = 0.10; ps.maxSize = 0.22;
+                ps.minLifeTime = 0.6; ps.maxLifeTime = 1.1;
+                ps.emitRate = 14;
+                ps.direction1 = new Vector3(-0.2, -0.05, -0.2);
+                ps.direction2 = new Vector3(0.2, 0.25, 0.2);
+                ps.minEmitPower = 0.1; ps.maxEmitPower = 0.4;
+                ps.gravity = new Vector3(0, -0.7, 0);
+                break;
+            case 'storm': // fast crackling sparks
+                ps.minSize = 0.03; ps.maxSize = 0.08;
+                ps.minLifeTime = 0.08; ps.maxLifeTime = 0.2;
+                ps.emitRate = 44;
+                ps.direction1 = new Vector3(-1, -0.5, -1);
+                ps.direction2 = new Vector3(1, 1, 1);
+                ps.minEmitPower = 1.2; ps.maxEmitPower = 2.6;
+                break;
+            case 'arcane': // slow swirling motes
+                ps.minSize = 0.07; ps.maxSize = 0.14;
+                ps.minLifeTime = 0.8; ps.maxLifeTime = 1.4;
+                ps.emitRate = 12;
+                ps.direction1 = new Vector3(-0.4, 0.1, -0.4);
+                ps.direction2 = new Vector3(0.4, 0.5, 0.4);
+                ps.minEmitPower = 0.15; ps.maxEmitPower = 0.5;
+                break;
+            case 'physical': // sparse white glints
+                ps.minSize = 0.04; ps.maxSize = 0.10;
+                ps.minLifeTime = 0.25; ps.maxLifeTime = 0.55;
+                ps.emitRate = 8;
+                ps.direction1 = new Vector3(-0.5, 0.2, -0.5);
+                ps.direction2 = new Vector3(0.5, 0.9, 0.5);
+                ps.minEmitPower = 0.3; ps.maxEmitPower = 0.9;
+                break;
+        }
+        ps.start();
+        return ps;
+    }
+
+    /** Three thin emissive bolts around the weapon that flicker while storm is
+     *  active. One unique material per champion instance (NOT cached/shared —
+     *  flashHitRed mutates emissive in place), freed in _releaseChampionFx. */
+    private createStormBolts(anchor: Mesh): void {
+        this.stormBoltMat = createEmissiveMaterial(
+            `heroStormBoltMat_${this.championType}`,
+            new Color3(1.0, 0.95, 0.4), 0.95, this.scene);
+        for (let i = 0; i < 3; i++) {
+            const bolt = MeshBuilder.CreateBox(`heroStormBolt_${i}`, {
+                width: 0.025, height: 0.38, depth: 0.025,
+            }, this.scene);
+            bolt.material = this.stormBoltMat;
+            bolt.parent = anchor;
+            const angle = (i / 3) * Math.PI * 2;
+            bolt.position = new Vector3(Math.cos(angle) * 0.26, 0.18, Math.sin(angle) * 0.26);
+            bolt.rotation.z = 0.4;
+            this.stormBolts.push(bolt);
+        }
+    }
+
+    /** Re-randomize bolt visibility/placement a few times per second — fades go
+     *  through mesh.visibility, never through the material (frozen + shared by
+     *  the 3 bolts). */
+    private flickerStormBolts(dt: number): void {
+        this.stormFlickerTimer -= dt;
+        if (this.stormFlickerTimer > 0) return;
+        this.stormFlickerTimer = 0.05 + Math.random() * 0.12;
+        for (const bolt of this.stormBolts) {
+            bolt.visibility = Math.random() < 0.65 ? 0.6 + Math.random() * 0.4 : 0;
+            const angle = Math.random() * Math.PI * 2;
+            const r = 0.18 + Math.random() * 0.14;
+            bolt.position.x = Math.cos(angle) * r;
+            bolt.position.z = Math.sin(angle) * r;
+            bolt.position.y = 0.05 + Math.random() * 0.3;
+            bolt.rotation.y = Math.random() * Math.PI;
+            bolt.rotation.z = 0.25 + Math.random() * 0.5;
+        }
     }
 }
