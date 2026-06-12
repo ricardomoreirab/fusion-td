@@ -14,9 +14,21 @@ const KNOCKBACK_DURATION_S    = 0.15;
 const CAMERA_SHAKE_MAGNITUDE  = 0.6;   // world units added to camera position XZ per shake frame
 const CAMERA_SHAKE_DURATION_S = 0.10;
 
-/** How far ahead of the hero the camera aims — pushes the hero toward the
- *  lower-centre of the frame so the curved horizon is visible up top. */
-const CAMERA_AIM_AHEAD = 4;
+/** Isometric (Diablo 4 / BG3-style) follow camera over the globe map.
+ *  PITCH is the look-down angle from horizontal; FOV narrows the lens
+ *  (telephoto flattens perspective toward an isometric read — Babylon default
+ *  is 0.8); DISTANCE is the slant range from the focus point. Camera height
+ *  and Z-offset derive from pitch + distance, so tune these three only.
+ *  Pitch is capped so a slim band of curved horizon + sky still clears the
+ *  top of the frame — that band is what sells the infinite-globe illusion. */
+const CAMERA_PITCH_DEG       = 42;
+const CAMERA_FOV             = 0.55;  // rad
+const CAMERA_DISTANCE        = 26;    // desktop slant distance
+const CAMERA_DISTANCE_MOBILE = 23;    // narrow screens pull in slightly
+
+/** How far ahead of the hero the camera aims — nudges the hero just below
+ *  screen centre so more of the threat-bearing far field is visible. */
+const CAMERA_AIM_AHEAD = 2;
 const BLOOD_BURST_COUNT       = 12;
 
 /** Per-class basic-attack configuration */
@@ -132,23 +144,20 @@ export class HeroController {
         this.maxHealth = maxHealth;
         this.currentHealth = maxHealth;
 
-        // Globe-map camera: lower + tilted back so the curved horizon and sky
-        // are framed with the hero lower-centre (enemies crest the curve ahead).
-        // Heights are starting values from the design spec — tune in-browser.
-        // On narrow mobile screens (< 700px) pull the camera in slightly closer.
+        // Isometric globe-map camera: height + Z-offset derive from the pitch
+        // and slant distance so the tuning knobs stay independent. On narrow
+        // mobile screens (< 700px) pull the camera in slightly closer.
         const viewportWidth = scene.getEngine().getRenderWidth();
-        if (viewportWidth < 700) {
-            this.cameraHeight = 8;
-            this.cameraOffsetZ = -9;
-        } else {
-            this.cameraHeight = 9;
-            this.cameraOffsetZ = -11;
-        }
+        const pitchRad = CAMERA_PITCH_DEG * Math.PI / 180;
+        const camDist = viewportWidth < 700 ? CAMERA_DISTANCE_MOBILE : CAMERA_DISTANCE;
+        this.cameraHeight = camDist * Math.sin(pitchRad);
+        this.cameraOffsetZ = -camDist * Math.cos(pitchRad);
 
-        // Tilted follow camera — replace the old isometric camera from Game.setupScene.
-        // Aim a few units AHEAD of the hero so the hero sits lower on screen
-        // and the top of the frame shows the horizon + sky.
+        // Isometric follow camera: steep look-down + narrow (telephoto) FOV.
+        // Aim slightly AHEAD of the hero so the hero sits just below centre
+        // and the top of the frame keeps the curved horizon + sky band.
         this.camera = new FreeCamera('heroCam', new Vector3(0, this.cameraHeight, this.cameraOffsetZ), scene);
+        this.camera.fov = CAMERA_FOV;
         this.camera.setTarget(new Vector3(0, 0, CAMERA_AIM_AHEAD));
         // Snapshot the look-down rotation once. We never call setTarget() again — only
         // position is lerped per frame. Calling setTarget() each frame recomputes rotation

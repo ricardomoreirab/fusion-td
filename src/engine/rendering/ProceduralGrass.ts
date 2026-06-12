@@ -74,6 +74,11 @@ uniform float uInfluencerStrength;
 uniform vec3 uHeroPos;
 uniform float uTileSize;
 uniform float uCurveRadius;
+// Radial height fade: blades collapse to zero height between uFadeStart and
+// uFadeEnd (distance from the hero). Lets a large far-field tile clip cleanly
+// inside the terrain cap instead of floating past its rim. Defaults huge = off.
+uniform float uFadeStart;
+uniform float uFadeEnd;
 
 #ifdef RECEIVE_SHADOWS
 uniform mat4 uShadowVP;
@@ -138,6 +143,10 @@ void main(void) {
     vec2 wrapOffset = (mod(rel + 0.5 * uTileSize, uTileSize) - 0.5 * uTileSize) - rel;
     worldPos.xz += wrapOffset;
     vec2 rootToHero = (world3.xz + wrapOffset) - uHeroPos.xz;
+    // Radial height fade (uFadeStart/uFadeEnd) — collapse blades toward the
+    // ground before the curvature sink so faded blades are degenerate (no
+    // pixels) instead of floating past the terrain cap's rim.
+    worldPos.y *= 1.0 - smoothstep(uFadeStart, uFadeEnd, length(rootToHero));
     worldPos.y -= dot(rootToHero, rootToHero) / (2.0 * uCurveRadius);
 
     // Character displacement — each influencer pushes nearby blades outward
@@ -347,6 +356,11 @@ export interface ProceduralGrassOptions {
     influencerRadius?: number;
     /** Max tip displacement (world units) at the centre of an influencer. */
     influencerStrength?: number;
+    /** Radial height fade (distance from the hero): blades shrink from full
+     *  height at fadeStart to zero at fadeEnd. Use on a large far-field tile
+     *  so blades never float past the terrain cap's rim. Omit = no fade. */
+    fadeStart?: number;
+    fadeEnd?: number;
 }
 
 export interface ProceduralGrass {
@@ -410,6 +424,7 @@ export function createProceduralGrass(scene: Scene, opts: ProceduralGrassOptions
         'uTorchPos', 'uTorchColor', 'uTorchIntensity', 'uTorchRange',
         'uInfluencers', 'uInfluencerRadius', 'uInfluencerStrength',
         'uHeroPos', 'uTileSize', 'uCurveRadius',
+        'uFadeStart', 'uFadeEnd',
     ];
     const samplersList: string[] = [];
     const defines: string[] = [];
@@ -436,6 +451,9 @@ export function createProceduralGrass(scene: Scene, opts: ProceduralGrassOptions
     mat.setVector3('uHeroPos', Vector3.Zero());
     mat.setFloat('uTileSize', opts.tileSize);
     mat.setFloat('uCurveRadius', opts.curveRadius);
+    // No fade unless requested — defaults far beyond any tile.
+    mat.setFloat('uFadeStart', opts.fadeStart ?? 1e6);
+    mat.setFloat('uFadeEnd', opts.fadeEnd ?? (1e6 + 1));
     mat.setColor3('uColorRoot', opts.colorRoot ?? new Color3(0.10, 0.14, 0.05));
     mat.setColor3('uColorTip', opts.colorTip ?? new Color3(0.45, 0.65, 0.22));
     mat.setColor3('uColorDry', opts.colorDry ?? new Color3(0.62, 0.55, 0.22));

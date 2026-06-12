@@ -47,7 +47,13 @@
   white-space: nowrap;
 }
 .pill__txt { position: relative; text-shadow: 0 1px 2px #000; }
-.pill--hp { --accent: var(--c-parchment-dim); min-width: clamp(110px, 22vw, 160px); }
+/* HP + level read at a glance mid-combat — bigger than the wave pill. */
+.pill--hp {
+  --accent: var(--c-parchment-dim);
+  min-width: clamp(150px, 28vw, 230px);
+  padding: var(--s-2) var(--s-4);
+  font-size: var(--fs-400);
+}
 .pill__fill {
   position: absolute;
   inset: 0;
@@ -62,7 +68,13 @@
   background: rgba(255, 255, 255, 0.18);
 }
 .pill--wave { --accent: var(--c-gold); color: var(--c-gold-hi); letter-spacing: 0.06em; }
-.pill--level { --accent: #5fb0e8; color: #bfe3ff; min-width: clamp(96px, 18vw, 132px); }
+.pill--level {
+  --accent: #5fb0e8;
+  color: #bfe3ff;
+  min-width: clamp(130px, 24vw, 190px);
+  padding: var(--s-2) var(--s-4);
+  font-size: var(--fs-400);
+}
 .pill--level .pill__fill { background: linear-gradient(180deg, #5fb0e8, #2b6aa8); }
 
 /* Transient feedback animations */

@@ -13,7 +13,7 @@ import { GlobeGround } from './globe/GlobeGround';
 import { PropField } from './globe/PropField';
 import { GlobeSky } from './globe/GlobeSky';
 import { setCurveOrigin, clearCurveOrigin, curveDropAt } from './globe/curvature';
-import { GLOBE_RADIUS, GRASS_TILE_SIZE } from './globe/constants';
+import { GLOBE_RADIUS, GRASS_TILE_SIZE, GRASS_FAR_TILE_SIZE, GRASS_FAR_FADE_START, GRASS_FAR_FADE_END } from './globe/constants';
 import { StatusEffect } from './GameTypes';
 import { Champion } from './champions/Champion';
 import { HeroController } from './HeroController';
@@ -371,6 +371,9 @@ export class SurvivorsGameplayState implements GameState {
     private _fxDispatchWarned = false;
     private joystick: SurvivorsJoystick | null = null;
     private grass: ReturnType<typeof createProceduralGrass> | null = null;
+    /** Far-field grass layer — coarser blades covering out to the terrain cap
+     *  rim (the isometric camera's telephoto lens magnifies that band). */
+    private grassFar: ReturnType<typeof createProceduralGrass> | null = null;
     private shadowSourceLight: DirectionalLight | null = null;
     private shadowGenerator: ShadowGenerator | null = null;
     private torchShadowGenerator: ShadowGenerator | null = null;
@@ -1287,6 +1290,27 @@ export class SurvivorsGameplayState implements GameState {
             bladeHeight: 0.45,
             directionalLight: this.shadowSourceLight ?? undefined,
             // shadowGenerator: this.shadowGenerator ?? undefined, // disabled while debugging
+            ambientColor: new Color3(0.42, 0.50, 0.32),
+            colorRoot: new Color3(0.18, 0.26, 0.10),
+            colorTip:  new Color3(0.55, 0.78, 0.30),
+            colorDry:  new Color3(0.72, 0.65, 0.32),
+            influencerRadius: 0.9,
+            influencerStrength: 0.55,
+        });
+
+        // Far-field layer: half the blade count spread over the whole terrain
+        // cap, wider blades (foreshortening at grazing angles keeps it reading
+        // dense). The radial fade clips it just past the cap rim so the horizon
+        // crest stays grassy without blades floating over open sky.
+        this.grassFar = createProceduralGrass(scene, {
+            tileSize: GRASS_FAR_TILE_SIZE,
+            curveRadius: GLOBE_RADIUS,
+            bladeCount: Math.floor(bladeCountForQuality(GameSettings.getGraphicsQuality()) / 2),
+            bladeWidth: 0.12,
+            bladeHeight: 0.50,
+            fadeStart: GRASS_FAR_FADE_START,
+            fadeEnd: GRASS_FAR_FADE_END,
+            directionalLight: this.shadowSourceLight ?? undefined,
             ambientColor: new Color3(0.42, 0.50, 0.32),
             colorRoot: new Color3(0.18, 0.26, 0.10),
             colorTip:  new Color3(0.55, 0.78, 0.30),
@@ -2585,6 +2609,8 @@ export class SurvivorsGameplayState implements GameState {
 
         this.grass?.dispose();
         this.grass = null;
+        this.grassFar?.dispose();
+        this.grassFar = null;
 
         // Dispose per-run lights, shadow generators, and env/sky textures. None of
         // these are meshes / particle systems / ADT textures, so Game.cleanupScene()
@@ -2712,13 +2738,15 @@ export class SurvivorsGameplayState implements GameState {
                     this.heroController?.setCameraFocusProvider(() => {
                         const self = this.hero?.getPosition();
                         const mate = this.coopGhost?.getPosition();
-                        if (!self || !mate) return { x: 0, z: 0, height: 20 };
+                        // Heights rescaled for the isometric camera (taller base +
+                        // narrower FOV needs more height per unit of separation).
+                        if (!self || !mate) return { x: 0, z: 0, height: 30 };
                         // M4-11: while spectating, follow the surviving teammate alone.
-                        if (this._spectating) return { x: mate.x, z: mate.z, height: 22 };
+                        if (this._spectating) return { x: mate.x, z: mate.z, height: 33 };
                         return computeCameraFocus(
                             { x: self.x, z: self.z },
                             { x: mate.x, z: mate.z },
-                            { baseHeight: 20, maxHeight: 30, zoomPerUnit: 0.4 },
+                            { baseHeight: 30, maxHeight: 45, zoomPerUnit: 0.6 },
                         );
                     });
                     // Part C (Task 9 ghost targeting provider): on the host, push the ghost
@@ -2820,6 +2848,7 @@ export class SurvivorsGameplayState implements GameState {
                 this.shadowSourceLight.position.z = Math.round((hp.z + 8) * 2) / 2;
             }
             this.grass?.setHeroPos(hp); // grass treadmill recentre
+            this.grassFar?.setHeroPos(hp);
             // Travel direction from frame-to-frame hero displacement (cheap,
             // no new API): zero when stationary → recycle uses the full circle.
             const pdx = hp.x - this._lastHeroX;
@@ -2843,8 +2872,10 @@ export class SurvivorsGameplayState implements GameState {
                 opts.intensity = TORCH_INTENSITY * (torch.intensity / 5.0);
                 opts.range = TORCH_RANGE;
                 this.grass.setTorch(opts);
+                this.grassFar?.setTorch(opts);
             } else {
                 this.grass.setTorch(null);
+                this.grassFar?.setTorch(null);
             }
 
             // Character grass displacement: hero + nearest 15 enemies push
@@ -2864,6 +2895,7 @@ export class SurvivorsGameplayState implements GameState {
                 }
             }
             this.grass.setInfluencers(influencers);
+            this.grassFar?.setInfluencers(influencers);
         }
 
         _measure('hero');
