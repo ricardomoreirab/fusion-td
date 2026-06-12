@@ -1203,7 +1203,7 @@ export class SurvivorsGameplayState implements GameState {
         // Gradient + stars sky dome (globe map): warm dusk band at the curved
         // horizon fading to indigo overhead, so the space above the world's rim
         // isn't a black void. The env cube above stays for IBL reflections only.
-        this.globeSky = new GlobeSky(scene);
+        this.globeSky = new GlobeSky(scene, this.game.isGpuUnavailable());
 
         // (Removed ruinsSpot SpotLight — it didn't cast shadows and was
         // washing out the directional's shadows at world origin where the
@@ -2756,7 +2756,7 @@ export class SurvivorsGameplayState implements GameState {
             setCurveOrigin(hp.x, hp.z);
             this.map?.update(hp.x, hp.z);
             // Sky dome follows the hero so a long run never walks out of it.
-            this.globeSky?.update(hp.x, hp.z);
+            this.globeSky?.update(hp.x, hp.z, deltaTime);
             // Directional shadow frustum is a fixed ±30-unit ortho box around
             // the light — keep it centred on the hero. Snap to 0.5 u so the
             // shadow texels don't shimmer as the hero moves.
