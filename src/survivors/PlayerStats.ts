@@ -167,6 +167,7 @@ export class PlayerStats {
     /** Add gold WITHOUT feeding the XP sink or the earned-total tracker.
      *  Used for shop sell-back credits — refunds are not income. */
     public refundGold(amount: number): void {
+        if (amount <= 0) return;
         if (!this.unlimitedMoney) {
             this.money += amount;
         }
