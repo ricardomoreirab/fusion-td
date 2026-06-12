@@ -448,6 +448,37 @@
   .shop-grid { grid-template-columns: repeat(2, 1fr); }
   .shop-equip { grid-template-columns: repeat(3, 1fr); }
 }
+
+/* ── Merchant speech bubble (Gribble's barks) ──────────────────
+   Lives in the fx layer; MerchantStand positions it in CSS px from
+   the goblin's projected head. Stacking comes from the fx layer's
+   z-index token (base.css) + DOM order — the bubble is appended
+   after the vignette, so no z-index is needed here.              */
+.merchant-bubble {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  max-width: 240px;
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-lg);
+  background: rgba(14, 12, 8, 0.92);
+  border: 1px solid var(--c-gold);
+  color: #ffe9b0;
+  font-family: var(--ff-body);
+  font-size: var(--fs-200);
+  font-style: italic;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+.merchant-bubble::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -6px;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: var(--c-gold);
+  border-bottom: none;
+}
 /* ── Full-screen menu / screen ───────────────────────────── */
 .screen {
   position: absolute; inset: 0;
