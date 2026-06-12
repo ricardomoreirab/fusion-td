@@ -4,6 +4,7 @@ import { AdvancedDynamicTexture } from '@babylonjs/gui';
 import { Game } from '../engine/Game';
 import { GameState } from '../engine/GameState';
 import { GlobeGround } from './globe/GlobeGround';
+import { PropField } from './globe/PropField';
 import { setCurveOrigin, clearCurveOrigin, curveDropAt } from './globe/curvature';
 import { GLOBE_RADIUS, GRASS_TILE_SIZE } from './globe/constants';
 import { StatusEffect } from './GameTypes';
@@ -242,6 +243,11 @@ export class SurvivorsGameplayState implements GameState {
     private scene: Scene | null = null;
     private ui: AdvancedDynamicTexture | null = null;
     private map: GlobeGround | null = null;
+    private propField: PropField | null = null;
+    // Previous-frame hero position — yields the travel direction the prop
+    // recycler biases toward (zero displacement → full-circle placement).
+    private _lastHeroX = 0;
+    private _lastHeroZ = 0;
     private hero: Champion | null = null;
 
     // ── Per-player slots (co-op M4) — see PlayerSlot above. The local player's six
@@ -867,6 +873,9 @@ export class SurvivorsGameplayState implements GameState {
         // Infinite map: enemies render sunk by the globe curvature relative to
         // the hero (render-only — gameplay positions stay flat).
         Enemy.curveDropFn = curveDropAt;
+        // Horizon props: recycled low-poly decoration that drifts past as the
+        // hero runs — the motion cue that sells the rotating-globe illusion.
+        this.propField = new PropField(this.scene);
         Enemy.onDamageCallback = (position, damage, isCrit, element) => {
             this.damageNumbers?.showDamage(position, damage, element, isCrit);
             // M4-9: mirror EVERY host-side damage number to the guest — its own routed
@@ -2511,6 +2520,10 @@ export class SurvivorsGameplayState implements GameState {
 
         this.map?.dispose();
         this.map = null;
+        this.propField?.dispose();
+        this.propField = null;
+        this._lastHeroX = 0;
+        this._lastHeroZ = 0;
         clearCurveOrigin(); // globe drop reads 0 everywhere until the next run
 
         this.grass?.dispose();
@@ -2758,6 +2771,13 @@ export class SurvivorsGameplayState implements GameState {
                 this.shadowSourceLight.position.z = Math.round((hp.z + 8) * 2) / 2;
             }
             this.grass?.setHeroPos(hp); // grass treadmill recentre
+            // Travel direction from frame-to-frame hero displacement (cheap,
+            // no new API): zero when stationary → recycle uses the full circle.
+            const pdx = hp.x - this._lastHeroX;
+            const pdz = hp.z - this._lastHeroZ;
+            this._lastHeroX = hp.x;
+            this._lastHeroZ = hp.z;
+            this.propField?.update(hp.x, hp.z, pdx, pdz);
         }
 
         // Keep the procedural-grass shader's torch uniforms in sync with the
