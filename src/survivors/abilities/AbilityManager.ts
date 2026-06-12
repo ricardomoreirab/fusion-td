@@ -207,6 +207,13 @@ export class AbilityManager {
         this.playerStats = stats;
     }
 
+    /** Combined power-damage multiplier (level bonus × run perks). Wired by
+     *  SurvivorsGameplayState — the same source used for auto-cast powers. */
+    private damageMultiplierProvider: (() => number) | null = null;
+    public setDamageMultiplierProvider(fn: () => number): void {
+        this.damageMultiplierProvider = fn;
+    }
+
     /** Wire the PowerSlotManager so Multishot can force-fire equipped autocast slots. */
     public setPowerSlots(slots: PowerSlotManager): void {
         this.powerSlots = slots;
@@ -448,7 +455,7 @@ export class AbilityManager {
     /** Damage every enemy within radius 4 of `center` and play one falling-meteor VFX. */
     private strikeMeteorAt(center: Vector3): void {
         const radius = 4;
-        const damage = 100;
+        const damage = Math.round(150 * (this.damageMultiplierProvider?.() ?? 1));
         const enemies = this.enemiesInRange(center, radius);
         for (const enemy of enemies) {
             enemy.takeDamage(damage);

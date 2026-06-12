@@ -1089,6 +1089,9 @@ export class SurvivorsGameplayState implements GameState {
         this.abilityManager.setMeleeAoeHit((center, radius) => {
             this.heroController?.applyAttackHitsInRadius(center, radius);
         });
+        this.abilityManager.setDamageMultiplierProvider(
+            () => (this.playerStats?.powerDamageMultiplier ?? 1.0) * this.runPerks.damageMultiplier,
+        );
         this.abilityManager.prewarmAbilityEffects();
         this.prewarmPowerEffects();
 
@@ -3510,6 +3513,7 @@ export class SurvivorsGameplayState implements GameState {
         const ups = this.levelSystem.addXp(amount);
         if (ups > 0) {
             this.applyLevelBonuses();
+            this.heroController?.heal(this.heroController.getMaxHealth() * 0.05 * ups);
             this.showLevelUpFeedback(this.levelSystem.getLevel());
         }
     }
