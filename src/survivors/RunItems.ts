@@ -14,7 +14,9 @@ const ITEM_BY_TIER: Record<number, ItemId> = {
 
 /** Per-stack tuning constants — see spec for rationale. Adjust here, not at call sites. */
 const KNOCKBACK_UNITS_PER_STACK = 1.0;  // world units pushed per hit per stack
-const ATTACK_SPEED_FACTOR       = 2.0;  // multiplier applied once per stack
+/** Exported: applyLevelBonuses() re-folds this per stack on every recompute
+ *  (its `basicAttackSpeedMultiplier = …` assignment would otherwise erase it). */
+export const ATTACK_SPEED_FACTOR = 2.0; // multiplier applied once per stack
 
 export class RunItems {
     private stacks: Record<ItemId, number> = {
