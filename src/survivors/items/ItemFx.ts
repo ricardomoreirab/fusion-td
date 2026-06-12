@@ -28,6 +28,8 @@ function emissiveSetup(colorHex: string): (m: StandardMaterial) => void {
  * Spawn a flat expanding ring at (x, z) that grows to `maxRadius` and fades
  * out over `durationS`. Material is cache-owned (bounded key = colorHex),
  * so dispose(false, false).
+ * @param colorHex MUST be a lowercase literal from a finite palette — never a
+ *   computed/lerped hex (unbounded cache keys are THE recurring freeze bug).
  */
 export function spawnExpandingRing(
     scene: Scene, x: number, z: number,
@@ -60,6 +62,8 @@ export function spawnExpandingRing(
 /**
  * Quick straight trail beam between two points (ricochet visual). Fades out
  * over `durationS`. Cache-owned material — dispose(false, false).
+ * @param colorHex MUST be a lowercase literal from a finite palette — never a
+ *   computed/lerped hex (unbounded cache keys are THE recurring freeze bug).
  */
 export function spawnTrail(
     scene: Scene, fromX: number, fromZ: number, toX: number, toZ: number,
