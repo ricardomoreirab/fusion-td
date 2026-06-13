@@ -810,13 +810,6 @@ export class SurvivorsGameplayState implements GameState {
             })();
         }
 
-        // Itemization/merchant systems are SINGLE-PLAYER ONLY (co-op stays
-        // byte-identical to the pre-shop behavior). "Solo" must be decidable
-        // synchronously here: the lobby flow has already set coopSession above,
-        // and the dev ?host/?join flow connects asynchronously — so treat the
-        // mere presence of those params as co-op too.
-        const solo = !this.coopSession && !(coopParams?.has('host') || coopParams?.has('join'));
-
         // ---------- Gameplay systems ----------
 
         this.playerStats = new PlayerStats(heroHp, 100);
@@ -1121,19 +1114,25 @@ export class SurvivorsGameplayState implements GameState {
             }
             // ?test advances immediately for a fully unattended stress pass.
             if (this.testMode) { this.waveManager?.startNextWave(); return; }
-            // Single-player: the on-screen shop replaces the auto-breather — it
-            // opens immediately (pausing solo via isPausedForOverlay) and the next
-            // wave waits for "To battle!". Solo-ness is re-checked HERE (not
-            // captured) so a co-op session that connected after startRun still
-            // gets the old breather.
-            // Co-op: old auto-advance breather, byte-identical to pre-shop main.
+            // Both solo AND co-op open the on-screen shop. Solo-ness is re-checked
+            // HERE (not captured) so a co-op session that connected after startRun
+            // is handled correctly.
+            //  - Solo: the shop replaces the auto-breather — it opens immediately
+            //    (pausing solo via isPausedForOverlay) and the next wave waits for
+            //    "To battle!". NO breather is set.
+            //  - Co-op: the shop opens NON-BLOCKING over the running game (it never
+            //    pauses — isPausedForOverlay returns false with a coopSession), AND
+            //    the breather is set so the host owns wave-advance regardless of the
+            //    shop. "To battle!" in co-op just closes the overlay (never advances).
             const soloNow = !this.coopSession;
-            if (soloNow && this.shopOverlay) {
+            if (this.shopOverlay) {
                 this.shopPhase = 'open';
                 this.currentStock = [];
                 this.rerollsThisVisit = 0;
                 this.openShop();
-            } else {
+            }
+            if (!soloNow) {
+                // Co-op: the host breather owns wave-advance regardless of the shop.
                 this.waveBreatherRemaining = SurvivorsGameplayState.WAVE_BREATHER_SECONDS;
             }
         });
@@ -3977,7 +3976,11 @@ export class SurvivorsGameplayState implements GameState {
         this.shopOverlay.show(this.buildShopVM(pickBark('arrive')), {
             onBuy: (index) => this.handleShopBuy(index),
             onReroll: () => this.handleShopReroll(),
-            onBattle: () => { this.shopOverlay?.close(); this.endShoppingPhase(); },
+            // Solo: "To battle!" closes the shop AND advances the wave (endShoppingPhase
+            // sets the breather). Co-op: just close — the host breather already owns
+            // wave-advance, so endShoppingPhase must NOT run (it would redundantly reset
+            // the host's breather / interfere with the shared sim).
+            onBattle: () => { this.shopOverlay?.close(); if (!this.coopSession) this.endShoppingPhase(); },
             onClosed: () => { /* modal torn down — game unpauses; nothing else to do */ },
         }, this.goblinPortrait?.element ?? null);
         this.goblinPortrait?.start();
