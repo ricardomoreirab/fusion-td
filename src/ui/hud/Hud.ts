@@ -8,6 +8,9 @@ import { makePill, PillController } from '../primitives/Pill';
 import { makeIconSlot, IconSlotController } from '../primitives/IconSlot';
 import { flashClass, onTap } from '../interaction';
 import { cooldownFraction, waveLabel, levelLabel, WaveInfo } from '../format';
+import { GearSlotVM } from '../overlays/CharacterProfile';
+import { SLOT_GLYPH } from '../overlays/slotMeta';
+import { EQUIP_SLOTS, RARITY_COLOR } from '../../survivors/items/ItemTypes';
 
 // Glyph/colour maps for the HUD (originally from the now-deleted Babylon-GUI HeroHud).
 const ELEMENT_GLYPH: Record<string, string> = {
@@ -68,6 +71,11 @@ export class Hud {
   private onHorn: () => void = () => {};
   private lowHpTime = 0;
 
+  // Always-visible equipment strip (single-player only) → opens the character profile.
+  private inventoryStrip!: HTMLDivElement;
+  private inventoryCells: HTMLDivElement[] = [];
+  private onOpenCharacter: () => void = () => {};
+
   // diff trackers
   private prevHp = -1;
   private prevLevel = -1;
@@ -90,6 +98,19 @@ export class Hud {
     this.goldPill = makePill('gold');
     topBar.append(this.hpPill.root, this.wavePill.root, this.levelPill.root, this.goldPill.root);
     this.root.appendChild(topBar);
+
+    // Always-visible inventory strip, top-left under the top bar (single-player).
+    // Hidden until setInventory() is called; clicking it opens the character profile.
+    this.inventoryStrip = el('div', { class: 'hud__inventory interactive', attrs: { role: 'button', title: 'Character (equipment)' } });
+    for (let i = 0; i < EQUIP_SLOTS.length; i++) {
+      const cell = el('div', { class: 'gear-slot gear-slot--empty' });
+      cell.appendChild(el('div', { class: 'gear-slot__glyph', text: SLOT_GLYPH[EQUIP_SLOTS[i]] }));
+      this.inventoryCells.push(cell);
+      this.inventoryStrip.appendChild(cell);
+    }
+    this.inventoryStrip.style.display = 'none';
+    onTap(this.inventoryStrip, () => this.onOpenCharacter());
+    this.root.appendChild(this.inventoryStrip);
 
     // Bottom-left cluster: 4 power slots + 4 item slots.
     const bottomLeft = el('div', { class: 'hud__cluster hud__cluster--left' });
@@ -289,6 +310,27 @@ export class Hud {
   setOnHorn(fn: () => void): void { this.onHorn = fn; }
   setHornVisible(visible: boolean): void {
     this.hornBtn.style.display = visible ? '' : 'none';
+  }
+
+  /** Open-character-profile callback (wired by the gameplay state). */
+  setOnOpenCharacter(fn: () => void): void { this.onOpenCharacter = fn; }
+
+  /** Populate + show the always-visible equipment strip (single-player only).
+      Each cell shows the equipped piece's glyph + rarity color, or the empty
+      slot glyph. Called at run start and after every equipment change. */
+  setInventory(slots: GearSlotVM[]): void {
+    this.inventoryStrip.style.display = '';
+    for (let i = 0; i < this.inventoryCells.length; i++) {
+      const cell = this.inventoryCells[i];
+      const s = slots[i];
+      if (!s) continue;
+      const filled = !!s.name;
+      cell.classList.toggle('gear-slot--empty', !filled);
+      cell.style.setProperty('--accent', filled && s.rarity ? RARITY_COLOR[s.rarity] : '#3a3a46');
+      const glyph = cell.firstElementChild as HTMLElement;
+      if (glyph) glyph.textContent = s.glyph ?? SLOT_GLYPH[s.slot];
+      cell.title = filled ? `${s.name}` : `${s.slot} (empty)`;
+    }
   }
 
   // Stubs completed in later tasks (kept so the API exists from the start).

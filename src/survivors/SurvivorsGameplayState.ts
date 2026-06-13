@@ -44,14 +44,15 @@ import { RunItems, ItemId, ATTACK_SPEED_FACTOR } from './RunItems';
 import { ItemDrop } from './ItemDrop';
 import { Equipment, priceFor, sellValueOf } from './items/Equipment';
 import { foldEquipmentStats, newEquipFoldTracker, EquipFoldTracker } from './items/foldEquipmentStats';
-import { ITEM_CATALOG, setById } from './items/ItemCatalog';
-import { ItemDef } from './items/ItemTypes';
+import { ITEM_CATALOG, ITEM_SETS, setById } from './items/ItemCatalog';
+import { ItemDef, EQUIP_SLOTS } from './items/ItemTypes';
 import { ItemEffectRuntime, EffectContext, EffectEnemy } from './items/ItemEffectRuntime';
 import { RageGlow, spawnExpandingRing, spawnTrail } from './items/ItemFx';
 import { describeMods, EFFECT_TEXT } from './items/describeMods';
 import { rollStock, rerollCost } from './shop/ShopStock';
-import { MerchantStand, SHOP_OPEN_RANGE, SHOP_REOPEN_RANGE, SHOP_SETUP_SECONDS } from './shop/MerchantStand';
+import { getGoblinPortrait, GoblinPortrait } from './shop/GoblinPortrait';
 import { ShopOverlay, ShopVM, ShopCardVM } from '../ui/overlays/ShopOverlay';
+import { CharacterProfile, CharacterVM, GearSlotVM, CharStatVM, CharSetVM } from '../ui/overlays/CharacterProfile';
 import { pickBark } from './shop/GribbleBarks';
 import { DifficultyTuning } from './DifficultyTuning';
 import { createProceduralGrass } from '../engine/rendering/ProceduralGrass';
@@ -521,12 +522,15 @@ export class SurvivorsGameplayState implements GameState {
     private itemEffects: ItemEffectRuntime | null = null;
     private rageGlow: RageGlow | null = null;
     private shopOverlay: ShopOverlay | null = null;
-    private merchantStand: MerchantStand | null = null;
-    private shopPhase: 'none' | 'arriving' | 'open' = 'none';
-    private shopSetupRemaining = 0;
-    /** Hero must leave SHOP_REOPEN_RANGE before the shop can re-open. */
-    private shopHysteresis = false;
+    /** Gribble's live portrait — isolated mini-renderer, mounted in the shop UI. */
+    private goblinPortrait: GoblinPortrait | null = null;
+    /** Always-accessible character sheet, opened from the HUD inventory strip. */
+    private characterProfile: CharacterProfile | null = null;
+    private shopPhase: 'none' | 'open' = 'none';
     private currentStock: ItemDef[] = [];
+    /** Item ids bought this shop visit — kept as locked "Sold" tiles (fixed
+     *  positions, no reflow). Cleared on each fresh stock roll. */
+    private purchasedIds = new Set<string>();
     private rerollsThisVisit = 0;
     /** Equipment max-HP already pushed to the hero (delta-applied, mirrors appliedMaxHpBonus). */
     private equipMaxHpApplied = 0;
@@ -1099,24 +1103,18 @@ export class SurvivorsGameplayState implements GameState {
             }
             // ?test advances immediately for a fully unattended stress pass.
             if (this.testMode) { this.waveManager?.startNextWave(); return; }
-            // Single-player: merchant phase replaces the auto-breather — Gribble
-            // rolls in near the hero and the next wave waits for "To battle!" /
-            // the horn. Solo-ness is re-checked HERE (not captured) so a co-op
-            // session that connected after startRun still gets the old breather.
+            // Single-player: the on-screen shop replaces the auto-breather — it
+            // opens immediately (pausing solo via isPausedForOverlay) and the next
+            // wave waits for "To battle!". Solo-ness is re-checked HERE (not
+            // captured) so a co-op session that connected after startRun still
+            // gets the old breather.
             // Co-op: old auto-advance breather, byte-identical to pre-shop main.
             const soloNow = !this.coopSession;
-            if (soloNow && this.merchantStand) {
-                const heroPos = this.hero?.getPosition();
-                const angle = Math.random() * Math.PI * 2;
-                const mx = (heroPos?.x ?? 0) + Math.cos(angle) * 8;
-                const mz = (heroPos?.z ?? 0) + Math.sin(angle) * 8;
-                this.merchantStand.spawn(mx, mz);
-                if (this.scene) spawnExpandingRing(this.scene, mx, mz, '#c89b3c', 3);
-                this.shopPhase = 'arriving';
-                this.shopSetupRemaining = SHOP_SETUP_SECONDS;
+            if (soloNow && this.shopOverlay) {
+                this.shopPhase = 'open';
                 this.currentStock = [];
                 this.rerollsThisVisit = 0;
-                this.hud?.setHornVisible(true);
+                this.openShop();
             } else {
                 this.waveBreatherRemaining = SurvivorsGameplayState.WAVE_BREATHER_SECONDS;
             }
@@ -1213,8 +1211,11 @@ export class SurvivorsGameplayState implements GameState {
             this.rageGlow = new RageGlow(this.scene, () => this.hero?.getPosition() ?? null);
             this.itemEffects = new ItemEffectRuntime(this.buildEffectContext());
             this.shopOverlay = new ShopOverlay(this.gameUI!.layer('overlay'));
-            this.merchantStand = new MerchantStand(this.scene, this.gameUI!.layer('fx'));
+            this.goblinPortrait = getGoblinPortrait();
+            this.characterProfile = new CharacterProfile(this.gameUI!.layer('overlay'));
             this.hud.setOnHorn(() => this.soundHorn());
+            this.hud.setOnOpenCharacter(() => this.openCharacter());
+            this.updateInventoryHud(); // populate + show the always-visible strip
 
             // Combat-event hooks (deliberately NOT wired in co-op — the guest's
             // hit/hurt paths are asymmetric and would desync the host).
@@ -2630,14 +2631,18 @@ export class SurvivorsGameplayState implements GameState {
         this.powerChoice?.close();
         this.powerChoice = null;
 
-        // Itemization + merchant shop teardown. shopOverlay.close() fires
-        // onClosed (sets shopHysteresis — harmless, reset just below). exit()
-        // must NEVER call endShoppingPhase() here: no wave scheduling during
-        // teardown.
+        // Itemization + on-screen shop teardown. shopOverlay.close() fires onClosed
+        // (a no-op now). exit() must NEVER call endShoppingPhase() here: no wave
+        // scheduling during teardown. The goblin portrait is a session-scoped
+        // singleton — stop its render loop and detach its element, but don't
+        // dispose it (it's reused next run, like the cached GLB containers).
         this.shopOverlay?.close();
         this.shopOverlay = null;
-        this.merchantStand?.dispose();
-        this.merchantStand = null;
+        this.characterProfile?.close();
+        this.characterProfile = null;
+        this.goblinPortrait?.stop();
+        this.goblinPortrait?.detach();
+        this.goblinPortrait = null;
         this.itemEffects?.reset();
         this.itemEffects = null;
         this.rageGlow?.dispose();
@@ -2645,9 +2650,8 @@ export class SurvivorsGameplayState implements GameState {
         this.equipment = null;
         this.equipTracker = newEquipFoldTracker();
         this.shopPhase = 'none';
-        this.shopSetupRemaining = 0;
-        this.shopHysteresis = false;
         this.currentStock = [];
+        this.purchasedIds.clear();
         this.rerollsThisVisit = 0;
         this.equipMaxHpApplied = 0;
 
@@ -2997,34 +3001,9 @@ export class SurvivorsGameplayState implements GameState {
             }
         }
 
-        // ── Merchant/shopping phase (single-player only; null objects in co-op).
-        // Sits below the isPausedForOverlay() early-return on purpose: the setup
-        // timer + proximity checks freeze while the shop UI (or any overlay) is
-        // open, exactly like the breather above.
-        // Always tick the stand itself: it must keep animating through 'departing'
-        // after endShoppingPhase() has already returned shopPhase to 'none'
-        // (cheap; no-ops when idle).
-        this.merchantStand?.update(deltaTime);
-        if (this.shopPhase !== 'none' && this.merchantStand) {
-            if (this.shopPhase === 'arriving') {
-                this.shopSetupRemaining -= deltaTime;
-                if (this.shopSetupRemaining <= 0) {
-                    this.merchantStand.setOpen();
-                    this.shopPhase = 'open';
-                }
-            } else if (this.shopPhase === 'open' && !this.shopOverlay?.isOpen()) {
-                const shopHeroPos = this.hero?.getPosition();
-                if (shopHeroPos) {
-                    if (this.shopHysteresis) {
-                        if (!this.merchantStand.heroInRange(shopHeroPos, SHOP_REOPEN_RANGE)) {
-                            this.shopHysteresis = false;
-                        }
-                    } else if (this.merchantStand.heroInRange(shopHeroPos, SHOP_OPEN_RANGE)) {
-                        this.openShop();
-                    }
-                }
-            }
-        }
+        // The on-screen shop opens immediately at wave clear (see setOnWaveCleared)
+        // and renders its goblin via its own isolated engine — there's no world
+        // merchant to tick here. The shop UI pauses solo via isPausedForOverlay().
         this.rageGlow?.update();
         // Equipment HP regen (e.g. Troll-Hide Vest):
         const equipRegen = this.playerStats?.hpRegenPctPerSec ?? 0;
@@ -3361,7 +3340,8 @@ export class SurvivorsGameplayState implements GameState {
         return !!(
             this.powerChoice?.isOpen() ||
             this.replaceSlotOverlay?.isOpen() ||
-            this.shopOverlay?.isOpen()
+            this.shopOverlay?.isOpen() ||
+            this.characterProfile?.isOpen()
         );
     }
 
@@ -3840,12 +3820,13 @@ export class SurvivorsGameplayState implements GameState {
     private openShop(): void {
         if (!this.equipment || !this.shopOverlay || !this.playerStats) return;
         if (this.currentStock.length === 0) this.rollShopStock();
-        this.shopOverlay.show(this.buildShopVM(pickBark('browse')), {
+        this.shopOverlay.show(this.buildShopVM(pickBark('arrive')), {
             onBuy: (index) => this.handleShopBuy(index),
             onReroll: () => this.handleShopReroll(),
             onBattle: () => { this.shopOverlay?.close(); this.endShoppingPhase(); },
-            onClosed: () => { this.shopHysteresis = true; },
-        });
+            onClosed: () => { /* modal torn down — game unpauses; nothing else to do */ },
+        }, this.goblinPortrait?.element ?? null);
+        this.goblinPortrait?.start();
     }
 
     private rollShopStock(): void {
@@ -3858,6 +3839,15 @@ export class SurvivorsGameplayState implements GameState {
             setCounts: agg.setCounts,
             rng: Math.random,
         });
+        this.purchasedIds.clear(); // fresh stock → fixed positions reset
+    }
+
+    /** Unique-effect / set-bonus text for an item: standalone items show their
+     *  effect, set pieces show the set's 3pc signature (set pieces have no effectId). */
+    private itemEffectText(def: ItemDef): string | null {
+        return def.effectId
+            ? (def.setId ? null : EFFECT_TEXT[def.effectId])
+            : (def.setId ? setById(def.setId)!.bonus3Text : null);
     }
 
     private buildShopVM(quip: string): ShopVM {
@@ -3870,6 +3860,7 @@ export class SurvivorsGameplayState implements GameState {
             const credit = old ? sellValueOf(old.pricePaid) : 0;
             return {
                 def, price,
+                sold: this.purchasedIds.has(def.id),
                 affordable: ps.getGold() + credit >= price,
                 replaces: old?.def.name ?? null,
                 sellCredit: credit,
@@ -3877,25 +3868,15 @@ export class SurvivorsGameplayState implements GameState {
                     ? `${setById(def.setId)!.name} ${eq.setCount(def.setId)}/3`
                     : null,
                 statLines: describeMods(def.mods),
-                // Non-set items show their unique-effect text; set pieces show
-                // the set's 3pc signature instead (set pieces carry no effectId).
-                effectText: def.effectId
-                    ? (def.setId ? null : EFFECT_TEXT[def.effectId])
-                    : (def.setId ? setById(def.setId)!.bonus3Text : null),
+                effectText: this.itemEffectText(def),
+                // Comparison: what's equipped in this slot right now.
+                equippedStatLines: old ? describeMods(old.def.mods) : [],
+                equippedEffectText: old ? this.itemEffectText(old.def) : null,
             };
         });
         return {
             gold: ps.getGold(),
             cards,
-            equipment: (['weapon', 'helmet', 'chest', 'legs', 'boots', 'trinket'] as const).map(slot => {
-                const item = eq.get(slot);
-                return {
-                    slot,
-                    name: item?.def.name ?? null,
-                    glyph: item?.def.glyph ?? null,
-                    rarity: item?.def.rarity ?? null,
-                };
-            }),
             rerollCost: rerollCost(this.rerollsThisVisit),
             rerollAffordable: ps.getGold() >= rerollCost(this.rerollsThisVisit),
             quip,
@@ -3905,15 +3886,89 @@ export class SurvivorsGameplayState implements GameState {
     private handleShopBuy(index: number): void {
         const def = this.currentStock[index];
         if (!def || !this.equipment || !this.playerStats) return;
+        if (this.purchasedIds.has(def.id)) return; // already bought this visit
         const wave = this.waveManager?.getCurrentWave() ?? 1;
         if (!this.equipment.buy(def, wave)) {
-            this.merchantStand?.bark('poor');
             this.shopOverlay?.refresh(this.buildShopVM(pickBark('poor')));
             return;
         }
-        this.currentStock.splice(index, 1);
-        this.applyLevelBonuses();   // recompute: level + equipment fold + active effects
+        this.purchasedIds.add(def.id); // keep the tile in place as "Sold"
+        this.applyLevelBonuses();      // recompute: level + equipment fold + active effects
+        this.updateInventoryHud();
         this.shopOverlay?.refresh(this.buildShopVM(pickBark('buy')));
+    }
+
+    // ── Character sheet + HUD inventory strip (single-player) ────────────────
+
+    /** The 6 equipped slots as display VMs — shared by the HUD strip + profile. */
+    private buildGearSlots(): GearSlotVM[] {
+        const eq = this.equipment;
+        return EQUIP_SLOTS.map(slot => {
+            const item = eq?.get(slot) ?? null;
+            return {
+                slot,
+                name: item?.def.name ?? null,
+                glyph: item?.def.glyph ?? null,
+                rarity: item?.def.rarity ?? null,
+                statLines: item ? describeMods(item.def.mods) : [],
+                effectText: item ? this.itemEffectText(item.def) : null,
+            };
+        });
+    }
+
+    /** Push the current equipment into the always-visible HUD strip (solo only). */
+    private updateInventoryHud(): void {
+        if (!this.equipment) return;
+        this.hud?.setInventory(this.buildGearSlots());
+    }
+
+    /** Aggregate stats for the character sheet, read live from PlayerStats. */
+    private buildCharacterStats(): CharStatVM[] {
+        const ps = this.playerStats;
+        if (!ps) return [];
+        const pct = (m: number) => `${m >= 1 ? '+' : ''}${Math.round((m - 1) * 100)}%`;
+        const out: CharStatVM[] = [
+            { label: 'Max Health', value: `${Math.round(this.heroController?.getHealth().max ?? ps.getMaxHealth())}` },
+            { label: 'Basic Damage', value: pct(ps.basicDamageMultiplier) },
+            { label: 'Power Damage', value: pct(ps.powerDamageMultiplier) },
+            { label: 'Attack Speed', value: pct(ps.basicAttackSpeedMultiplier) },
+            { label: 'Power Cooldown', value: `${Math.round((ps.powerCooldownMultiplier - 1) * 100)}%` },
+            { label: 'Move Speed', value: pct(ps.moveSpeedMultiplier) },
+            { label: 'Crit Chance', value: `${Math.round(ps.critChance * 100)}%` },
+            { label: 'Crit Damage', value: `×${ps.critDamageMultiplier.toFixed(2)}` },
+        ];
+        const dr = Math.round((1 - ps.damageReductionMultiplier) * 100);
+        if (dr !== 0) out.push({ label: 'Damage Reduction', value: `${dr}%` });
+        if (ps.lifestealPct > 0) out.push({ label: 'Lifesteal', value: `${Math.round(ps.lifestealPct * 100)}%` });
+        if (ps.goldGainMultiplier > 1) out.push({ label: 'Gold Find', value: pct(ps.goldGainMultiplier) });
+        if (ps.hpRegenPctPerSec > 0) out.push({ label: 'HP Regen', value: `${(ps.hpRegenPctPerSec * 100).toFixed(1)}%/s` });
+        return out;
+    }
+
+    /** Sets with ≥2 pieces (an active bonus) for the character sheet. */
+    private buildCharacterSets(): CharSetVM[] {
+        const counts = this.equipment?.aggregates().setCounts ?? {};
+        const out: CharSetVM[] = [];
+        for (const set of ITEM_SETS) {
+            const count = counts[set.id] ?? 0;
+            if (count >= 2) out.push({ name: set.name, count, bonus2Text: set.bonus2Text, bonus3Text: set.bonus3Text });
+        }
+        return out;
+    }
+
+    private buildCharacterVM(): CharacterVM {
+        return {
+            slots: this.buildGearSlots(),
+            stats: this.buildCharacterStats(),
+            sets: this.buildCharacterSets(),
+        };
+    }
+
+    /** Toggle the character sheet from the HUD inventory strip (pauses solo). */
+    private openCharacter(): void {
+        if (!this.characterProfile || !this.equipment) return;
+        if (this.characterProfile.isOpen()) { this.characterProfile.close(); return; }
+        this.characterProfile.show(this.buildCharacterVM());
     }
 
     private handleShopReroll(): void {
@@ -3927,12 +3982,11 @@ export class SurvivorsGameplayState implements GameState {
         this.shopOverlay?.refresh(this.buildShopVM(pickBark('reroll')));
     }
 
-    /** Horn pressed or "To battle!": merchant leaves, short countdown, next wave. */
+    /** "To battle!" pressed: stop the goblin portrait, short countdown, next wave. */
     private endShoppingPhase(): void {
         if (this.shopPhase === 'none') return;
         this.shopPhase = 'none';
-        this.shopHysteresis = false;
-        this.merchantStand?.depart();
+        this.goblinPortrait?.stop();
         this.hud?.setHornVisible(false);
         this.waveBreatherRemaining = 3;
     }
