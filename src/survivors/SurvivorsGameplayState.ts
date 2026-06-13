@@ -45,7 +45,7 @@ import { ItemDrop } from './ItemDrop';
 import { Equipment, priceFor, sellValueOf } from './items/Equipment';
 import { foldEquipmentStats, newEquipFoldTracker, EquipFoldTracker } from './items/foldEquipmentStats';
 import { ITEM_CATALOG, ITEM_SETS, setById } from './items/ItemCatalog';
-import { ItemDef, EQUIP_SLOTS } from './items/ItemTypes';
+import { ItemDef, EQUIP_SLOTS, MythicFxConfig } from './items/ItemTypes';
 import { ItemEffectRuntime, EffectContext, EffectEnemy } from './items/ItemEffectRuntime';
 import { RageGlow, spawnExpandingRing, spawnTrail } from './items/ItemFx';
 import { describeMods, EFFECT_TEXT } from './items/describeMods';
@@ -63,7 +63,7 @@ import { formatBuckets } from '../engine/rendering/resourceBudget';
 import { CoopSession } from './coop/CoopSession';
 import { GuestEnemies } from './coop/GuestEnemies';
 import { computeCameraFocus } from './coop/cameraFocus';
-import { setCoopFxEmit, spawnCosmeticProjectile, spawnCosmeticSwingRing, spawnCosmeticEnemyProjectile, spawnCosmeticTelegraph, startCosmeticUltChannel, emitCoopFx, isCoopFxActive, withFxReplay } from './coop/CoopFx';
+import { setCoopFxEmit, spawnCosmeticProjectile, spawnCosmeticSwingRing, spawnCosmeticEnemyProjectile, spawnCosmeticTelegraph, startCosmeticUltChannel, emitCoopFx, isCoopFxActive, isReplayingFx, withFxReplay } from './coop/CoopFx';
 import {
     scheduleMeteorBarrage, createMeteorVisual, createFrostNovaVisual,
     spawnSmashShockwave, spawnExplosiveArrowFlight, spawnExplosionVisual,
@@ -312,6 +312,10 @@ export class SurvivorsGameplayState implements GameState {
     /** Ghost mesh for the remote teammate (M2: cosmetic, not simulated). */
     private coopGhost: Champion | null = null;
     private coopGhostPending = false;
+    /** P7: this client's CURRENT mythic-weapon aura config (null = none). Tracked so
+     *  it can be re-broadcast to a (re)joining teammate during the requestState
+     *  handshake. Set in applyLevelBonuses. Co-op cosmetic only. */
+    private _myMythicFx: MythicFxConfig | null = null;
     // M3 (Part A): host-authoritative HP tracking for the guest hero.
     // The host computes contact damage for both heroes; these fields hold the
     // guest's authoritative HP. Sent to the guest in every snapshot (heroes[1].hp).
@@ -2102,6 +2106,10 @@ export class SurvivorsGameplayState implements GameState {
             // integrator runs at our effective speed from the very first frame (the
             // host defaults `_guestMoveMult` to 1, so this also covers a fresh run).
             this.coopSession.sendHeroStat({ t: 'heroStat', moveMult: this.heroController?.getMoveSpeedMultiplier() ?? 1 });
+            // P7: re-sync our CURRENT mythic-weapon aura on (re)connect/resume — the
+            // host renders us as its coopGhost and needs the aura even though it never
+            // saw the equip event (we may already be equipped before this re-wire).
+            this.emitMyMythicAura();
         } else {
             // host: wire EnemyManager hooks. enemyManager is constructed
             // in startRun; store closures — they capture `this` so the actual
@@ -2162,6 +2170,10 @@ export class SurvivorsGameplayState implements GameState {
                 const liveNow = this.enemyManager?.getEnemies() ?? [];
                 for (const e of liveNow) this.coopSession?.sendSpawn(this.buildSpawnMsg(e));
                 console.log(`[coop] guest requested state: catch-up sent ${liveNow.length} live enemy spawns`);
+                // P7: the (re)joining guest renders us as its coopGhost — re-sync our
+                // current mythic-weapon aura so it shows even when the equip happened
+                // before the guest connected (or before a resume re-wire).
+                this.emitMyMythicAura();
             };
             // M4-12: keep the latest guest hero summary for run-over aggregation.
             this.coopSession.onRunSummary = (m) => { this._guestSummary = m.hero; };
@@ -2352,6 +2364,15 @@ export class SurvivorsGameplayState implements GameState {
         return false;
     }
 
+    /** P7: (re)broadcast THIS client's current mythic-weapon aura to the teammate.
+     *  Called on the (re)connect/requestState handshake so a rejoining partner — which
+     *  renders us as its coopGhost — re-syncs the aura it never saw equipped. No-op in
+     *  solo (isCoopFxActive false / emit hook null). Purely cosmetic. */
+    private emitMyMythicAura(): void {
+        if (!isCoopFxActive()) return;
+        emitCoopFx('itemMythicAura', 0, 0, undefined, undefined, this._myMythicFx ? JSON.stringify(this._myMythicFx) : undefined);
+    }
+
     /** Replay a teammate's cosmetic combat FX (no gameplay effect — damage/CC are
      *  authoritative via damageReport/snapshot). Dispatches by kind. */
     private playRemoteFx(m: FxMsg): void {
@@ -2408,6 +2429,29 @@ export class SurvivorsGameplayState implements GameState {
             case 'enemyProj':
                 spawnCosmeticEnemyProjectile(this.scene, m.x, m.z, m.tx ?? m.x, m.tz ?? m.z);
                 break;
+            case 'itemRing': {
+                // P7: replicate an item-effect expanding ring (shockwave/coinNova/etc).
+                // withFxReplay so the local spawn here doesn't re-broadcast (the ring
+                // local spawn doesn't emit, but the adapter would — guard anyway).
+                if (m.hint) {
+                    const { c, r } = JSON.parse(m.hint);
+                    if (typeof c === 'string') withFxReplay(() => spawnExpandingRing(this.scene!, m.x, m.z, c, typeof r === 'number' ? r : 2));
+                }
+                break;
+            }
+            case 'itemBeam':
+                // P7: replicate an item-effect beam/trail (ricochet/chain). hint = colorHex.
+                if (m.hint && m.tx !== undefined && m.tz !== undefined)
+                    withFxReplay(() => spawnTrail(this.scene!, m.x, m.z, m.tx!, m.tz!, m.hint!));
+                break;
+            case 'itemMythicAura': {
+                // P7: drive the PARTNER's weapon aura. The partner hero is rendered as
+                // this.coopGhost on BOTH sides (host renders the guest, guest renders the
+                // host). hint=null/absent tears the aura down. Purely cosmetic.
+                const cfg = m.hint ? (JSON.parse(m.hint) as MythicFxConfig) : null;
+                this.coopGhost?.setMythicAura(cfg);
+                break;
+            }
             case 'telegraph':
                 spawnCosmeticTelegraph(this.scene, m.x, m.z, m.tx ?? m.x, m.tz ?? m.z, m.hint === 'pull' ? 'pull' : 'dash');
                 break;
@@ -2764,6 +2808,7 @@ export class SurvivorsGameplayState implements GameState {
         this.coopGhost?.dispose();
         this.coopGhost = null;
         this.coopGhostPending = false;
+        this._myMythicFx = null; // P7: don't carry an aura into the next run
         this.disposeUltChannels(); // M6 C2: tear down any in-flight cosmetic ult channel
         // Part D: reset host-tracked guest-hero HP state and providers array.
         this.guestHeroHp = 0;
@@ -3803,6 +3848,15 @@ export class SurvivorsGameplayState implements GameState {
             const weapon = this.equipment.get('weapon');
             const mythicFx = weapon?.def.rarity === 'mythic' ? (weapon.def.mythicFx ?? null) : null;
             this.hero?.setMythicAura(mythicFx);
+            // P7: replicate the aura toggle to the teammate. applyLevelBonuses runs on
+            // every level-up + equip change, so only broadcast when it actually CHANGES
+            // (the field doubles as the rejoin re-sync source). Guarded by isCoopFxActive
+            // so the JSON string is never built in solo (emitCoopFx also no-ops solo).
+            const changed = JSON.stringify(this._myMythicFx) !== JSON.stringify(mythicFx);
+            this._myMythicFx = mythicFx;
+            if (changed && isCoopFxActive()) {
+                emitCoopFx('itemMythicAura', 0, 0, undefined, undefined, mythicFx ? JSON.stringify(mythicFx) : undefined);
+            }
         }
 
         // Max HP: scale off base, apply only the delta to the hero (and heal it).
@@ -3905,8 +3959,14 @@ export class SurvivorsGameplayState implements GameState {
                     const p = this.hero?.getPosition();
                     if (p && this.scene) spawnExpandingRing(this.scene, p.x, p.z, '#b050ff', 3, 0.3);
                 },
-                ring: (x, z, colorHex, radius) => { if (this.scene) spawnExpandingRing(this.scene, x, z, colorHex, radius); },
-                beam: (x0, z0, x1, z1, colorHex) => { if (this.scene) spawnTrail(this.scene, x0, z0, x1, z1, colorHex); },
+                ring: (x, z, colorHex, radius) => {
+                    if (this.scene) spawnExpandingRing(this.scene, x, z, colorHex, radius);
+                    if (isCoopFxActive() && !isReplayingFx()) emitCoopFx('itemRing', x, z, undefined, undefined, JSON.stringify({ c: colorHex, r: radius }));
+                },
+                beam: (x0, z0, x1, z1, colorHex) => {
+                    if (this.scene) spawnTrail(this.scene, x0, z0, x1, z1, colorHex);
+                    if (isCoopFxActive() && !isReplayingFx()) emitCoopFx('itemBeam', x0, z0, x1, z1, colorHex);
+                },
             },
         };
     }
