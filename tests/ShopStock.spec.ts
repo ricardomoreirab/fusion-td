@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
     buildWeightedPool, rarityWeights, rerollCost, rollStock, STOCK_SIZE, SLOT_SOFT_CAP,
 } from '../src/survivors/shop/ShopStock';
-import { ITEM_CATALOG } from '../src/survivors/items/ItemCatalog';
+import { ITEM_CATALOG, itemById } from '../src/survivors/items/ItemCatalog';
 
 /** Deterministic rng from a fixed sequence (loops). */
 function seqRng(seq: number[]): () => number {
@@ -67,6 +67,13 @@ describe('buildWeightedPool', () => {
         const w0 = without.find(p => p.def.id === 'skullcage_of_rage')!.weight;
         const w1 = withPity.find(p => p.def.id === 'skullcage_of_rage')!.weight;
         expect(w1).toBeCloseTo(w0 * 2.5);
+    });
+
+    it('escalates set pity with each piece already owned (the 6-piece grind)', () => {
+        const def = itemById('ribcage_bulwark')!; // titans_oath unique
+        const base = buildWeightedPool([def], { ...baseOpts, wave: 15, setCounts: {} })[0].weight;
+        const withFour = buildWeightedPool([def], { ...baseOpts, wave: 15, setCounts: { titans_oath: 4 } })[0].weight;
+        expect(withFour).toBeCloseTo(base * (2.5 + 0.5 * 3)); // 2.5 + step·(owned−1) = 4.0×
     });
 
     it('drops zero-weight rarities (legendary on wave 1)', () => {

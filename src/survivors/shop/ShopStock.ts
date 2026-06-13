@@ -4,6 +4,9 @@ import { EquipSlot, ItemDef, Rarity } from '../items/ItemTypes';
 export const STOCK_SIZE = 6;
 export const SLOT_SOFT_CAP = 2;
 export const PITY_WEIGHT_MULT = 2.5;
+/** Each piece already owned in a set adds this much pity on top of PITY_WEIGHT_MULT
+ *  (so a near-complete 6-piece unique set is far likelier to finish). */
+export const PITY_WEIGHT_STEP = 0.5;
 export const REROLL_BASE_COST = 25;
 export const REROLL_COST_STEP = 25;
 
@@ -44,7 +47,8 @@ export function buildWeightedPool(catalog: ItemDef[], opts: StockOpts): Weighted
         if (def.classes !== 'all' && !def.classes.includes(opts.champion)) continue;
         let weight = weights[def.rarity];
         if (weight <= 0) continue;
-        if (def.setId && (opts.setCounts[def.setId] ?? 0) >= 1) weight *= PITY_WEIGHT_MULT;
+        const owned = def.setId ? (opts.setCounts[def.setId] ?? 0) : 0;
+        if (owned >= 1) weight *= PITY_WEIGHT_MULT + PITY_WEIGHT_STEP * (owned - 1);
         pool.push({ def, weight });
     }
     return pool;
