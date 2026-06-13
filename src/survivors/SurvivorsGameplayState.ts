@@ -3804,6 +3804,16 @@ export class SurvivorsGameplayState implements GameState {
             wave: () => this.waveManager?.getCurrentWave() ?? 1,
             rng: Math.random,
             critChance: () => this.playerStats?.critChance ?? 0,
+            tryExecuteBelow: (e, fraction) => {
+                const en = e as Enemy;
+                const hp = en.getHealth(); const max = en.getMaxHealth();
+                if (max <= 0 || hp <= 0) return false;
+                if (hp / max <= fraction) {
+                    en.takeDamage(hp, 'physical' as PowerElement); // exactly lethal → normal death path
+                    return true;
+                }
+                return false;
+            },
             fx: {
                 rageGlow: (on) => this.rageGlow?.setActive(on),
                 coinNova: (x, z) => { if (this.scene) spawnExpandingRing(this.scene, x, z, '#ffd84a', 6); },
@@ -3813,6 +3823,8 @@ export class SurvivorsGameplayState implements GameState {
                     const p = this.hero?.getPosition();
                     if (p && this.scene) spawnExpandingRing(this.scene, p.x, p.z, '#b050ff', 3, 0.3);
                 },
+                ring: (x, z, colorHex, radius) => { if (this.scene) spawnExpandingRing(this.scene, x, z, colorHex, radius); },
+                beam: (x0, z0, x1, z1, colorHex) => { if (this.scene) spawnTrail(this.scene, x0, z0, x1, z1, colorHex); },
             },
         };
     }

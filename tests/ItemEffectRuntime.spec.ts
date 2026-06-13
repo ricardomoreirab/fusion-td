@@ -4,6 +4,8 @@ import {
     CHRONO_COOLDOWN_S, ECHO_CHANCE, ItemEffectRuntime, MIDAS_NOVA_GOLD,
     RAGE_DAMAGE_BONUS, SHOCKWAVE_EVERY_HITS, THORNS_MULTIPLIER,
     EffectContext, EffectEnemy,
+    QUAKE_BASE_DAMAGE, QUAKE_STUN_S, QUAKE_COOLDOWN_S, TEMPEST_CHAIN_TARGETS,
+    CLEAVE_FRACTION, STORM_CHARGE_MAX, CASCADE_CD_REFUND, CASCADE_COOLDOWN_S,
 } from '../src/survivors/items/ItemEffectRuntime';
 import { ItemEffectId } from '../src/survivors/items/ItemTypes';
 
@@ -16,7 +18,7 @@ function makeCtx(overrides: Partial<EffectContext> = {}): EffectContext & {
 } {
     const fx = {
         rageGlow: vi.fn(), coinNova: vi.fn(), shockwave: vi.fn(),
-        ricochet: vi.fn(), echoShimmer: vi.fn(),
+        ricochet: vi.fn(), echoShimmer: vi.fn(), ring: vi.fn(), beam: vi.fn(),
     };
     return {
         heroPos: () => ({ x: 0, z: 0 }),
@@ -31,6 +33,7 @@ function makeCtx(overrides: Partial<EffectContext> = {}): EffectContext & {
         wave: () => 5,
         rng: () => 0.99,
         critChance: () => 0,
+        tryExecuteBelow: vi.fn(() => false),
         fx,
         ...overrides,
     } as EffectContext & { fx: Record<string, ReturnType<typeof vi.fn>> };
@@ -200,6 +203,105 @@ describe('onBasicHit effects', () => {
         // explodes on everyone near EXCEPT the original target
         expect(ctx.damage).toHaveBeenCalledTimes(1);
         expect(ctx.damage).toHaveBeenCalledWith(near[1], 20, 'physical');
+    });
+});
+
+describe('earthbreaker', () => {
+    it('quakes every 4th hit: damages + stuns nearby foes, with a ring', () => {
+        const near = [makeEnemy(0, 0)];
+        const ctx = makeCtx({ enemiesNear: () => near });
+        const rt = new ItemEffectRuntime(ctx);
+        activate(rt, 'earthbreaker');
+        const t = makeEnemy(0, 0);
+        for (let i = 0; i < 3; i++) rt.onBasicHit(t, 10);
+        expect(ctx.damage).not.toHaveBeenCalled();
+        rt.onBasicHit(t, 10); // 4th → quake
+        expect(ctx.damage).toHaveBeenCalledTimes(1);
+        expect((ctx.damage as any).mock.calls[0][1]).toBeGreaterThanOrEqual(QUAKE_BASE_DAMAGE);
+        expect(ctx.stun).toHaveBeenCalledWith(near[0], QUAKE_STUN_S);
+        expect(ctx.fx.ring).toHaveBeenCalled();
+    });
+    it('respects its internal cooldown', () => {
+        const ctx = makeCtx({ enemiesNear: () => [makeEnemy(0, 0)] });
+        const rt = new ItemEffectRuntime(ctx);
+        activate(rt, 'earthbreaker');
+        const t = makeEnemy(0, 0);
+        for (let i = 0; i < 8; i++) rt.onBasicHit(t, 10); // 2nd window blocked by cd
+        expect(ctx.damage).toHaveBeenCalledTimes(1);
+        rt.tick(QUAKE_COOLDOWN_S + 0.1);
+        rt.onBasicHit(t, 10);                              // cd clear → fires again
+        expect(ctx.damage).toHaveBeenCalledTimes(2);
+    });
+});
+
+describe('tempest_volley', () => {
+    it('chains lightning to nearby foes every 4th hit', () => {
+        const near = [makeEnemy(1, 0), makeEnemy(2, 0), makeEnemy(3, 0)];
+        const ctx = makeCtx({ enemiesNear: () => near });
+        const rt = new ItemEffectRuntime(ctx);
+        activate(rt, 'tempest_volley');
+        const t = makeEnemy(0, 0);
+        for (let i = 0; i < 4; i++) rt.onBasicHit(t, 100); // 4th → static chain
+        expect(ctx.damage).toHaveBeenCalledTimes(TEMPEST_CHAIN_TARGETS);
+        expect(ctx.fx.beam).toHaveBeenCalled();
+    });
+});
+
+describe('apex_cleave', () => {
+    it('cleaves nearby foes (not the target) and tries to execute target + cleaved', () => {
+        const target = makeEnemy(0, 0);
+        const other = makeEnemy(1, 0);
+        const ctx = makeCtx({ enemiesNear: () => [target, other] });
+        const rt = new ItemEffectRuntime(ctx);
+        activate(rt, 'apex_cleave');
+        rt.onBasicHit(target, 100);
+        expect(ctx.damage).toHaveBeenCalledTimes(1);
+        expect(ctx.damage).toHaveBeenCalledWith(other, Math.round(100 * CLEAVE_FRACTION), 'physical');
+        expect(ctx.tryExecuteBelow).toHaveBeenCalledTimes(2); // other + target
+    });
+});
+
+describe('storm_quiver', () => {
+    it('charges on hit, discharging a multi-target volley at full charge', () => {
+        const near = [makeEnemy(1, 0), makeEnemy(2, 0)];
+        const ctx = makeCtx({ enemiesNear: () => near });
+        const rt = new ItemEffectRuntime(ctx);
+        activate(rt, 'storm_quiver');
+        const t = makeEnemy(0, 0);
+        for (let i = 0; i < STORM_CHARGE_MAX - 1; i++) rt.onBasicHit(t, 10);
+        expect(ctx.damage).not.toHaveBeenCalled();
+        rt.onBasicHit(t, 10); // reaches STORM_CHARGE_MAX → discharge
+        expect(ctx.damage).toHaveBeenCalledTimes(near.length);
+        expect(ctx.stun).toHaveBeenCalled();
+    });
+});
+
+describe('arcane_cascade', () => {
+    it('novas + refunds cooldowns once per cast, gated by internal cooldown', () => {
+        const ctx = makeCtx({ enemiesNear: () => [makeEnemy(0, 0)] });
+        const rt = new ItemEffectRuntime(ctx);
+        activate(rt, 'arcane_cascade');
+        rt.onPowerCast();
+        expect(ctx.refundCooldownPct).toHaveBeenCalledWith(CASCADE_CD_REFUND);
+        rt.onPowerCast(); // blocked by cd
+        expect(ctx.refundCooldownPct).toHaveBeenCalledTimes(1);
+        rt.tick(CASCADE_COOLDOWN_S + 0.1);
+        rt.onPowerCast();
+        expect(ctx.refundCooldownPct).toHaveBeenCalledTimes(2);
+    });
+});
+
+describe('singularity', () => {
+    it('damages all in radius, scaling with cluster size', () => {
+        const mk = (n: number) => makeCtx({
+            enemiesNear: () => Array.from({ length: n }, (_, i) => makeEnemy(i, 0)),
+            wave: () => 1,
+        });
+        const c1 = mk(1); const r1 = new ItemEffectRuntime(c1); activate(r1, 'singularity'); r1.onPowerCast();
+        const single = (c1.damage as any).mock.calls[0][1];
+        const c5 = mk(5); const r5 = new ItemEffectRuntime(c5); activate(r5, 'singularity'); r5.onPowerCast();
+        const cluster = (c5.damage as any).mock.calls[0][1];
+        expect(cluster).toBeGreaterThan(single);
     });
 });
 
