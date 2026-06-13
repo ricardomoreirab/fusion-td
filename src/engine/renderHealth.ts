@@ -81,3 +81,19 @@ export function evaluateRenderHealth(s: RenderHealthSnapshot): RenderHealthActio
 export function isFiniteVec3(x: number, y: number, z: number): boolean {
     return Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z);
 }
+
+/**
+ * True iff EVERY element of a matrix's backing array is finite. The camera-position
+ * finiteness check (isFiniteVec3) is not enough on its own: a camera whose `position`
+ * is perfectly finite can still carry a NaN/Infinity VIEW or PROJECTION matrix — most
+ * commonly a NaN aspect ratio when the render canvas is momentarily 0-height (a display
+ * / resolution / monitor-wake event). That poisons the projection, clips every mesh, and
+ * renders "successfully" into the near-black clear colour: a silent black screen no
+ * position check catches. Validate the transforms themselves and recover.
+ */
+export function isFiniteMatrix(m: ArrayLike<number>): boolean {
+    for (let i = 0; i < m.length; i++) {
+        if (!Number.isFinite(m[i])) return false;
+    }
+    return true;
+}

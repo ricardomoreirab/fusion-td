@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
     evaluateRenderHealth,
     isFiniteVec3,
+    isFiniteMatrix,
     RENDER_HEALTH,
     type RenderHealthSnapshot,
 } from '../src/engine/renderHealth';
@@ -90,5 +91,32 @@ describe('isFiniteVec3', () => {
         expect(isFiniteVec3(0, Infinity, 0)).toBe(false);
         expect(isFiniteVec3(0, 0, -Infinity)).toBe(false);
         expect(isFiniteVec3(NaN, NaN, NaN)).toBe(false);
+    });
+});
+
+describe('isFiniteMatrix', () => {
+    // A 4x4 identity, the shape of a Babylon Matrix's backing `.m` Float32Array(16).
+    const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+
+    it('accepts a fully finite matrix (plain array and Float32Array)', () => {
+        expect(isFiniteMatrix(identity)).toBe(true);
+        expect(isFiniteMatrix(new Float32Array(identity))).toBe(true);
+    });
+
+    it('rejects a projection poisoned by a NaN aspect ratio (the silent black-screen case)', () => {
+        const nanProj = identity.slice();
+        nanProj[0] = NaN; // perspective m[0] = 1/(tan(fov/2)*aspect) → NaN when aspect is NaN
+        expect(isFiniteMatrix(nanProj)).toBe(false);
+        expect(isFiniteMatrix(new Float32Array(nanProj))).toBe(false);
+    });
+
+    it('rejects any Infinity element', () => {
+        const inf = identity.slice();
+        inf[5] = Infinity; // m[5] = 1/tan(fov/2) → Infinity when fov collapses to 0
+        expect(isFiniteMatrix(inf)).toBe(false);
+    });
+
+    it('treats an empty matrix as finite (no element can violate)', () => {
+        expect(isFiniteMatrix([])).toBe(true);
     });
 });

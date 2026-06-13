@@ -7,7 +7,7 @@ import { AssetManager } from './AssetManager';
 import { StateManager } from './StateManager';
 import { PauseScreen } from '../shared/ui/PauseScreen';
 import { PALETTE } from './rendering/StyleConstants';
-import { evaluateRenderHealth, isFiniteVec3, type RenderHealthSnapshot } from './renderHealth';
+import { evaluateRenderHealth, isFiniteVec3, isFiniteMatrix, type RenderHealthSnapshot } from './renderHealth';
 
 // Rate-limited logger for per-frame update/render exceptions. The render loop
 // keeps running (a thrown frame must not permanently black/freeze the canvas),
@@ -249,6 +249,32 @@ export class Game {
             p.copyFrom(this._lastGoodCamPos);
             return false;
         }
+
+        // A finite POSITION is not sufficient: the view/projection matrices can still go
+        // non-finite while position stays clean — most often a NaN aspect ratio when the
+        // render canvas is momentarily 0-height (display/resolution/monitor-wake events),
+        // which poisons the projection, clips every mesh, and renders "successfully" into
+        // the near-black clear colour. scene.render() does NOT throw, so the render
+        // try/catch can't catch it and the watchdog's "frame rendered OK" stamp keeps
+        // updating — a permanent silent black screen. Validate the transforms directly.
+        // (Computing them here is free: scene.render() reuses Babylon's cached result.)
+        let transformsFinite: boolean;
+        try {
+            transformsFinite = isFiniteMatrix(cam.getViewMatrix().m) && isFiniteMatrix(cam.getProjectionMatrix().m);
+        } catch (_) {
+            transformsFinite = false;
+        }
+        if (!transformsFinite) {
+            logLoopError('camera', new Error('non-finite camera view/projection — recovered'));
+            p.copyFrom(this._lastGoodCamPos);
+            // The usual culprit is a degenerate render size feeding a NaN aspect ratio.
+            // Recompute it so Babylon rebuilds the projection from valid dimensions next
+            // frame; meanwhile skip THIS frame so the canvas keeps its last good image
+            // instead of flashing black.
+            try { this.engine.resize(); } catch (_) { /* engine mid-teardown — ignore */ }
+            return false;
+        }
+
         this._lastGoodCamPos.copyFrom(p);
         return true;
     }
@@ -573,9 +599,15 @@ export class Game {
         
         console.log('Pausing game');
         this._isPaused = true;
-        
-        // Freeze game objects first
-        this.scene.freezeActiveMeshes();
+
+        // NOTE: deliberately NO scene.freezeActiveMeshes() here. Freezing the active-mesh
+        // list while paused was a micro-optimisation (the scene is static), but it could
+        // flash one black frame on the pause/resume transition: the frozen list is
+        // evaluated at a transitional instant and can come up empty/partial, exposing the
+        // near-black clear colour for a frame. A paused scene is trivially cheap to keep
+        // re-evaluating, so correctness wins — and animationsEnabled=false (below) already
+        // removes the only meaningful per-frame cost. Removing it also kills a black-screen
+        // risk class outright (no frozen list to ever go stale).
 
         // Freeze ALL animation evaluation in one flag. This pauses GLB skeletal
         // animation groups + every animatable without removing them from the
@@ -630,7 +662,7 @@ export class Game {
         }
         
         this._isPaused = false;
-        this.scene.unfreezeActiveMeshes();
+        // No unfreezeActiveMeshes() — pause() no longer freezes (see the note there).
 
         // Re-enable animation evaluation (see pause()). Animatables/groups resume
         // from where they were — no new animatables are created.
