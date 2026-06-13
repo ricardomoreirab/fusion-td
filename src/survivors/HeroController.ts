@@ -6,6 +6,7 @@ import { Enemy } from './enemies/Enemy';
 import { PlayerStats } from './PlayerStats';
 import { DashMode } from './abilities/AbilityManager';
 import { capInputLen, arenaClampScale } from './integrateMove';
+import { stepZoom, lerpZoom, parsePersistedZoom } from './cameraZoom';
 
 /** Hero damage-feedback tuning — adjust here, not deep in the update loop. */
 const HIT_REACTION_COOLDOWN_S = 0.5;
@@ -29,6 +30,19 @@ const CAMERA_DISTANCE_MOBILE = 23;    // narrow screens pull in slightly
 /** How far ahead of the hero the camera aims — nudges the hero just below
  *  screen centre so more of the threat-bearing far field is visible. */
 const CAMERA_AIM_AHEAD = 2;
+
+/** localStorage key for the persisted camera zoom multiplier. */
+const CAMERA_ZOOM_STORAGE_KEY = 'ktg.cameraZoom';
+
+/** localStorage is best-effort — wrapped so private-mode / disabled storage can't crash
+ *  the camera. Returns null (→ default zoom) when storage is unavailable. */
+function readPersistedZoom(): string | null {
+    try { return localStorage.getItem(CAMERA_ZOOM_STORAGE_KEY); } catch { return null; }
+}
+function writePersistedZoom(zoom: number): void {
+    try { localStorage.setItem(CAMERA_ZOOM_STORAGE_KEY, String(zoom)); } catch { /* ignore */ }
+}
+
 const BLOOD_BURST_COUNT       = 12;
 
 /** Per-class basic-attack configuration */
@@ -129,6 +143,14 @@ export class HeroController {
     // the local hero. Lets a shared/tethered camera reuse the existing lerp/shake.
     private cameraFocusProvider: (() => { x: number; z: number; height: number }) | null = null;
 
+    // Mouse-wheel zoom: a multiplier on the BASE slant distance. zoomTarget is set by
+    // the wheel; zoomMultiplier eases toward it each frame and scales cameraHeight +
+    // cameraOffsetZ together so the look-down angle stays constant. See cameraZoom.ts.
+    private zoomMultiplier: number = 1;
+    private zoomTarget: number = 1;
+    private readonly canvas: HTMLCanvasElement | null;
+    private readonly onWheel: (e: WheelEvent) => void;
+
     constructor(
         scene: Scene,
         hero: Champion,
@@ -168,6 +190,27 @@ export class HeroController {
 
         // No user camera manipulation
         this.camera.inputs.clear();
+
+        // Mouse-wheel zoom. The rotation was just locked from the BASE (unzoomed)
+        // geometry above, so it is identical regardless of the saved zoom — the
+        // perspective never drifts. Load the persisted multiplier, snap the camera to
+        // the zoomed slant position so there is no first-frame pop, then listen for wheel.
+        this.zoomTarget = parsePersistedZoom(readPersistedZoom());
+        this.zoomMultiplier = this.zoomTarget;
+        this.camera.position.set(
+            0,
+            this.cameraHeight * this.zoomMultiplier,
+            this.cameraOffsetZ * this.zoomMultiplier,
+        );
+
+        this.canvas = scene.getEngine().getRenderingCanvas();
+        this.onWheel = (e: WheelEvent) => {
+            e.preventDefault(); // stop page scroll / browser pinch-zoom over the canvas
+            this.zoomTarget = stepZoom(this.zoomTarget, e.deltaY);
+            writePersistedZoom(this.zoomTarget);
+        };
+        // passive:false is required so preventDefault() actually takes effect.
+        this.canvas?.addEventListener('wheel', this.onWheel, { passive: false });
 
         // Keyboard input
         scene.onKeyboardObservable.add((kbInfo) => {
@@ -687,7 +730,13 @@ export class HeroController {
         // _scratchCamTarget at its last finite value so recovery has somewhere to go.
         const ft = Number.isFinite;
         if (ft(focus.x) && ft(focus.height) && ft(focus.z) && ft(deltaTime)) {
-            this._scratchCamTarget.set(focus.x, focus.height, focus.z + this.cameraOffsetZ);
+            // Ease the live zoom toward the wheel-set target, then scale BOTH the
+            // focus height and the z-offset by it so the look-down angle stays constant.
+            // focus.height is the co-op auto-computed height in co-op (base height in
+            // solo), so this multiplies — i.e. composes — with co-op's auto-framing.
+            this.zoomMultiplier = lerpZoom(this.zoomMultiplier, this.zoomTarget, deltaTime);
+            const zoom = this.zoomMultiplier;
+            this._scratchCamTarget.set(focus.x, focus.height * zoom, focus.z + this.cameraOffsetZ * zoom);
             Vector3.LerpToRef(
                 this.camera.position,
                 this._scratchCamTarget,
@@ -724,6 +773,7 @@ export class HeroController {
 
     public dispose(): void {
         this.basicAttack?.dispose(); // shared flight observer + streak pool
+        this.canvas?.removeEventListener('wheel', this.onWheel);
         this.camera.dispose();
     }
 }
