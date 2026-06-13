@@ -853,6 +853,15 @@ export class SurvivorsGameplayState implements GameState {
         this.enemyManager.setOnEnemyDied((e) => {
             if (this.coopSession?.role === 'host') { this._coopDbgDeaths++; this.coopSession.sendDeath(this.buildDeathMsg(e)); }
         });
+        // P5 per-player gold: a guest-attributed killing blow credits the guest, not
+        // the host. EnemyManager skips its own credit and calls this with the RAW
+        // reward; the host forwards it so the guest scales by ITS gold-find + banks
+        // it (→ xpSink → LevelSystem). Self-gates on the host role at call time.
+        this.enemyManager.setOnGuestKillReward((heroId, rawReward) => {
+            if (this.coopSession?.role === 'host') {
+                this.coopSession.sendReward({ t: 'reward', heroId, gold: rawReward });
+            }
+        });
         // Wire the shadow generator so bosses + elites auto-register as casters.
         // Reset per run: enemy shadows start on and get cut off after wave 5.
         this.enemyShadowsDisabled = false;
@@ -1654,7 +1663,9 @@ export class SurvivorsGameplayState implements GameState {
                 anim: 0, // best-effort: 0=idle/walk; detailed anim encoding deferred
                 dx: 0, dz: 0, // real values wired in scene task
                 alive: this.heroController.getHealth().current > 0,
-                level: 1, xp: 0, // real values wired in scene task
+                // P5: this hero (id=0) is the LOCAL host hero — its live progression.
+                level: this.levelSystem?.getLevel() ?? 1,
+                xp: this.levelSystem?.getProgress() ?? 0,
             });
         }
         if (this.coopGhost) {
@@ -1669,7 +1680,12 @@ export class SurvivorsGameplayState implements GameState {
                 id: 1, x: gp.x, y: gp.y, z: gp.z, ry: gry, hp: this.guestHeroHp, anim: 0,
                 dx: gInput?.dx ?? 0, dz: gInput?.dz ?? 0,
                 alive: this.guestHeroHp > 0,
-                level: 1, xp: 0, // real values wired in scene task (M4-9 progression)
+                // P5: the guest owns its OWN progression locally (its LevelSystem is fed
+                // by the per-player reward deltas), so the host has no authoritative
+                // value for the guest's level/xp. Left at defaults; no current consumer
+                // reads a teammate's snapshot level/xp, and the guest never overwrites
+                // its own LevelSystem from these fields.
+                level: 1, xp: 0,
             });
         }
 
@@ -2048,6 +2064,15 @@ export class SurvivorsGameplayState implements GameState {
                     );
                 }
             };
+            // P5 per-player gold: a guest-attributed kill on the host sends the RAW
+            // reward here. Apply the guest's OWN goldGainMultiplier (per-player
+            // gold-find gear) and bank it via addGold → xpSink → LevelSystem.
+            this.coopSession.onReward = (m) => {
+                if (m.heroId === 1 && this.playerStats) {
+                    this.playerStats.addGold(Math.round(m.gold * (this.playerStats.goldGainMultiplier ?? 1)));
+                    this.playerStats.addKill();
+                }
+            };
             // M4-12: the host owns run-over; render its authoritative 2-column result.
             this.coopSession.onRunOver = (m) => this.showCoopGameOver(m);
             // Now that the guest's spawn/death handlers are wired, ask the
@@ -2083,6 +2108,12 @@ export class SurvivorsGameplayState implements GameState {
                 // Co-op peers are trusted, so this gate is anti-garbage, not anti-cheat.
                 if (!validateDamageReport(m, ep, 900, srcPos)) return;
                 if (e) {
+                    // P5 kill attribution: stamp the source so a guest-dealt killing
+                    // blow credits gold to the guest (sourceHeroId=1), not the host.
+                    // Stamp BEFORE takeDamage so the death (which may fire inside it)
+                    // sees the correct last-damager. The host's own hits never reach
+                    // here, so they leave lastDamagerHeroId at its default 0.
+                    e.lastDamagerHeroId = m.sourceHeroId;
                     // takeDamage fires Enemy.onDamageCallback, which broadcasts the
                     // damageResult to the guest centrally (M4-9) — no per-report echo.
                     // Host applies the acting client's POST-CRIT amount verbatim:

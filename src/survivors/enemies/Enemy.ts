@@ -247,6 +247,15 @@ export class Enemy {
      *  local scene object by ID. Single-player never reads this field. */
     public id: number = -1;
 
+    /** Co-op kill attribution (host-side only): the hero id of the last source to
+     *  deal damage with a KNOWN source. The host's own hero hits leave it at the
+     *  default 0; a guest DamageReportMsg stamps it to the guest's sourceHeroId (1)
+     *  in SurvivorsGameplayState.onDamageReport before takeDamage. On death the host
+     *  credits the reward to whichever hero this names (0 = local, 1 = guest delta).
+     *  A fresh enemy starts at 0; last-damager wins (acceptable killing-blow rule).
+     *  Single-player never reads this. */
+    public lastDamagerHeroId = 0;
+
     /** Network type string matching the keys in createEnemyOfType / SpawnMsg.type.
      *  Set by EnemyManager.spawnSurvivorsEnemy (and the split/clone handlers) right
      *  after construction, before the host fires onEnemySpawnedCb.

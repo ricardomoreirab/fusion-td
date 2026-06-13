@@ -83,6 +83,13 @@ export class EnemyManager {
      *  Host wires this to send a DeathMsg. */
     private onEnemyDiedCb: ((enemy: Enemy) => void) | null = null;
 
+    /** Co-op host only: per-player gold sink for a GUEST-attributed kill. When set
+     *  AND the dead enemy's lastDamagerHeroId is non-zero (a remote hero), the host
+     *  does NOT credit its OWN PlayerStats — instead it calls this with the RAW
+     *  reward (no host goldGainMultiplier) so the guest can scale + bank it on its
+     *  side. Null in single-player and on the guest. */
+    private onGuestKillRewardCb: ((heroId: number, rawReward: number) => void) | null = null;
+
     /** Compounding HP multiplier applied to every NEW enemy spawn this run.
      *  Multiplied by (1 + 0.08) each time the hero picks up a magical orb
      *  (hidden mechanic — no UI). Geometric rather than additive so it can track
@@ -331,6 +338,14 @@ export class EnemyManager {
      *  No-op when not set (single-player). */
     public setOnEnemyDied(cb: (enemy: Enemy) => void): void {
         this.onEnemyDiedCb = cb;
+    }
+
+    /** Co-op host hook (P5 per-player gold): register a sink that receives
+     *  (heroId, rawReward) for a kill whose last damager is a REMOTE hero
+     *  (lastDamagerHeroId !== 0). When set, such kills credit the remote hero via
+     *  this sink instead of the host's local PlayerStats. No-op when not set. */
+    public setOnGuestKillReward(cb: (heroId: number, rawReward: number) => void): void {
+        this.onGuestKillRewardCb = cb;
     }
 
     /** Register a preloaded GLB asset for the given enemy type. spawnSurvivorsEnemy
@@ -707,7 +722,15 @@ export class EnemyManager {
                 // DeathMsg while the enemy is still in the live list (has valid id,
                 // position, isElite, eliteDropElement, isClone, reward).
                 if (this.onEnemyDiedCb) this.onEnemyDiedCb(enemy);
-                if (this.playerStats) {
+                // P5 per-player gold: a guest-attributed killing blow
+                // (lastDamagerHeroId !== 0) credits the REMOTE hero via the sink
+                // with the RAW reward (guest applies its own goldGainMultiplier);
+                // the host neither banks gold nor counts the kill for it. Host- and
+                // single-player-attributed kills (id 0) credit locally as before.
+                const killerHeroId = enemy.lastDamagerHeroId;
+                if (killerHeroId !== 0 && this.onGuestKillRewardCb) {
+                    this.onGuestKillRewardCb(killerHeroId, enemy.getReward());
+                } else if (this.playerStats) {
                     this.playerStats.addMoney(Math.round(enemy.getReward() * this.playerStats.goldGainMultiplier));
                     this.playerStats.addKill();
                 }

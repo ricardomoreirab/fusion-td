@@ -1,4 +1,4 @@
-import { decode, encode, type HeroStateMsg, type NetMessage, type NetRole, type SnapshotMsg, type SpawnMsg, type DeathMsg, type DamageReportMsg, type DamageResultMsg, type InputMsg, type RunSummaryMsg, type RunOverMsg, type FxMsg } from './Protocol';
+import { decode, encode, type HeroStateMsg, type NetMessage, type NetRole, type SnapshotMsg, type SpawnMsg, type DeathMsg, type DamageReportMsg, type DamageResultMsg, type InputMsg, type RunSummaryMsg, type RunOverMsg, type FxMsg, type RewardMsg } from './Protocol';
 import type { SnapshotDelta } from './SnapshotDelta';
 import { encodeSnapshot, encodeSnapshotDelta, decodeBinaryMessage } from './SnapshotBinary';
 import type { IncomingMessage, NetTransport } from './NetTransport';
@@ -34,6 +34,8 @@ export class NetClient {
     onSnapshotDelta?: (msg: SnapshotDelta)    => void;
     // Cosmetic-FX replication (combat visuals).
     onFx?:            (msg: FxMsg)            => void;
+    // Per-player gold: host → guest reward delta for a guest-attributed kill.
+    onReward?:        (msg: RewardMsg)        => void;
 
     constructor(
         private transport: NetTransport,
@@ -102,6 +104,11 @@ export class NetClient {
     }
 
     sendDamageResult(m: DamageResultMsg): void {
+        this.transport.send('event', encode(m));
+    }
+
+    // Per-player gold reward — reliable 'event' channel (gold must not be dropped).
+    sendReward(m: RewardMsg): void {
         this.transport.send('event', encode(m));
     }
 
@@ -184,6 +191,9 @@ export class NetClient {
                 break;
             case 'fx':
                 this.onFx?.(msg);
+                break;
+            case 'reward':
+                this.onReward?.(msg);
                 break;
             case 'hello':
                 break;

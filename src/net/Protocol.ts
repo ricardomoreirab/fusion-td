@@ -77,6 +77,12 @@ export interface DamageResultMsg { t: 'damageResult'; enemyId: number; amount: n
 export interface WaveStartMsg { t: 'wave-start'; wave: number }
 export interface WaveClearMsg { t: 'wave-clear'; wave: number }
 
+/** Host → guest: per-player gold reward for a guest-attributed kill. `gold` is the
+ *  RAW enemy reward (the host's goldGainMultiplier is NOT applied) — the guest scales
+ *  it by its OWN goldGainMultiplier on receipt, so per-player gold-find gear works.
+ *  Gold folds into XP via PlayerStats.addGold → xpSink → LevelSystem on the guest. */
+export interface RewardMsg { t: 'reward'; heroId: number; gold: number }
+
 /** Guest → host: per-frame player input. seq monotonically increases so the host
  *  can detect drops. dx/dz are normalised movement axes [-1..1]. buttons is the
  *  packed InputButtons bitfield (see src/net/InputButtons.ts). */
@@ -128,13 +134,13 @@ export type NetMessage =
     | HelloMsg | PeerLeftMsg | PeerRejoinedMsg | PingMsg | PongMsg | HeroStateMsg
     | SnapshotMsg | SpawnMsg | DeathMsg | DamageReportMsg | DamageResultMsg
     | WaveStartMsg | WaveClearMsg | InputMsg | RequestStateMsg
-    | RunSummaryMsg | RunOverMsg | SnapshotDelta | FxMsg;
+    | RunSummaryMsg | RunOverMsg | SnapshotDelta | FxMsg | RewardMsg;
 
 const KNOWN_TAGS = new Set([
     'hello', 'peer-left', 'peer-rejoined', 'ping', 'pong', 'heroState',
     'snapshot', 'spawn', 'death', 'damageReport', 'damageResult',
     'wave-start', 'wave-clear', 'input', 'requestState',
-    'runSummary', 'runOver', 'snapshotDelta', 'fx',
+    'runSummary', 'runOver', 'snapshotDelta', 'fx', 'reward',
 ]);
 
 export function encode(msg: NetMessage): string {
