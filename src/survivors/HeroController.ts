@@ -771,6 +771,20 @@ export class HeroController {
         return this.camera;
     }
 
+    /** Current eased camera-zoom multiplier (1 = default, [0.6, 1.6]). */
+    public getZoomMultiplier(): number {
+        return this.zoomMultiplier;
+    }
+
+    /** How far (world units) the camera has receded from its default-zoom
+     *  distance — 0 at zoom 1, positive when zoomed out. The gameplay layer
+     *  shifts the distance-fog band by this so the play area never hazes as the
+     *  camera pulls back. Derived from the base (unzoomed) slant geometry. */
+    public getCameraDistanceFromDefault(): number {
+        const baseSlant = Math.hypot(this.cameraHeight, this.cameraOffsetZ);
+        return baseSlant * (this.zoomMultiplier - 1);
+    }
+
     public dispose(): void {
         this.basicAttack?.dispose(); // shared flight observer + streak pool
         this.canvas?.removeEventListener('wheel', this.onWheel);

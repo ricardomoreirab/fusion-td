@@ -102,7 +102,7 @@ Still under `src/survivors/`:
 - `StyleConstants.ts` — PALETTE color constants (Color3/Color4).
 - `LowPolyMaterial.ts` — `createLowPolyMaterial`, `createEmissiveMaterial`, `makeFlatShaded`. Note: materials returned are **frozen** for perf; scene also has `blockMaterialDirtyMechanism = true` so lights added at runtime are invisible to existing materials.
 - `MaterialCache.ts` — name-keyed material reuse.
-- `ProceduralGrass.ts` — 8000 hardware-instanced grass blades with custom ShaderMaterial. Wind animation in vertex shader; torch contribution in fragment via `setTorch()` per-frame uniforms.
+- `ProceduralGrass.ts` — quality-tiered hardware-instanced grass blades (8k/16k/32k low/med/high) with custom ShaderMaterial. Wind animation in vertex shader; torch contribution in fragment via `setTorch()` per-frame uniforms.
 - `ProceduralGrassTexture.ts` — Voronoi + multi-octave noise baked once into a 2048² texture for the ground disc.
 - `ProjectilePool.ts` — pooled projectile mesh allocation.
 
