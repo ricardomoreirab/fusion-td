@@ -3787,7 +3787,7 @@ export class SurvivorsGameplayState implements GameState {
             enemiesNear: (x, z, radius) => {
                 const out: EffectEnemy[] = [];
                 const rSq = radius * radius;
-                for (const e of this.enemyManager?.getEnemies() ?? []) {
+                for (const e of this.activeAttackEnemies()) {
                     if (!e.isAlive()) continue;
                     const p = e.getPosition();
                     const dx = p.x - x, dz = p.z - z;
@@ -3816,6 +3816,8 @@ export class SurvivorsGameplayState implements GameState {
                 const hp = en.getHealth(); const max = en.getMaxHealth();
                 if (max <= 0 || hp <= 0) return false;
                 if (hp / max <= fraction) {
+                    // On the guest, takeDamage redirects to the host before mutating HP,
+                    // so this is reported as normal damage, never a local kill.
                     en.takeDamage(hp, 'physical' as PowerElement); // exactly lethal → normal death path
                     return true;
                 }
