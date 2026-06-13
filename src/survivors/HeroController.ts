@@ -6,7 +6,7 @@ import { Enemy } from './enemies/Enemy';
 import { PlayerStats } from './PlayerStats';
 import { DashMode } from './abilities/AbilityManager';
 import { capInputLen, arenaClampScale } from './integrateMove';
-import { stepZoom, lerpZoom, parsePersistedZoom } from './cameraZoom';
+import { stepZoom, lerpZoom, parsePersistedZoom, setCameraSlantPosition } from './cameraZoom';
 
 /** Hero damage-feedback tuning — adjust here, not deep in the update loop. */
 const HIT_REACTION_COOLDOWN_S = 0.5;
@@ -141,9 +141,11 @@ export class HeroController {
     private _scratchCamTarget: Vector3 = new Vector3();
     private _scratchInput = { dx: 0, dz: 0 };
 
-    // Co-op: when set, the camera frames this point (+ height) instead of just
-    // the local hero. Lets a shared/tethered camera reuse the existing lerp/shake.
-    private cameraFocusProvider: (() => { x: number; z: number; height: number }) | null = null;
+    // Co-op: when set, the camera frames this point (+ a slant-distance multiplier)
+    // instead of just the local hero. distanceScale === 1 means "frame exactly like
+    // solo"; >1 pulls the camera straight back. Lets a shared/tethered camera reuse the
+    // existing zoom/lerp/shake while keeping the look-down pitch identical to solo.
+    private cameraFocusProvider: (() => { x: number; z: number; distanceScale: number }) | null = null;
 
     // Mouse-wheel zoom: a multiplier on the BASE slant distance. zoomTarget is set by
     // the wheel; zoomMultiplier eases toward it each frame and scales cameraHeight +
@@ -249,7 +251,7 @@ export class HeroController {
         this.externalDz = dz;
     }
 
-    public setCameraFocusProvider(fn: (() => { x: number; z: number; height: number }) | null): void {
+    public setCameraFocusProvider(fn: (() => { x: number; z: number; distanceScale: number }) | null): void {
         this.cameraFocusProvider = fn;
     }
 
@@ -737,25 +739,33 @@ export class HeroController {
         }
 
         // Camera follow — position only, rotation is locked at construction.
-        // In co-op a focus provider supplies a midpoint + zoomed height; solo
-        // play falls back to the local hero at the constructed height.
+        // In co-op a focus provider supplies a midpoint + a slant-distance multiplier;
+        // solo play has no provider and frames the local hero at scale 1 (base distance).
         const focus = this.cameraFocusProvider
             ? this.cameraFocusProvider()
-            : { x: pos.x, z: pos.z, height: this.cameraHeight };
+            : { x: pos.x, z: pos.z, distanceScale: 1 };
         // Only lerp from a FINITE focus + delta. A NaN/Infinity here would poison
         // camera.position permanently (LerpToRef of NaN stays NaN forever), making
         // the view matrix NaN → every mesh clips out → the canvas blanks to the
         // near-black clear color: a sticky black screen that never recovers. We keep
         // _scratchCamTarget at its last finite value so recovery has somewhere to go.
         const ft = Number.isFinite;
-        if (ft(focus.x) && ft(focus.height) && ft(focus.z) && ft(deltaTime)) {
-            // Ease the live zoom toward the wheel-set target, then scale BOTH the
-            // focus height and the z-offset by it so the look-down angle stays constant.
-            // focus.height is the co-op auto-computed height in co-op (base height in
-            // solo), so this multiplies — i.e. composes — with co-op's auto-framing.
+        if (ft(focus.x) && ft(focus.distanceScale) && ft(focus.z) && ft(deltaTime)) {
+            // Ease the live zoom toward the wheel-set target, then fold in the co-op
+            // framing multiplier (1 in solo). setCameraSlantPosition scales BOTH the
+            // camera height and the z-offset by the combined factor, so the look-down
+            // angle is invariant — co-op only ever pulls the camera straight back along
+            // the slant, it never changes the pitch the way an absolute height would.
             this.zoomMultiplier = lerpZoom(this.zoomMultiplier, this.zoomTarget, deltaTime);
-            const zoom = this.zoomMultiplier;
-            this._scratchCamTarget.set(focus.x, focus.height * zoom, focus.z + this.cameraOffsetZ * zoom);
+            const scale = this.zoomMultiplier * focus.distanceScale;
+            setCameraSlantPosition(
+                this._scratchCamTarget,
+                focus.x,
+                focus.z,
+                this.cameraHeight,
+                this.cameraOffsetZ,
+                scale,
+            );
             Vector3.LerpToRef(
                 this.camera.position,
                 this._scratchCamTarget,

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  clampZoom, stepZoom, lerpZoom, parsePersistedZoom,
+  clampZoom, stepZoom, lerpZoom, parsePersistedZoom, setCameraSlantPosition,
   CAMERA_ZOOM_MIN, CAMERA_ZOOM_MAX, CAMERA_ZOOM_DEFAULT, CAMERA_ZOOM_STEP, CAMERA_ZOOM_LERP,
 } from '../src/survivors/cameraZoom';
 
@@ -65,6 +65,47 @@ describe('lerpZoom', () => {
   it('a large dt reaches (does not overshoot) the target', () => {
     expect(lerpZoom(1.0, 1.5, 10)).toBe(1.5);
     expect(lerpZoom(1.5, 0.6, 10)).toBe(0.6);
+  });
+});
+
+describe('setCameraSlantPosition', () => {
+  // Base isometric geometry: 42° pitch at slant distance 26 (the desktop solo camera).
+  const PITCH = 42 * Math.PI / 180;
+  const DIST = 26;
+  const baseHeight = DIST * Math.sin(PITCH);
+  const baseOffsetZ = -DIST * Math.cos(PITCH);
+
+  // A zero-alloc Vector3 stand-in: matches the Vec3Sink contract setCameraSlantPosition writes to.
+  function makeSink() {
+    const out: { x: number; y: number; z: number; set(x: number, y: number, z: number): void } = {
+      x: 0, y: 0, z: 0,
+      set(x, y, z) { out.x = x; out.y = y; out.z = z; },
+    };
+    return out;
+  }
+  // Look-down pitch (deg) of a camera at `pos` aimed at the ground focus point.
+  const pitchDeg = (pos: { x: number; y: number; z: number }, fx: number, fz: number) =>
+    Math.atan2(pos.y, Math.hypot(pos.x - fx, pos.z - fz)) * 180 / Math.PI;
+
+  it('scale 1 reproduces the base slant position (solo framing)', () => {
+    const v = makeSink();
+    setCameraSlantPosition(v, 3, -5, baseHeight, baseOffsetZ, 1);
+    expect(v.x).toBe(3);
+    expect(v.y).toBeCloseTo(baseHeight, 12);
+    expect(v.z).toBeCloseTo(-5 + baseOffsetZ, 12);
+  });
+
+  it('keeps the look-down pitch invariant across every scale — the co-op regression guard', () => {
+    const fx = 4, fz = -2;
+    const base = makeSink();
+    setCameraSlantPosition(base, fx, fz, baseHeight, baseOffsetZ, 1);
+    expect(pitchDeg(base, fx, fz)).toBeCloseTo(42, 4); // base geometry really is 42°
+    // user zoom range (0.6–1.6) AND co-op pull-back (up to ~2.4 combined) must all keep 42°.
+    for (const scale of [0.6, 0.8, 1.2, 1.5, 1.6, 2.4]) {
+      const v = makeSink();
+      setCameraSlantPosition(v, fx, fz, baseHeight, baseOffsetZ, scale);
+      expect(pitchDeg(v, fx, fz)).toBeCloseTo(42, 4);
+    }
   });
 });
 

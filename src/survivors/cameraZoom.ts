@@ -43,3 +43,26 @@ export function parsePersistedZoom(raw: string | null): number {
     if (raw === null) return CAMERA_ZOOM_DEFAULT;
     return clampZoom(parseFloat(raw));
 }
+
+/** A minimal write target. Babylon's Vector3 satisfies this, and tests pass a plain
+ *  object — so the slant-position math stays pure (Vitest) AND zero-alloc in the render
+ *  loop (it writes into the caller's scratch Vector3 rather than allocating one). */
+export interface Vec3Sink { set(x: number, y: number, z: number): void }
+
+/** Write the follow camera's world position for a ground focus point at a given total
+ *  slant `scale` (user zoom × co-op framing) into `out`. Height AND z-offset are scaled
+ *  by the SAME factor, so the look-down pitch is invariant in scale — the camera only
+ *  ever slides straight out along its slant, it never tilts. scale === 1 reproduces the
+ *  base (solo) framing exactly. This is the single place the perspective is composed:
+ *  keeping it here (not an absolute height supplied by the co-op layer) is what stops the
+ *  co-op path from re-introducing a height that silently breaks the pitch. */
+export function setCameraSlantPosition(
+    out: Vec3Sink,
+    focusX: number,
+    focusZ: number,
+    baseHeight: number,
+    baseOffsetZ: number,
+    scale: number,
+): void {
+    out.set(focusX, baseHeight * scale, focusZ + baseOffsetZ * scale);
+}

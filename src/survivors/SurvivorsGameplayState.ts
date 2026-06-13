@@ -3010,15 +3010,26 @@ export class SurvivorsGameplayState implements GameState {
                     this.heroController?.setCameraFocusProvider(() => {
                         const self = this.hero?.getPosition();
                         const mate = this.coopGhost?.getPosition();
-                        // Heights rescaled for the isometric camera (taller base +
-                        // narrower FOV needs more height per unit of separation).
-                        if (!self || !mate) return { x: 0, z: 0, height: 30 };
+                        // A hero can be momentarily null (death, pre-first-pose). Frame
+                        // whichever one exists at solo distance; only fall back to the
+                        // arena centre when neither does (avoids snapping to origin).
+                        if (!self && !mate) return { x: 0, z: 0, distanceScale: 1 };
+                        if (!self || !mate) {
+                            const p = (self ?? mate)!;
+                            return { x: p.x, z: p.z, distanceScale: 1 };
+                        }
                         // M4-11: while spectating, follow the surviving teammate alone.
-                        if (this._spectating) return { x: mate.x, z: mate.z, height: 33 };
+                        if (this._spectating) return { x: mate.x, z: mate.z, distanceScale: 1 };
+                        // Frame both heroes: centre on the midpoint and pull the camera
+                        // straight back along the slant as they separate (the scene layer
+                        // keeps the pitch fixed). Expressed as a multiplier on the BASE
+                        // slant distance so it tracks the solo perspective — and mobile's
+                        // pulled-in distance — automatically, instead of a hard-coded
+                        // height that breaks when the perspective is retuned.
                         return computeCameraFocus(
                             { x: self.x, z: self.z },
                             { x: mate.x, z: mate.z },
-                            { baseHeight: 30, maxHeight: 45, zoomPerUnit: 0.6 },
+                            { maxScale: 1.5, scalePerUnit: 0.02 },
                         );
                     });
                     // Part C (Task 9 ghost targeting provider): on the host, push the ghost
