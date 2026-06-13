@@ -94,7 +94,7 @@ export const GameSettings = {
 
 /** Hardware-instanced grass blades per arena. Tuned so low ≈ 25% of high. */
 export function bladeCountForQuality(q: GraphicsQuality): number {
-    if (q === 'low')    return 40000;
-    if (q === 'medium') return 80000;
-    return 160000;
+    if (q === 'low')    return 8000;
+    if (q === 'medium') return 16000;
+    return 32000;
 }
