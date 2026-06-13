@@ -13,7 +13,7 @@ import { GlobeGround } from './globe/GlobeGround';
 import { PropField } from './globe/PropField';
 import { GlobeSky } from './globe/GlobeSky';
 import { setCurveOrigin, clearCurveOrigin, curveDropAt } from './globe/curvature';
-import { GLOBE_RADIUS, GRASS_TILE_SIZE, GRASS_FAR_TILE_SIZE, GRASS_FAR_FADE_START, GRASS_FAR_FADE_END } from './globe/constants';
+import { GLOBE_RADIUS, GRASS_TILE_SIZE, GRASS_FAR_TILE_SIZE, GRASS_FAR_FADE_START, GRASS_FAR_FADE_END, FOG_START, FOG_END, FOG_COLOR_RGB } from './globe/constants';
 import { StatusEffect } from './GameTypes';
 import { Champion } from './champions/Champion';
 import { HeroController } from './HeroController';
@@ -1319,6 +1319,19 @@ export class SurvivorsGameplayState implements GameState {
         // isn't a black void. The env cube above stays for IBL reflections only.
         this.globeSky = new GlobeSky(scene, this.game.isGpuUnavailable());
 
+        // ── Horizon distance fog ──────────────────────────────────────────────
+        // Blend the far ground cap + grass-fade seam into the sky's horizon band
+        // so the finite (square) terrain edge isn't visible when the camera is
+        // zoomed out. Game.setupScene disables fog globally (it broke the old
+        // orthographic TD camera); survivors uses a perspective camera, so it's
+        // safe here. fogStart/fogEnd are refreshed every frame in update()
+        // (shifted outward with zoom); exit() restores the fog-off default.
+        scene.fogMode = Scene.FOGMODE_LINEAR;
+        scene.fogColor.copyFromFloats(FOG_COLOR_RGB[0], FOG_COLOR_RGB[1], FOG_COLOR_RGB[2]);
+        scene.fogStart = FOG_START;
+        scene.fogEnd = FOG_END;
+        scene.fogEnabled = true;
+
         // (Removed ruinsSpot SpotLight — it didn't cast shadows and was
         // washing out the directional's shadows at world origin where the
         // hero spawns. The hemispheric + directional combo gives the arena
@@ -1380,14 +1393,20 @@ export class SurvivorsGameplayState implements GameState {
 
         // ── Grass blades ──────────────────────────────────────────────────────
         // Texture-free, sampler-free shader → identical pipeline state on
-        // WebGL and WebGPU. 8000 hardware-instanced blades with vertex
-        // lighting and a sin-based wind sway.
+        // WebGL and WebGPU. Up to 32000 hardware-instanced blades (quality-
+        // tiered) with vertex lighting and a sin-based wind sway.
         this.grass = createProceduralGrass(scene, {
             tileSize: GRASS_TILE_SIZE,
             curveRadius: GLOBE_RADIUS,
             bladeCount: bladeCountForQuality(GameSettings.getGraphicsQuality()),
             bladeWidth: 0.06,
             bladeHeight: 0.45,
+            // Radial height-fade so the dense near tile tapers out in a CIRCLE
+            // (blades gone by its ±22 edge, square corners included) instead of
+            // ending in a hard square boundary against the sparser far layer.
+            // The far layer underneath provides continuous coverage past it.
+            fadeStart: 14,
+            fadeEnd: 22,
             directionalLight: this.shadowSourceLight ?? undefined,
             // shadowGenerator: this.shadowGenerator ?? undefined, // disabled while debugging
             ambientColor: new Color3(0.42, 0.50, 0.32),
@@ -1398,17 +1417,18 @@ export class SurvivorsGameplayState implements GameState {
             influencerStrength: 0.55,
         });
 
-        // Far-field layer: half the blade count spread over the whole terrain
-        // cap, wider blades (foreshortening at grazing angles keeps it reading
-        // dense). The radial fade clips it just past the cap rim so the horizon
-        // crest stays grassy without blades floating over open sky.
+        // Far-field layer: the same blade count as the near layer, but spread
+        // over the much larger ±100 tile so blades carpet the entire visible
+        // ground out past the cap edge (no bare-ground "square"). Wider blades
+        // (foreshortening at grazing angles keeps it reading dense). The fade
+        // now sits beyond the horizon, so it's never seen.
         // LOD: 2 curve segments (12 verts vs 20 — curve detail is invisible at
         // distance) and no influencer bend loop (characters never reach it),
         // which together cut this layer's vertex cost to a fraction.
         this.grassFar = createProceduralGrass(scene, {
             tileSize: GRASS_FAR_TILE_SIZE,
             curveRadius: GLOBE_RADIUS,
-            bladeCount: Math.floor(bladeCountForQuality(GameSettings.getGraphicsQuality()) / 2),
+            bladeCount: bladeCountForQuality(GameSettings.getGraphicsQuality()) * 3,
             bladeWidth: 0.12,
             bladeHeight: 0.50,
             bladeSegments: 2,
@@ -2740,6 +2760,13 @@ export class SurvivorsGameplayState implements GameState {
         this.grassFar?.dispose();
         this.grassFar = null;
 
+        // Restore Game.setupScene's fog-off default so the menu / game-over
+        // (and any non-survivors flow) aren't left hazed by this run.
+        if (this.scene) {
+            this.scene.fogEnabled = false;
+            this.scene.fogMode = Scene.FOGMODE_NONE;
+        }
+
         // Dispose per-run lights, shadow generators, and env/sky textures. None of
         // these are meshes / particle systems / ADT textures, so Game.cleanupScene()
         // does NOT free them — without this they accumulate one set per run on the
@@ -3034,6 +3061,18 @@ export class SurvivorsGameplayState implements GameState {
             this.propField?.update(hp.x, hp.z, pdx, pdz);
         }
 
+        // Shift the distance-fog band outward by however far the camera has
+        // receded with zoom, so the hero + spawn ring stay crisp at every zoom
+        // and only the far horizon hazes. (Babylon fog is camera-distance based;
+        // a fixed band would creep over the play area as you zoom out.) The grass
+        // shader reads scene.fogStart/End, so both layers track this too.
+        const fogScene = this.scene;
+        if (fogScene && fogScene.fogEnabled) {
+            const fogShift = this.heroController?.getCameraDistanceFromDefault() ?? 0;
+            fogScene.fogStart = FOG_START + fogShift;
+            fogScene.fogEnd = FOG_END + fogShift;
+        }
+
         // Keep the procedural-grass shader's torch uniforms in sync with the
         // real heroTorch PointLight. When the torch is off (intensity 0), the
         // grass glow goes off too — previously it was always on regardless.
@@ -3054,8 +3093,8 @@ export class SurvivorsGameplayState implements GameState {
                 this.grassFar?.setTorch(null);
             }
 
-            // Character grass displacement: hero + nearest 15 enemies push
-            // surrounding blades outward as they move. Shader caps at 16,
+            // Character grass displacement: hero + nearest 7 enemies push
+            // surrounding blades outward as they move. Shader caps at 8,
             // so we trim if more are alive nearby. Reuse the scratch array —
             // setInfluencers reads the contents synchronously, so swapping the
             // contents in-place each frame is safe.
@@ -3064,7 +3103,7 @@ export class SurvivorsGameplayState implements GameState {
             influencers.push(this.hero.getPosition());
             if (this.enemyManager) {
                 const enemies = this.enemyManager.getEnemies();
-                for (let i = 0; i < enemies.length && influencers.length < 16; i++) {
+                for (let i = 0; i < enemies.length && influencers.length < 8; i++) {
                     const ep = (enemies[i] as unknown as { position?: Vector3; getPosition?: () => Vector3 });
                     const pos = ep.getPosition?.() ?? ep.position;
                     if (pos) influencers.push(pos);

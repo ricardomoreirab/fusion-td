@@ -34,7 +34,7 @@ const BLADE_SEGS = 4;
 
 /** Max simultaneous character displacement sources passed to the shader.
  *  Mirrors the const MAX_INFLUENCERS in the vertex shader. */
-const MAX_INFLUENCERS = 16;
+const MAX_INFLUENCERS = 8;
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Shaders — kept deliberately texture-free and define-free so the pipeline
@@ -59,12 +59,12 @@ uniform mat4 viewProjection;
 uniform float uTime;
 uniform float uWindStrength;
 
-// Character displacement: up to 16 "influencer" world-XZ positions (Y unused).
+// Character displacement: up to 8 "influencer" world-XZ positions (Y unused).
 // Unused slots are set to a far-away point so the distance-based falloff
-// naturally zeros them out without branching. Array size hardcoded to 16
+// naturally zeros them out without branching. Array size hardcoded to 8
 // (matches MAX_INFLUENCERS const on the JS side) — WGSL's array-size
 // constexpr handling differs from GLSL, hardcoding is safest.
-uniform vec3 uInfluencers[16];
+uniform vec3 uInfluencers[8];
 uniform float uInfluencerRadius;
 uniform float uInfluencerStrength;
 
@@ -155,7 +155,7 @@ void main(void) {
     // characters never reach — this loop dominates the vertex cost.
 #ifdef INFLUENCERS
     vec2 push = vec2(0.0);
-    for (int i = 0; i < 16; i++) {
+    for (int i = 0; i < 8; i++) {
         vec2 to = worldPos.xz - uInfluencers[i].xz;
         float d = length(to);
         float falloff = max(0.0, 1.0 - d / uInfluencerRadius);
@@ -220,6 +220,17 @@ uniform vec3  uTorchColor;
 uniform float uTorchIntensity;
 uniform float uTorchRange;
 
+// Horizon distance fog — mirrors the scene's linear fog so the custom-shader
+// grass hazes into the same band as the StandardMaterial ground/props (Babylon
+// does not auto-inject fog into a ShaderMaterial). uFogEnabled = 0 disables it.
+// Radial camera distance (close enough to Babylon's view-space depth here; the
+// far blades are near-zero height through the band anyway).
+uniform float uFogEnabled;
+uniform vec3  uFogColor;
+uniform float uFogStart;
+uniform float uFogEnd;
+uniform vec3  uCameraPos;
+
 #ifdef RECEIVE_SHADOWS
 // ESM shadow map: stores exp(depthScale * normalisedDepth) in the red channel.
 uniform sampler2D uShadowMap;
@@ -276,6 +287,13 @@ void main(void) {
         float d = distance(vWorldPos, uTorchPos);
         float f = max(0.0, 1.0 - d / uTorchRange);
         lit += uTorchColor * (f * f) * uTorchIntensity * 0.6;
+    }
+
+    // Horizon fog: linear blend toward the sky band by camera distance.
+    if (uFogEnabled > 0.5) {
+        float fogDist = distance(vWorldPos, uCameraPos);
+        float fogVis = clamp((uFogEnd - fogDist) / (uFogEnd - uFogStart), 0.0, 1.0);
+        lit = mix(uFogColor, lit, fogVis);
     }
 
     gl_FragColor = vec4(lit, 1.0);
@@ -368,7 +386,7 @@ export interface ProceduralGrassOptions {
     /** Curve segments per blade (default 4 → 20 verts). Far-field layers can
      *  drop to 2 (12 verts) — the curve detail is invisible at distance. */
     bladeSegments?: number;
-    /** false compiles the shader WITHOUT the 16-influencer bend loop (the
+    /** false compiles the shader WITHOUT the 8-influencer bend loop (the
      *  dominant vertex cost). Use for layers characters never walk through.
      *  setInfluencers becomes a no-op. Default true. */
     influencers?: boolean;
@@ -378,7 +396,7 @@ export interface ProceduralGrass {
     mesh: Mesh;
     setTorch: (params: { position: Vector3; color: Color3; intensity: number; range: number } | null) => void;
     /** Set the world-XZ positions of characters that should bend the grass
-     *  as they pass through. Up to 16 positions; extras are dropped. Call
+     *  as they pass through. Up to 8 positions; extras are dropped. Call
      *  every frame with current positions of hero + visible enemies. */
     setInfluencers: (positions: Vector3[]) => void;
     /** Per-frame: the hero's world position — centre of the wrap tile and
@@ -436,6 +454,7 @@ export function createProceduralGrass(scene: Scene, opts: ProceduralGrassOptions
         'uInfluencers', 'uInfluencerRadius', 'uInfluencerStrength',
         'uHeroPos', 'uTileSize', 'uCurveRadius',
         'uFadeStart', 'uFadeEnd',
+        'uFogEnabled', 'uFogColor', 'uFogStart', 'uFogEnd', 'uCameraPos',
     ];
     const samplersList: string[] = [];
     const defines: string[] = [];
@@ -481,6 +500,13 @@ export function createProceduralGrass(scene: Scene, opts: ProceduralGrassOptions
     mat.setColor3('uTorchColor', new Color3(1.0, 0.62, 0.28));
     mat.setFloat('uTorchIntensity', 0);
     mat.setFloat('uTorchRange', 11);
+
+    // Fog disabled until the per-frame observer mirrors a live scene fog.
+    mat.setFloat('uFogEnabled', 0);
+    mat.setColor3('uFogColor', new Color3(0.52, 0.58, 0.86));
+    mat.setFloat('uFogStart', 1e6);
+    mat.setFloat('uFogEnd', 1e6 + 1);
+    mat.setVector3('uCameraPos', Vector3.Zero());
 
     // Initialise influencer slots to a far-away point so they contribute 0.
     // Updated per frame from outside via the returned setInfluencers() helper.
@@ -543,6 +569,21 @@ export function createProceduralGrass(scene: Scene, opts: ProceduralGrassOptions
                 shadowDepthScratch.copyFromFloats(minZ, minZ + maxZ);
                 mat.setVector2('uShadowDepthValues', shadowDepthScratch);
             }
+        }
+
+        // Mirror the scene's distance fog so the grass hazes into the same
+        // horizon band as the StandardMaterial ground/props. Driven entirely by
+        // scene state (the gameplay layer owns enable + the zoom band-shift), so
+        // both grass layers stay automatically consistent with everything else.
+        if (scene.fogEnabled) {
+            mat.setFloat('uFogEnabled', 1);
+            mat.setColor3('uFogColor', scene.fogColor);
+            mat.setFloat('uFogStart', scene.fogStart);
+            mat.setFloat('uFogEnd', scene.fogEnd);
+            const fogCam = scene.activeCamera;
+            if (fogCam) mat.setVector3('uCameraPos', fogCam.position);
+        } else {
+            mat.setFloat('uFogEnabled', 0);
         }
     });
 
