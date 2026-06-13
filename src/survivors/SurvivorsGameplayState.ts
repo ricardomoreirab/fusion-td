@@ -1201,24 +1201,27 @@ export class SurvivorsGameplayState implements GameState {
             this.hud.setRunItems(this.runItems);
         }
 
-        // ── Itemization + merchant shop (single-player only) ────────────────
-        // Co-op gets NONE of this: equipment, item effects, merchant and horn
-        // stay null/hidden, so co-op behavior is byte-identical to main.
-        if (solo) {
-            this.equipment = new Equipment(this.playerStats);
-            this.equipTracker = newEquipFoldTracker();
-            this.equipMaxHpApplied = 0;
-            this.rageGlow = new RageGlow(this.scene, () => this.hero?.getPosition() ?? null);
-            this.itemEffects = new ItemEffectRuntime(this.buildEffectContext());
-            this.shopOverlay = new ShopOverlay(this.gameUI!.layer('overlay'));
-            this.goblinPortrait = getGoblinPortrait();
-            this.characterProfile = new CharacterProfile(this.gameUI!.layer('overlay'));
-            this.hud.setOnHorn(() => this.soundHorn());
-            this.hud.setOnOpenCharacter(() => this.openCharacter());
-            this.updateInventoryHud(); // populate + show the always-visible strip
+        // ── Itemization + merchant shop ──────────────────────────────────────
+        // Per-client: each player owns its own equipment/effects/shop. Construct
+        // for solo AND co-op (every system resolves through the per-PlayerSlot
+        // accessors). Combat-event hooks are wired below — solo immediately,
+        // co-op in the guest-safe form (a later phase).
+        this.equipment = new Equipment(this.playerStats);
+        this.equipTracker = newEquipFoldTracker();
+        this.equipMaxHpApplied = 0;
+        this.rageGlow = new RageGlow(this.scene, () => this.hero?.getPosition() ?? null);
+        this.itemEffects = new ItemEffectRuntime(this.buildEffectContext());
+        this.shopOverlay = new ShopOverlay(this.gameUI!.layer('overlay'));
+        this.goblinPortrait = getGoblinPortrait();
+        this.characterProfile = new CharacterProfile(this.gameUI!.layer('overlay'));
+        this.hud.setOnHorn(() => this.soundHorn());
+        this.hud.setOnOpenCharacter(() => this.openCharacter());
+        this.updateInventoryHud(); // populate + show the always-visible strip
 
+        if (solo) {
             // Combat-event hooks (deliberately NOT wired in co-op — the guest's
-            // hit/hurt paths are asymmetric and would desync the host).
+            // hit/hurt paths are asymmetric and would desync the host). Deferred
+            // to a later phase in the guest-safe form.
             this.heroController.setOnHurt((amount) => this.itemEffects?.onHeroHurt(amount));
             this.heroController.getBasicAttack()?.setOnHit((enemy, dmg) =>
                 this.itemEffects?.onBasicHit(enemy, dmg));
