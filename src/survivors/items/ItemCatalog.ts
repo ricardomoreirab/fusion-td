@@ -33,6 +33,38 @@ export const ITEM_SETS: SetDef[] = [
             { pieces: 3, effect: 'midas', text: 'MIDAS: 15% chance kills pay double; every 150g earned bursts a coin nova' },
         ],
     },
+
+    // ── Unique sets (one per class, 6 pieces, 2/4/6 tiers) ───────────────────
+    {
+        id: 'titans_oath', name: "Titan's Oath", kind: 'unique',
+        pieces: ['oathbreaker_maul', 'browplate_of_the_titan', 'ribcage_bulwark',
+                 'quakestride_faulds', 'stampede_sabatons', 'heart_of_the_warbeast'],
+        tiers: [
+            { pieces: 2, bonus: { attackSpeedPct: 15 }, text: '+15% attack speed' },
+            { pieces: 4, bonus: { basicDamagePct: 18, maxHealth: 40, lifesteal: 0.05 }, text: '+18% basic damage, +40 max HP, +5% lifesteal' },
+            { pieces: 6, effect: 'earthbreaker', text: 'EARTHBREAKER: every 4th hit quakes the ground at your target — AoE damage + 1s stun, growing with each swing' },
+        ],
+    },
+    {
+        id: 'tempest_stalker', name: 'Tempest Stalker', kind: 'unique',
+        pieces: ['stormcaller_longbow', 'hawkeye_hood', 'stalkers_raincloak',
+                 'windstep_chaps', 'galewalker_boots', 'stormeye_pendant'],
+        tiers: [
+            { pieces: 2, bonus: { attackSpeedPct: 15 }, text: '+15% attack speed' },
+            { pieces: 4, bonus: { critChance: 0.10, critDamage: 0.30, moveSpeedPct: 8 }, text: '+10% crit chance, +0.30 crit damage, +8% move speed' },
+            { pieces: 6, effect: 'tempest_volley', text: 'TEMPEST VOLLEY: every 8th hit fans 3 storm arrows; every 4th hit chains lightning to 2 nearby foes' },
+        ],
+    },
+    {
+        id: 'voidcallers_sequence', name: "Voidcaller's Sequence", kind: 'unique',
+        pieces: ['voidcallers_scepter', 'circlet_of_the_ninth_truth', 'shroud_of_quiet_stars',
+                 'leggings_of_drifting_aeons', 'treads_of_the_event_horizon', 'oculus_of_the_devourer'],
+        tiers: [
+            { pieces: 2, bonus: { powerDamagePct: 12 }, text: '+12% power damage' },
+            { pieces: 4, bonus: { powerDamagePct: 12, cooldownPct: 12 }, text: '+12% power damage, −12% power cooldowns' },
+            { pieces: 6, effect: 'arcane_cascade', text: 'ARCANE CASCADE: every power cast bursts a void nova, arcs to 3 foes, and refunds 8% of all cooldowns' },
+        ],
+    },
 ];
 
 export const ITEM_CATALOG: ItemDef[] = [
@@ -167,7 +199,112 @@ export const ITEM_CATALOG: ItemDef[] = [
       classes: 'all', glyph: '⚔',
       mods: { critChance: 0.15, critDamage: 0.35 },
       flavor: 'Pre-signed. Just add a name.' },
+
+    // ── Titan's Oath (barbarian unique) ──────────────────────────────────────
+    { id: 'oathbreaker_maul', name: 'Oathbreaker Maul', slot: 'weapon', rarity: 'unique',
+      classes: ['barbarian'], setId: 'titans_oath', glyph: '🔨',
+      mods: { basicDamagePct: 24, attackSpeedPct: 8 },
+      flavor: 'Made a solemn vow once. Broke it. Broke a lot of things, actually.' },
+    { id: 'browplate_of_the_titan', name: 'Browplate of the Titan', slot: 'helmet', rarity: 'unique',
+      classes: ['barbarian'], setId: 'titans_oath', glyph: '🗿',
+      mods: { maxHealth: 30, damageTakenPct: 8 },
+      flavor: 'Headbutting is a valid opening, a valid middle, and a valid ending.' },
+    { id: 'ribcage_bulwark', name: 'Ribcage Bulwark', slot: 'chest', rarity: 'unique',
+      classes: ['barbarian'], setId: 'titans_oath', glyph: '🦴',
+      mods: { maxHealth: 45, hpRegenPctPerSec: 0.006 },
+      flavor: "Bigger than your ribcage. Roomier, too. Don't ask how it knows." },
+    { id: 'quakestride_faulds', name: 'Quakestride Faulds', slot: 'legs', rarity: 'unique',
+      classes: ['barbarian'], setId: 'titans_oath', glyph: '🌋',
+      mods: { damageTakenPct: 12, knockback: 2 },
+      flavor: 'Each step files a noise complaint with the bedrock.' },
+    { id: 'stampede_sabatons', name: 'Stampede Sabatons', slot: 'boots', rarity: 'unique',
+      classes: ['barbarian'], setId: 'titans_oath', glyph: '🦬',
+      mods: { moveSpeedPct: 12, attackSpeedPct: 6 },
+      flavor: 'There is no brake pedal. There was never a brake pedal.' },
+    { id: 'heart_of_the_warbeast', name: 'Heart of the Warbeast', slot: 'trinket', rarity: 'unique',
+      classes: ['barbarian'], setId: 'titans_oath', glyph: '🫀',
+      mods: { lifesteal: 0.07, maxHealth: 20 },
+      flavor: 'Still beating. Still angry. Still yours now, somehow.' },
+
+    // ── Tempest Stalker (ranger unique) ──────────────────────────────────────
+    { id: 'stormcaller_longbow', name: 'Stormcaller Longbow', slot: 'weapon', rarity: 'unique',
+      classes: ['ranger'], setId: 'tempest_stalker', glyph: '🎯',
+      mods: { basicDamagePct: 18, attackSpeedPct: 12 },
+      flavor: 'Pull the string and somewhere, distantly, thunder agrees.' },
+    { id: 'hawkeye_hood', name: 'Hawkeye Hood', slot: 'helmet', rarity: 'unique',
+      classes: ['ranger'], setId: 'tempest_stalker', glyph: '🦅',
+      mods: { critChance: 0.09, attackSpeedPct: 6 },
+      flavor: 'Sees the bullseye. Also your bad posture. Sit up.' },
+    { id: 'stalkers_raincloak', name: "Stalker's Raincloak", slot: 'chest', rarity: 'unique',
+      classes: ['ranger'], setId: 'tempest_stalker', glyph: '🪂',
+      mods: { maxHealth: 30, damageTakenPct: 8 },
+      flavor: 'Waterproof, goblinproof, and faintly smug about both.' },
+    { id: 'windstep_chaps', name: 'Windstep Chaps', slot: 'legs', rarity: 'unique',
+      classes: ['ranger'], setId: 'tempest_stalker', glyph: '🌬',
+      mods: { moveSpeedPct: 10, critChance: 0.06 },
+      flavor: 'The legs that taught the wind to keep up.' },
+    { id: 'galewalker_boots', name: 'Galewalker Boots', slot: 'boots', rarity: 'unique',
+      classes: ['ranger'], setId: 'tempest_stalker', glyph: '🪽',
+      mods: { moveSpeedPct: 12, attackSpeedPct: 8 },
+      flavor: 'Outran a tornado once. The tornado wants a rematch.' },
+    { id: 'stormeye_pendant', name: 'Stormeye Pendant', slot: 'trinket', rarity: 'unique',
+      classes: ['ranger'], setId: 'tempest_stalker', glyph: '🌩',
+      mods: { critChance: 0.10, critDamage: 0.30 },
+      flavor: 'It blinks once per crit. It has not blinked in some time.' },
+
+    // ── Voidcaller's Sequence (mage unique) ──────────────────────────────────
+    { id: 'voidcallers_scepter', name: "Voidcaller's Scepter", slot: 'weapon', rarity: 'unique',
+      classes: ['mage'], setId: 'voidcallers_sequence', glyph: '🔱',
+      mods: { powerDamagePct: 26, cooldownPct: 6 },
+      flavor: 'It hums in a key that makes reality apologize.' },
+    { id: 'circlet_of_the_ninth_truth', name: 'Circlet of the Ninth Truth', slot: 'helmet', rarity: 'unique',
+      classes: ['mage'], setId: 'voidcallers_sequence', glyph: '🔯',
+      mods: { powerDamagePct: 10, cooldownPct: 10 },
+      flavor: 'Knows eight forbidden things. The ninth is where you left your keys.' },
+    { id: 'shroud_of_quiet_stars', name: 'Shroud of Quiet Stars', slot: 'chest', rarity: 'unique',
+      classes: ['mage'], setId: 'voidcallers_sequence', glyph: '🌌',
+      mods: { maxHealth: 35, damageTakenPct: 10 },
+      flavor: 'Woven from the night sky. The night sky is still mad about it.' },
+    { id: 'leggings_of_drifting_aeons', name: 'Leggings of Drifting Aeons', slot: 'legs', rarity: 'unique',
+      classes: ['mage'], setId: 'voidcallers_sequence', glyph: '🪐',
+      mods: { powerDamagePct: 16, moveSpeedPct: 8 },
+      flavor: 'Each step happens slightly before you decide to take it.' },
+    { id: 'treads_of_the_event_horizon', name: 'Treads of the Event Horizon', slot: 'boots', rarity: 'unique',
+      classes: ['mage'], setId: 'voidcallers_sequence', glyph: '🕳',
+      mods: { moveSpeedPct: 10, cooldownPct: 6 },
+      flavor: 'Nothing escapes them. Especially not the floor.' },
+    { id: 'oculus_of_the_devourer', name: 'Oculus of the Devourer', slot: 'trinket', rarity: 'unique',
+      classes: ['mage'], setId: 'voidcallers_sequence', glyph: '👁',
+      mods: { powerDamagePct: 12, critChance: 0.10 },
+      flavor: "It blinks when you're not looking. You are never not looking." },
+
+    // ── Mythic weapons (one per class; wildcard set piece) ────────────────────
+    { id: 'skullsplitter_apex', name: 'Skullsplitter, the Apex', slot: 'weapon', rarity: 'mythic',
+      classes: ['barbarian'], setId: 'titans_oath', wildcardSetPiece: true, glyph: '☠',
+      mods: { basicDamagePct: 38, attackSpeedPct: 10, lifesteal: 0.05, knockback: 2 },
+      effectId: 'apex_cleave',
+      mythicFx: { auraColor: '#ff3a1f', style: 'embers', onHitColor: '#ff7a2f' },
+      flavor: 'The last thing 1,000 goblins agreed on: "Yeah, that\'ll do it."' },
+    { id: 'windsong_stormbow', name: 'Windsong, the Storm Bow', slot: 'weapon', rarity: 'mythic',
+      classes: ['ranger'], setId: 'tempest_stalker', wildcardSetPiece: true, glyph: '🌪',
+      mods: { basicDamagePct: 32, attackSpeedPct: 18, critChance: 0.15, critDamage: 0.30 },
+      effectId: 'storm_quiver',
+      mythicFx: { auraColor: '#5fb8ff', style: 'ribbon', onHitColor: '#bfe9ff' },
+      flavor: 'Every arrow leaves a little weather behind. Bring a coat.' },
+    { id: 'nullbrand_devouring_staff', name: 'Nullbrand, the Devouring Staff', slot: 'weapon', rarity: 'mythic',
+      classes: ['mage'], setId: 'voidcallers_sequence', wildcardSetPiece: true, glyph: '🌑',
+      mods: { powerDamagePct: 32, cooldownPct: 10, critChance: 0.08, critDamage: 0.12 },
+      effectId: 'singularity',
+      mythicFx: { auraColor: '#7a18ff', style: 'motes', onHitColor: '#b070ff' },
+      flavor: 'It eats spells, screams, and the occasional goblin. Mostly the goblin.' },
 ];
+
+// Hygiene: mythic items are weapons only (the wildcard substitutes for the set weapon slot).
+for (const _i of ITEM_CATALOG) {
+    if (_i.rarity === 'mythic' && _i.slot !== 'weapon') {
+        throw new Error(`mythic item ${_i.id} must be a weapon (got slot ${_i.slot})`);
+    }
+}
 
 const _byId = new Map(ITEM_CATALOG.map(i => [i.id, i]));
 const _setById = new Map(ITEM_SETS.map(s => [s.id, s]));

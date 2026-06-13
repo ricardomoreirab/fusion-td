@@ -3,10 +3,27 @@ import { ITEM_CATALOG, ITEM_SETS, itemById, setById } from '../src/survivors/ite
 import { EQUIP_SLOTS, RARITY_BASE_PRICE } from '../src/survivors/items/ItemTypes';
 
 describe('ItemCatalog integrity', () => {
-    it('has 30 items with unique ids', () => {
-        expect(ITEM_CATALOG.length).toBe(30);
+    it('has 51 items with unique ids', () => {
+        expect(ITEM_CATALOG.length).toBe(51);
         const ids = new Set(ITEM_CATALOG.map(i => i.id));
         expect(ids.size).toBe(ITEM_CATALOG.length);
+    });
+
+    it('has 7 sets (4 classic + 3 unique)', () => {
+        expect(ITEM_SETS.length).toBe(7);
+        expect(ITEM_SETS.filter(s => s.kind === 'unique').length).toBe(3);
+    });
+
+    it('every mythic is a weapon, class-locked, wildcard, with mythicFx + its class setId', () => {
+        const mythics = ITEM_CATALOG.filter(i => i.rarity === 'mythic');
+        expect(mythics.length).toBe(3);
+        for (const m of mythics) {
+            expect(m.slot).toBe('weapon');
+            expect(m.classes).not.toBe('all');
+            expect(m.wildcardSetPiece).toBe(true);
+            expect(m.mythicFx).toBeDefined();
+            expect(setById(m.setId!)?.kind).toBe('unique');
+        }
     });
 
     it('glyphs are unique (the icon is the item\'s visual identity in the shop)', () => {
