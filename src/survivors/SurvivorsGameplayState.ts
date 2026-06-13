@@ -370,6 +370,11 @@ export class SurvivorsGameplayState implements GameState {
     private _coopGhostVel = new Vector3();
     /** Scratch for the ghost's capped input (shared-math helper writes into it). */
     private _scratchGhostInput = { dx: 0, dz: 0 };
+    /** P6 (host): the guest's latest move-speed multiplier (from HeroStatMsg, sent
+     *  CHANGE-only). The ghost integrator scales by this so the host's authoritative
+     *  guest sim matches the guest's own prediction (move-speed gear). Default 1 →
+     *  base speed; reset to 1 in exit(). */
+    private _guestMoveMult = 1;
     /** Last remote anim code applied to the ghost — used to fire triggerAttack once
      *  on the rising edge to 2 (the heroState carries anim every frame). */
     private _coopGhostLastAnim = 0;
@@ -1623,16 +1628,22 @@ export class SurvivorsGameplayState implements GameState {
 
     /** Host (M4-8): advance the guest's ghost from its latest InputMsg — the host's
      *  authoritative simulation of the guest hero. Mirrors HeroController.update's
-     *  input→velocity→arena-clamp at the guest champion's base speed (per-run move
-     *  multipliers + knockback/pull aren't modelled yet — guest reconciliation and a
-     *  later host-event pass close that gap). Coasts on the last input on packet loss. */
+     *  input→velocity→arena-clamp at the guest champion's base speed × the guest's
+     *  reported move-speed multiplier (P6 — HeroStatMsg keeps `_guestMoveMult` in
+     *  sync with the guest's HeroController.updateMoveSpeed argument, so the ghost
+     *  matches the guest's own prediction for move-speed gear; the transient boss
+     *  slow + knockback/pull still aren't modelled — guest reconciliation absorbs
+     *  those). Coasts on the last input on packet loss. */
     private _driveGuestGhostFromInput(dt: number): void {
         if (!this.coopGhost || !this.coopSession) return;
         const input = this.coopSession.getLatestInput();
         // Cap + clamp via the SAME pure helpers the guest's replay uses
         // (integrateMove.ts) so host sim and guest prediction share one math.
         capInputLen(input?.dx ?? 0, input?.dz ?? 0, this._scratchGhostInput);
-        const speed = CHAMP_BASE_SPEED[this.coopSession.getRemoteChamp() ?? 'barbarian'] ?? 6;
+        // Base speed × the guest's move-speed multiplier — the guest integrates at
+        // exactly CHAMP_BASE_SPEED × moveSpeedMultiplier (modulo transient slow), so
+        // applying `_guestMoveMult` here keeps the host ghost in lockstep.
+        const speed = (CHAMP_BASE_SPEED[this.coopSession.getRemoteChamp() ?? 'barbarian'] ?? 6) * this._guestMoveMult;
         this._coopGhostVel.set(this._scratchGhostInput.dx * speed, 0, this._scratchGhostInput.dz * speed);
         this.coopGhost.setPlayerVelocity(this._coopGhostVel);
         this.coopGhost.update(dt); // integrates velocity → position + walk/idle + faces velocity
@@ -2087,6 +2098,10 @@ export class SurvivorsGameplayState implements GameState {
             // initial connect the registry is empty, so clear() is a no-op.
             this.guestEnemies?.clear();
             this.coopSession.sendRequestState();
+            // P6: prime the host with our starting move-speed multiplier so its ghost
+            // integrator runs at our effective speed from the very first frame (the
+            // host defaults `_guestMoveMult` to 1, so this also covers a fresh run).
+            this.coopSession.sendHeroStat({ t: 'heroStat', moveMult: this.heroController?.getMoveSpeedMultiplier() ?? 1 });
         } else {
             // host: wire EnemyManager hooks. enemyManager is constructed
             // in startRun; store closures — they capture `this` so the actual
@@ -2150,6 +2165,9 @@ export class SurvivorsGameplayState implements GameState {
             };
             // M4-12: keep the latest guest hero summary for run-over aggregation.
             this.coopSession.onRunSummary = (m) => { this._guestSummary = m.hero; };
+            // P6: track the guest's move-speed multiplier (CHANGE-only) so the ghost
+            // integrator runs at the guest's effective speed (move-speed gear).
+            this.coopSession.onHeroStat = (m) => { this._guestMoveMult = m.moveMult; };
         }
     }
 
@@ -2751,6 +2769,7 @@ export class SurvivorsGameplayState implements GameState {
         this.guestHeroHp = 0;
         this.guestHeroMaxHp = 0;
         this.guestHeroAlive = true;
+        this._guestMoveMult = 1;    // P6: reset the host-tracked guest move multiplier
         this._spectating = false;   // M4-11
         this.hideDownedBanner();
         this._runEnded = false;     // M4-11
@@ -3602,6 +3621,11 @@ export class SurvivorsGameplayState implements GameState {
                         this.heroController.updateMoveSpeed(
                             this.playerStats.moveSpeedMultiplier * this.runPerks.moveSpeedMultiplier,
                         );
+                        // P6 (guest): this perk bumps move speed OUTSIDE applyLevelBonuses,
+                        // so push the new multiplier to the host's ghost integrator too.
+                        if (this.coopSession?.role === 'guest') {
+                            this.coopSession.sendHeroStat({ t: 'heroStat', moveMult: this.heroController.getMoveSpeedMultiplier() });
+                        }
                     }
                 },
             },
@@ -3794,6 +3818,14 @@ export class SurvivorsGameplayState implements GameState {
         this.heroController?.updateMoveSpeed(ps.moveSpeedMultiplier * this.runPerks.moveSpeedMultiplier);
         this.heroController?.updateBasicAttackRange(ps.attackRangeMultiplier * this.runPerks.attackRangeMultiplier);
         this.heroController?.updateBasicAttackSpeed(ps.basicAttackSpeedMultiplier);
+
+        // P6 (guest): a level-up or equipment change just re-pushed move speed — tell
+        // the host its NEW value (CHANGE-only, never per frame) so the host integrates
+        // our ghost at the same effective speed our local prediction uses. Read the
+        // controller's pushed multiplier so it's byte-identical to updateMoveSpeed's arg.
+        if (this.coopSession?.role === 'guest' && this.heroController) {
+            this.coopSession.sendHeroStat({ t: 'heroStat', moveMult: this.heroController.getMoveSpeedMultiplier() });
+        }
     }
 
     /** Lightweight, allocation-free level-up feedback (flash the level pill + log

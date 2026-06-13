@@ -1,6 +1,6 @@
 import type { NetClient } from '../../net/NetClient';
 import { PoseBuffer, type Pose } from '../../net/Interpolation';
-import type { SnapshotMsg, SpawnMsg, DeathMsg, DamageReportMsg, DamageResultMsg, InputMsg, RunSummaryMsg, RunOverMsg, FxMsg, RewardMsg } from '../../net/Protocol';
+import type { SnapshotMsg, SpawnMsg, DeathMsg, DamageReportMsg, DamageResultMsg, InputMsg, RunSummaryMsg, RunOverMsg, FxMsg, RewardMsg, HeroStatMsg } from '../../net/Protocol';
 import { applyDelta, type SnapshotDelta } from '../../net/SnapshotDelta';
 
 /** One ring entry: a sent input plus the LOCAL frame dt it was simulated with.
@@ -71,6 +71,8 @@ export class CoopSession {
     onFx?:            (msg: FxMsg)            => void;
     /** Guest: a per-player gold reward for a guest-attributed kill (host → guest). */
     onReward?:        (msg: RewardMsg)        => void;
+    /** Host: the guest's move-speed multiplier changed (P6 — drives the ghost speed). */
+    onHeroStat?:      (msg: HeroStatMsg)      => void;
     // M4-12: host receives the guest's periodic hero summary; guest receives the
     // host's authoritative run-over (both heroes) to render the 2-column game-over.
     onRunSummary?:    (msg: RunSummaryMsg)    => void;
@@ -116,6 +118,7 @@ export class CoopSession {
         this.client.onPeerRejoined  = () => { this.onPeerRejoined?.(); };
         this.client.onFx            = (m) => { this.onPeerTraffic?.(); this.onFx?.(m); };
         this.client.onReward        = (m) => { this.onPeerTraffic?.(); this.onReward?.(m); };
+        this.client.onHeroStat      = (m) => { this.onPeerTraffic?.(); this.onHeroStat?.(m); };
         // M4 host-side: keep only the newest guest input (drop out-of-order/stale).
         // M6 D1 fix: a seq far BELOW the highest applied one is not a reorder — the
         // guest restarted its input stream (fresh counter after drop+resume).
@@ -246,6 +249,11 @@ export class CoopSession {
     /** Host: send a per-player gold reward for a guest-attributed kill. */
     sendReward(m: RewardMsg): void {
         this.client.sendReward(m);
+    }
+
+    /** Guest: report my current move-speed multiplier to the host (CHANGE-only). */
+    sendHeroStat(m: HeroStatMsg): void {
+        this.client.sendHeroStat(m);
     }
 
     // ── M3: guest-side accessor ──────────────────────────────────────────────

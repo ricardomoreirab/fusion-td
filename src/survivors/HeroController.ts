@@ -503,6 +503,14 @@ export class HeroController {
         this.externalSlowUntil = this.elapsedTime + durationS;
     }
 
+    /** The pushed move-speed multiplier (playerStats × runPerks), EXCLUDING the
+     *  transient boss-slow term. This is the value `update()` integrates input with
+     *  (modulo slow), so the co-op guest reports it to the host (P6) and the host
+     *  scales its ghost integrator by it → host & guest movement math match. */
+    public getMoveSpeedMultiplier(): number {
+        return this.moveSpeedMultiplier;
+    }
+
     /** Current effective move speed: base × shop/level multiplier × active boss slow.
      *  This is exactly the speed update() integrates input with — the co-op guest
      *  passes it to the input replay so the replayed prediction matches the local

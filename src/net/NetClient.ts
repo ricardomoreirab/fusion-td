@@ -1,4 +1,4 @@
-import { decode, encode, type HeroStateMsg, type NetMessage, type NetRole, type SnapshotMsg, type SpawnMsg, type DeathMsg, type DamageReportMsg, type DamageResultMsg, type InputMsg, type RunSummaryMsg, type RunOverMsg, type FxMsg, type RewardMsg } from './Protocol';
+import { decode, encode, type HeroStateMsg, type NetMessage, type NetRole, type SnapshotMsg, type SpawnMsg, type DeathMsg, type DamageReportMsg, type DamageResultMsg, type InputMsg, type RunSummaryMsg, type RunOverMsg, type FxMsg, type RewardMsg, type HeroStatMsg } from './Protocol';
 import type { SnapshotDelta } from './SnapshotDelta';
 import { encodeSnapshot, encodeSnapshotDelta, decodeBinaryMessage } from './SnapshotBinary';
 import type { IncomingMessage, NetTransport } from './NetTransport';
@@ -36,6 +36,8 @@ export class NetClient {
     onFx?:            (msg: FxMsg)            => void;
     // Per-player gold: host → guest reward delta for a guest-attributed kill.
     onReward?:        (msg: RewardMsg)        => void;
+    // P6: guest → host move-speed multiplier (CHANGE-only) for the ghost integrator.
+    onHeroStat?:      (msg: HeroStatMsg)      => void;
 
     constructor(
         private transport: NetTransport,
@@ -109,6 +111,12 @@ export class NetClient {
 
     // Per-player gold reward — reliable 'event' channel (gold must not be dropped).
     sendReward(m: RewardMsg): void {
+        this.transport.send('event', encode(m));
+    }
+
+    // P6: guest move-speed multiplier — reliable 'event' channel (CHANGE-only;
+    // a dropped update would leave the host integrating the ghost at a stale speed).
+    sendHeroStat(m: HeroStatMsg): void {
         this.transport.send('event', encode(m));
     }
 
@@ -194,6 +202,9 @@ export class NetClient {
                 break;
             case 'reward':
                 this.onReward?.(msg);
+                break;
+            case 'heroStat':
+                this.onHeroStat?.(msg);
                 break;
             case 'hello':
                 break;

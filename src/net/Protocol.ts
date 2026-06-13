@@ -88,6 +88,16 @@ export interface RewardMsg { t: 'reward'; heroId: number; gold: number }
  *  packed InputButtons bitfield (see src/net/InputButtons.ts). */
 export interface InputMsg { t: 'input'; seq: number; dx: number; dz: number; buttons: number }
 
+/** Guest → host: the guest's current move-speed multiplier (CHANGE-only, NOT per
+ *  frame — equipment/level rarely change). The host integrates the guest ghost at
+ *  CHAMP_BASE_SPEED × moveMult so its authoritative sim of the guest matches the
+ *  guest's own local prediction (which integrates at the same scaled speed) →
+ *  input-replay reconciliation residual stays ≈ 0 for move-speed gear. `moveMult`
+ *  is the SAME value the guest pushes into HeroController.updateMoveSpeed
+ *  (playerStats.moveSpeedMultiplier × runPerks.moveSpeedMultiplier), excluding the
+ *  transient boss-slow term (already documented as a lerp-absorbed divergence). */
+export interface HeroStatMsg { t: 'heroStat'; moveMult: number }
+
 // M5-7: delta-compressed snapshot. Defined in SnapshotDelta.ts (with its codec);
 // imported type-only here so it joins the NetMessage union + decode tag set.
 import type { SnapshotDelta } from './SnapshotDelta';
@@ -134,13 +144,13 @@ export type NetMessage =
     | HelloMsg | PeerLeftMsg | PeerRejoinedMsg | PingMsg | PongMsg | HeroStateMsg
     | SnapshotMsg | SpawnMsg | DeathMsg | DamageReportMsg | DamageResultMsg
     | WaveStartMsg | WaveClearMsg | InputMsg | RequestStateMsg
-    | RunSummaryMsg | RunOverMsg | SnapshotDelta | FxMsg | RewardMsg;
+    | RunSummaryMsg | RunOverMsg | SnapshotDelta | FxMsg | RewardMsg | HeroStatMsg;
 
 const KNOWN_TAGS = new Set([
     'hello', 'peer-left', 'peer-rejoined', 'ping', 'pong', 'heroState',
     'snapshot', 'spawn', 'death', 'damageReport', 'damageResult',
     'wave-start', 'wave-clear', 'input', 'requestState',
-    'runSummary', 'runOver', 'snapshotDelta', 'fx', 'reward',
+    'runSummary', 'runOver', 'snapshotDelta', 'fx', 'reward', 'heroStat',
 ]);
 
 export function encode(msg: NetMessage): string {
