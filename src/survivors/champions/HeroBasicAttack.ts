@@ -373,11 +373,10 @@ export class HeroBasicAttack {
         }
 
         this.applyEnchantments(e, fromPos, enemies);
-        // Item-effect hit hook — host/single-player only (mirrors the projectile
-        // path's guard; the co-op guest routes damage via damageRouter).
-        if (!this.damageRouter) {
-            this.onHitCallback?.(e, dmg);
-        }
+        // Item-effect hit hook — fires on host/solo AND the co-op guest (each client
+        // runs its OWN item effects; the primary hit already routed via damageRouter
+        // above). Pre-crit `dmg`, identical to the solo path, for parity.
+        this.onHitCallback?.(e, dmg);
     }
 
     /** Apply full basic-attack hits to every enemy within `radius` of `center`.
@@ -782,11 +781,8 @@ export class HeroBasicAttack {
                 if (this.powerSlots) {
                     this.applyEnchantments(hitEnemy, f.heroPos, f.allEnemies);
                 }
-                // Item-effect hit hook — host/single-player only (the co-op guest
-                // routes damage via damageRouter and must not run item effects).
-                if (!this.damageRouter) {
-                    this.onHitCallback?.(hitEnemy, f.capturedDamage);
-                }
+                // Item-effect hit hook — host/solo AND co-op guest (pre-crit, parity).
+                this.onHitCallback?.(hitEnemy, f.capturedDamage);
             }
             releaseProjectile(f.poolKey, proj);
             return false;

@@ -1218,14 +1218,13 @@ export class SurvivorsGameplayState implements GameState {
         this.hud.setOnOpenCharacter(() => this.openCharacter());
         this.updateInventoryHud(); // populate + show the always-visible strip
 
-        if (solo) {
-            // Combat-event hooks (deliberately NOT wired in co-op — the guest's
-            // hit/hurt paths are asymmetric and would desync the host). Deferred
-            // to a later phase in the guest-safe form.
-            this.heroController.setOnHurt((amount) => this.itemEffects?.onHeroHurt(amount));
-            this.heroController.getBasicAttack()?.setOnHit((enemy, dmg) =>
-                this.itemEffects?.onBasicHit(enemy, dmg));
-        }
+        // Combat-event hooks — wired for host/solo AND co-op guest. On the HOST
+        // setOnHurt fires when the host's hero is hit (thorns/chrono). On the GUEST
+        // the local hero's takeDamage is host-driven so setOnHurt won't fire there —
+        // the snapshot HP-drop path fires onHeroHurt for the guest instead.
+        this.heroController.setOnHurt((amount) => this.itemEffects?.onHeroHurt(amount));
+        this.heroController.getBasicAttack()?.setOnHit((enemy, dmg) =>
+            this.itemEffects?.onBasicHit(enemy, dmg));
 
         // Q / E / Space → first / second / third ultimate. Mirrors a tap on the HUD
         // button exactly (Hud.triggerUltimateByIndex shares the same closure as
@@ -3199,7 +3198,13 @@ export class SurvivorsGameplayState implements GameState {
 
                     // While alive: apply authoritative HP + reconcile predicted position.
                     if (meAlive) {
+                        // Apply authoritative HP. A drop = damage taken on the host;
+                        // fire the local item-effect hurt hook (thorns/chrono) so the
+                        // guest's defensive effects match single-player.
+                        const prevHp = this.heroController.getHealth().current;
                         this.heroController.setHealth(guestEntry.hp);
+                        const hurt = prevHp - guestEntry.hp;
+                        if (hurt > 0.1) this.itemEffects?.onHeroHurt(hurt);
                         // M6 E2 input-replay reconciliation — ONCE per new snapshot.
                         // Start from the host-authoritative pose, replay every input the
                         // host hasn't applied yet (seq > ackSeq) through the SAME
