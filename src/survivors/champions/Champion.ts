@@ -23,6 +23,9 @@ export class Champion extends Enemy {
     // Player control
     public controlMode: 'ai' | 'player' = 'ai';
     private playerVelocity: Vector3 = new Vector3(0, 0, 0);
+    /** Last finite hero position; restored if a NaN velocity ever poisons position
+     *  (a non-finite hero position propagates into the camera follow → black screen). */
+    private _lastFiniteHeroPos: Vector3 = new Vector3(0, 0, 0);
 
     // Combat
     private attackDamage: number = 40;
@@ -1252,6 +1255,15 @@ export class Champion extends Enemy {
         // Player-controlled mode: bypass all AI, apply velocity directly
         if (this.controlMode === 'player') {
             this.position.addInPlace(this.playerVelocity.scale(deltaTime));
+            // Self-heal a non-finite position (NaN/Infinity velocity or overflow) before
+            // it propagates into the camera follow and blanks the canvas to black. Only
+            // fires on already-broken state, so single-player behaviour is unchanged.
+            if (!Number.isFinite(this.position.x) || !Number.isFinite(this.position.y) || !Number.isFinite(this.position.z)) {
+                this.position.copyFrom(this._lastFiniteHeroPos);
+                this.playerVelocity.set(0, 0, 0);
+            } else {
+                this._lastFiniteHeroPos.copyFrom(this.position);
+            }
             this.mesh.position.x = this.position.x;
             this.mesh.position.z = this.position.z;
             // GLB ranger sits on its own (feetOffset applied in createChampionMeshFromGLB);

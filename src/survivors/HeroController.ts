@@ -680,13 +680,28 @@ export class HeroController {
         const focus = this.cameraFocusProvider
             ? this.cameraFocusProvider()
             : { x: pos.x, z: pos.z, height: this.cameraHeight };
-        this._scratchCamTarget.set(focus.x, focus.height, focus.z + this.cameraOffsetZ);
-        Vector3.LerpToRef(
-            this.camera.position,
-            this._scratchCamTarget,
-            Math.min(1, deltaTime * 6),
-            this.camera.position,
-        );
+        // Only lerp from a FINITE focus + delta. A NaN/Infinity here would poison
+        // camera.position permanently (LerpToRef of NaN stays NaN forever), making
+        // the view matrix NaN → every mesh clips out → the canvas blanks to the
+        // near-black clear color: a sticky black screen that never recovers. We keep
+        // _scratchCamTarget at its last finite value so recovery has somewhere to go.
+        const ft = Number.isFinite;
+        if (ft(focus.x) && ft(focus.height) && ft(focus.z) && ft(deltaTime)) {
+            this._scratchCamTarget.set(focus.x, focus.height, focus.z + this.cameraOffsetZ);
+            Vector3.LerpToRef(
+                this.camera.position,
+                this._scratchCamTarget,
+                Math.min(1, deltaTime * 6),
+                this.camera.position,
+            );
+        }
+        // If the position was already poisoned (or focus was non-finite this frame),
+        // snap back to the last finite follow target so rendering never goes dark.
+        const cp = this.camera.position;
+        if (!ft(cp.x) || !ft(cp.y) || !ft(cp.z)) {
+            console.error('[camera] non-finite hero-follow position — recovered to last finite target');
+            cp.copyFrom(this._scratchCamTarget);
+        }
 
         // Shake is applied *after* the lerp — otherwise the lerp's smoothing
         // eats the per-frame jitter and the shake reads as ~1 pixel of motion.

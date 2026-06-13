@@ -7,6 +7,7 @@ import { AssetManager } from './AssetManager';
 import { StateManager } from './StateManager';
 import { PauseScreen } from '../shared/ui/PauseScreen';
 import { PALETTE } from './rendering/StyleConstants';
+import { evaluateRenderHealth, isFiniteVec3, type RenderHealthSnapshot } from './renderHealth';
 
 // Rate-limited logger for per-frame update/render exceptions. The render loop
 // keeps running (a thrown frame must not permanently black/freeze the canvas),
@@ -48,6 +49,19 @@ export class Game {
     private renderPipeline: DefaultRenderingPipeline | null = null;
     private glowLayer: GlowLayer | null = null;
     private postFxDefaults = { bloomWeight: 0.4, bloomKernel: 64, glowIntensity: 0.4 };
+
+    // ── Render-health watchdog state ─────────────────────────────────────────
+    // Guarantees a pure-black canvas can never persist silently. See renderHealth.ts
+    // for the two failure classes (GPU context loss; NaN camera matrix) this guards.
+    private _contextLost = false;
+    private _contextLostAt = 0;
+    private _lastRenderOkAt = 0;
+    private _lastWatchdogTickAt = 0;
+    private _renderLoopStarted = false;
+    private _reloadScheduled = false;
+    private _blackoutBanner: HTMLDivElement | null = null;
+    /** Last finite active-camera position; restored if the camera transform goes NaN. */
+    private _lastGoodCamPos = new Vector3(0, 20, -20);
 
     constructor(canvasId: string) {
         // Lightweight constructor — only resolve the canvas. Everything else
@@ -99,6 +113,11 @@ export class Game {
         // Async engine creation (WebGPU when available, WebGL otherwise).
         this.engine = await this.createEngine();
 
+        // Wire GPU context-loss recovery BEFORE anything renders. Without this, a lost
+        // context latches Babylon's internal flag and the whole render loop stops while
+        // input/HUD keep working — the reported "black screen, game still running".
+        this.installContextLossRecovery();
+
         // Create the main scene (mesh-map options are read-only after construction).
         this.scene = new Scene(this.engine, {
             useGeometryUniqueIdsMap: true,
@@ -132,7 +151,13 @@ export class Game {
             
             // Start with the menu state
             this.stateManager.changeState('menu');
-            
+
+            // Render-health watchdog is now meaningful: mark the loop started and seed
+            // the last-good-render timestamp so the watchdog has a fresh baseline.
+            this._renderLoopStarted = true;
+            this._lastRenderOkAt = performance.now();
+            if (!this.gpuUnavailable) this.installRenderWatchdog();
+
             // Start the single, permanent render loop. It is installed ONCE here
             // and never replaced — pause()/resume() only toggle _isPaused. This
             // keeps the update/render try/catch guards and the skipRenderThisFrame
@@ -184,10 +209,14 @@ export class Game {
         let rendered = false;
         if (this.skipRenderThisFrame) {
             this.skipRenderThisFrame = false;
-        } else {
+        } else if (this.guardActiveCamera()) {
             rendered = true;
             try {
                 this.scene.render();
+                // Stamp a successful present so the render-health watchdog knows the
+                // canvas is alive. A NaN camera that renders "successfully" into black
+                // is caught by guardActiveCamera above, not here.
+                this._lastRenderOkAt = performance.now();
             } catch (err) {
                 logLoopError('render', err);
             }
@@ -199,6 +228,116 @@ export class Game {
             const renderMs = rendered ? Math.round(performance.now() - tAfterUpdate) : 0;
             console.error(`[freeze:frame] ${Math.round(total)}ms (update=${updateMs}ms render=${renderMs}ms)`);
         }
+    }
+
+    /**
+     * Cross-cutting guard against a NaN/Infinity camera transform — one of the two
+     * suspects for the "ranger black screen". The hero-follow camera lerps its
+     * position every frame; a single non-finite value makes the view matrix NaN,
+     * which clips EVERY mesh (even the never-culled sky dome) and leaves the
+     * near-black clear color = a permanent, sticky black canvas that does NOT throw
+     * (so the render try/catch above can't catch it). Detect it before it reaches
+     * the GPU: restore the last finite camera position and skip this frame so the
+     * canvas keeps its last good image. Returns false when it had to recover.
+     */
+    private guardActiveCamera(): boolean {
+        const cam = this.scene.activeCamera;
+        if (!cam) return false;
+        const p = cam.position;
+        if (!isFiniteVec3(p.x, p.y, p.z)) {
+            logLoopError('camera', new Error('non-finite activeCamera.position — recovered'));
+            p.copyFrom(this._lastGoodCamPos);
+            return false;
+        }
+        this._lastGoodCamPos.copyFrom(p);
+        return true;
+    }
+
+    /**
+     * Wire GPU context-loss recovery. We can't prevent a lost WebGL/WebGPU context
+     * (driver reset, GPU-process crash, OOM), but we make it never silently permanent:
+     * surface a banner, let Babylon attempt its restore, and let the watchdog hard-
+     * reload if it can't recover within the grace window (see renderHealth.ts).
+     */
+    private installContextLossRecovery(): void {
+        this.engine.onContextLostObservable.add(() => {
+            console.error('[engine] GPU context LOST — attempting recovery');
+            this._contextLost = true;
+            this._contextLostAt = performance.now();
+            this.showBlackoutBanner('Rendering lost — attempting to recover…');
+        });
+        this.engine.onContextRestoredObservable.add(() => {
+            console.info('[engine] GPU context restored');
+            this._contextLost = false;
+            this._contextLostAt = 0;
+            this._lastRenderOkAt = performance.now();
+            this.hideBlackoutBanner();
+            this.updateOrthoBounds();
+        });
+        // A WebGL fallback engine needs the loss event default-prevented for the
+        // browser to even attempt firing 'webglcontextrestored'. Harmless under
+        // WebGPU (which never fires this DOM event).
+        this.canvas.addEventListener('webglcontextlost', (e) => e.preventDefault(), false);
+    }
+
+    /**
+     * Render-health watchdog. Runs on a SEPARATE setInterval, NOT inside the rAF
+     * render loop, because the leading black-screen cause (context loss) freezes the
+     * rAF callback itself — an in-loop check would never run. The recovery decision
+     * is the pure evaluateRenderHealth(); its conservative gates make a backgrounded
+     * or main-thread-throttled tab impossible to mistake for a render stall.
+     */
+    private installRenderWatchdog(): void {
+        const INTERVAL_MS = 1_000;
+        this._lastWatchdogTickAt = performance.now();
+        setInterval(() => {
+            const now = performance.now();
+            const tickGap = now - this._lastWatchdogTickAt;
+            this._lastWatchdogTickAt = now;
+
+            const snapshot: RenderHealthSnapshot = {
+                running: this._renderLoopStarted,
+                contextLost: this._contextLost,
+                contextLostForMs: this._contextLost ? now - this._contextLostAt : 0,
+                msSinceLastRenderOk: now - this._lastRenderOkAt,
+                visible: typeof document === 'undefined' || document.visibilityState === 'visible',
+                paused: this._isPaused,
+                // If our own timer fired late, the main thread was blocked/throttled, so
+                // msSinceLastRenderOk is inflated by the same block — don't trust it.
+                jsClockHealthy: tickGap < INTERVAL_MS * 3,
+            };
+
+            const action = evaluateRenderHealth(snapshot);
+            if (action === 'reload') {
+                if (this._reloadScheduled) return;
+                this._reloadScheduled = true;
+                console.error('[render-watchdog] no successful frame — reloading to recover');
+                this.showBlackoutBanner('Rendering could not recover — reloading…');
+                setTimeout(() => { try { location.reload(); } catch { /* non-browser env */ } }, 700);
+            } else if (action === 'warn') {
+                this.showBlackoutBanner(this._contextLost
+                    ? 'Rendering lost — attempting to recover…'
+                    : 'Rendering stalled — recovering…');
+            } else if (!this._reloadScheduled) {
+                this.hideBlackoutBanner();
+            }
+        }, INTERVAL_MS);
+    }
+
+    private showBlackoutBanner(message: string): void {
+        if (!this._blackoutBanner) {
+            const div = document.createElement('div');
+            div.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;' +
+                'background:#7a1f1f;color:#fff;font:14px sans-serif;padding:10px 16px;text-align:center;';
+            document.body.appendChild(div);
+            this._blackoutBanner = div;
+        }
+        this._blackoutBanner.textContent = message;
+        this._blackoutBanner.style.display = 'block';
+    }
+
+    private hideBlackoutBanner(): void {
+        if (this._blackoutBanner) this._blackoutBanner.style.display = 'none';
     }
 
     public resize(): void {
