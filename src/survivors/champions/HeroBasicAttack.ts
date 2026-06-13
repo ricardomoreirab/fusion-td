@@ -3,6 +3,7 @@ import { Champion } from './Champion';
 import { PowerSlotManager } from '../powers/PowerSlotManager';
 import { EnchantmentHitContext, PowerElement } from '../powers/PowerDefinitions';
 import { Enemy } from '../enemies/Enemy';
+import { rollCrit } from '../enemies/critRoll';
 import { PlayerStats } from '../PlayerStats';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
 import { acquireProjectile, releaseProjectile } from '../../engine/rendering/ProjectilePool';
@@ -90,7 +91,7 @@ export class HeroBasicAttack {
      * When set (co-op guest), a hit reports to the host instead of mutating enemy HP.
      * Return value ignored; the caller still plays local hit VFX (swing ring / arc).
      */
-    public damageRouter: ((enemy: Enemy, amount: number, element: string) => void) | null = null;
+    public damageRouter: ((enemy: Enemy, amount: number, element: PowerElement, isCrit: boolean) => void) | null = null;
 
     constructor(
         scene: Scene,
@@ -345,8 +346,16 @@ export class HeroBasicAttack {
      *  Whirlwind ticks so both carry the exact same hit modifiers. */
     private applyHit(e: Enemy, fromPos: Vector3, enemies: Enemy[]): void {
         const dmg = this.effectiveDamage;
-        if (this.damageRouter) this.damageRouter(e, dmg, 'physical');
-        else e.takeDamage(dmg, 'physical');
+        if (this.damageRouter) {
+            // Co-op guest: roll crit client-side (using the global provider, same
+            // as the solo path's Enemy.takeDamage would) and send the post-crit
+            // number + flag to the host, which applies it verbatim.
+            const cp = Enemy.critProvider?.();
+            const rolled = rollCrit(dmg, cp ?? undefined, Math.random);
+            this.damageRouter(e, rolled.amount, 'physical', rolled.isCrit);
+        } else {
+            e.takeDamage(dmg, 'physical');
+        }
 
         const lifestealPct = this.playerStats?.lifestealPct ?? 0;
         if (lifestealPct > 0 && this.healCallback) {
@@ -745,7 +754,12 @@ export class HeroBasicAttack {
             });
             // Co-op guest: always route to host, never mutate local HP.
             if (this.damageRouter) {
-                if (hitEnemy) this.damageRouter(hitEnemy, f.capturedDamage, 'physical');
+                // Roll crit client-side; send the post-crit number + flag to the host.
+                if (hitEnemy) {
+                    const cp = Enemy.critProvider?.();
+                    const rolled = rollCrit(f.capturedDamage, cp ?? undefined, Math.random);
+                    this.damageRouter(hitEnemy, rolled.amount, 'physical', rolled.isCrit);
+                }
                 // guest: never local takeDamage on a shared enemy
             } else {
                 target.takeDamage(f.capturedDamage, 'physical');
