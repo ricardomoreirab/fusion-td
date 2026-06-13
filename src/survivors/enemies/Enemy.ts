@@ -4,6 +4,7 @@ import { EnemyType, StatusEffect } from '../GameTypes';
 import { PowerElement } from '../powers/PowerDefinitions';
 import { StatusStacks, STATUS_TUNING, type RichStatusKind } from '../powers/StatusModel';
 import { type TargetProvider, pickNearestAlive } from './nearestTarget';
+import { rollCrit } from './critRoll';
 import { isCachedMaterial, getCachedMaterial } from '../../engine/rendering/MaterialCache';
 import type { SnapshotEnemy } from '../../net/Protocol';
 
@@ -1393,29 +1394,29 @@ export class Enemy {
      * @param amount The amount of damage to apply
      * @returns True if the enemy died from this damage
      */
-    public takeDamage(amount: number, element?: PowerElement): boolean {
+    public takeDamage(amount: number, element?: PowerElement, reportedCrit?: boolean): boolean {
         if (!this.alive) return false;
 
+        // Roll (or accept) crit FIRST. On the co-op guest, critProvider reads the
+        // GUEST's stats → guest crits at its own rate; the post-crit number is what
+        // gets redirected to the host (which re-applies it via reportedCrit).
+        // DoT ticks and chained sub-hits all flow through here, so every damage
+        // source — basic attack, power, enchantment — gets one crit roll per call.
+        const cp = Enemy.critProvider?.() ?? undefined;
+        const rolled = rollCrit(amount, cp, Math.random, reportedCrit);
+        let actualDamage = rolled.amount;
+        const isCrit = rolled.isCrit;
+
         // Co-op guest (M4-9): render-only enemies are host-authoritative. Route the
-        // hit to the host by id and apply NOTHING locally — the host rolls crit /
-        // resistance, mutates HP, and echoes a damageResult (the number). This
-        // catches powers / abilities / DoT uniformly; basic attacks route earlier via
+        // POST-CRIT hit to the host by id and apply NOTHING locally — the host
+        // applies the number verbatim (reportedCrit) plus its own resistance /
+        // amplifier, mutates HP, and echoes a damageResult. This catches powers /
+        // abilities / DoT uniformly; basic attacks route earlier via
         // HeroBasicAttack.damageRouter (they never reach takeDamage on the guest).
         const redirect = Enemy.guestDamageRedirect;
         if (redirect) {
-            redirect(this.id, amount, element);
+            redirect(this.id, actualDamage, element, isCrit);
             return false;
-        }
-
-        // Roll for crit using the global provider (player run stats). DoT ticks
-        // and chained sub-hits all flow through here, so every damage source —
-        // basic attack, power, enchantment — gets one crit roll per call.
-        let isCrit = false;
-        let actualDamage = amount;
-        const cp = Enemy.critProvider?.();
-        if (cp && cp.chance > 0 && Math.random() < cp.chance) {
-            isCrit = true;
-            actualDamage *= cp.damageMult;
         }
 
         // Apply damage resistance if it exists

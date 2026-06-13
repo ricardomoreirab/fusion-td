@@ -1987,13 +1987,14 @@ export class SurvivorsGameplayState implements GameState {
             // load awaits resolved, leaving the guest unable to acquire a target).
             const ba = this.heroController?.getBasicAttack();
             if (ba) {
-                ba.damageRouter = (enemy, amount, element) => {
+                ba.damageRouter = (enemy, amount, element, isCrit) => {
                     this.coopSession?.sendDamageReport({
                         t: 'damageReport',
                         enemyId: enemy.id,
                         amount,
                         element,
                         sourceHeroId: 1,
+                        isCrit,
                     });
                 };
             }
@@ -2001,13 +2002,14 @@ export class SurvivorsGameplayState implements GameState {
             // call enemy.takeDamage directly (dozens of sites); this single
             // redirect catches them so the guest's powers actually hurt the
             // shared enemies instead of mutating render-only stubs.
-            Enemy.guestDamageRedirect = (enemyId, amount, element) => {
+            Enemy.guestDamageRedirect = (enemyId, amount, element, isCrit) => {
                 this.coopSession?.sendDamageReport({
                     t: 'damageReport',
                     enemyId,
                     amount,
                     element: element ?? 'physical',
                     sourceHeroId: 1,
+                    isCrit,
                 });
             };
             // M4-9 review fix: route guest CC/DoT (freeze/stun/burn/chill/curse)
@@ -2084,7 +2086,10 @@ export class SurvivorsGameplayState implements GameState {
                 if (e) {
                     // takeDamage fires Enemy.onDamageCallback, which broadcasts the
                     // damageResult to the guest centrally (M4-9) — no per-report echo.
-                    if (m.amount > 0) e.takeDamage(m.amount, m.element as PowerElement);
+                    // Host applies the acting client's POST-CRIT amount verbatim:
+                    // pass m.isCrit as reportedCrit so takeDamage does NOT re-roll
+                    // (the guest already rolled crit at ITS own rate).
+                    if (m.amount > 0) e.takeDamage(m.amount, m.element as PowerElement, m.isCrit ?? false);
                     // Apply routed CC/DoT host-side (guard amount>0 above so a
                     // pure-status report doesn't roll a 0-damage crit + echo).
                     if (m.status) {
