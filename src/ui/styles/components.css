@@ -435,6 +435,10 @@
 .shop-card:active { transform: scale(0.97); }
 .shop-card--poor { opacity: 0.55; filter: saturate(0.6); }
 .shop-card--poor .shop-card__price { color: var(--c-blood); }
+/* Top-tier emphasis: brighter accent frame + glow (accent comes from RARITY_COLOR). */
+.shop-card--unique { box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 0 0 1px var(--accent), 0 0 14px -2px var(--accent); }
+.shop-card--mythic { box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 0 0 2px var(--accent), 0 0 22px -1px var(--accent); }
+.shop-card--mythic .shop-card__kind { color: var(--accent); letter-spacing: 0.14em; }
 .shop-card__kind {
   font-family: var(--ff-body); font-weight: 800; font-size: var(--fs-100);
   text-transform: uppercase; letter-spacing: 0.1em; color: var(--accent);
