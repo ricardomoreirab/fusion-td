@@ -8,6 +8,7 @@ import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '.
 import { buildBarbarianMesh } from './BarbarianBuilder';
 import { ELEMENT_COLOR, blendElements } from '../ElementColors';
 import { PowerElement } from '../powers/PowerDefinitions';
+import { MythicFxConfig } from '../items/ItemTypes';
 
 /**
  * Champion — a friendly boss-like unit that walks the path in reverse,
@@ -74,6 +75,11 @@ export class Champion extends Enemy {
     // (e.g. Aulus' '*_weapon' material). Element tint drives their emissive
     // directly; baseEmissive restores the resting look when no elements are active.
     private glbWeaponMats: { mat: StandardMaterial; baseEmissive: Color3 }[] = [];
+
+    // Mythic weapon: ONE persistent aura particle system at the weapon bone.
+    // Keyed by style+color so it only rebuilds when the equipped mythic changes.
+    private mythicAuraPs: ParticleSystem | null = null;
+    private mythicAuraKey: string | null = null;
 
     // Barbarian berserker animated parts
     private barbKiltFlaps: Mesh[] = [];
@@ -1881,6 +1887,13 @@ export class Champion extends Enemy {
             ps.dispose(false);
         }
         this.elementAuraPs.clear();
+        // Mythic weapon aura: ONE persistent PS — dispose(false) keeps the shared texture.
+        if (this.mythicAuraPs) {
+            this.mythicAuraPs.stop();
+            this.mythicAuraPs.dispose(false);
+            this.mythicAuraPs = null;
+        }
+        this.mythicAuraKey = null;
         // GLB weapon tint: restore the resting emissive (the cloned material
         // itself is freed by the GLB teardown).
         for (const w of this.glbWeaponMats) {
@@ -2054,6 +2067,46 @@ export class Champion extends Enemy {
             for (const b of this.stormBolts) b.setEnabled(stormActive);
             if (stormActive) this.flickerStormBolts(this.lastDeltaTime);
         }
+    }
+
+    /** Persistent mythic weapon aura at the weapon bone. Idempotent: rebuilds
+     *  only when the config changes; null tears it down. ONE particle system;
+     *  dispose(false) keeps the shared status-effect texture singleton. */
+    public setMythicAura(cfg: MythicFxConfig | null): void {
+        const key = cfg ? `${cfg.style}_${cfg.auraColor}` : null;
+        if (key === this.mythicAuraKey) return;
+        this.mythicAuraKey = key;
+        if (this.mythicAuraPs) { this.mythicAuraPs.stop(); this.mythicAuraPs.dispose(false); this.mythicAuraPs = null; }
+        if (!cfg) return;
+        const anchor = this.getWeaponAnchor();
+        if (!anchor) return;
+        const c = Color3.FromHexString(cfg.auraColor);
+        const ps = new ParticleSystem('mythicAura', 64, this.scene);
+        ps.emitter = anchor;
+        ps.particleTexture = getStatusEffectTexture(this.scene);
+        ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
+        ps.color1 = new Color4(c.r, c.g, c.b, 1);
+        ps.color2 = new Color4(c.r * 0.7, c.g * 0.7, c.b * 0.7, 1);
+        ps.colorDead = new Color4(c.r * 0.15, c.g * 0.15, c.b * 0.15, 0);
+        ps.minEmitBox = new Vector3(-0.3, -0.05, -0.3);
+        ps.maxEmitBox = new Vector3(0.3, 0.5, 0.3);
+        ps.gravity = Vector3.Zero();
+        switch (cfg.style) {
+            case 'embers':
+                ps.minSize = 0.18; ps.maxSize = 0.42; ps.minLifeTime = 0.4; ps.maxLifeTime = 0.9; ps.emitRate = 50;
+                ps.direction1 = new Vector3(-0.3, 0.7, -0.3); ps.direction2 = new Vector3(0.3, 1.4, 0.3);
+                ps.minEmitPower = 0.5; ps.maxEmitPower = 1.2; break;
+            case 'ribbon':
+                ps.minSize = 0.10; ps.maxSize = 0.24; ps.minLifeTime = 0.15; ps.maxLifeTime = 0.4; ps.emitRate = 70;
+                ps.direction1 = new Vector3(-1, -0.4, -1); ps.direction2 = new Vector3(1, 1, 1);
+                ps.minEmitPower = 1.2; ps.maxEmitPower = 2.4; break;
+            case 'motes':
+                ps.minSize = 0.16; ps.maxSize = 0.34; ps.minLifeTime = 0.8; ps.maxLifeTime = 1.5; ps.emitRate = 28;
+                ps.direction1 = new Vector3(-0.4, 0.1, -0.4); ps.direction2 = new Vector3(0.4, 0.5, 0.4);
+                ps.minEmitPower = 0.15; ps.maxEmitPower = 0.5; break;
+        }
+        ps.start();
+        this.mythicAuraPs = ps;
     }
 
     private getWeaponAnchor(): Mesh | null {

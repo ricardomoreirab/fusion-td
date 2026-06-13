@@ -3731,6 +3731,10 @@ export class SurvivorsGameplayState implements GameState {
                 this.equipMaxHpApplied = agg.maxHealth;
             }
             this.itemEffects?.setActiveEffects(agg.effects);
+            // Mythic weapon aura: drive off the equipped weapon's rarity (idempotent).
+            const weapon = this.equipment.get('weapon');
+            const mythicFx = weapon?.def.rarity === 'mythic' ? (weapon.def.mythicFx ?? null) : null;
+            this.hero?.setMythicAura(mythicFx);
         }
 
         // Max HP: scale off base, apply only the delta to the hero (and heal it).
