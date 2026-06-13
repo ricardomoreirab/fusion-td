@@ -65,6 +65,8 @@ export interface DamageReportMsg {
     amount: number;
     element: string;
     sourceHeroId: number;
+    /** post-crit flag; acting client rolls, host applies without re-rolling */
+    isCrit?: boolean;
     /** Optional CC/status effect to apply on the host when the hit lands. */
     status?: { kind: string; duration: number; magnitude: number };
     /** Optional knockback to apply on the host (guest-cast Smash etc.).

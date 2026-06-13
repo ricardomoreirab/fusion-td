@@ -172,7 +172,7 @@ export class Enemy {
     protected _curveDropY = 0;
     /** Co-op guest only (M4-9): when set, takeDamage reports the hit to the host by id
      *  and applies nothing locally (host-authoritative). Null on host + single-player. */
-    public static guestDamageRedirect: ((enemyId: number, amount: number, element?: PowerElement) => void) | null = null;
+    public static guestDamageRedirect: ((enemyId: number, amount: number, element?: PowerElement, isCrit?: boolean) => void) | null = null;
     /** Co-op guest only (M4-9 review fix): when set, applyStatusEffect reports the CC/DoT
      *  to the host by id and applies nothing locally. Null on host + single-player. */
     public static guestStatusRedirect: ((enemyId: number, effect: StatusEffect, durationS: number, strength: number) => void) | null = null;
