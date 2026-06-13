@@ -25,6 +25,8 @@ export class PowerSlotManager {
     private castDelayProvider: () => number = () => 0;
     /** Casts waiting for their animation wind-up to reach the release point. */
     private pendingCasts: { slot: PowerSlot; timer: number }[] = [];
+    /** Most recently cast slot — target for the Echo item effect's free recast. */
+    private lastCastSlot: PowerSlot | null = null;
 
     constructor(
         scene: Scene,
@@ -220,6 +222,7 @@ export class PowerSlotManager {
                 const castCtx = this.buildContext();
                 castCtx.element = pending.slot.def.element;
                 pending.slot.def.cast(pending.slot.state, castCtx);
+                this.lastCastSlot = pending.slot;
             }
         }
         // Cooldowns are measured in seconds, so on the vast majority of frames no
@@ -259,6 +262,7 @@ export class PowerSlotManager {
                         if (!ctx) ctx = this.buildContext();
                         ctx.element = slot.def.element;
                         slot.def.cast(slot.state, ctx);
+                        this.lastCastSlot = slot;
                     }
                     // Only a real cast drives the special-attack animation — a slot with
                     // no cast() (a pure tick power) must not retrigger it every cooldown.
@@ -283,9 +287,22 @@ export class PowerSlotManager {
             if (!slot.def.cast) continue;
             ctx.element = slot.def.element;
             slot.def.cast(slot.state, ctx);
+            this.lastCastSlot = slot;
             count++;
         }
         return count;
+    }
+
+    /** Echo item effect: recast the most recently cast power for free — fresh
+     *  context, no cooldown reset, and deliberately NO onCast notification
+     *  (free recasts must not re-trigger cast-driven hooks like Echo itself). */
+    public recastFree(): boolean {
+        const slot = this.lastCastSlot;
+        if (!slot || !this.slots.includes(slot) || !slot.def.cast) return false;
+        const ctx = this.buildContext();
+        ctx.element = slot.def.element;
+        slot.def.cast(slot.state, ctx);
+        return true;
     }
 
     /**
@@ -333,6 +350,7 @@ export class PowerSlotManager {
     /** Dispose all persistent slot data via each slot's def.dispose hook. */
     public dispose(): void {
         this.pendingCasts.length = 0;
+        this.lastCastSlot = null;
         for (const slot of this.slots) {
             this.disposeSlotData(slot);
         }

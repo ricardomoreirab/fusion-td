@@ -80,6 +80,8 @@ export class HeroController {
      *  Camera still follows (so the spectator tracks the surviving teammate). */
     public spectating: boolean = false;
     private onDeathCallback: () => void = () => {};
+    /** Item-effect hook: fired with the post-mitigation damage actually applied. */
+    private onHurtCallback: ((amount: number) => void) | null = null;
 
     // Extra Life (wave-5 boss item): each charge turns the next lethal hit into a
     // full-HP revive plus a timed invulnerability shield instead of death.
@@ -370,6 +372,9 @@ export class HeroController {
         if (this.isDead) return;
         if (this.isInvulnerable || this.shieldTimer > 0 || this.debugInvulnerable) return;
         this.currentHealth -= amount;
+        // Fires before the revive-charge check: `amount` is the pre-revive damage
+        // that landed; a revive may still absorb the lethal outcome below.
+        this.onHurtCallback?.(amount);
         if (this.currentHealth <= 0) {
             // Extra Life: spend a charge to revive at full HP with a timed shield
             // instead of dying. The shield gate above blocks further hits this frame.
@@ -386,6 +391,11 @@ export class HeroController {
             return;
         }
         this.triggerHitReaction(sourcePos);
+    }
+
+    /** Item-effect hook: fired with the post-mitigation damage actually applied. */
+    public setOnHurt(fn: ((amount: number) => void) | null): void {
+        this.onHurtCallback = fn;
     }
 
     /** Grant one Extra Life revive charge (called by RunItems on item pickup). */
@@ -446,9 +456,10 @@ export class HeroController {
         this.basicAttack?.applyAttackHitsInRadius(center, radius);
     }
 
-    /** Increase max HP (and current HP) by amount — used by the Vitality shop item. */
+    /** Adjust max HP by amount (may be negative when equipment is replaced). */
     public addMaxHealth(amount: number): void {
         this.maxHealth += amount;
+        if (amount < 0) this.currentHealth = Math.min(this.currentHealth, this.maxHealth);
     }
 
     /**

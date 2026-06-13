@@ -87,6 +87,51 @@ describe('PowerSlotManager — tick powers', () => {
     });
 });
 
+describe('PowerSlotManager — recastFree (Echo item effect)', () => {
+    // Adapted from the plan's `makeManagerWithCastingDef` placeholder: build a
+    // manager with one enemy in range (so autocast fires) and a cast-spy def,
+    // wired into slot 0 directly like the other suites in this file.
+    function makeManagerWithCastingDef() {
+        const castSpy = vi.fn();
+        const def: PowerDefinition = {
+            id: 'echo_power', name: 'Echo Power', element: 'fire', icon: 'E',
+            baseCooldown: 0.25, baseDamage: 4, baseRange: 2.5, maxLevel: 5, mode: 'autocast',
+            cooldownFor: () => 0.25, damageFor: () => 4, cast: castSpy,
+        };
+        const manager = new PowerSlotManager(
+            scene,
+            () => new Vector3(0, 0, 0),
+            // one "enemy" within range so autocast actually fires
+            () => [{ isAlive: () => true, getPosition: () => new Vector3(1, 0, 0) } as unknown as import('../src/survivors/enemies/Enemy').Enemy],
+        );
+        return { manager, def, castSpy };
+    }
+
+    it('recasts the most recent cast without resetting cooldown or firing onCast', () => {
+        const { manager, def, castSpy } = makeManagerWithCastingDef();
+        const onCast = vi.fn();
+        manager.setOnCast(onCast);
+        manager.getSlots()[0] = { def, state: { level: 1, cooldownRemaining: 0 } };
+
+        // Drive update() until the slot casts once (cooldown ready on first frame).
+        manager.update(0.016);
+        const castsAfterFirst = castSpy.mock.calls.length;
+        const onCastAfterFirst = onCast.mock.calls.length;
+        const cdAfterFirst = manager.getSlots()[0]!.state.cooldownRemaining;
+        expect(castsAfterFirst).toBe(1);
+
+        expect(manager.recastFree()).toBe(true);
+        expect(castSpy.mock.calls.length).toBe(castsAfterFirst + 1);
+        expect(onCast.mock.calls.length).toBe(onCastAfterFirst);      // NOT re-fired
+        expect(manager.getSlots()[0]!.state.cooldownRemaining).toBe(cdAfterFirst);
+    });
+
+    it('returns false when nothing has cast yet', () => {
+        const { manager } = makeManagerWithCastingDef();
+        expect(manager.recastFree()).toBe(false);
+    });
+});
+
 describe('Whirling Blades — per-level blade count', () => {
     const bladeCount = (mgr: PowerSlotManager) =>
         (mgr.getSlots()[0]!.state.data!['blades'] as unknown[]).length;

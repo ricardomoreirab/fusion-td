@@ -1,6 +1,6 @@
 import { el } from '../dom';
 
-export type PillKind = 'hp' | 'wave' | 'level';
+export type PillKind = 'hp' | 'wave' | 'level' | 'gold';
 
 export interface PillController {
   root: HTMLDivElement;

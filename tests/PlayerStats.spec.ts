@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { PlayerStats } from '../src/survivors/PlayerStats';
 
 describe('PlayerStats — economy', () => {
@@ -101,5 +101,33 @@ describe('PlayerStats — survivors multipliers default to neutral (1.0 / 0)', (
         expect(ps.critChance).toBe(0);
         expect(ps.critDamageMultiplier).toBe(1.5);
         expect(ps.bonusMaxHealth).toBe(0);
+    });
+});
+
+describe('equipment economy additions', () => {
+    it('refundGold adds money without feeding the XP sink or earned total', () => {
+        const stats = new PlayerStats(120, 100);
+        const sink = vi.fn();
+        stats.setXpSink(sink);
+        const earnedBefore = stats.getTotalMoneyEarned();
+        stats.refundGold(40);
+        expect(stats.getGold()).toBe(140);
+        expect(sink).not.toHaveBeenCalled();
+        expect(stats.getTotalMoneyEarned()).toBe(earnedBefore);
+    });
+
+    it('spending gold never feeds the XP sink', () => {
+        const stats = new PlayerStats(120, 100);
+        const sink = vi.fn();
+        stats.setXpSink(sink);
+        expect(stats.spendGold(60)).toBe(true);
+        expect(sink).not.toHaveBeenCalled();
+    });
+
+    it('new equipment stat fields default to neutral', () => {
+        const stats = new PlayerStats();
+        expect(stats.basicDamageMultiplier).toBe(1.0);
+        expect(stats.goldGainMultiplier).toBe(1.0);
+        expect(stats.hpRegenPctPerSec).toBe(0);
     });
 });

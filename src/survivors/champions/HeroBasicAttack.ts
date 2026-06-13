@@ -70,6 +70,9 @@ export class HeroBasicAttack {
     /** Wired by HeroController.setPlayerStats — routes lifesteal heals to the hero's REAL HP
      *  (PlayerStats.health is a separate phantom value that the HUD doesn't read). */
     private healCallback: ((amount: number) => void) | null = null;
+    /** Item-effect hook: fired once per enemy actually hit by a basic attack
+     *  (melee swing AND projectile), with the pre-crit damage dealt. */
+    private onHitCallback: ((target: Enemy, damage: number) => void) | null = null;
     private projectileShape: ProjectileShape;
     private queuedSwings: number = 0;
     private queuedSpinTimer: number = 0;
@@ -140,6 +143,12 @@ export class HeroBasicAttack {
     /** Wire the callback that applies lifesteal heals to the hero. */
     public setHealCallback(fn: (amount: number) => void): void {
         this.healCallback = fn;
+    }
+
+    /** Item-effect hook: fired once per enemy actually hit by a basic attack
+     *  (melee swing AND projectile), with the pre-crit damage dealt. */
+    public setOnHit(fn: ((target: Enemy, damage: number) => void) | null): void {
+        this.onHitCallback = fn;
     }
 
     /** Update the effective attack speed. multiplier > 1 = faster. */
@@ -355,6 +364,11 @@ export class HeroBasicAttack {
         }
 
         this.applyEnchantments(e, fromPos, enemies);
+        // Item-effect hit hook — host/single-player only (mirrors the projectile
+        // path's guard; the co-op guest routes damage via damageRouter).
+        if (!this.damageRouter) {
+            this.onHitCallback?.(e, dmg);
+        }
     }
 
     /** Apply full basic-attack hits to every enemy within `radius` of `center`.
@@ -753,6 +767,11 @@ export class HeroBasicAttack {
                 }
                 if (this.powerSlots) {
                     this.applyEnchantments(hitEnemy, f.heroPos, f.allEnemies);
+                }
+                // Item-effect hit hook — host/single-player only (the co-op guest
+                // routes damage via damageRouter and must not run item effects).
+                if (!this.damageRouter) {
+                    this.onHitCallback?.(hitEnemy, f.capturedDamage);
                 }
             }
             releaseProjectile(f.poolKey, proj);

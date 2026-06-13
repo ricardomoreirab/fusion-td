@@ -14,7 +14,9 @@ const ITEM_BY_TIER: Record<number, ItemId> = {
 
 /** Per-stack tuning constants — see spec for rationale. Adjust here, not at call sites. */
 const KNOCKBACK_UNITS_PER_STACK = 1.0;  // world units pushed per hit per stack
-const ATTACK_SPEED_FACTOR       = 2.0;  // multiplier applied once per stack
+/** Exported: applyLevelBonuses() re-folds this per stack on every recompute
+ *  (its `basicAttackSpeedMultiplier = …` assignment would otherwise erase it). */
+export const ATTACK_SPEED_FACTOR = 2.0; // multiplier applied once per stack
 
 export class RunItems {
     private stacks: Record<ItemId, number> = {
@@ -44,8 +46,9 @@ export class RunItems {
     }
 
     /**
-     * Increment the stack for an item and re-apply its effect. Safe to call
-     * repeatedly; PlayerStats fields are recomputed from the new stack count.
+     * Increment the stack for an item and apply its effect. Safe to call
+     * repeatedly; most PlayerStats fields are recomputed from the new stack
+     * count (knockback is incremental — it shares its field with equipment).
      */
     public grant(id: ItemId): void {
         this.stacks[id]++;
@@ -76,7 +79,10 @@ export class RunItems {
                 return;
 
             case 'knockback':
-                this.stats.knockbackOnHit = KNOCKBACK_UNITS_PER_STACK * n;
+                // ADDITIVE on purpose: foldEquipmentStats() delta-swaps this shared field
+                // assuming RunItems only ever +=s it — an assignment here would wipe the
+                // equipment contribution and permanently desync the fold tracker.
+                this.stats.knockbackOnHit += KNOCKBACK_UNITS_PER_STACK;
                 return;
 
             case 'attackSpeed':

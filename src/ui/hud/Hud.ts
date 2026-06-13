@@ -8,6 +8,9 @@ import { makePill, PillController } from '../primitives/Pill';
 import { makeIconSlot, IconSlotController } from '../primitives/IconSlot';
 import { flashClass, onTap } from '../interaction';
 import { cooldownFraction, waveLabel, levelLabel, WaveInfo } from '../format';
+import { GearSlotVM } from '../overlays/CharacterProfile';
+import { SLOT_GLYPH } from '../overlays/slotMeta';
+import { EQUIP_SLOTS, RARITY_COLOR } from '../../survivors/items/ItemTypes';
 
 // Glyph/colour maps for the HUD (originally from the now-deleted Babylon-GUI HeroHud).
 const ELEMENT_GLYPH: Record<string, string> = {
@@ -48,6 +51,7 @@ export class Hud {
   private hpPill: PillController;
   private wavePill: PillController;
   private levelPill: PillController;
+  private goldPill: PillController;
 
   private powerSlots: IconSlotController[] = [];
   private itemSlots: Record<ItemId, IconSlotController | null> = {
@@ -63,12 +67,20 @@ export class Hud {
 
   private pauseIcon!: HTMLDivElement;
   private vignette!: HTMLDivElement;
+  private hornBtn!: HTMLDivElement;
+  private onHorn: () => void = () => {};
   private lowHpTime = 0;
+
+  // Always-visible equipment strip (single-player only) → opens the character profile.
+  private inventoryStrip!: HTMLDivElement;
+  private inventoryCells: HTMLDivElement[] = [];
+  private onOpenCharacter: () => void = () => {};
 
   // diff trackers
   private prevHp = -1;
   private prevLevel = -1;
   private prevWaveInProgress = false;
+  private prevGold = -1;
 
   constructor(gameUI: GameUI, abilityManager?: AbilityManager, game?: Game) {
     this.gameUI = gameUI;
@@ -78,13 +90,27 @@ export class Hud {
     this.root = el('div', { class: 'hud' });
     gameUI.layer('hud').appendChild(this.root);
 
-    // Top bar: [HP | wave | level] — the level pill carries the XP-progress fill.
+    // Top bar: [HP | wave | level | gold] — HP + level carry fill bars; gold does not.
     const topBar = el('div', { class: 'hud__topbar' });
     this.hpPill = makePill('hp');
     this.wavePill = makePill('wave');
     this.levelPill = makePill('level');
-    topBar.append(this.hpPill.root, this.wavePill.root, this.levelPill.root);
+    this.goldPill = makePill('gold');
+    topBar.append(this.hpPill.root, this.wavePill.root, this.levelPill.root, this.goldPill.root);
     this.root.appendChild(topBar);
+
+    // Always-visible inventory strip, top-left under the top bar (single-player).
+    // Hidden until setInventory() is called; clicking it opens the character profile.
+    this.inventoryStrip = el('div', { class: 'hud__inventory interactive', attrs: { role: 'button', title: 'Character (equipment)' } });
+    for (let i = 0; i < EQUIP_SLOTS.length; i++) {
+      const cell = el('div', { class: 'gear-slot gear-slot--empty' });
+      cell.appendChild(el('div', { class: 'gear-slot__glyph', text: SLOT_GLYPH[EQUIP_SLOTS[i]] }));
+      this.inventoryCells.push(cell);
+      this.inventoryStrip.appendChild(cell);
+    }
+    this.inventoryStrip.style.display = 'none';
+    onTap(this.inventoryStrip, () => this.onOpenCharacter());
+    this.root.appendChild(this.inventoryStrip);
 
     // Bottom-left cluster: 4 power slots + 4 item slots.
     const bottomLeft = el('div', { class: 'hud__cluster hud__cluster--left' });
@@ -137,6 +163,13 @@ export class Hud {
     pauseBtn.appendChild(this.pauseIcon);
     onTap(pauseBtn, () => this.togglePause());
     this.root.appendChild(pauseBtn);
+
+    // "Sound the horn" — starts the next wave during the merchant/shopping phase.
+    this.hornBtn = el('div', { class: 'hud__horn frame frame--lite interactive', attrs: { role: 'button' } });
+    this.hornBtn.appendChild(el('div', { class: 'hud__horn-label', text: '⚔ Next wave' }));
+    this.hornBtn.style.display = 'none';
+    onTap(this.hornBtn, () => this.onHorn());
+    this.root.appendChild(this.hornBtn);
 
     // Low-HP vignette lives on the fx layer.
     this.vignette = el('div', { class: 'hud__vignette' });
@@ -265,6 +298,40 @@ export class Hud {
 
   /** Flash the level pill on level-up (called by the gameplay state). */
   flashXpBar(): void { flashClass(this.levelPill.root, 'pill--pulse'); }
+
+  /** Update the gold pill (called every frame by the gameplay state). */
+  setGold(gold: number): void {
+    if (gold === this.prevGold) return;
+    if (this.prevGold >= 0 && gold > this.prevGold) flashClass(this.goldPill.root, 'pill--pulse');
+    this.prevGold = gold;
+    this.goldPill.setText(`🪙 ${gold}`);
+  }
+
+  setOnHorn(fn: () => void): void { this.onHorn = fn; }
+  setHornVisible(visible: boolean): void {
+    this.hornBtn.style.display = visible ? '' : 'none';
+  }
+
+  /** Open-character-profile callback (wired by the gameplay state). */
+  setOnOpenCharacter(fn: () => void): void { this.onOpenCharacter = fn; }
+
+  /** Populate + show the always-visible equipment strip (single-player only).
+      Each cell shows the equipped piece's glyph + rarity color, or the empty
+      slot glyph. Called at run start and after every equipment change. */
+  setInventory(slots: GearSlotVM[]): void {
+    this.inventoryStrip.style.display = '';
+    for (let i = 0; i < this.inventoryCells.length; i++) {
+      const cell = this.inventoryCells[i];
+      const s = slots[i];
+      if (!s) continue;
+      const filled = !!s.name;
+      cell.classList.toggle('gear-slot--empty', !filled);
+      cell.style.setProperty('--accent', filled && s.rarity ? RARITY_COLOR[s.rarity] : '#3a3a46');
+      const glyph = cell.firstElementChild as HTMLElement;
+      if (glyph) glyph.textContent = s.glyph ?? SLOT_GLYPH[s.slot];
+      cell.title = filled ? `${s.name}` : `${s.slot} (empty)`;
+    }
+  }
 
   // Stubs completed in later tasks (kept so the API exists from the start).
   pulseItem(id: ItemId): void { this.itemPulse[id] = true; }

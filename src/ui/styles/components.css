@@ -337,151 +337,307 @@
 }
 .choice-card__sub { white-space: pre-line; }
 
-/* ── Shop overlay ────────────────────────────────────────────── */
-.shop-gold {
-  font-family: var(--ff-display);
-  font-weight: 700;
-  font-size: var(--fs-400);
-  color: #ffd700;
-  text-align: center;
-  letter-spacing: 0.06em;
-  padding: var(--s-1) 0;
-}
-
-/* Widescreen armory: give the panel an explicit width (not just max-width)
-   so the auto-fit grid has room to form multiple columns — a shrink-to-fit
-   flex column would otherwise collapse the grid to a single column. The
-   explicit max-width also overrides .modal-panel's 680px cap. */
+/* ── Shop overlay (Gribble's Traveling Emporium) ──────────────
+   New itemization shop. The panel needs an explicit width (not just
+   max-width) so the 3-column card grid has room to form; it also
+   overrides .modal-panel's 680px cap. Vertical overflow is handled by
+   .modal-panel's max-height: 92vh + overflow: auto. */
 .modal-panel--shop {
-  width: min(1040px, 96vw);
-  max-width: min(1040px, 96vw);
-  /* The 4×2 grid fits without horizontal scroll — hide the stray bottom
-     scrollbar the auto-fit grid used to produce. */
+  width: min(880px, 92vw);
+  max-width: min(880px, 92vw);
   overflow-x: hidden;
 }
+/* Two-column body: Gribble's portrait column + the stock/equipment column. */
+.shop-body {
+  display: flex;
+  gap: var(--s-3);
+  align-items: stretch;
+}
+.shop-portrait-col {
+  flex: 0 0 200px;
+  display: flex; flex-direction: column; gap: var(--s-2);
+  min-width: 0;
+}
+.shop-main-col {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; flex-direction: column; gap: var(--s-3);
+}
+.shop-topbar {
+  display: flex; justify-content: flex-end; align-items: center;
+}
+.shop-gold {
+  font-family: var(--ff-display); font-weight: 700;
+  font-size: var(--fs-400); color: #ffd84a;
+  letter-spacing: 0.06em; white-space: nowrap;
+}
+
+/* Gribble's live portrait — the isolated GoblinPortrait canvas is mounted here. */
+.shop-portrait-mount {
+  flex: 1 1 auto;
+  min-height: 220px;
+  border-radius: var(--r-sm);
+  background: radial-gradient(120% 90% at 50% 25%, #2a2114 0%, #15110a 70%, #0c0906 100%);
+  border: 1px solid color-mix(in srgb, var(--c-gold) 35%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), inset 0 -18px 30px rgba(0,0,0,0.5);
+  overflow: hidden;
+}
+.goblin-portrait { width: 100%; height: 100%; }
+.goblin-portrait__canvas { width: 100%; height: 100%; display: block; outline: none; }
+
+/* Gribble's speech bubble — points DOWN at the portrait below it. */
+.shop-bubble {
+  position: relative;
+  align-self: stretch;
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-lg);
+  background: rgba(14, 12, 8, 0.92);
+  border: 1px solid var(--c-gold);
+  color: #ffe9b0;
+  font-family: var(--ff-body);
+  font-size: var(--fs-200);
+  font-style: italic;
+  line-height: 1.3;
+}
+.shop-bubble::after {
+  content: '';
+  position: absolute;
+  left: 28px; bottom: -7px;
+  border: 7px solid transparent;
+  border-top-color: var(--c-gold);
+  border-bottom: none;
+}
+
 .shop-grid {
   display: grid;
-  /* Fixed 4 columns → 8 items lay out as a clean 4×2 block. */
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
+  grid-auto-rows: 1fr; /* both rows equal height → cards a fixed size, no reflow */
   gap: var(--s-2);
 }
 
-/* Individual shop item card */
-.shop-item {
+/* Item card — rarity color arrives via the --accent custom prop
+   (set inline from RARITY_COLOR by ShopOverlay). */
+.shop-card {
   --accent: var(--c-gold);
-  display: flex;
-  flex-direction: row;
-  align-items: stretch;
+  position: relative;
+  display: flex; flex-direction: column; gap: 2px;
+  padding: var(--s-2) var(--s-2) calc(var(--s-6) + var(--s-1));
   border-radius: var(--r-sm);
   background: linear-gradient(180deg, #1c1710, #0e0b08);
-  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 2px 6px rgba(0,0,0,0.5);
   cursor: pointer;
   transition: transform 100ms ease, box-shadow 120ms ease;
-  overflow: hidden;
-  min-height: 72px;
 }
-.shop-item:hover:not(.shop-item--capped) {
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.08),
-    0 0 10px color-mix(in srgb, var(--accent) 40%, transparent);
+.shop-card:hover {
+  transform: translateY(-2px);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 0 12px color-mix(in srgb, var(--accent) 40%, transparent);
 }
-.shop-item:active:not(.shop-item--capped) { transform: scale(0.97); }
-
-/* Left glyph emblem strip */
-.shop-item__emblem {
-  flex: 0 0 auto;
-  width: 38px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: var(--fs-400);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  border-right: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+.shop-card:active { transform: scale(0.97); }
+.shop-card--poor { opacity: 0.55; filter: saturate(0.6); }
+.shop-card--poor .shop-card__price { color: var(--c-blood); }
+.shop-card__kind {
+  font-family: var(--ff-body); font-weight: 800; font-size: var(--fs-100);
+  text-transform: uppercase; letter-spacing: 0.1em; color: var(--accent);
 }
-
-/* Right content area */
-.shop-item__content {
-  flex: 1 1 auto;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  padding: var(--s-2) var(--s-2) var(--s-1) var(--s-2);
-  gap: 2px;
+.shop-card__emblem { font-size: clamp(20px, 4vw, 26px); line-height: 1.4; }
+.shop-card__name {
+  font-family: var(--ff-display); font-weight: 700; font-size: var(--fs-200);
+  color: var(--c-parchment); margin-bottom: var(--s-1);
 }
-
-.shop-item__name {
-  font-family: var(--ff-display);
-  font-weight: 700;
-  font-size: var(--fs-200);
+.shop-card__stat { font-family: var(--ff-body); font-size: var(--fs-100); color: #b8e6b8; }
+.shop-card__effect { font-family: var(--ff-body); font-size: var(--fs-100); color: #ffd84a; margin-top: 3px; }
+.shop-card__set { font-family: var(--ff-body); font-size: var(--fs-100); color: var(--accent); margin-top: 3px; }
+/* Comparison vs the currently-equipped piece — an OVERLAY that covers the card
+   on hover (pointer-events:none so the click still buys). The card itself never
+   changes size, so the grid never reflows. */
+.shop-card__compare {
+  position: absolute; inset: 0; z-index: 2;
+  display: flex; flex-direction: column; gap: 2px; justify-content: center;
+  padding: var(--s-2);
+  border-radius: var(--r-sm);
+  background: rgba(8, 6, 4, 0.96);
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transition: opacity 120ms ease;
+}
+.shop-card:hover .shop-card__compare { opacity: 1; visibility: visible; }
+.shop-card--sold:hover .shop-card__compare { opacity: 0; visibility: hidden; }
+.shop-card__compare-title {
+  font-family: var(--ff-body); font-size: 9px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: 0.1em; color: var(--c-parchment-faint);
+  margin-bottom: 2px;
+}
+.shop-card__compare-head {
+  font-family: var(--ff-display); font-weight: 700; font-size: var(--fs-200);
   color: var(--c-parchment);
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
-
-.shop-item__desc {
-  font-family: var(--ff-body);
-  font-size: var(--fs-100);
-  color: var(--c-parchment-dim);
-  line-height: 1.3;
-  white-space: pre-line;
-  overflow: hidden;
-  flex: 1 1 auto;
-}
-
-.shop-item__cost {
-  font-family: var(--ff-display);
-  font-weight: 700;
-  font-size: var(--fs-200);
-  color: #ffd700;
-  text-align: right;
-  letter-spacing: 0.04em;
+.shop-card__compare-stat { font-family: var(--ff-body); font-size: var(--fs-100); color: #b8e6b8; }
+.shop-card__compare-effect { font-family: var(--ff-body); font-size: var(--fs-100); color: #ffd84a; margin-top: 2px; }
+.shop-card__compare-credit {
+  font-family: var(--ff-body); font-size: var(--fs-100); color: var(--c-parchment-faint);
   margin-top: var(--s-1);
 }
-
-/* Unaffordable state — dim card; cost in red */
-.shop-item--unafford {
-  opacity: 0.75;
+.shop-card__flavor {
+  font-family: var(--ff-body); font-size: var(--fs-100); font-style: italic;
+  color: var(--c-parchment-dim); opacity: 0.8; margin-top: var(--s-1);
 }
-.shop-item--unafford .shop-item__cost {
-  color: var(--c-blood);
+.shop-card__price {
+  position: absolute; bottom: var(--s-2); right: var(--s-2);
+  font-family: var(--ff-display); font-weight: 700; font-size: var(--fs-200);
+  color: #ffd84a;
 }
 
-/* Capped state — greyed out, no pointer */
-.shop-item--capped {
+/* Sold tile — bought this visit, kept in place so nothing reflows. */
+.shop-card--sold {
   cursor: default;
-  opacity: 0.45;
-  border-color: rgba(80,80,80,0.35);
+  opacity: 0.5;
+  filter: grayscale(0.7);
 }
-.shop-item--capped .shop-item__emblem {
-  background: rgba(30,30,30,0.4);
-  border-right-color: rgba(80,80,80,0.2);
-}
-.shop-item--capped .shop-item__name {
-  color: #666;
-}
+.shop-card--sold:hover { transform: none; box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 2px 6px rgba(0,0,0,0.5); }
+.shop-card--sold .shop-card__price { color: var(--c-parchment-faint); letter-spacing: 0.12em; }
 
-/* Start Next Wave button — wide but inset from the panel borders so it
-   doesn't crowd the edges. */
-.shop-start-btn {
-  align-self: center;
-  width: calc(100% - var(--s-4) * 2);
-  justify-content: center;
-  margin-top: var(--s-2);
+.shop-footer {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: var(--s-2); flex-wrap: wrap;
 }
+.shop-reroll--poor { opacity: 0.5; pointer-events: none; }
 
-/* Narrow portrait phones — 2 columns (8 items → 2×4) instead of a cramped 4. */
+/* Mobile: stack the goblin above the stock as a short header strip. Card grid
+   stays a FIXED 3 columns (positions never change — per design). */
 @media (max-width: 720px) {
-  .shop-grid { grid-template-columns: repeat(2, 1fr); }
+  .shop-body { flex-direction: column; }
+  .shop-portrait-col { flex: 0 0 auto; flex-direction: row; align-items: stretch; }
+  .shop-bubble { flex: 1 1 auto; align-self: center; }
+  .shop-bubble::after { left: 50%; transform: translateX(-50%); }
+  .shop-portrait-mount { flex: 0 0 96px; min-height: 96px; }
 }
 
-/* Narrow landscape phones — compress grid */
-@media (max-height: 430px) {
-  .shop-grid { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--s-1); }
-  .shop-item { min-height: 58px; }
-  .shop-item__emblem { width: 32px; }
+/* ── HUD inventory strip (always-visible equipment, top-left under HP) ────────
+   Clicking it opens the character profile. 6 slots in a 3×2 grid of small
+   rarity-colored cells. */
+.hud__inventory {
+  position: absolute;
+  top: 64px; left: var(--s-3);
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  gap: 4px;
+  padding: 5px;
+  border-radius: var(--r-sm);
+  background: rgba(10, 8, 5, 0.55);
+  border: 1px solid rgba(255,255,255,0.08);
+  cursor: pointer;
+}
+.hud__inventory:hover { background: rgba(20, 16, 10, 0.7); border-color: rgba(255,255,255,0.18); }
+.gear-slot {
+  --accent: #3a3a46;
+  width: 30px; height: 30px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: var(--r-sm);
+  border: 1px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  background: linear-gradient(180deg, #1c1710, #0e0b08);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+}
+.gear-slot--empty { opacity: 0.4; }
+.gear-slot__glyph { font-size: 16px; line-height: 1; }
+
+@media (max-width: 720px) {
+  .hud__inventory { top: 56px; gap: 3px; padding: 4px; }
+  .gear-slot { width: 24px; height: 24px; }
+  .gear-slot__glyph { font-size: 13px; }
+}
+
+/* Corner close button for dismissable modals (e.g. character profile). */
+.modal-close {
+  position: absolute; top: 6px; right: 8px;
+  width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--ff-body); font-size: 16px; line-height: 1;
+  color: var(--c-parchment-dim);
+  border-radius: var(--r-sm); cursor: pointer;
+  transition: color 120ms ease, background 120ms ease;
+}
+.modal-close:hover { color: var(--c-parchment); background: rgba(255,255,255,0.08); }
+
+/* ── Character profile (paper-doll + aggregate stats + set bonuses) ──────────── */
+.modal-panel--character { width: min(760px, 94vw); max-width: min(760px, 94vw); position: relative; }
+.char-body { display: flex; gap: var(--s-4); align-items: flex-start; }
+.char-doll {
+  flex: 0 0 auto;
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--s-2);
+}
+.char-side { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: var(--s-3); }
+.char-slot {
+  --accent: var(--c-iron);
+  position: relative;
+  width: 104px; text-align: center;
+  padding: var(--s-2) var(--s-1);
+  border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  border-radius: var(--r-sm);
+  background: var(--c-stone-900);
+}
+.char-slot:not(.char-slot--empty) { cursor: help; }
+.char-slot--empty { opacity: 0.45; }
+.char-slot__glyph { font-size: clamp(20px, 4vw, 26px); }
+.char-slot__slot {
+  font-family: var(--ff-body); font-size: 9px; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--c-parchment-faint);
+}
+.char-slot__name {
+  font-family: var(--ff-body); font-size: 11px; color: var(--c-parchment);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.char-slot:hover { border-color: color-mix(in srgb, var(--accent) 90%, transparent); }
+
+/* Shared detail pane — filled on hover/tap of a gear cell. Inside the panel, so
+   it never clips against the modal edge (the old floating tooltip did). */
+.char-detail {
+  --accent: var(--c-iron);
+  min-height: 84px;
+  padding: var(--s-2) var(--s-3); border-radius: var(--r-sm);
+  background: rgba(0,0,0,0.25);
+  border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--accent) 80%, transparent);
+}
+.char-detail__hint { font-family: var(--ff-body); font-size: var(--fs-100); font-style: italic; color: var(--c-parchment-faint); }
+.char-detail__slot {
+  font-family: var(--ff-body); font-size: 9px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: 0.1em; color: var(--c-parchment-faint);
+}
+.char-detail__name {
+  font-family: var(--ff-display); font-weight: 700; font-size: var(--fs-300);
+  color: var(--accent); margin-bottom: var(--s-1);
+}
+.char-detail__stat { font-family: var(--ff-body); font-size: var(--fs-100); color: #b8e6b8; }
+.char-detail__effect { font-family: var(--ff-body); font-size: var(--fs-100); color: #ffd84a; margin-top: 3px; }
+
+.char-stats {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 4px var(--s-3);
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-sm);
+  background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.06);
+}
+.char-stat { display: flex; justify-content: space-between; gap: var(--s-2); }
+.char-stat__label { font-family: var(--ff-body); font-size: var(--fs-100); color: var(--c-parchment-dim); }
+.char-stat__value { font-family: var(--ff-display); font-weight: 700; font-size: var(--fs-100); color: var(--c-parchment); }
+
+.char-sets {
+  padding: var(--s-2) var(--s-3); border-radius: var(--r-sm);
+  background: rgba(40, 30, 10, 0.35); border: 1px solid color-mix(in srgb, var(--c-gold) 35%, transparent);
+}
+.char-sets__title {
+  font-family: var(--ff-display); font-weight: 700; font-size: var(--fs-200);
+  color: var(--c-gold); margin-bottom: var(--s-1);
+}
+.char-set { margin-top: var(--s-1); }
+.char-set__name { font-family: var(--ff-display); font-weight: 700; font-size: var(--fs-100); color: var(--c-parchment); }
+.char-set__bonus { font-family: var(--ff-body); font-size: var(--fs-100); color: var(--c-parchment-faint); opacity: 0.6; }
+.char-set__bonus--on { color: #ffd84a; opacity: 1; }
+
+@media (max-width: 720px) {
+  .char-body { flex-direction: column; }
+  .char-doll { grid-template-columns: repeat(3, 1fr); align-self: center; }
+  .char-slot { width: auto; }
+  .char-stats { grid-template-columns: 1fr; }
 }
 
 /* ── Full-screen menu / screen ───────────────────────────── */
@@ -619,3 +775,40 @@
 .lb-name-input:focus { border-color: var(--c-gold-hi); }
 .lb-name-input--err { border-color: var(--c-blood); }
 .btn--disabled { opacity: 0.55; pointer-events: none; }
+
+/* ── Gold pill ─────────────────────────────────────────────── */
+.pill--gold {
+  --accent: var(--c-gold);
+  color: var(--c-gold-hi);
+  letter-spacing: 0.06em;
+}
+.pill--gold .pill__txt { color: #ffd84a; }
+
+/* ── Horn button (next-wave during shopping phase) ────────────
+   Centered bottom, above the two bottom clusters (which hug the
+   bottom edge). 118 px of clearance keeps it above the tallest
+   bottom cluster (two-row power+item stack ≈ 90 px on desktop).
+   On portrait phones the clusters can grow taller — bump to 110px
+   from the bottom so it never overlaps the slot rows.            */
+.hud__horn {
+  position: absolute;
+  bottom: 118px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: var(--s-2) 20px;
+  cursor: pointer;
+  pointer-events: auto;
+  white-space: nowrap;
+}
+.hud__horn-label {
+  font-family: var(--ff-display);
+  font-weight: 700;
+  font-size: var(--fs-300);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #ffd84a;
+  text-shadow: 0 1px 2px #000;
+}
+@media (pointer: coarse) {
+  .hud__horn { bottom: 110px; padding: var(--s-3) 20px; min-height: 44px; display: flex; align-items: center; }
+}
