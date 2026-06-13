@@ -29,10 +29,10 @@ describe('ItemCatalog integrity', () => {
         }
     });
 
-    it('has 4 sets of exactly 3 existing pieces with distinct slots and back-references', () => {
-        expect(ITEM_SETS.length).toBe(4);
+    it('every set lists kind-appropriate pieces with distinct slots and ascending tiers', () => {
         for (const set of ITEM_SETS) {
-            expect(set.pieces.length).toBe(3);
+            const expected = set.kind === 'unique' ? 6 : 3;
+            expect(set.pieces.length, `${set.id}`).toBe(expected);
             const slots = new Set<string>();
             for (const pieceId of set.pieces) {
                 const piece = itemById(pieceId);
@@ -40,16 +40,18 @@ describe('ItemCatalog integrity', () => {
                 expect(piece!.setId).toBe(set.id);
                 slots.add(piece!.slot);
             }
-            expect(slots.size).toBe(3);
+            expect(slots.size, `${set.id} distinct slots`).toBe(expected);
+            expect(set.tiers.every((t, i) => i === 0 || t.pieces > set.tiers[i - 1].pieces),
+                `${set.id} tiers ascending`).toBe(true);
         }
     });
 
-    it('every item setId points to an existing set that lists the item', () => {
+    it('every item setId points to an existing set; non-wildcard items are listed in it', () => {
         for (const item of ITEM_CATALOG) {
             if (!item.setId) continue;
             const set = setById(item.setId);
             expect(set).toBeDefined();
-            expect(set!.pieces).toContain(item.id);
+            if (!item.wildcardSetPiece) expect(set!.pieces).toContain(item.id);
         }
     });
 

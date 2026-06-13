@@ -3845,9 +3845,14 @@ export class SurvivorsGameplayState implements GameState {
     /** Unique-effect / set-bonus text for an item: standalone items show their
      *  effect, set pieces show the set's 3pc signature (set pieces have no effectId). */
     private itemEffectText(def: ItemDef): string | null {
-        return def.effectId
-            ? (def.setId ? null : EFFECT_TEXT[def.effectId])
-            : (def.setId ? setById(def.setId)!.bonus3Text : null);
+        // Mythic / standalone-effect items show their own effect text.
+        if (def.effectId && (def.rarity === 'mythic' || !def.setId)) return EFFECT_TEXT[def.effectId];
+        // Set pieces show the set's highest (signature) tier text.
+        if (def.setId) {
+            const set = setById(def.setId);
+            if (set && set.tiers.length > 0) return set.tiers[set.tiers.length - 1].text;
+        }
+        return null;
     }
 
     private buildShopVM(quip: string): ShopVM {
@@ -3865,7 +3870,7 @@ export class SurvivorsGameplayState implements GameState {
                 replaces: old?.def.name ?? null,
                 sellCredit: credit,
                 setProgress: def.setId
-                    ? `${setById(def.setId)!.name} ${eq.setCount(def.setId)}/3`
+                    ? `${setById(def.setId)!.name} ${eq.setCount(def.setId)}/${setById(def.setId)!.pieces.length}`
                     : null,
                 statLines: describeMods(def.mods),
                 effectText: this.itemEffectText(def),
@@ -3951,7 +3956,11 @@ export class SurvivorsGameplayState implements GameState {
         const out: CharSetVM[] = [];
         for (const set of ITEM_SETS) {
             const count = counts[set.id] ?? 0;
-            if (count >= 2) out.push({ name: set.name, count, bonus2Text: set.bonus2Text, bonus3Text: set.bonus3Text });
+            if (count < 2) continue;
+            out.push({
+                name: set.name, count, total: set.pieces.length,
+                tiers: set.tiers.map(t => ({ pieces: t.pieces, text: t.text, active: count >= t.pieces })),
+            });
         }
         return out;
     }

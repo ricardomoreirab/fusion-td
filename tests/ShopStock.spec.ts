@@ -20,15 +20,22 @@ const baseOpts = {
 };
 
 describe('rarityWeights', () => {
-    it('locks legendaries out before wave 4', () => {
-        expect(rarityWeights(3).legendary).toBe(0);
-        expect(rarityWeights(4).legendary).toBeGreaterThan(0);
+    it('locks legendaries out before wave 5', () => {
+        expect(rarityWeights(4).legendary).toBe(0);
+        expect(rarityWeights(5).legendary).toBeGreaterThan(0);
+    });
+    it('locks unique out before wave 8 and mythic before wave 11', () => {
+        expect(rarityWeights(7).unique).toBe(0);
+        expect(rarityWeights(8).unique).toBeGreaterThan(0);
+        expect(rarityWeights(10).mythic).toBe(0);
+        expect(rarityWeights(11).mythic).toBeGreaterThan(0);
     });
     it('shifts weight toward high rarity late', () => {
         expect(rarityWeights(12).epic).toBeGreaterThan(rarityWeights(2).epic);
+        expect(rarityWeights(15).unique).toBeGreaterThan(rarityWeights(9).unique);
     });
-    it('uses the wave 7-10 bracket', () => {
-        expect(rarityWeights(8)).toEqual({ common: 25, rare: 40, epic: 28, legendary: 7 });
+    it('uses the wave 8-10 bracket', () => {
+        expect(rarityWeights(8)).toEqual({ common: 18, rare: 34, epic: 30, legendary: 12, unique: 6, mythic: 0 });
     });
 });
 

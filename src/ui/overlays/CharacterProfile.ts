@@ -23,8 +23,8 @@ export interface CharStatVM { label: string; value: string; }
 export interface CharSetVM {
     name: string;
     count: number;
-    bonus2Text: string;
-    bonus3Text: string;
+    total: number;
+    tiers: { pieces: number; text: string; active: boolean }[];
 }
 
 export interface CharacterVM {
@@ -79,15 +79,13 @@ export class CharacterProfile {
             setsBox.appendChild(el('div', { class: 'char-sets__title', text: 'Set Bonuses' }));
             for (const set of vm.sets) {
                 const block = el('div', { class: 'char-set' });
-                block.appendChild(el('div', { class: 'char-set__name', text: `${set.name} (${set.count}/3)` }));
-                block.appendChild(el('div', {
-                    class: `char-set__bonus${set.count >= 2 ? ' char-set__bonus--on' : ''}`,
-                    text: `2pc — ${set.bonus2Text}`,
-                }));
-                block.appendChild(el('div', {
-                    class: `char-set__bonus${set.count >= 3 ? ' char-set__bonus--on' : ''}`,
-                    text: `3pc — ${set.bonus3Text}`,
-                }));
+                block.appendChild(el('div', { class: 'char-set__name', text: `${set.name} (${set.count}/${set.total})` }));
+                for (const tier of set.tiers) {
+                    block.appendChild(el('div', {
+                        class: `char-set__bonus${tier.active ? ' char-set__bonus--on' : ''}`,
+                        text: `${tier.pieces}pc — ${tier.text}`,
+                    }));
+                }
                 setsBox.appendChild(block);
             }
             side.appendChild(setsBox);

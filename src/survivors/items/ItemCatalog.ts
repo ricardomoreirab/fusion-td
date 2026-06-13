@@ -2,32 +2,36 @@ import { ItemDef, SetDef } from './ItemTypes';
 
 export const ITEM_SETS: SetDef[] = [
     {
-        id: 'berserkers_wrath', name: "Berserker's Wrath",
+        id: 'berserkers_wrath', name: "Berserker's Wrath", kind: 'classic',
         pieces: ['gorefang', 'skullcage_of_rage', 'bloodforged_plate'],
-        bonus2: { attackSpeedPct: 20 }, bonus2Text: '+20% attack speed',
-        effect3: 'rage',
-        bonus3Text: 'RAGE: below 50% HP, +60% basic damage and a furious red glow',
+        tiers: [
+            { pieces: 2, bonus: { attackSpeedPct: 20 }, text: '+20% attack speed' },
+            { pieces: 3, effect: 'rage', text: 'RAGE: below 50% HP, +60% basic damage and a furious red glow' },
+        ],
     },
     {
-        id: 'windrunner', name: 'Windrunner',
+        id: 'windrunner', name: 'Windrunner', kind: 'classic',
         pieces: ['stormpiercer', 'galeskimmers', 'feather_of_the_zephyr'],
-        bonus2: { moveSpeedPct: 15 }, bonus2Text: '+15% move speed',
-        effect3: 'ricochet',
-        bonus3Text: 'RICOCHET: arrows bounce to a nearby enemy at 60% damage',
+        tiers: [
+            { pieces: 2, bonus: { moveSpeedPct: 15 }, text: '+15% move speed' },
+            { pieces: 3, effect: 'ricochet', text: 'RICOCHET: arrows bounce to a nearby enemy at 60% damage' },
+        ],
     },
     {
-        id: 'archmages_echo', name: "Archmage's Echo",
+        id: 'archmages_echo', name: "Archmage's Echo", kind: 'classic',
         pieces: ['staff_of_echoes', 'mindcrown', 'runeweave_leggings'],
-        bonus2: { cooldownPct: 10 }, bonus2Text: '−10% power cooldowns',
-        effect3: 'echo',
-        bonus3Text: 'ECHO: power casts have a 25% chance to instantly recast free',
+        tiers: [
+            { pieces: 2, bonus: { cooldownPct: 10 }, text: '−10% power cooldowns' },
+            { pieces: 3, effect: 'echo', text: 'ECHO: power casts have a 25% chance to instantly recast free' },
+        ],
     },
     {
-        id: 'goblin_fortune', name: 'Goblin Fortune',
+        id: 'goblin_fortune', name: 'Goblin Fortune', kind: 'classic',
         pieces: ['gribbles_lucky_coin', 'penny_pincher_loafers', 'greedhelm'],
-        bonus2: { goldGainPct: 25 }, bonus2Text: '+25% gold from kills',
-        effect3: 'midas',
-        bonus3Text: 'MIDAS: 15% chance kills pay double; every 150g earned bursts a coin nova',
+        tiers: [
+            { pieces: 2, bonus: { goldGainPct: 25 }, text: '+25% gold from kills' },
+            { pieces: 3, effect: 'midas', text: 'MIDAS: 15% chance kills pay double; every 150g earned bursts a coin nova' },
+        ],
     },
 ];
 

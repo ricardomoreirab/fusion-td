@@ -91,8 +91,11 @@ export class Equipment {
         }
         for (const set of ITEM_SETS) {
             const count = agg.setCounts[set.id] ?? 0;
-            if (count >= 2) this.foldMods(agg, set.bonus2);
-            if (count >= 3) agg.effects.add(set.effect3);
+            for (const tier of set.tiers) {
+                if (count < tier.pieces) continue;
+                if (tier.bonus) this.foldMods(agg, tier.bonus);
+                if (tier.effect) agg.effects.add(tier.effect);
+            }
         }
         return agg;
     }

@@ -23,10 +23,11 @@ export function rerollCost(rerollsThisVisit: number): number {
 }
 
 export function rarityWeights(wave: number): Record<Rarity, number> {
-    if (wave <= 3)  return { common: 60, rare: 35, epic: 5,  legendary: 0 };
-    if (wave <= 6)  return { common: 40, rare: 40, epic: 18, legendary: 2 };
-    if (wave <= 10) return { common: 25, rare: 40, epic: 28, legendary: 7 };
-    return { common: 15, rare: 35, epic: 35, legendary: 15 };
+    if (wave <= 4)  return { common: 60, rare: 30, epic: 10, legendary: 0,  unique: 0,  mythic: 0 };
+    if (wave <= 7)  return { common: 35, rare: 38, epic: 22, legendary: 5,  unique: 0,  mythic: 0 };
+    if (wave <= 10) return { common: 18, rare: 34, epic: 30, legendary: 12, unique: 6,  mythic: 0 };
+    if (wave <= 14) return { common: 8,  rare: 24, epic: 32, legendary: 18, unique: 13, mythic: 5 };
+    return { common: 4, rare: 16, epic: 30, legendary: 22, unique: 20, mythic: 8 };
 }
 
 export interface WeightedItem {

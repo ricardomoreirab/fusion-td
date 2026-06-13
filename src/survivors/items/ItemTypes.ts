@@ -3,12 +3,13 @@ import { ChampionType } from '../powers/PowerDefinitions';
 export type EquipSlot = 'weapon' | 'helmet' | 'chest' | 'legs' | 'boots' | 'trinket';
 export const EQUIP_SLOTS: EquipSlot[] = ['weapon', 'helmet', 'chest', 'legs', 'boots', 'trinket'];
 
-export type Rarity = 'common' | 'rare' | 'epic' | 'legendary';
+export type Rarity = 'common' | 'rare' | 'epic' | 'legendary' | 'unique' | 'mythic';
 export const RARITY_BASE_PRICE: Record<Rarity, number> = {
-    common: 60, rare: 120, epic: 220, legendary: 400,
+    common: 60, rare: 120, epic: 220, legendary: 400, unique: 520, mythic: 900,
 };
 export const RARITY_COLOR: Record<Rarity, string> = {
     common: '#9aa0a8', rare: '#3da9ff', epic: '#b050ff', legendary: '#ffb52e',
+    unique: '#3ddc84', mythic: '#ff3b30',
 };
 
 /** Declarative stat bonuses. Pct values are whole percentages (+20 ⇒ +20%). */
@@ -33,7 +34,19 @@ export interface ItemStatMods {
 
 export type ItemEffectId =
     | 'rage' | 'ricochet' | 'echo' | 'midas'
-    | 'shockwave' | 'critExplode' | 'burnOnHit' | 'thorns' | 'chrono';
+    | 'shockwave' | 'critExplode' | 'burnOnHit' | 'thorns' | 'chrono'
+    | 'earthbreaker' | 'tempest_volley' | 'arcane_cascade'
+    | 'apex_cleave' | 'storm_quiver' | 'singularity';
+
+/** Persistent weapon-bone FX for a mythic weapon (consumed by Champion.setMythicAura). */
+export interface MythicFxConfig {
+    /** Lowercase literal hex — bounded material-cache key. */
+    auraColor: string;
+    /** Particle preset. */
+    style: 'embers' | 'ribbon' | 'motes';
+    /** Lowercase literal hex for the on-hit burst. */
+    onHitColor: string;
+}
 
 export interface ItemDef {
     id: string;
@@ -45,17 +58,29 @@ export interface ItemDef {
     mods: ItemStatMods;
     effectId?: ItemEffectId;
     setId?: string;
+    /** Mythic weapons set this: counts toward its class unique set as the weapon piece. */
+    wildcardSetPiece?: boolean;
+    /** Mythic weapons only: persistent weapon-bone visual. */
+    mythicFx?: MythicFxConfig;
     glyph: string;
     /** One short funny/flavor line for the shop card. */
     flavor: string;
 }
 
+/** One activation threshold of a set. `bonus` (stat slab) and/or `effect` fire at `pieces`. */
+export interface SetTier {
+    pieces: number;
+    bonus?: ItemStatMods;
+    effect?: ItemEffectId;
+    text: string;
+}
+
 export interface SetDef {
     id: string;
     name: string;
-    pieces: [string, string, string];
-    bonus2: ItemStatMods;
-    bonus2Text: string;
-    effect3: ItemEffectId;
-    bonus3Text: string;
+    /** Item ids that compose the set (3 for classic, 6 for unique). */
+    pieces: string[];
+    /** Ascending by `pieces` (e.g. classic [2,3]; unique [2,4,6]). */
+    tiers: SetTier[];
+    kind: 'classic' | 'unique';
 }

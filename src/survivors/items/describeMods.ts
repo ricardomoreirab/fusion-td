@@ -1,7 +1,7 @@
 import { ItemEffectId, ItemStatMods } from './ItemTypes';
 
 /** Shop-card copy for each unique item effect (non-set items show this;
- *  set pieces show their set's bonus3Text instead). */
+ *  set pieces show their set's highest tier text instead). */
 export const EFFECT_TEXT: Record<ItemEffectId, string> = {
     shockwave: 'Every 6th hit: ground slam — AoE damage + 1s stun',
     critExplode: 'Crits explode for 50% AoE damage',
@@ -12,6 +12,12 @@ export const EFFECT_TEXT: Record<ItemEffectId, string> = {
     ricochet: 'Arrows bounce to a nearby enemy at 60% damage',
     echo: '25% chance powers recast free',
     midas: '15% double gold; coin novas every 150g',
+    earthbreaker: 'EARTHBREAKER: every 4th hit quakes the ground — AoE damage + 1s stun, growing with each swing',
+    tempest_volley: 'TEMPEST VOLLEY: every 8th hit fans 3 storm arrows; every 4th hit chains lightning to 2 foes',
+    arcane_cascade: 'ARCANE CASCADE: every cast bursts a void nova, arcs to 3 foes, refunds 8% cooldowns',
+    apex_cleave: 'APEX CLEAVE: every hit cleaves nearby foes for 55% and executes anything under 12% HP',
+    storm_quiver: 'STORM QUIVER: hits charge a 5-target lightning volley',
+    singularity: 'SINGULARITY: every cast implodes a void nova, dealing more the more foes are caught',
 };
 
 /** Human-readable stat lines for a shop card, e.g. "+20% basic damage". */
