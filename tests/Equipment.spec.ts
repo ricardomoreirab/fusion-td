@@ -174,3 +174,31 @@ describe('foldEquipmentStats', () => {
         expect(ps.knockbackOnHit).toBeCloseTo(1);
     });
 });
+
+describe('unique sets + mythic wildcard', () => {
+    function equip(eq: Equipment, ...ids: string[]) {
+        for (const id of ids) expect(eq.buy(itemById(id)!, 0)).toBe(true);
+    }
+
+    it('applies the 2-piece tier at 2 unique pieces, not the 4/6', () => {
+        const eq = new Equipment(new PlayerStats(120, 100000));
+        equip(eq, 'oathbreaker_maul', 'browplate_of_the_titan'); // maul +8% atkspd; 2pc +15% atkspd
+        const agg = eq.aggregates();
+        expect(agg.setCounts['titans_oath']).toBe(2);
+        expect(agg.attackSpeedMult).toBeCloseTo(1.08 * 1.15, 5);
+        expect(agg.effects.has('earthbreaker')).toBe(false);
+    });
+
+    it('a mythic weapon counts as the unique set weapon piece (wildcard ⇒ 6-pc)', () => {
+        const eq = new Equipment(new PlayerStats(120, 100000));
+        // 5 unique armor pieces + the mythic weapon (NOT the unique weapon)
+        equip(eq, 'browplate_of_the_titan', 'ribcage_bulwark', 'quakestride_faulds',
+              'stampede_sabatons', 'heart_of_the_warbeast', 'skullsplitter_apex');
+        const agg = eq.aggregates();
+        expect(agg.setCounts['titans_oath']).toBe(6);
+        expect(agg.effects.has('earthbreaker')).toBe(true);  // 6-pc set effect
+        expect(agg.effects.has('apex_cleave')).toBe(true);   // mythic's own effect
+        // mythic's OWN basic-dmg (38) folded — with the 4-pc tier (+18), not the unique weapon's 24.
+        expect(agg.basicDamageMult).toBeCloseTo(1.38 * 1.18, 5);
+    });
+});
