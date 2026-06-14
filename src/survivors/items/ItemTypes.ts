@@ -5,7 +5,8 @@ export const EQUIP_SLOTS: EquipSlot[] = ['weapon', 'helmet', 'chest', 'legs', 'b
 
 export type Rarity = 'common' | 'rare' | 'epic' | 'legendary' | 'unique' | 'mythic';
 export const RARITY_BASE_PRICE: Record<Rarity, number> = {
-    common: 60, rare: 120, epic: 220, legendary: 400, unique: 520, mythic: 900,
+    // Price rework 2026-06-14: unique/mythic ×10, others ×2.5.
+    common: 150, rare: 300, epic: 550, legendary: 1000, unique: 5200, mythic: 9000,
 };
 export const RARITY_COLOR: Record<Rarity, string> = {
     common: '#9aa0a8', rare: '#3da9ff', epic: '#b050ff', legendary: '#ffb52e',
