@@ -431,6 +431,10 @@ export class EnemyManager {
             { cls: HealerEnemy, key: 'healer_red',       build: () => new RedWizard(this.game, farAway, []) },
             { cls: HealerEnemy, key: 'healer_red_elite', build: () => new RedWizard(this.game, farAway, []) },
             { cls: TankEnemy,   key: 'tank_red',         build: () => new DragonTurtle(this.game, farAway, []) },
+            // Wave-15+ tier — distinct GLBs, so they need their own shader/depth prewarm.
+            { cls: FastEnemy,   key: 'fire_beetle',      build: () => new FireBeetle(this.game, farAway, []) },
+            { cls: TankEnemy,   key: 'horned_lizard',    build: () => new HornedLizard(this.game, farAway, []) },
+            { cls: HealerEnemy, key: 'healer_red_super', build: () => new RedSuperWizard(this.game, farAway, []) },
         ];
         for (const { cls, key, build } of glbVariants) {
             const asset = this.enemyAssets[key];
@@ -438,8 +442,8 @@ export class EnemyManager {
             cls.pendingAsset = asset;
             warmup.push(build());
         }
-        // Per-tier MilestoneBoss GLBs (waves 5/10/15/20).
-        for (let tier = 1; tier <= 4; tier++) {
+        // Per-tier MilestoneBoss GLBs (waves 5/10/15/20/25).
+        for (let tier = 1; tier <= 5; tier++) {
             const asset = this.enemyAssets[`boss_tier${tier}`];
             if (!asset) continue;
             MilestoneBoss.pendingAsset = asset;
