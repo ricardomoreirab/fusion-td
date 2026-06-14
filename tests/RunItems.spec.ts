@@ -19,16 +19,17 @@ function makeRunItems() {
 }
 
 describe('RunItems.itemForTier', () => {
-    it('maps tiers 1-4 to the spec items', () => {
+    it('maps tiers 1-5 to the spec items', () => {
         expect(RunItems.itemForTier(1)).toBe('extraLife');
         expect(RunItems.itemForTier(2)).toBe('multishotCleave');
         expect(RunItems.itemForTier(3)).toBe('knockback');
         expect(RunItems.itemForTier(4)).toBe('attackSpeed');
+        expect(RunItems.itemForTier(5)).toBe('elementalCore');
     });
 
-    it('returns null for tiers outside 1-4', () => {
+    it('returns null for tiers outside 1-5', () => {
         expect(RunItems.itemForTier(0)).toBeNull();
-        expect(RunItems.itemForTier(5)).toBeNull();
+        expect(RunItems.itemForTier(6)).toBeNull();
         expect(RunItems.itemForTier(-1)).toBeNull();
         expect(RunItems.itemForTier(99)).toBeNull();
     });

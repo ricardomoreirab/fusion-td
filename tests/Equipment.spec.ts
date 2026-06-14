@@ -13,8 +13,9 @@ const bloodvial = () => itemById('bloodvial')!;
 
 describe('pricing', () => {
     it('scales base price with wave', () => {
-        expect(priceFor(gorefang(), 0)).toBe(120);
-        expect(priceFor(gorefang(), 5)).toBe(Math.ceil(120 * 1.3)); // 156
+        // Price rework 2026-06-14: gorefang is rare → base 300.
+        expect(priceFor(gorefang(), 0)).toBe(300);
+        expect(priceFor(gorefang(), 5)).toBe(Math.ceil(300 * 1.3)); // 390
     });
     it('sell value is 60% of price paid, floored', () => {
         expect(sellValueOf(156)).toBe(93);
@@ -23,10 +24,10 @@ describe('pricing', () => {
 
 describe('Equipment buy/replace', () => {
     it('buys into an empty slot, spending the wave-scaled price', () => {
-        const stats = new PlayerStats(120, 300);
+        const stats = new PlayerStats(120, 500);
         const eq = new Equipment(stats);
-        expect(eq.buy(gorefang(), 0)).toBe(true);
-        expect(stats.getGold()).toBe(180);
+        expect(eq.buy(gorefang(), 0)).toBe(true); // rare → 300
+        expect(stats.getGold()).toBe(200);
         expect(eq.get('weapon')!.def.id).toBe('gorefang');
     });
 
@@ -39,13 +40,13 @@ describe('Equipment buy/replace', () => {
     });
 
     it('replacing credits 60% of the old price paid, without feeding XP', () => {
-        const stats = new PlayerStats(120, 300);
+        const stats = new PlayerStats(120, 500);
         const sink = vi.fn();
         stats.setXpSink(sink);
         const eq = new Equipment(stats);
-        eq.buy(gorefang(), 0);                       // -120 → 180
-        expect(eq.buy(cleaver(), 0)).toBe(true);     // -60 +72 credit → 192
-        expect(stats.getGold()).toBe(192);
+        eq.buy(gorefang(), 0);                       // rare 300: -300 → 200
+        expect(eq.buy(cleaver(), 0)).toBe(true);     // common 150: -150 +180 credit → 230
+        expect(stats.getGold()).toBe(230);
         expect(eq.get('weapon')!.def.id).toBe('butchers_cleaver');
         expect(sink).not.toHaveBeenCalled();
     });
