@@ -609,8 +609,8 @@ export class EnemyManager {
                 const currentWave = this.waveManager?.getCurrentWave() ?? 0;
                 if (currentWave > 0 && currentWave % 5 === 0) {
                     const tier = currentWave / 5;
-                    // Stage tier-specific GLB (cap at tier4 asset for tier 5+).
-                    const assetTier = Math.min(4, Math.max(1, tier));
+                    // Stage tier-specific GLB (tier 5 = Elemental Lord; cap at tier5 for 6+).
+                    const assetTier = Math.min(5, Math.max(1, tier));
                     MilestoneBoss.pendingAsset = this.enemyAssets[`boss_tier${assetTier}`] ?? null;
                     enemy = new MilestoneBoss(this.game, spawnPos, [], tier, bossStrengthMultiplier);
                 } else {
