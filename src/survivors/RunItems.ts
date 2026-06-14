@@ -1,8 +1,8 @@
 import { PlayerStats } from './PlayerStats';
 import { HeroController } from './HeroController';
 
-/** Identifiers for the four milestone-boss items. */
-export type ItemId = 'extraLife' | 'multishotCleave' | 'knockback' | 'attackSpeed';
+/** Identifiers for the milestone-boss items. */
+export type ItemId = 'extraLife' | 'multishotCleave' | 'knockback' | 'attackSpeed' | 'elementalCore';
 
 /** Which item drops at which boss tier (waveNumber / 5). Missing tiers drop nothing. */
 const ITEM_BY_TIER: Record<number, ItemId> = {
@@ -10,6 +10,7 @@ const ITEM_BY_TIER: Record<number, ItemId> = {
     2: 'multishotCleave',  // wave 10
     3: 'knockback',        // wave 15
     4: 'attackSpeed',      // wave 20
+    5: 'elementalCore',    // wave 25 — the Elemental Lord
 };
 
 /** Per-stack tuning constants — see spec for rationale. Adjust here, not at call sites. */
@@ -17,6 +18,8 @@ const KNOCKBACK_UNITS_PER_STACK = 1.0;  // world units pushed per hit per stack
 /** Exported: applyLevelBonuses() re-folds this per stack on every recompute
  *  (its `basicAttackSpeedMultiplier = …` assignment would otherwise erase it). */
 export const ATTACK_SPEED_FACTOR = 2.0; // multiplier applied once per stack
+/** Elemental Core (wave-25 boss drop): multiplies ALL power damage per stack. */
+export const ELEMENTAL_CORE_POWER_MULT = 10;
 
 export class RunItems {
     private stacks: Record<ItemId, number> = {
@@ -24,6 +27,7 @@ export class RunItems {
         multishotCleave: 0,
         knockback: 0,
         attackSpeed: 0,
+        elementalCore: 0,
     };
 
     constructor(
@@ -92,6 +96,13 @@ export class RunItems {
                 // compound naturally.
                 this.stats.basicAttackSpeedMultiplier *= ATTACK_SPEED_FACTOR;
                 this.heroController.updateBasicAttackSpeed(this.stats.basicAttackSpeedMultiplier);
+                return;
+
+            case 'elementalCore':
+                // Multiplicative with the level/equipment power scaling. applyLevelBonuses()
+                // RE-ASSIGNS powerDamageMultiplier each recompute, so (like attackSpeed) it
+                // is also re-folded there via Math.pow — see SurvivorsGameplayState.
+                this.stats.powerDamageMultiplier *= ELEMENTAL_CORE_POWER_MULT;
                 return;
         }
     }

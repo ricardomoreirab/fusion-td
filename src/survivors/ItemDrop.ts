@@ -9,6 +9,7 @@ const ITEM_COLORS: Record<ItemId, Color3> = {
     multishotCleave: new Color3(1.0, 0.85, 0.30),   // gold
     knockback:       new Color3(0.30, 0.65, 1.0),   // blue
     attackSpeed:     new Color3(1.0, 1.0, 0.55),    // yellow-white
+    elementalCore:   new Color3(1.0, 0.35, 0.18),   // ember orange
 };
 
 export interface ItemDropOpts {

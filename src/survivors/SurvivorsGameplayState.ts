@@ -40,7 +40,7 @@ import { ChampionSelectOverlay, ChampionOption } from '../ui/overlays/ChampionSe
 import { GameOverState, SurvivorsRunSummary } from '../game-over/GameOverState';
 import { AbilityManager } from './abilities/AbilityManager';
 import { DamageNumberManager } from './DamageNumberManager';
-import { RunItems, ItemId, ATTACK_SPEED_FACTOR } from './RunItems';
+import { RunItems, ItemId, ATTACK_SPEED_FACTOR, ELEMENTAL_CORE_POWER_MULT } from './RunItems';
 import { ItemDrop } from './ItemDrop';
 import { Equipment, priceFor, sellValueOf } from './items/Equipment';
 import { foldEquipmentStats, newEquipFoldTracker, EquipFoldTracker } from './items/foldEquipmentStats';
@@ -199,12 +199,14 @@ const ITEM_DISPLAY_NAMES: Record<ItemId, string> = {
     multishotCleave: 'Multishot',
     knockback: 'Knockback',
     attackSpeed: 'Attack Speed',
+    elementalCore: 'Elemental Core',
 };
 const ITEM_FLOAT_COLOR: Record<ItemId, string> = {
     extraLife: '#46e05a',
     multishotCleave: '#ffd84a',
     knockback: '#4ea7ff',
     attackSpeed: '#fff080',
+    elementalCore: '#ff5a2e',
 };
 
 // Hero-torch parameters shared between Champion's in-mesh PointLight and the
@@ -3845,6 +3847,12 @@ export class SurvivorsGameplayState implements GameState {
         // recompute preserves it.
         ps.basicAttackSpeedMultiplier *=
             Math.pow(ATTACK_SPEED_FACTOR, this.runItems?.getStacks('attackSpeed') ?? 0);
+
+        // Elemental Core (wave-25 boss drop): ×10 power per stack, re-folded for the
+        // same reason the attack-speed stack is — the assignment above reset the field.
+        ps.powerDamageMultiplier *= Math.pow(
+            ELEMENTAL_CORE_POWER_MULT, this.runItems?.getStacks('elementalCore') ?? 0,
+        );
 
         // Equipment: fold aggregates on top of the level assignments. Order
         // matters — fold AFTER the assignments above, BEFORE the re-push below.
