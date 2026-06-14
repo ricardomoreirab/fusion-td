@@ -41,6 +41,7 @@ import { GameOverState, SurvivorsRunSummary } from '../game-over/GameOverState';
 import { AbilityManager } from './abilities/AbilityManager';
 import { DamageNumberManager } from './DamageNumberManager';
 import { RunItems, ItemId, ATTACK_SPEED_FACTOR, ELEMENTAL_CORE_POWER_MULT } from './RunItems';
+import { POTIONS, POTION_PRICE, potionBuffs, PotionId } from './PotionShop';
 import { ItemDrop } from './ItemDrop';
 import { Equipment, priceFor, sellValueOf } from './items/Equipment';
 import { foldEquipmentStats, newEquipFoldTracker, EquipFoldTracker } from './items/foldEquipmentStats';
@@ -550,6 +551,11 @@ export class SurvivorsGameplayState implements GameState {
      *  positions, no reflow). Cleared on each fresh stock roll. */
     private purchasedIds = new Set<string>();
     private rerollsThisVisit = 0;
+    /** Potions active for the CURRENT combat wave (cleared when the next shop opens). */
+    private activePotions = new Set<PotionId>();
+    /** Delta-swap tracker for potion lifesteal (additive field, not reset by
+     *  applyLevelBonuses — must subtract last contribution to stay idempotent). */
+    private potionLifestealApplied = 0;
     /** Equipment max-HP already pushed to the hero (delta-applied, mirrors appliedMaxHpBonus). */
     private equipMaxHpApplied = 0;
 
@@ -1138,6 +1144,10 @@ export class SurvivorsGameplayState implements GameState {
                 this.shopPhase = 'open';
                 this.currentStock = [];
                 this.rerollsThisVisit = 0;
+                // Last wave's potions expire here (single-wave). Recompute so the
+                // lifesteal delta-swaps back to 0 and the multiplicative buffs drop.
+                this.activePotions.clear();
+                this.applyLevelBonuses();
                 this.openShop();
             }
             if (!soloNow) {
@@ -2761,6 +2771,8 @@ export class SurvivorsGameplayState implements GameState {
         this.currentStock = [];
         this.purchasedIds.clear();
         this.rerollsThisVisit = 0;
+        this.activePotions.clear();
+        this.potionLifestealApplied = 0;
         this.equipMaxHpApplied = 0;
 
         Enemy.onDamageCallback = null;
@@ -3893,6 +3905,16 @@ export class SurvivorsGameplayState implements GameState {
             this.appliedMaxHpBonus = targetBonus;
         }
 
+        // Potion buffs (single-wave): multiplicative on top of level+equipment. Lifesteal
+        // is additive+shared, so delta-swap it (mirrors the equipment lifesteal tracker)
+        // to stay idempotent across the many applyLevelBonuses() calls per wave.
+        const pb = potionBuffs(this.activePotions);
+        ps.powerDamageMultiplier      *= pb.powerMult;
+        ps.basicAttackSpeedMultiplier *= pb.atkSpeedMult;
+        ps.damageReductionMultiplier  *= pb.dmgReductionMult;
+        ps.lifestealPct += pb.lifestealAdd - this.potionLifestealApplied;
+        this.potionLifestealApplied = pb.lifestealAdd;
+
         // Re-push the multipliers that are PUSHED (not pulled live), combined with runPerks.
         this.heroController?.updateMoveSpeed(ps.moveSpeedMultiplier * this.runPerks.moveSpeedMultiplier);
         this.heroController?.updateBasicAttackRange(ps.attackRangeMultiplier * this.runPerks.attackRangeMultiplier);
@@ -4001,6 +4023,7 @@ export class SurvivorsGameplayState implements GameState {
         if (this.currentStock.length === 0) this.rollShopStock();
         this.shopOverlay.show(this.buildShopVM(pickBark('arrive')), {
             onBuy: (index) => this.handleShopBuy(index),
+            onBuyPotion: (id) => this.handlePotionBuy(id as PotionId),
             onReroll: () => this.handleShopReroll(),
             // Solo: "To battle!" closes the shop AND advances the wave (endShoppingPhase
             // sets the breather). Co-op: just close — the host breather already owns
@@ -4065,6 +4088,15 @@ export class SurvivorsGameplayState implements GameState {
         return {
             gold: ps.getGold(),
             cards,
+            potions: POTIONS.map(p => ({
+                id: p.id,
+                name: p.name,
+                desc: p.desc,
+                glyph: p.glyph,
+                price: p.price,
+                affordable: ps.getGold() >= p.price,
+                active: this.activePotions.has(p.id),
+            })),
             rerollCost: rerollCost(this.rerollsThisVisit),
             rerollAffordable: ps.getGold() >= rerollCost(this.rerollsThisVisit),
             quip,
@@ -4082,6 +4114,21 @@ export class SurvivorsGameplayState implements GameState {
         }
         this.purchasedIds.add(def.id); // keep the tile in place as "Sold"
         this.applyLevelBonuses();      // recompute: level + equipment fold + active effects
+        this.updateInventoryHud();
+        this.shopOverlay?.refresh(this.buildShopVM(pickBark('buy')));
+    }
+
+    /** Buy a single-wave potion: spend gold, mark it active, recompute stats. One of
+     *  each per wave (idempotent — a second buy this visit is ignored). */
+    private handlePotionBuy(id: PotionId): void {
+        if (!this.playerStats) return;
+        if (this.activePotions.has(id)) return;     // already active this wave
+        if (!this.playerStats.spendGold(POTION_PRICE)) {
+            this.shopOverlay?.refresh(this.buildShopVM(pickBark('poor')));
+            return;
+        }
+        this.activePotions.add(id);
+        this.applyLevelBonuses();                    // fold the new potion buff now
         this.updateInventoryHud();
         this.shopOverlay?.refresh(this.buildShopVM(pickBark('buy')));
     }

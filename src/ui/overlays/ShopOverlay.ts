@@ -27,9 +27,21 @@ export interface ShopCardVM {
     equippedEffectText: string | null;
 }
 
+export interface PotionCardVM {
+    id: string;
+    name: string;
+    desc: string;
+    glyph: string;
+    price: number;
+    affordable: boolean;
+    /** Already bought for the upcoming wave (one per wave). */
+    active: boolean;
+}
+
 export interface ShopVM {
     gold: number;
     cards: ShopCardVM[];
+    potions: PotionCardVM[];
     rerollCost: number;
     rerollAffordable: boolean;
     quip: string;
@@ -38,6 +50,8 @@ export interface ShopVM {
 export interface ShopCallbacks {
     /** Buy the card at `index` in the current VM. */
     onBuy(index: number): void;
+    /** Buy the single-wave potion with the given id. */
+    onBuyPotion(id: string): void;
     onReroll(): void;
     /** Close shop AND start the next wave. */
     onBattle(): void;
@@ -57,6 +71,7 @@ export class ShopOverlay {
     private portraitMount: HTMLDivElement | null = null;
     private goldEl: HTMLDivElement | null = null;
     private gridEl: HTMLDivElement | null = null;
+    private potionRowEl: HTMLDivElement | null = null;
     private rerollBtn: HTMLDivElement | null = null;
 
     constructor(private parent: HTMLElement) {}
@@ -82,7 +97,9 @@ export class ShopOverlay {
         this.goldEl = el('div', { class: 'shop-gold' });
         const topbar = el('div', { class: 'shop-topbar' }, [this.goldEl]);
         this.gridEl = el('div', { class: 'shop-grid' });
-        const mainCol = el('div', { class: 'shop-main-col' }, [topbar, this.gridEl]);
+        // Dedicated single-wave potion row — always available, separate from gear stock.
+        this.potionRowEl = el('div', { class: 'shop-potions' });
+        const mainCol = el('div', { class: 'shop-main-col' }, [topbar, this.gridEl, this.potionRowEl]);
 
         modal.body.appendChild(el('div', { class: 'shop-body' }, [portraitCol, mainCol]));
 
@@ -113,6 +130,11 @@ export class ShopOverlay {
         vm.cards.forEach((card, index) => {
             this.gridEl!.appendChild(this.buildCard(card, index));
         });
+
+        if (this.potionRowEl) {
+            this.potionRowEl.replaceChildren();
+            for (const p of vm.potions) this.potionRowEl.appendChild(this.buildPotionCard(p));
+        }
 
         this.rerollBtn!.textContent = `🎲 Reroll (${vm.rerollCost}g)`;
         this.rerollBtn!.classList.toggle('shop-reroll--poor', !vm.rerollAffordable);
@@ -156,6 +178,23 @@ export class ShopOverlay {
         return root;
     }
 
+    private buildPotionCard(p: PotionCardVM): HTMLDivElement {
+        const poor = !p.affordable && !p.active;
+        const root = el('div', {
+            class: 'shop-potion'
+                + (poor ? ' shop-potion--poor' : '')
+                + (p.active ? ' shop-potion--active' : ''),
+        });
+        root.append(
+            el('div', { class: 'shop-potion__glyph', text: p.glyph }),
+            el('div', { class: 'shop-potion__name', text: p.name }),
+            el('div', { class: 'shop-potion__desc', text: p.desc }),
+            el('div', { class: 'shop-potion__price', text: p.active ? 'ACTIVE' : `🪙 ${p.price}` }),
+        );
+        if (!p.active) onTap(root, () => this.callbacks?.onBuyPotion(p.id));
+        return root;
+    }
+
     private buildCompareOverlay(card: ShopCardVM): HTMLDivElement {
         const cmp = el('div', { class: 'shop-card__compare' });
         cmp.appendChild(el('div', { class: 'shop-card__compare-title', text: 'Currently equipped' }));
@@ -182,6 +221,7 @@ export class ShopOverlay {
         this.portraitMount = null;
         this.goldEl = null;
         this.gridEl = null;
+        this.potionRowEl = null;
         this.rerollBtn = null;
     }
 
