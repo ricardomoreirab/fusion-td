@@ -4529,6 +4529,8 @@ export class SurvivorsGameplayState implements GameState {
                 const ldz = ePos.z - heroPos.z;
                 if (ldx * ldx + ldz * ldz < sumRSq) {
                     this.heroController.takeDamage(e.contactDamagePerSecond * deltaTime * reductionMult, ePos);
+                    // FireBeetle ignites a fire DoT that keeps ticking after contact ends.
+                    if (e.burnOnContactDps > 0) this.heroController.applyBurn(3.0, e.burnOnContactDps);
                 }
             }
 
