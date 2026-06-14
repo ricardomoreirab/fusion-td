@@ -16,8 +16,11 @@ import { MiniEnemy } from './MiniEnemy';
 import { RedMeleeMinion } from './RedMeleeMinion';
 import { RedArtilleryCarriage } from './RedArtilleryCarriage';
 import { RedWizard } from './RedWizard';
+import { RedSuperWizard } from './RedSuperWizard';
 import { DragonTurtle } from './DragonTurtle';
-import { redSwapType } from './redSwap';
+import { FireBeetle } from './FireBeetle';
+import { HornedLizard } from './HornedLizard';
+import { redSwapType, TIER3_SWAP_WAVE } from './redSwap';
 import { PlayerStats } from '../PlayerStats';
 import { makeElite } from './EliteSpawner';
 import { DifficultyTuning } from '../DifficultyTuning';
@@ -619,10 +622,23 @@ export class EnemyManager {
                                enemy = new RedMeleeMinion(this.game, spawnPos, []); break;
             case 'fast_red':   FastEnemy.pendingAsset = assetFor('fast_red');
                                enemy = new RedArtilleryCarriage(this.game, spawnPos, []); break;
-            case 'healer_red': HealerEnemy.pendingAsset = assetFor('healer_red');
-                               enemy = new RedWizard(this.game, spawnPos, []); break;
+            case 'healer_red': {
+                // Wave 15+ elite wizards become the AOE "super" wizard; otherwise the
+                // ranged RedWizard. assetFor('healer_red') already resolves the
+                // red-super-wizard GLB when eliteElement is set (healer_red_elite).
+                const superWizard = !!eliteElement && waveNow >= TIER3_SWAP_WAVE;
+                HealerEnemy.pendingAsset = assetFor('healer_red');
+                enemy = superWizard
+                    ? new RedSuperWizard(this.game, spawnPos, [])
+                    : new RedWizard(this.game, spawnPos, []);
+                break;
+            }
             case 'tank_red':   TankEnemy.pendingAsset = assetFor('tank_red');
                                enemy = new DragonTurtle(this.game, spawnPos, []); break;
+            case 'fire_beetle':   FastEnemy.pendingAsset = assetFor('fire_beetle');
+                                  enemy = new FireBeetle(this.game, spawnPos, []); break;
+            case 'horned_lizard': TankEnemy.pendingAsset = assetFor('horned_lizard');
+                                  enemy = new HornedLizard(this.game, spawnPos, []); break;
             case 'shield':   ShieldEnemy.pendingAsset = assetFor('shield');
                              enemy = new ShieldEnemy(this.game, spawnPos, []); break;
             default:         enemy = new BasicEnemy(this.game, spawnPos, []); break;
@@ -634,6 +650,9 @@ export class EnemyManager {
         // that string matches the 'boss_milestone' case in createEnemyOfType.
         const isMilestoneBoss = enemy instanceof MilestoneBoss;
         enemy.netType = isMilestoneBoss ? 'boss_milestone' : type;
+        // The wave-15 wizard elite is a distinct class but shares the 'healer_red' type
+        // string; tag it so the guest constructs the AOE super wizard (not a plain RedWizard).
+        if (enemy instanceof RedSuperWizard) enemy.netType = 'healer_red_super';
 
         // Set seekTarget (single-provider, for legacy contact-damage / grab / slow paths)
         // AND seekTargets (array, for the nearest-of-N resolver) BEFORE first update.

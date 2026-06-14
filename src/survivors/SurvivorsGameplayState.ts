@@ -134,12 +134,19 @@ const ENEMY_GLB_PATHS: Partial<Record<string, { dir: string; file: string }>> = 
     tank_red:         { dir: 'assets/dragon-turtle/source/',               file: 'dragon_turtle.glb' },
     basic_red_elite:  { dir: 'assets/red-super-melee-minion/source/',      file: 'red_super_melee_minion.glb' },
     healer_red_elite: { dir: 'assets/red-super-wizard/source/',            file: 'red_super_wizard.glb' },
+    // Wave-15+ tier (see redSwap.ts TIER3_SWAP_WAVE).
+    fire_beetle:      { dir: 'assets/fire-beetle/source/',                 file: 'fire_beetle.glb' },
+    horned_lizard:    { dir: 'assets/horned-lizard/source/',               file: 'horned_lizard.glb' },
+    // The wave-15 wizard elite (RedSuperWizard) reuses the red-super-wizard GLB; this
+    // key lets the guest resolve the model from netType 'healer_red_super'.
+    healer_red_super: { dir: 'assets/red-super-wizard/source/',            file: 'red_super_wizard.glb' },
     // Per-tier milestone-boss GLBs (waves 5/10/15/20). EnemyManager picks the right
     // one from MilestoneBoss.waveTier when staging on MilestoneBoss.pendingAsset.
     boss_tier1:  { dir: 'assets/thamuz-lord-lava-in-game/source/',         file: 'thamuz_lord_lava_in_game.glb' },
     boss_tier2:  { dir: 'assets/thamuz-lord-of-wraith-in-game/source/',    file: 'thamuz_lord_of_wraith_in_game.glb' },
     boss_tier3:  { dir: 'assets/helcurt-shadowbringer-in-game/source/',    file: 'helcurt_shadowbringer_in_game.glb' },
     boss_tier4:  { dir: 'assets/bane-lord-of-scalding-seas-in-game/source/', file: 'bane_lord_of_scalding_seas_in_game.glb' },
+    boss_tier5:  { dir: 'assets/elemental-lord/source/',                    file: 'elemental_lord.glb' },
 };
 function loadChampionAsset(championType: string, scene: Scene): Promise<AssetContainer> | null {
     return loadAsset(CHAMPION_GLB_PATHS, championType, scene);
