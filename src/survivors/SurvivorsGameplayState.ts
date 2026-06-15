@@ -40,7 +40,8 @@ import { ChampionSelectOverlay, ChampionOption } from '../ui/overlays/ChampionSe
 import { GameOverState, SurvivorsRunSummary } from '../game-over/GameOverState';
 import { AbilityManager } from './abilities/AbilityManager';
 import { DamageNumberManager } from './DamageNumberManager';
-import { RunItems, ItemId, ATTACK_SPEED_FACTOR } from './RunItems';
+import { RunItems, ItemId, ATTACK_SPEED_FACTOR, ELEMENTAL_CORE_POWER_MULT } from './RunItems';
+import { POTIONS, POTION_PRICE, potionBuffs, PotionId } from './PotionShop';
 import { ItemDrop } from './ItemDrop';
 import { Equipment, priceFor, sellValueOf } from './items/Equipment';
 import { foldEquipmentStats, newEquipFoldTracker, EquipFoldTracker } from './items/foldEquipmentStats';
@@ -50,6 +51,7 @@ import { ItemEffectRuntime, EffectContext, EffectEnemy } from './items/ItemEffec
 import { RageGlow, spawnExpandingRing, spawnTrail } from './items/ItemFx';
 import { describeMods, EFFECT_TEXT } from './items/describeMods';
 import { rollStock, rerollCost } from './shop/ShopStock';
+import { shopUpgradeCost, bonusScaleFor, scaleMods } from './shop/ShopUpgrade';
 import { getGoblinPortrait, GoblinPortrait } from './shop/GoblinPortrait';
 import { ShopOverlay, ShopVM, ShopCardVM } from '../ui/overlays/ShopOverlay';
 import { CharacterProfile, CharacterVM, GearSlotVM, CharStatVM, CharSetVM } from '../ui/overlays/CharacterProfile';
@@ -134,12 +136,19 @@ const ENEMY_GLB_PATHS: Partial<Record<string, { dir: string; file: string }>> = 
     tank_red:         { dir: 'assets/dragon-turtle/source/',               file: 'dragon_turtle.glb' },
     basic_red_elite:  { dir: 'assets/red-super-melee-minion/source/',      file: 'red_super_melee_minion.glb' },
     healer_red_elite: { dir: 'assets/red-super-wizard/source/',            file: 'red_super_wizard.glb' },
+    // Wave-15+ tier (see redSwap.ts TIER3_SWAP_WAVE).
+    fire_beetle:      { dir: 'assets/fire-beetle/source/',                 file: 'fire_beetle.glb' },
+    horned_lizard:    { dir: 'assets/horned-lizard/source/',               file: 'horned_lizard.glb' },
+    // The wave-15 wizard elite (RedSuperWizard) reuses the red-super-wizard GLB; this
+    // key lets the guest resolve the model from netType 'healer_red_super'.
+    healer_red_super: { dir: 'assets/red-super-wizard/source/',            file: 'red_super_wizard.glb' },
     // Per-tier milestone-boss GLBs (waves 5/10/15/20). EnemyManager picks the right
     // one from MilestoneBoss.waveTier when staging on MilestoneBoss.pendingAsset.
     boss_tier1:  { dir: 'assets/thamuz-lord-lava-in-game/source/',         file: 'thamuz_lord_lava_in_game.glb' },
     boss_tier2:  { dir: 'assets/thamuz-lord-of-wraith-in-game/source/',    file: 'thamuz_lord_of_wraith_in_game.glb' },
     boss_tier3:  { dir: 'assets/helcurt-shadowbringer-in-game/source/',    file: 'helcurt_shadowbringer_in_game.glb' },
     boss_tier4:  { dir: 'assets/bane-lord-of-scalding-seas-in-game/source/', file: 'bane_lord_of_scalding_seas_in_game.glb' },
+    boss_tier5:  { dir: 'assets/elemental-lord/source/',                    file: 'elemental_lord.glb' },
 };
 function loadChampionAsset(championType: string, scene: Scene): Promise<AssetContainer> | null {
     return loadAsset(CHAMPION_GLB_PATHS, championType, scene);
@@ -192,12 +201,14 @@ const ITEM_DISPLAY_NAMES: Record<ItemId, string> = {
     multishotCleave: 'Multishot',
     knockback: 'Knockback',
     attackSpeed: 'Attack Speed',
+    elementalCore: 'Elemental Core',
 };
 const ITEM_FLOAT_COLOR: Record<ItemId, string> = {
     extraLife: '#46e05a',
     multishotCleave: '#ffd84a',
     knockback: '#4ea7ff',
     attackSpeed: '#fff080',
+    elementalCore: '#ff5a2e',
 };
 
 // Hero-torch parameters shared between Champion's in-mesh PointLight and the
@@ -541,6 +552,13 @@ export class SurvivorsGameplayState implements GameState {
      *  positions, no reflow). Cleared on each fresh stock roll. */
     private purchasedIds = new Set<string>();
     private rerollsThisVisit = 0;
+    /** Permanent, uncapped shop upgrade level (`+N`). Reset to 0 in exit(). */
+    private shopLevel = 0;
+    /** Potions active for the CURRENT combat wave (cleared when the next shop opens). */
+    private activePotions = new Set<PotionId>();
+    /** Delta-swap tracker for potion lifesteal (additive field, not reset by
+     *  applyLevelBonuses — must subtract last contribution to stay idempotent). */
+    private potionLifestealApplied = 0;
     /** Equipment max-HP already pushed to the hero (delta-applied, mirrors appliedMaxHpBonus). */
     private equipMaxHpApplied = 0;
 
@@ -1129,6 +1147,10 @@ export class SurvivorsGameplayState implements GameState {
                 this.shopPhase = 'open';
                 this.currentStock = [];
                 this.rerollsThisVisit = 0;
+                // Last wave's potions expire here (single-wave). Recompute so the
+                // lifesteal delta-swaps back to 0 and the multiplicative buffs drop.
+                this.activePotions.clear();
+                this.applyLevelBonuses();
                 this.openShop();
             }
             if (!soloNow) {
@@ -2752,6 +2774,9 @@ export class SurvivorsGameplayState implements GameState {
         this.currentStock = [];
         this.purchasedIds.clear();
         this.rerollsThisVisit = 0;
+        this.shopLevel = 0;
+        this.activePotions.clear();
+        this.potionLifestealApplied = 0;
         this.equipMaxHpApplied = 0;
 
         Enemy.onDamageCallback = null;
@@ -3839,6 +3864,12 @@ export class SurvivorsGameplayState implements GameState {
         ps.basicAttackSpeedMultiplier *=
             Math.pow(ATTACK_SPEED_FACTOR, this.runItems?.getStacks('attackSpeed') ?? 0);
 
+        // Elemental Core (wave-25 boss drop): ×10 power per stack, re-folded for the
+        // same reason the attack-speed stack is — the assignment above reset the field.
+        ps.powerDamageMultiplier *= Math.pow(
+            ELEMENTAL_CORE_POWER_MULT, this.runItems?.getStacks('elementalCore') ?? 0,
+        );
+
         // Equipment: fold aggregates on top of the level assignments. Order
         // matters — fold AFTER the assignments above, BEFORE the re-push below.
         // This is the ONLY valid foldEquipmentStats call site (a bare re-fold
@@ -3877,6 +3908,16 @@ export class SurvivorsGameplayState implements GameState {
             if (delta > 0) this.heroController.heal(delta);
             this.appliedMaxHpBonus = targetBonus;
         }
+
+        // Potion buffs (single-wave): multiplicative on top of level+equipment. Lifesteal
+        // is additive+shared, so delta-swap it (mirrors the equipment lifesteal tracker)
+        // to stay idempotent across the many applyLevelBonuses() calls per wave.
+        const pb = potionBuffs(this.activePotions);
+        ps.powerDamageMultiplier      *= pb.powerMult;
+        ps.basicAttackSpeedMultiplier *= pb.atkSpeedMult;
+        ps.damageReductionMultiplier  *= pb.dmgReductionMult;
+        ps.lifestealPct += pb.lifestealAdd - this.potionLifestealApplied;
+        this.potionLifestealApplied = pb.lifestealAdd;
 
         // Re-push the multipliers that are PUSHED (not pulled live), combined with runPerks.
         this.heroController?.updateMoveSpeed(ps.moveSpeedMultiplier * this.runPerks.moveSpeedMultiplier);
@@ -3986,7 +4027,9 @@ export class SurvivorsGameplayState implements GameState {
         if (this.currentStock.length === 0) this.rollShopStock();
         this.shopOverlay.show(this.buildShopVM(pickBark('arrive')), {
             onBuy: (index) => this.handleShopBuy(index),
+            onBuyPotion: (id) => this.handlePotionBuy(id as PotionId),
             onReroll: () => this.handleShopReroll(),
+            onUpgrade: () => this.handleShopUpgrade(),
             // Solo: "To battle!" closes the shop AND advances the wave (endShoppingPhase
             // sets the breather). Co-op: just close — the host breather already owns
             // wave-advance, so endShoppingPhase must NOT run (it would redundantly reset
@@ -4003,7 +4046,8 @@ export class SurvivorsGameplayState implements GameState {
         this.currentStock = rollStock(ITEM_CATALOG, {
             champion: this.currentChampionType,
             wave: this.waveManager?.getCurrentWave() ?? 1,
-            ownedIds: this.equipment.ownedIds(),
+            ownedLevels: this.equipment.ownedLevels(),
+            shopLevel: this.shopLevel,
             setCounts: agg.setCounts,
             rng: Math.random,
         });
@@ -4028,11 +4072,13 @@ export class SurvivorsGameplayState implements GameState {
         const ps = this.playerStats!;
         const wave = this.waveManager?.getCurrentWave() ?? 1;
         const cards: ShopCardVM[] = this.currentStock.map(def => {
-            const price = priceFor(def, wave);
+            const price = priceFor(def, wave, this.shopLevel);
             const old = eq.get(def.slot);
             const credit = old ? sellValueOf(old.pricePaid) : 0;
             return {
-                def, price,
+                def,
+                itemLevel: this.shopLevel,
+                price,
                 sold: this.purchasedIds.has(def.id),
                 affordable: ps.getGold() + credit >= price,
                 replaces: old?.def.name ?? null,
@@ -4040,18 +4086,31 @@ export class SurvivorsGameplayState implements GameState {
                 setProgress: def.setId
                     ? `${setById(def.setId)!.name} ${eq.setCount(def.setId)}/${setById(def.setId)!.pieces.length}`
                     : null,
-                statLines: describeMods(def.mods),
+                // For-sale copy shows the +N (current shop level) stat preview.
+                statLines: describeMods(scaleMods(def.mods, bonusScaleFor(this.shopLevel))),
                 effectText: this.itemEffectText(def),
-                // Comparison: what's equipped in this slot right now.
-                equippedStatLines: old ? describeMods(old.def.mods) : [],
+                // Comparison: the equipped piece scaled by ITS OWN captured level.
+                equippedStatLines: old ? describeMods(scaleMods(old.def.mods, bonusScaleFor(old.level))) : [],
                 equippedEffectText: old ? this.itemEffectText(old.def) : null,
             };
         });
         return {
             gold: ps.getGold(),
             cards,
+            potions: POTIONS.map(p => ({
+                id: p.id,
+                name: p.name,
+                desc: p.desc,
+                glyph: p.glyph,
+                price: p.price,
+                affordable: ps.getGold() >= p.price,
+                active: this.activePotions.has(p.id),
+            })),
             rerollCost: rerollCost(this.rerollsThisVisit),
             rerollAffordable: ps.getGold() >= rerollCost(this.rerollsThisVisit),
+            shopLevel: this.shopLevel,
+            upgradeCost: shopUpgradeCost(this.shopLevel),
+            upgradeAffordable: ps.getGold() >= shopUpgradeCost(this.shopLevel),
             quip,
         };
     }
@@ -4061,12 +4120,27 @@ export class SurvivorsGameplayState implements GameState {
         if (!def || !this.equipment || !this.playerStats) return;
         if (this.purchasedIds.has(def.id)) return; // already bought this visit
         const wave = this.waveManager?.getCurrentWave() ?? 1;
-        if (!this.equipment.buy(def, wave)) {
+        if (!this.equipment.buy(def, wave, this.shopLevel)) {
             this.shopOverlay?.refresh(this.buildShopVM(pickBark('poor')));
             return;
         }
         this.purchasedIds.add(def.id); // keep the tile in place as "Sold"
         this.applyLevelBonuses();      // recompute: level + equipment fold + active effects
+        this.updateInventoryHud();
+        this.shopOverlay?.refresh(this.buildShopVM(pickBark('buy')));
+    }
+
+    /** Buy a single-wave potion: spend gold, mark it active, recompute stats. One of
+     *  each per wave (idempotent — a second buy this visit is ignored). */
+    private handlePotionBuy(id: PotionId): void {
+        if (!this.playerStats) return;
+        if (this.activePotions.has(id)) return;     // already active this wave
+        if (!this.playerStats.spendGold(POTION_PRICE)) {
+            this.shopOverlay?.refresh(this.buildShopVM(pickBark('poor')));
+            return;
+        }
+        this.activePotions.add(id);
+        this.applyLevelBonuses();                    // fold the new potion buff now
         this.updateInventoryHud();
         this.shopOverlay?.refresh(this.buildShopVM(pickBark('buy')));
     }
@@ -4083,7 +4157,7 @@ export class SurvivorsGameplayState implements GameState {
                 name: item?.def.name ?? null,
                 glyph: item?.def.glyph ?? null,
                 rarity: item?.def.rarity ?? null,
-                statLines: item ? describeMods(item.def.mods) : [],
+                statLines: item ? describeMods(scaleMods(item.def.mods, bonusScaleFor(item.level))) : [],
                 effectText: item ? this.itemEffectText(item.def) : null,
             };
         });
@@ -4157,6 +4231,20 @@ export class SurvivorsGameplayState implements GameState {
         this.rerollsThisVisit++;
         this.rollShopStock();
         this.shopOverlay?.refresh(this.buildShopVM(pickBark('reroll')));
+    }
+
+    /** Raise the permanent shop upgrade level by one (uncapped). Does NOT touch
+     *  equipped gear — items only get stronger when re-bought from the upgraded
+     *  shop. Just re-renders the stock at the new prices + scaled stat previews. */
+    private handleShopUpgrade(): void {
+        if (!this.playerStats) return;
+        const cost = shopUpgradeCost(this.shopLevel);
+        if (!this.playerStats.spendGold(cost)) {
+            this.shopOverlay?.refresh(this.buildShopVM(pickBark('poor')));
+            return;
+        }
+        this.shopLevel++;
+        this.shopOverlay?.refresh(this.buildShopVM(pickBark('buy')));
     }
 
     /** "To battle!" pressed: stop the goblin portrait, short countdown, next wave. */
@@ -4514,6 +4602,8 @@ export class SurvivorsGameplayState implements GameState {
                 const ldz = ePos.z - heroPos.z;
                 if (ldx * ldx + ldz * ldz < sumRSq) {
                     this.heroController.takeDamage(e.contactDamagePerSecond * deltaTime * reductionMult, ePos);
+                    // FireBeetle ignites a fire DoT that keeps ticking after contact ends.
+                    if (e.burnOnContactDps > 0) this.heroController.applyBurn(3.0, e.burnOnContactDps);
                 }
             }
 

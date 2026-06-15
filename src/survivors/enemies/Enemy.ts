@@ -234,6 +234,9 @@ export class Enemy {
         applySlow?: (multiplier: number, durationS: number) => void;
     } | null = null;
     public contactDamagePerSecond: number = 10;
+    /** If >0, contact with the hero also ignites a burn DoT (this dps) for ~3s.
+     *  Only FireBeetle sets it; the gameplay state reads it in applyContactDamage. */
+    public burnOnContactDps: number = 0;
     public isElite: boolean = false;
     public eliteDropElement: string | null = null;
     /** Co-op multi-target list. When non-empty, `resolveSeekTarget()` uses

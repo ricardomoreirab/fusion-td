@@ -8,6 +8,8 @@ import { SLOT_LABEL } from './slotMeta';
 
 export interface ShopCardVM {
     def: ItemDef;
+    /** Shop upgrade level this for-sale copy represents (drives the +N badge). */
+    itemLevel: number;
     price: number;
     affordable: boolean;
     /** Already bought this visit — renders as a locked "Sold" tile in place. */
@@ -27,18 +29,39 @@ export interface ShopCardVM {
     equippedEffectText: string | null;
 }
 
+export interface PotionCardVM {
+    id: string;
+    name: string;
+    desc: string;
+    glyph: string;
+    price: number;
+    affordable: boolean;
+    /** Already bought for the upcoming wave (one per wave). */
+    active: boolean;
+}
+
 export interface ShopVM {
     gold: number;
     cards: ShopCardVM[];
+    potions: PotionCardVM[];
     rerollCost: number;
     rerollAffordable: boolean;
+    /** Current shop upgrade level (0 = base). */
+    shopLevel: number;
+    /** Gold to raise the shop to shopLevel+1. */
+    upgradeCost: number;
+    upgradeAffordable: boolean;
     quip: string;
 }
 
 export interface ShopCallbacks {
     /** Buy the card at `index` in the current VM. */
     onBuy(index: number): void;
+    /** Buy the single-wave potion with the given id. */
+    onBuyPotion(id: string): void;
     onReroll(): void;
+    /** Raise the shop upgrade level by one. */
+    onUpgrade(): void;
     /** Close shop AND start the next wave. */
     onBattle(): void;
     /** Modal torn down (after "To battle!") — game unpauses. */
@@ -57,7 +80,10 @@ export class ShopOverlay {
     private portraitMount: HTMLDivElement | null = null;
     private goldEl: HTMLDivElement | null = null;
     private gridEl: HTMLDivElement | null = null;
+    private potionRowEl: HTMLDivElement | null = null;
     private rerollBtn: HTMLDivElement | null = null;
+    private upgradeBtn: HTMLDivElement | null = null;
+    private shopLevelEl: HTMLDivElement | null = null;
 
     constructor(private parent: HTMLElement) {}
 
@@ -80,9 +106,12 @@ export class ShopOverlay {
 
         // ── Right column: gold bar + fixed 3×2 stock grid ──
         this.goldEl = el('div', { class: 'shop-gold' });
-        const topbar = el('div', { class: 'shop-topbar' }, [this.goldEl]);
+        this.shopLevelEl = el('div', { class: 'shop-level' });
+        const topbar = el('div', { class: 'shop-topbar' }, [this.goldEl, this.shopLevelEl]);
         this.gridEl = el('div', { class: 'shop-grid' });
-        const mainCol = el('div', { class: 'shop-main-col' }, [topbar, this.gridEl]);
+        // Dedicated single-wave potion row — always available, separate from gear stock.
+        this.potionRowEl = el('div', { class: 'shop-potions' });
+        const mainCol = el('div', { class: 'shop-main-col' }, [topbar, this.gridEl, this.potionRowEl]);
 
         modal.body.appendChild(el('div', { class: 'shop-body' }, [portraitCol, mainCol]));
 
@@ -91,11 +120,15 @@ export class ShopOverlay {
             label: '', variant: 'ghost', class: 'shop-reroll',
             onClick: () => this.callbacks?.onReroll(),
         });
+        this.upgradeBtn = makeButton({
+            label: '', variant: 'ghost', class: 'shop-upgrade',
+            onClick: () => this.callbacks?.onUpgrade(),
+        });
         const battle = makeButton({
             label: '⚔ To battle!', variant: 'forged', class: 'shop-battle',
             onClick: () => { this.callbacks?.onBattle(); },
         });
-        modal.body.appendChild(el('div', { class: 'shop-footer' }, [this.rerollBtn, battle]));
+        modal.body.appendChild(el('div', { class: 'shop-footer' }, [this.rerollBtn, this.upgradeBtn, battle]));
 
         this.parent.appendChild(modal.root);
         this.modal = modal;
@@ -114,8 +147,16 @@ export class ShopOverlay {
             this.gridEl!.appendChild(this.buildCard(card, index));
         });
 
+        if (this.potionRowEl) {
+            this.potionRowEl.replaceChildren();
+            for (const p of vm.potions) this.potionRowEl.appendChild(this.buildPotionCard(p));
+        }
+
         this.rerollBtn!.textContent = `🎲 Reroll (${vm.rerollCost}g)`;
         this.rerollBtn!.classList.toggle('shop-reroll--poor', !vm.rerollAffordable);
+        this.shopLevelEl!.textContent = `Shop +${vm.shopLevel}`;
+        this.upgradeBtn!.textContent = `⬆ Upgrade → +${vm.shopLevel + 1} (${vm.upgradeCost}g)`;
+        this.upgradeBtn!.classList.toggle('shop-upgrade--poor', !vm.upgradeAffordable);
     }
 
     public setQuip(text: string): void {
@@ -135,6 +176,9 @@ export class ShopOverlay {
             el('div', { class: 'shop-card__emblem', text: card.def.glyph }),
             el('div', { class: 'shop-card__name', text: card.def.name }),
         );
+        if (card.itemLevel > 0) {
+            root.appendChild(el('div', { class: 'shop-card__plus', text: `+${card.itemLevel}` }));
+        }
         for (const line of card.statLines) {
             root.appendChild(el('div', { class: 'shop-card__stat', text: line }));
         }
@@ -153,6 +197,23 @@ export class ShopOverlay {
         root.appendChild(this.buildCompareOverlay(card));
 
         if (!card.sold) onTap(root, () => this.callbacks?.onBuy(index));
+        return root;
+    }
+
+    private buildPotionCard(p: PotionCardVM): HTMLDivElement {
+        const poor = !p.affordable && !p.active;
+        const root = el('div', {
+            class: 'shop-potion'
+                + (poor ? ' shop-potion--poor' : '')
+                + (p.active ? ' shop-potion--active' : ''),
+        });
+        root.append(
+            el('div', { class: 'shop-potion__glyph', text: p.glyph }),
+            el('div', { class: 'shop-potion__name', text: p.name }),
+            el('div', { class: 'shop-potion__desc', text: p.desc }),
+            el('div', { class: 'shop-potion__price', text: p.active ? 'ACTIVE' : `🪙 ${p.price}` }),
+        );
+        if (!p.active) onTap(root, () => this.callbacks?.onBuyPotion(p.id));
         return root;
     }
 
@@ -182,7 +243,10 @@ export class ShopOverlay {
         this.portraitMount = null;
         this.goldEl = null;
         this.gridEl = null;
+        this.potionRowEl = null;
         this.rerollBtn = null;
+        this.upgradeBtn = null;
+        this.shopLevelEl = null;
     }
 
     public close(): void {

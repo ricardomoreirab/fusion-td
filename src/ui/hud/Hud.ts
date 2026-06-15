@@ -24,12 +24,12 @@ const ELEMENT_COLOR: Record<string, string> = {
   fire: '#ff6030', ice: '#30cfff', arcane: '#b050ff', physical: '#e0e0e0', storm: '#ffe040',
 };
 const ITEM_GLYPH: Record<ItemId, string> = {
-  extraLife: '✚', multishotCleave: '✦', knockback: '➤', attackSpeed: '⚡︎',
+  extraLife: '✚', multishotCleave: '✦', knockback: '➤', attackSpeed: '⚡︎', elementalCore: '\u{1F48E}',
 };
 const ITEM_COLOR: Record<ItemId, string> = {
-  extraLife: '#46e05a', multishotCleave: '#ffd84a', knockback: '#4ea7ff', attackSpeed: '#fff080',
+  extraLife: '#46e05a', multishotCleave: '#ffd84a', knockback: '#4ea7ff', attackSpeed: '#fff080', elementalCore: '#ff5a2e',
 };
-const ITEM_IDS: ItemId[] = ['extraLife', 'multishotCleave', 'knockback', 'attackSpeed'];
+const ITEM_IDS: ItemId[] = ['extraLife', 'multishotCleave', 'knockback', 'attackSpeed', 'elementalCore'];
 
 const ULT_DISPLAY: Record<string, { glyph: string; color: string }> = {
   meteor: { glyph: '☄', color: '#c04010' },
@@ -55,11 +55,11 @@ export class Hud {
 
   private powerSlots: IconSlotController[] = [];
   private itemSlots: Record<ItemId, IconSlotController | null> = {
-    extraLife: null, multishotCleave: null, knockback: null, attackSpeed: null,
+    extraLife: null, multishotCleave: null, knockback: null, attackSpeed: null, elementalCore: null,
   };
   private prevCooldownRemaining: number[] = [-1, -1, -1, -1];
   private itemPulse: Record<ItemId, boolean> = {
-    extraLife: false, multishotCleave: false, knockback: false, attackSpeed: false,
+    extraLife: false, multishotCleave: false, knockback: false, attackSpeed: false, elementalCore: false,
   };
 
   private ultButtons: { root: HTMLDivElement; label: HTMLDivElement; cd: HTMLDivElement; cdText: HTMLDivElement; id: string }[] = [];

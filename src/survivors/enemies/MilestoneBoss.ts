@@ -24,6 +24,7 @@ const TIER_ACTIONS: Record<number, SpecialAction[]> = {
     2: ['pull'],
     3: ['dash'],
     4: ['dash', 'pull'],
+    5: ['dash', 'pull'], // Elemental Lord — plus a periodic elemental nova (see tickElementalNova)
 };
 function tierActions(tier: number): SpecialAction[] { return TIER_ACTIONS[tier] ?? ['dash', 'pull']; }
 
@@ -33,6 +34,7 @@ const TIER_LABEL: Record<number, string> = {
     2: 'Warden',
     3: 'Gemini',
     4: 'Apex Tyrant',
+    5: 'Elemental Lord',
 };
 function tierLabel(tier: number): string { return TIER_LABEL[tier] ?? 'Apex Tyrant'; }
 
@@ -90,6 +92,12 @@ const PULL_TELEGRAPH_RADIUS = 3.0;  // visual grab-zone radius
 
 const ENRAGE_LUNGE_FACTOR = 0.5; // halves the special cooldown while enraged (2× rate)
 
+// Elemental nova (tier 5 only): a periodic telegraphed AOE pulse around the boss,
+// independent of the dash/pull state machine. Reuses TELEGRAPH_DURATION for the wind-up.
+const NOVA_INTERVAL = 7.0;   // seconds between novas
+const NOVA_RADIUS   = 7.0;   // AOE radius (hero must be inside on detonation)
+const NOVA_DAMAGE_FACTOR = 1.3; // × the boss's melee hit damage
+
 export class MilestoneBoss extends BossEnemy {
     /** Static slot used by EnemyManager.spawnSurvivorsEnemy to stage a preloaded GLB
      *  asset (per-tier boss model) before constructing. createMesh consumes + clears. */
@@ -114,9 +122,15 @@ export class MilestoneBoss extends BossEnemy {
     private dashHasHit: boolean = false;
     private enraged: boolean = false;
 
-    /** Damage dealt by a dash slash / pull slam — derived from melee hit damage. */
+    /** Damage dealt by a dash slash / pull slam / elemental nova — derived from melee hit damage. */
     private readonly dashSlashDamage: number;
     private readonly pullSlamDamage: number;
+    private readonly novaDamage: number;
+
+    // Elemental nova (tier 5): own timer/telegraph, independent of the lunge machine.
+    private novaCooldown: number = NOVA_INTERVAL;
+    private novaTelegraphTimer: number = 0;
+    private novaRing: Mesh | null = null;
 
     // Twin/enrage linkage (tier 3/4).
     private cloneSpawned: boolean = false;
@@ -180,6 +194,7 @@ export class MilestoneBoss extends BossEnemy {
         // Special-move damage scales with the boss's melee hit damage.
         this.dashSlashDamage = Math.round(this.meleeHitDamage * DASH_SLASH_DAMAGE_FACTOR);
         this.pullSlamDamage  = Math.round(this.meleeHitDamage * PULL_SLAM_DAMAGE_FACTOR);
+        this.novaDamage      = Math.round(this.meleeHitDamage * NOVA_DAMAGE_FACTOR);
 
         // Build mesh + health bar AFTER field initializers have run (see Enemy
         // constructor note). Guarded so it fires once for MilestoneBoss (the
@@ -216,7 +231,8 @@ export class MilestoneBoss extends BossEnemy {
             true,
             { doNotInstantiate: true },
         );
-        const BOSS_SCALE = 2.2; // visibly larger than minions / hero
+        // Tier 5 (Elemental Lord) dwarfs every other boss.
+        const BOSS_SCALE = 2.2 * (this.waveTier >= 5 ? 1.4 : 1);
         for (const root of inst.rootNodes) {
             root.parent = this.mesh;
             if ('scaling' in root && root.scaling) {
@@ -293,6 +309,7 @@ export class MilestoneBoss extends BossEnemy {
 
         this.updateHeroVelocity(deltaTime);
         this.tickLungeStateMachine(deltaTime);
+        if (this.waveTier >= 5) this.tickElementalNova(deltaTime);
 
         let result: boolean;
         // While dashing, the boss travels in the locked direction (not toward the hero).
@@ -613,6 +630,75 @@ export class MilestoneBoss extends BossEnemy {
         super.applyKnockback(dirX, dirZ, magnitude);
     }
 
+    /**
+     * Elemental nova (tier 5): a periodic telegraphed AOE pulse. Runs alongside the
+     * lunge machine but only CHARGES while walking (so its wind-up never overlaps a
+     * dash/pull telegraph). Frozen/stunned pauses it. Detonates after TELEGRAPH_DURATION.
+     */
+    private tickElementalNova(deltaTime: number): void {
+        if (this.isFrozen || this.isStunned) return;
+        if (this.novaTelegraphTimer > 0) {
+            this.novaTelegraphTimer -= deltaTime;
+            if (this.novaTelegraphTimer <= 0) this.detonateNova();
+            return;
+        }
+        if (this.lungeState !== 'walking') return;
+        this.novaCooldown -= deltaTime;
+        if (this.novaCooldown <= 0) this.beginNova();
+    }
+
+    private beginNova(): void {
+        this.novaTelegraphTimer = TELEGRAPH_DURATION;
+        this.spawnNovaTelegraph();
+        // Broadcast a disc telegraph at the boss origin (reuses the 'pull' fx kind).
+        emitCoopFx('telegraph', this.position.x, this.position.z, this.position.x, this.position.z, 'pull');
+    }
+
+    private detonateNova(): void {
+        this.disposeNovaRing();
+        this.novaCooldown = NOVA_INTERVAL;
+        // AOE: damage every live hero within NOVA_RADIUS. takeDamage exists on the real
+        // provider objects but not the TargetProvider type, so cast at the call.
+        const heroes: Array<{
+            getPosition(): { x: number; z: number };
+            isAlive?(): boolean;
+            takeDamage?(amount: number, sourcePos?: Vector3): void;
+        }> = this.seekTargets.length > 0
+            ? this.seekTargets
+            : (this.seekTarget ? [this.seekTarget] : []);
+        const r2 = NOVA_RADIUS * NOVA_RADIUS;
+        for (const h of heroes) {
+            if (h.isAlive?.() === false) continue;
+            const p = h.getPosition();
+            const dx = p.x - this.position.x;
+            const dz = p.z - this.position.z;
+            if (dx * dx + dz * dz <= r2) h.takeDamage?.(this.novaDamage, this.position);
+        }
+    }
+
+    /** Orange ground disc telegraphing the nova radius. Same leak-safe pattern as the
+     *  pull telegraph: fresh StandardMaterial, freed with dispose(false, true). */
+    private spawnNovaTelegraph(): void {
+        this.disposeNovaRing();
+        const ring = MeshBuilder.CreateDisc('mbossNovaTele', { radius: NOVA_RADIUS, tessellation: 32 }, this.scene);
+        ring.rotation.x = Math.PI / 2;
+        ring.position.set(this.position.x, 0.05, this.position.z);
+        const mat = new StandardMaterial('mbossNovaTeleMat', this.scene);
+        mat.emissiveColor = new Color3(1.0, 0.35, 0.08);
+        mat.diffuseColor  = new Color3(0, 0, 0);
+        mat.specularColor = Color3.Black();
+        mat.alpha = 0.4;
+        ring.material = mat;
+        this.novaRing = ring;
+    }
+
+    private disposeNovaRing(): void {
+        if (this.novaRing && !this.novaRing.isDisposed()) {
+            this.novaRing.dispose(false, true); // free the per-nova material too
+        }
+        this.novaRing = null;
+    }
+
     /** Free the telegraph ring — NOT parented to this.mesh, so the base mesh-tree
      *  release never reaches it. Runs on every disposal path (die/disposeCorpse/
      *  dispose — the corpse path is the ONLY one guest enemies take). Idempotent
@@ -620,5 +706,6 @@ export class MilestoneBoss extends BossEnemy {
     protected disposeAuxVisuals(): void {
         super.disposeAuxVisuals();
         this.disposeTelegraphRing();
+        this.disposeNovaRing();
     }
 }

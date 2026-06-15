@@ -15,7 +15,7 @@ export class RedWizard extends HealerEnemy {
     private static readonly ATTACK_COOLDOWN = 2.0; // seconds between bolts
     private static readonly ATTACK_RANGE = 12;     // world units; only fires within this
     private static readonly BOLT_SPEED = 14;       // units/sec — slow enough to sidestep
-    private static readonly BOLT_DAMAGE = 12;
+    protected static readonly BOLT_DAMAGE = 12;    // protected: RedSuperWizard reads it
     private static readonly BOLT_HIT_RADIUS = 0.6; // distance to hero counted as a hit
     private static readonly BOLT_TIMEOUT_MS = 3000;
     private static readonly POOL_KEY = 'red-wizard-bolt';
@@ -117,9 +117,18 @@ export class RedWizard extends HealerEnemy {
             const hx = hp.x - bolt.position.x;
             const hz = hp.z - bolt.position.z;
             if (hx * hx + hz * hz < RedWizard.BOLT_HIT_RADIUS * RedWizard.BOLT_HIT_RADIUS) {
-                seekTarget.takeDamage?.(RedWizard.BOLT_DAMAGE, this.position);
+                this.onBoltHit(seekTarget, bolt.position);
                 cleanup();
             }
         });
+    }
+
+    /**
+     * Apply the bolt's damage on impact. Base = single target. Subclasses (the super
+     * wizard) override to add AOE splash. `at` is the bolt's world position at impact.
+     */
+    protected onBoltHit(target: NonNullable<typeof this.seekTarget>, at: Vector3): void {
+        void at;
+        target.takeDamage?.(RedWizard.BOLT_DAMAGE, this.position);
     }
 }

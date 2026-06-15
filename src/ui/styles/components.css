@@ -414,6 +414,40 @@
   gap: var(--s-2);
 }
 
+/* Single-wave potion row — always-available consumables, below the gear grid. */
+.shop-potions {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--s-2);
+  margin-top: var(--s-2);
+}
+.shop-potion {
+  --accent: #ff5a2e;
+  position: relative;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: var(--s-2);
+  border-radius: var(--r-sm);
+  background: linear-gradient(180deg, #1d1410, #0d0907);
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 2px 6px rgba(0,0,0,0.5);
+  cursor: pointer;
+  transition: transform 100ms ease, box-shadow 120ms ease;
+  text-align: center;
+}
+.shop-potion:hover {
+  transform: translateY(-2px);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 0 12px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.shop-potion:active { transform: scale(0.97); }
+.shop-potion--poor { opacity: 0.55; filter: saturate(0.6); cursor: default; }
+.shop-potion--poor .shop-potion__price { color: var(--c-blood); }
+.shop-potion--active { opacity: 0.7; cursor: default; box-shadow: inset 0 0 0 1px color-mix(in srgb, #46e05a 70%, transparent); }
+.shop-potion--active .shop-potion__price { color: #46e05a; }
+.shop-potion__glyph { font-size: var(--fs-500); line-height: 1.1; }
+.shop-potion__name { font-family: var(--ff-body); font-weight: 800; font-size: var(--fs-100); color: var(--accent); }
+.shop-potion__desc { font-size: var(--fs-100); color: var(--c-parchment); opacity: 0.85; }
+.shop-potion__price { font-weight: 800; font-size: var(--fs-100); color: var(--c-gold); margin-top: 2px; }
+
 /* Item card — rarity color arrives via the --accent custom prop
    (set inline from RARITY_COLOR by ShopOverlay). */
 .shop-card {
@@ -505,6 +539,20 @@
   gap: var(--s-2); flex-wrap: wrap;
 }
 .shop-reroll--poor { opacity: 0.5; pointer-events: none; }
+.shop-upgrade--poor { opacity: 0.5; pointer-events: none; }
+
+/* Current shop upgrade level, shown beside the gold bar. */
+.shop-level {
+  font-family: var(--ff-display); font-weight: 700; font-size: var(--fs-200);
+  color: #7ad7ff; letter-spacing: 0.06em;
+}
+
+/* +N tier badge on a for-sale card (top-left corner). */
+.shop-card__plus {
+  position: absolute; top: var(--s-2); left: var(--s-2);
+  font-family: var(--ff-display); font-weight: 700; font-size: var(--fs-200);
+  color: #7ad7ff; text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+}
 
 /* Mobile: stack the goblin above the stock as a short header strip. Card grid
    stays a FIXED 3 columns (positions never change — per design). */

@@ -13,7 +13,10 @@ import { MiniEnemy } from './MiniEnemy';
 import { RedMeleeMinion } from './RedMeleeMinion';
 import { RedArtilleryCarriage } from './RedArtilleryCarriage';
 import { RedWizard } from './RedWizard';
+import { RedSuperWizard } from './RedSuperWizard';
 import { DragonTurtle } from './DragonTurtle';
+import { FireBeetle } from './FireBeetle';
+import { HornedLizard } from './HornedLizard';
 
 /**
  * Construct a concrete Enemy of the given type at a position, for GUEST
@@ -95,6 +98,19 @@ export function createEnemyOfType(
         case 'tank_red':
             TankEnemy.pendingAsset = asset;
             return new DragonTurtle(game, pos, []);
+
+        // Wave-15+ tier (mirrors EnemyManager.spawnSurvivorsEnemy).
+        case 'fire_beetle':
+            FastEnemy.pendingAsset = asset;
+            return new FireBeetle(game, pos, []);
+
+        case 'horned_lizard':
+            TankEnemy.pendingAsset = asset;
+            return new HornedLizard(game, pos, []);
+
+        case 'healer_red_super':
+            HealerEnemy.pendingAsset = asset;
+            return new RedSuperWizard(game, pos, []);
 
         default:
             console.warn(`[createEnemyOfType] unknown type: "${type}" — guest spawn ignored`);

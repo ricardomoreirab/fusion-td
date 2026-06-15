@@ -13,8 +13,11 @@ export const REROLL_COST_STEP = 25;
 export interface StockOpts {
     champion: ChampionType;
     wave: number;
-    /** Item ids the player already owns (excluded from stock). */
-    ownedIds: Set<string>;
+    /** id → shop level the player owns that item at. An owned item still appears
+     *  in stock when shopLevel exceeds its owned level (so the upgrade is buyable). */
+    ownedLevels: Map<string, number>;
+    /** Current shop upgrade level. Owned items at or above this are excluded. */
+    shopLevel: number;
     /** setId → owned piece count (pity weighting for started sets). */
     setCounts: Record<string, number>;
     /** Injectable RNG in [0,1) for testability. */
@@ -43,7 +46,8 @@ export function buildWeightedPool(catalog: ItemDef[], opts: StockOpts): Weighted
     const weights = rarityWeights(opts.wave);
     const pool: WeightedItem[] = [];
     for (const def of catalog) {
-        if (opts.ownedIds.has(def.id)) continue;
+        const ownedLevel = opts.ownedLevels.get(def.id);
+        if (ownedLevel !== undefined && ownedLevel >= opts.shopLevel) continue;
         if (def.classes !== 'all' && !def.classes.includes(opts.champion)) continue;
         let weight = weights[def.rarity];
         if (weight <= 0) continue;

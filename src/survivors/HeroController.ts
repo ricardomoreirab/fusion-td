@@ -88,6 +88,9 @@ export class HeroController {
     private reviveCharges: number = 0;
     private shieldTimer: number = 0; // seconds of post-revive invulnerability remaining
     private static readonly REVIVE_SHIELD_SECONDS = 5;
+    // FireBeetle contact ignites a lightweight fire DoT (no general hero status system).
+    private burnTimer: number = 0; // seconds of remaining hero burn
+    private burnDps: number = 0;   // damage/sec while burnTimer > 0
     /** Fired when a revive triggers (gameplay layer spawns the shield VFX + HUD sync). */
     private onReviveCallback: () => void = () => {};
     /** Fired when the post-revive shield expires (gameplay layer removes the bubble). */
@@ -416,6 +419,14 @@ export class HeroController {
         return this.shieldTimer > 0;
     }
 
+    /** Ignite/refresh a fire DoT on the hero (FireBeetle contact). Refreshes the
+     *  timer and raises the dps to the strongest active source. */
+    public applyBurn(durationS: number, dps: number): void {
+        if (this.isDead || this.spectating) return;
+        this.burnTimer = Math.max(this.burnTimer, durationS);
+        this.burnDps = Math.max(this.burnDps, dps);
+    }
+
     /** Restore HP (capped at max). No-op while dead. Used by the Heal power-choice card. */
     public heal(amount: number): void {
         if (this.isDead || amount <= 0) return;
@@ -624,6 +635,15 @@ export class HeroController {
                 this.shieldTimer = 0;
                 this.onShieldEndCallback();
             }
+        }
+
+        // ── Fire DoT (FireBeetle contact) ──────────────────────────────────
+        // Route through takeDamage so the revive/invuln gates still apply. No source
+        // position → no knockback. takeDamage no-ops while dead/shielded.
+        if (this.burnTimer > 0) {
+            this.burnTimer -= deltaTime;
+            this.takeDamage(this.burnDps * deltaTime, undefined);
+            if (this.burnTimer <= 0) { this.burnTimer = 0; this.burnDps = 0; }
         }
 
         // ── Co-op spectate / death: hero is inert ──────────────────────────
