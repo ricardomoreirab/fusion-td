@@ -539,6 +539,20 @@
   gap: var(--s-2); flex-wrap: wrap;
 }
 .shop-reroll--poor { opacity: 0.5; pointer-events: none; }
+.shop-upgrade--poor { opacity: 0.5; pointer-events: none; }
+
+/* Current shop upgrade level, shown beside the gold bar. */
+.shop-level {
+  font-family: var(--ff-display); font-weight: 700; font-size: var(--fs-200);
+  color: #7ad7ff; letter-spacing: 0.06em;
+}
+
+/* +N tier badge on a for-sale card (top-left corner). */
+.shop-card__plus {
+  position: absolute; top: var(--s-2); left: var(--s-2);
+  font-family: var(--ff-display); font-weight: 700; font-size: var(--fs-200);
+  color: #7ad7ff; text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+}
 
 /* Mobile: stack the goblin above the stock as a short header strip. Card grid
    stays a FIXED 3 columns (positions never change — per design). */
