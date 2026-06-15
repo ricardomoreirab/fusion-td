@@ -51,6 +51,7 @@ import { ItemEffectRuntime, EffectContext, EffectEnemy } from './items/ItemEffec
 import { RageGlow, spawnExpandingRing, spawnTrail } from './items/ItemFx';
 import { describeMods, EFFECT_TEXT } from './items/describeMods';
 import { rollStock, rerollCost } from './shop/ShopStock';
+import { shopUpgradeCost, bonusScaleFor, scaleMods } from './shop/ShopUpgrade';
 import { getGoblinPortrait, GoblinPortrait } from './shop/GoblinPortrait';
 import { ShopOverlay, ShopVM, ShopCardVM } from '../ui/overlays/ShopOverlay';
 import { CharacterProfile, CharacterVM, GearSlotVM, CharStatVM, CharSetVM } from '../ui/overlays/CharacterProfile';
@@ -551,6 +552,8 @@ export class SurvivorsGameplayState implements GameState {
      *  positions, no reflow). Cleared on each fresh stock roll. */
     private purchasedIds = new Set<string>();
     private rerollsThisVisit = 0;
+    /** Permanent, uncapped shop upgrade level (`+N`). Reset to 0 in exit(). */
+    private shopLevel = 0;
     /** Potions active for the CURRENT combat wave (cleared when the next shop opens). */
     private activePotions = new Set<PotionId>();
     /** Delta-swap tracker for potion lifesteal (additive field, not reset by
@@ -2771,6 +2774,7 @@ export class SurvivorsGameplayState implements GameState {
         this.currentStock = [];
         this.purchasedIds.clear();
         this.rerollsThisVisit = 0;
+        this.shopLevel = 0;
         this.activePotions.clear();
         this.potionLifestealApplied = 0;
         this.equipMaxHpApplied = 0;
@@ -4025,6 +4029,7 @@ export class SurvivorsGameplayState implements GameState {
             onBuy: (index) => this.handleShopBuy(index),
             onBuyPotion: (id) => this.handlePotionBuy(id as PotionId),
             onReroll: () => this.handleShopReroll(),
+            onUpgrade: () => this.handleShopUpgrade(),
             // Solo: "To battle!" closes the shop AND advances the wave (endShoppingPhase
             // sets the breather). Co-op: just close — the host breather already owns
             // wave-advance, so endShoppingPhase must NOT run (it would redundantly reset
@@ -4066,11 +4071,13 @@ export class SurvivorsGameplayState implements GameState {
         const ps = this.playerStats!;
         const wave = this.waveManager?.getCurrentWave() ?? 1;
         const cards: ShopCardVM[] = this.currentStock.map(def => {
-            const price = priceFor(def, wave);
+            const price = priceFor(def, wave, this.shopLevel);
             const old = eq.get(def.slot);
             const credit = old ? sellValueOf(old.pricePaid) : 0;
             return {
-                def, price,
+                def,
+                itemLevel: this.shopLevel,
+                price,
                 sold: this.purchasedIds.has(def.id),
                 affordable: ps.getGold() + credit >= price,
                 replaces: old?.def.name ?? null,
@@ -4078,10 +4085,11 @@ export class SurvivorsGameplayState implements GameState {
                 setProgress: def.setId
                     ? `${setById(def.setId)!.name} ${eq.setCount(def.setId)}/${setById(def.setId)!.pieces.length}`
                     : null,
-                statLines: describeMods(def.mods),
+                // For-sale copy shows the +N (current shop level) stat preview.
+                statLines: describeMods(scaleMods(def.mods, bonusScaleFor(this.shopLevel))),
                 effectText: this.itemEffectText(def),
-                // Comparison: what's equipped in this slot right now.
-                equippedStatLines: old ? describeMods(old.def.mods) : [],
+                // Comparison: the equipped piece scaled by ITS OWN captured level.
+                equippedStatLines: old ? describeMods(scaleMods(old.def.mods, bonusScaleFor(old.level))) : [],
                 equippedEffectText: old ? this.itemEffectText(old.def) : null,
             };
         });
@@ -4099,6 +4107,9 @@ export class SurvivorsGameplayState implements GameState {
             })),
             rerollCost: rerollCost(this.rerollsThisVisit),
             rerollAffordable: ps.getGold() >= rerollCost(this.rerollsThisVisit),
+            shopLevel: this.shopLevel,
+            upgradeCost: shopUpgradeCost(this.shopLevel),
+            upgradeAffordable: ps.getGold() >= shopUpgradeCost(this.shopLevel),
             quip,
         };
     }
@@ -4108,7 +4119,7 @@ export class SurvivorsGameplayState implements GameState {
         if (!def || !this.equipment || !this.playerStats) return;
         if (this.purchasedIds.has(def.id)) return; // already bought this visit
         const wave = this.waveManager?.getCurrentWave() ?? 1;
-        if (!this.equipment.buy(def, wave)) {
+        if (!this.equipment.buy(def, wave, this.shopLevel)) {
             this.shopOverlay?.refresh(this.buildShopVM(pickBark('poor')));
             return;
         }
@@ -4145,7 +4156,7 @@ export class SurvivorsGameplayState implements GameState {
                 name: item?.def.name ?? null,
                 glyph: item?.def.glyph ?? null,
                 rarity: item?.def.rarity ?? null,
-                statLines: item ? describeMods(item.def.mods) : [],
+                statLines: item ? describeMods(scaleMods(item.def.mods, bonusScaleFor(item.level))) : [],
                 effectText: item ? this.itemEffectText(item.def) : null,
             };
         });
@@ -4219,6 +4230,20 @@ export class SurvivorsGameplayState implements GameState {
         this.rerollsThisVisit++;
         this.rollShopStock();
         this.shopOverlay?.refresh(this.buildShopVM(pickBark('reroll')));
+    }
+
+    /** Raise the permanent shop upgrade level by one (uncapped). Does NOT touch
+     *  equipped gear — items only get stronger when re-bought from the upgraded
+     *  shop. Just re-renders the stock at the new prices + scaled stat previews. */
+    private handleShopUpgrade(): void {
+        if (!this.playerStats) return;
+        const cost = shopUpgradeCost(this.shopLevel);
+        if (!this.playerStats.spendGold(cost)) {
+            this.shopOverlay?.refresh(this.buildShopVM(pickBark('poor')));
+            return;
+        }
+        this.shopLevel++;
+        this.shopOverlay?.refresh(this.buildShopVM(pickBark('buy')));
     }
 
     /** "To battle!" pressed: stop the goblin portrait, short countdown, next wave. */
