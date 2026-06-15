@@ -4046,7 +4046,8 @@ export class SurvivorsGameplayState implements GameState {
         this.currentStock = rollStock(ITEM_CATALOG, {
             champion: this.currentChampionType,
             wave: this.waveManager?.getCurrentWave() ?? 1,
-            ownedIds: this.equipment.ownedIds(),
+            ownedLevels: this.equipment.ownedLevels(),
+            shopLevel: this.shopLevel,
             setCounts: agg.setCounts,
             rng: Math.random,
         });

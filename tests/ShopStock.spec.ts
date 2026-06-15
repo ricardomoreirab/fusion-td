@@ -14,7 +14,8 @@ function seqRng(seq: number[]): () => number {
 const baseOpts = {
     champion: 'barbarian' as const,
     wave: 5,
-    ownedIds: new Set<string>(),
+    ownedLevels: new Map<string, number>(),
+    shopLevel: 0,
     setCounts: {} as Record<string, number>,
     rng: seqRng([0.1, 0.5, 0.9, 0.3, 0.7, 0.2, 0.8, 0.4, 0.6]),
 };
@@ -48,15 +49,27 @@ describe('rerollCost', () => {
 });
 
 describe('buildWeightedPool', () => {
-    it('excludes other classes\' items and owned items', () => {
+    it('excludes other classes\' items and owned items at/above the shop level', () => {
         const pool = buildWeightedPool(ITEM_CATALOG, {
-            ...baseOpts, ownedIds: new Set(['gorefang']),
+            ...baseOpts, ownedLevels: new Map([['gorefang', 0]]), shopLevel: 0,
         });
         const ids = pool.map(p => p.def.id);
         expect(ids).not.toContain('stormpiercer');   // ranger weapon
-        expect(ids).not.toContain('gorefang');       // owned
+        expect(ids).not.toContain('gorefang');       // owned at >= shop level → no upgrade
         expect(ids).toContain('butchers_cleaver');   // barbarian weapon
         expect(ids).toContain('bloodvial');          // 'all'
+    });
+
+    it('re-includes an owned item when the shop level exceeds its owned level (upgrade available)', () => {
+        const upgradeable = buildWeightedPool(ITEM_CATALOG, {
+            ...baseOpts, ownedLevels: new Map([['gorefang', 1]]), shopLevel: 3,
+        });
+        expect(upgradeable.map(p => p.def.id)).toContain('gorefang'); // +3 version is buyable
+
+        const fullyUpgraded = buildWeightedPool(ITEM_CATALOG, {
+            ...baseOpts, ownedLevels: new Map([['gorefang', 3]]), shopLevel: 3,
+        });
+        expect(fullyUpgraded.map(p => p.def.id)).not.toContain('gorefang'); // already at +3 → hidden
     });
 
     it('applies 2.5x pity weight to started sets', () => {

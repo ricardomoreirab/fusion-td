@@ -56,6 +56,14 @@ export class Equipment {
         return new Set([...this.slots.values()].map(e => e.def.id));
     }
 
+    /** id → captured shop level for each equipped item. Drives shop stock so an
+     *  owned item reappears once the shop can sell a higher-level version. */
+    public ownedLevels(): Map<string, number> {
+        const m = new Map<string, number>();
+        for (const e of this.slots.values()) m.set(e.def.id, e.level);
+        return m;
+    }
+
     public setCount(setId: string): number {
         let n = 0;
         for (const e of this.slots.values()) if (e.def.setId === setId) n++;
