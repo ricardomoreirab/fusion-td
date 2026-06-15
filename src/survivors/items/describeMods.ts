@@ -23,18 +23,18 @@ export const EFFECT_TEXT: Record<ItemEffectId, string> = {
 /** Human-readable stat lines for a shop card, e.g. "+20% basic damage". */
 export function describeMods(mods: ItemStatMods): string[] {
     const out: string[] = [];
-    if (mods.basicDamagePct) out.push(`+${mods.basicDamagePct}% basic damage`);
-    if (mods.powerDamagePct) out.push(`+${mods.powerDamagePct}% power damage`);
-    if (mods.attackSpeedPct) out.push(`+${mods.attackSpeedPct}% attack speed`);
-    if (mods.moveSpeedPct) out.push(`+${mods.moveSpeedPct}% move speed`);
-    if (mods.cooldownPct) out.push(`−${mods.cooldownPct}% power cooldowns`);
-    if (mods.damageTakenPct) out.push(`−${mods.damageTakenPct}% damage taken`);
-    if (mods.goldGainPct) out.push(`+${mods.goldGainPct}% gold from kills`);
+    if (mods.basicDamagePct) out.push(`+${Math.round(mods.basicDamagePct)}% basic damage`);
+    if (mods.powerDamagePct) out.push(`+${Math.round(mods.powerDamagePct)}% power damage`);
+    if (mods.attackSpeedPct) out.push(`+${Math.round(mods.attackSpeedPct)}% attack speed`);
+    if (mods.moveSpeedPct) out.push(`+${Math.round(mods.moveSpeedPct)}% move speed`);
+    if (mods.cooldownPct) out.push(`−${Math.round(mods.cooldownPct)}% power cooldowns`);
+    if (mods.damageTakenPct) out.push(`−${Math.round(mods.damageTakenPct)}% damage taken`);
+    if (mods.goldGainPct) out.push(`+${Math.round(mods.goldGainPct)}% gold from kills`);
     if (mods.critChance) out.push(`+${Math.round(mods.critChance * 100)}% crit chance`);
     if (mods.critDamage) out.push(`+${mods.critDamage.toFixed(2)} crit damage`);
     if (mods.lifesteal) out.push(`+${Math.round(mods.lifesteal * 100)}% lifesteal`);
-    if (mods.maxHealth) out.push(`+${mods.maxHealth} max HP`);
+    if (mods.maxHealth) out.push(`+${Math.round(mods.maxHealth)} max HP`);
     if (mods.hpRegenPctPerSec) out.push(`Regenerate ${(mods.hpRegenPctPerSec * 100).toFixed(1)}% max HP/s`);
-    if (mods.knockback) out.push(`+${mods.knockback} knockback`);
+    if (mods.knockback) out.push(`+${Math.round(mods.knockback)} knockback`);
     return out;
 }

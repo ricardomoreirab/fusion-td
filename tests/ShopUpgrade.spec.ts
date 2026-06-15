@@ -3,6 +3,7 @@ import {
     shopUpgradeCost, bonusScaleFor, itemPriceScaleFor, scaleMods,
 } from '../src/survivors/shop/ShopUpgrade';
 import { ItemStatMods } from '../src/survivors/items/ItemTypes';
+import { describeMods } from '../src/survivors/items/describeMods';
 
 describe('shopUpgradeCost', () => {
     it('follows round(300 * 1.6^level), uncapped', () => {
@@ -47,5 +48,17 @@ describe('scaleMods', () => {
     it('factor 1.0 is an identity copy', () => {
         const mods: ItemStatMods = { attackSpeedPct: 15, lifesteal: 0.06 };
         expect(scaleMods(mods, 1.0)).toEqual(mods);
+    });
+});
+
+describe('describeMods rounds scaled percentage fields for display', () => {
+    it('rounds a scaled basicDamagePct to a whole percent', () => {
+        const scaled = scaleMods({ basicDamagePct: 12 }, 1.4); // 16.8
+        expect(describeMods(scaled)).toContain('+17% basic damage');
+    });
+    it('rounds scaled maxHealth and knockback', () => {
+        const scaled = scaleMods({ maxHealth: 40, knockback: 1 }, 1.1); // 44, 1.1
+        expect(describeMods(scaled)).toContain('+44 max HP');
+        expect(describeMods(scaled)).toContain('+1 knockback');
     });
 });
