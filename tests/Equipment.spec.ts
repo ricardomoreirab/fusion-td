@@ -176,6 +176,53 @@ describe('foldEquipmentStats', () => {
     });
 });
 
+describe('shop-level pricing + scaling', () => {
+    it('priceFor multiplies the wave price by +12% per shop level', () => {
+        // gorefang is rare → base 300. Wave 0, shop 0 → 300.
+        expect(priceFor(gorefang(), 0, 0)).toBe(300);
+        // Wave 0, shop +3 → ceil(300 × 1.36) = 408.
+        expect(priceFor(gorefang(), 0, 3)).toBe(408);
+        // Stacks with wave scaling: wave 5 (×1.3), shop +2 (×1.24).
+        expect(priceFor(gorefang(), 5, 2)).toBe(Math.ceil(300 * 1.3 * 1.24));
+    });
+    it('priceFor defaults shopLevel to 0 (back-compat)', () => {
+        expect(priceFor(gorefang(), 5)).toBe(Math.ceil(300 * 1.3));
+    });
+
+    it('buy captures the shop level onto the equipped item', () => {
+        const eq = new Equipment(new PlayerStats(120, 100000));
+        expect(eq.buy(gorefang(), 0, 2)).toBe(true);
+        expect(eq.get('weapon')!.level).toBe(2);
+    });
+
+    it('aggregates scales an item\'s own mods by its captured level', () => {
+        const eq = new Equipment(new PlayerStats(120, 100000));
+        eq.buy(cleaver(), 0, 4);   // common: +12% basic damage; +4 → ×1.40 → 16.8% → ×1.168
+        expect(eq.aggregates().basicDamageMult).toBeCloseTo(1 + 0.12 * 1.40, 5);
+    });
+
+    it('keeps each item frozen at its own bought level (no retroactive change)', () => {
+        const eq = new Equipment(new PlayerStats(120, 100000));
+        eq.buy(cleaver(), 0, 2);   // +12% basic dmg at +2 → ×1.20 → 14.4%
+        const before = eq.aggregates().basicDamageMult;
+        // A later, higher-level item in a DIFFERENT slot must not change the weapon's bonus.
+        eq.buy(itemById('sprintweave_boots')!, 0, 9);
+        expect(eq.aggregates().basicDamageMult).toBeCloseTo(before, 5);
+        expect(before).toBeCloseTo(1 + 0.12 * 1.20, 5);
+    });
+
+    it('does NOT scale set bonuses by item level (only the item\'s own mods)', () => {
+        const eq = new Equipment(new PlayerStats(120, 100000));
+        // 2-pc Berserker's Wrath = +20% attack speed (fixed). gorefang +0% atkspd,
+        // skullcage +10% atkspd. Both bought at +5 → item mods scale, set bonus does not.
+        eq.buy(gorefang(), 0, 5);     // atkspd mod 0 → still 0
+        eq.buy(skullcage(), 0, 5);    // atkspd item mod 10 → ×1.5 → 15%
+        const agg = eq.aggregates();
+        // item 15% (scaled) × set 20% (UNSCALED) = 1.15 × 1.20
+        expect(agg.attackSpeedMult).toBeCloseTo(1.15 * 1.20, 5);
+    });
+});
+
 describe('unique sets + mythic wildcard', () => {
     function equip(eq: Equipment, ...ids: string[]) {
         for (const id of ids) expect(eq.buy(itemById(id)!, 0)).toBe(true);

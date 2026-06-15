@@ -1,10 +1,13 @@
 import { PlayerStats } from '../PlayerStats';
 import { EquipSlot, ItemDef, ItemEffectId, ItemStatMods, RARITY_BASE_PRICE } from './ItemTypes';
 import { ITEM_SETS } from './ItemCatalog';
+import { bonusScaleFor, itemPriceScaleFor, scaleMods } from '../shop/ShopUpgrade';
 
 export interface EquippedItem {
     def: ItemDef;
     pricePaid: number;
+    /** Shop upgrade level captured at purchase; freezes this item's bonus tier. */
+    level: number;
 }
 
 /** Aggregated contribution of all equipped items + active 2pc set bonuses.
@@ -30,8 +33,8 @@ export interface EquipmentAggregates {
     setCounts: Record<string, number>;
 }
 
-export function priceFor(def: ItemDef, wave: number): number {
-    return Math.ceil(RARITY_BASE_PRICE[def.rarity] * (1 + 0.06 * wave));
+export function priceFor(def: ItemDef, wave: number, shopLevel = 0): number {
+    return Math.ceil(RARITY_BASE_PRICE[def.rarity] * (1 + 0.06 * wave) * itemPriceScaleFor(shopLevel));
 }
 
 export function sellValueOf(pricePaid: number): number {
@@ -62,8 +65,8 @@ export class Equipment {
     /** Buy `def` at the wave-scaled price. A piece already in the slot is
      *  auto-sold at 60% of what was paid for it (credited via refundGold so
      *  sell-backs never count as income/XP). Returns false if unaffordable. */
-    public buy(def: ItemDef, wave: number): boolean {
-        const price = priceFor(def, wave);
+    public buy(def: ItemDef, wave: number, shopLevel = 0): boolean {
+        const price = priceFor(def, wave, shopLevel);
         const old = this.slots.get(def.slot) ?? null;
         const credit = old ? sellValueOf(old.pricePaid) : 0;
         if (this.stats.getGold() + credit < price) return false;
@@ -72,7 +75,7 @@ export class Equipment {
         } else {
             this.stats.spendGold(price - credit);
         }
-        this.slots.set(def.slot, { def, pricePaid: price });
+        this.slots.set(def.slot, { def, pricePaid: price, level: shopLevel });
         return true;
     }
 
@@ -85,7 +88,7 @@ export class Equipment {
             effects: new Set<ItemEffectId>(), setCounts: {},
         };
         for (const e of this.slots.values()) {
-            this.foldMods(agg, e.def.mods);
+            this.foldMods(agg, scaleMods(e.def.mods, bonusScaleFor(e.level)));
             if (e.def.effectId) agg.effects.add(e.def.effectId);
             if (e.def.setId) agg.setCounts[e.def.setId] = (agg.setCounts[e.def.setId] ?? 0) + 1;
         }
