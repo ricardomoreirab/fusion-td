@@ -1,17 +1,21 @@
-import { Engine, EngineFactory, AbstractEngine, NullEngine, Scene, Vector3, HemisphericLight, PointLight, Color3, ArcRotateCamera, Camera, GlowLayer, WebGPUEngine, DefaultRenderingPipeline } from '@babylonjs/core';
+import { Camera, Color, HemisphereLight, OrthographicCamera, PointLight, Vector3 } from 'three';
 import { GameState } from './GameState';
 import { MenuState } from '../menu/MenuState';
-import { SurvivorsGameplayState } from '../survivors/SurvivorsGameplayState';
+import { SurvivorsStubState } from './SurvivorsStubState';
 import { GameOverState } from '../game-over/GameOverState';
 import { AssetManager } from './AssetManager';
 import { StateManager } from './StateManager';
 import { PauseScreen } from '../shared/ui/PauseScreen';
 import { PALETTE } from './rendering/StyleConstants';
+import { SceneHost } from './three/SceneHost';
+import { RendererHost } from './three/RendererHost';
+import { disposeMesh } from './three/primitives';
+import type { RGBA } from './three/math';
 import { evaluateRenderHealth, isFiniteVec3, isFiniteMatrix, type RenderHealthSnapshot } from './renderHealth';
 
 // Rate-limited logger for per-frame update/render exceptions. The render loop
 // keeps running (a thrown frame must not permanently black/freeze the canvas),
-// but the error is surfaced with its stack — a silent black screen is otherwise
+// but the error is surfaced with its stack - a silent black screen is otherwise
 // undiagnosable. Logs the first 8 occurrences, then every 120th, so a per-frame
 // throw doesn't flood the console.
 let _loopErrorCount = 0;
@@ -24,33 +28,39 @@ function logLoopError(phase: string, err: unknown): void {
 
 export class Game {
     private canvas: HTMLCanvasElement;
-    // Engine + scene + everything that depends on them are created in start()
-    // (async, because WebGPUEngine.initAsync is async). Marked with `!` since
-    // they are guaranteed to be assigned before any consumer can call them.
-    private engine!: AbstractEngine;
-    private scene!: Scene;
+    // Renderer + scene host + everything that depends on them are created in
+    // start(). Marked with `!` since they are guaranteed to be assigned before
+    // any consumer can call them.
+    private rendererHost!: RendererHost;
+    private sceneHost!: SceneHost;
+    /** Timestamp of the previous frameTick, for delta computation. */
+    private _lastFrameAt = 0;
     private stateManager!: StateManager;
     /** Set true by StateManager.changeState; consumed (cleared) by the next
-     *  render loop tick. While true, scene.render is skipped — prevents the
-     *  same rAF cycle that ran a state change (and disposed everything) from
-     *  also trying to render against the half-torn-down scene. */
+     *  render loop tick. While true, the composer render is skipped - prevents
+     *  the same rAF cycle that ran a state change (and disposed everything)
+     *  from also trying to render against the half-torn-down scene. */
     public skipRenderThisFrame: boolean = false;
     private assetManager!: AssetManager;
     private _isPaused: boolean = false;
     private pauseScreen!: PauseScreen;
     private _timeScale: number = 1;
-    /** Pre-created in setupScene at intensity 0 so every material compiles
-     *  with knowledge of this slot. Champion.enableTorch parents it to the
-     *  hero mesh and cranks the intensity up. Without pre-registration,
-     *  scene.blockMaterialDirtyMechanism (true) means new lights added later
-     *  never reach the already-compiled material shaders. */
+    /** Created once in setupScene at intensity 0 and owned by Game for its
+     *  whole lifetime. Champion.enableTorch parents it to the hero mesh and
+     *  cranks the intensity up. (The Babylon-era shader-slot pre-registration
+     *  rationale is gone - Three materials pick up lights dynamically - but
+     *  single ownership of the torch stays.) */
     private heroTorch!: PointLight;
-    // Post-fx handles for the late-wave performance trim (setPostFxReduced).
-    private renderPipeline: DefaultRenderingPipeline | null = null;
-    private glowLayer: GlowLayer | null = null;
-    private postFxDefaults = { bloomWeight: 0.4, bloomKernel: 64, glowIntensity: 0.4 };
 
-    // ── Render-health watchdog state ─────────────────────────────────────────
+    /** The camera the composer renders with. Menu/boot: the fixed ortho
+     *  camera below; gameplay swaps in the hero-follow perspective camera
+     *  via setActiveCamera. */
+    private activeCamera!: Camera;
+    private orthoCamera!: OrthographicCamera;
+    /** Fixed ortho zoom override; null = auto-fit (Babylon camera.metadata.orthoZoom). */
+    public orthoZoomOverride: number | null = null;
+
+    // -- Render-health watchdog state ----------------------------------------
     // Guarantees a pure-black canvas can never persist silently. See renderHealth.ts
     // for the two failure classes (GPU context loss; NaN camera matrix) this guards.
     private _contextLost = false;
@@ -63,83 +73,55 @@ export class Game {
     /** Last finite active-camera position; restored if the camera transform goes NaN. */
     private _lastGoodCamPos = new Vector3(0, 20, -20);
 
+    private gpuUnavailable = false;
+
     constructor(canvasId: string) {
-        // Lightweight constructor — only resolve the canvas. Everything else
-        // (engine, scene, managers, state registration) happens in start()
-        // because WebGPU engine initialization is async.
+        // Lightweight constructor - only resolve the canvas. Everything else
+        // (renderer, scene, managers, state registration) happens in start().
         const element = document.getElementById(canvasId);
         if (!element) throw new Error(`Canvas element with id ${canvasId} not found`);
         if (!(element instanceof HTMLCanvasElement)) throw new Error(`Element with id ${canvasId} is not a canvas element`);
         this.canvas = element;
     }
 
-    /**
-     * Try to create a WebGPU engine; fall back to WebGL on browsers that
-     * don't support it (Safari at time of writing). EngineFactory.CreateAsync
-     * handles both cases and returns the right thing — we just await it.
-     */
-    private gpuUnavailable = false;
-
-    private async createEngine(): Promise<AbstractEngine> {
-        try {
-            const engine = await EngineFactory.CreateAsync(this.canvas, {
-                antialias: true,
-                stencil: true,
-            });
-            // EngineFactory's last-resort fallback is a NullEngine (no WebGPU
-            // AND no WebGL — e.g. headless browsers without a GPU flag, or
-            // broken driver blacklists). A NullEngine "runs" but renders
-            // nothing, leaving a black canvas, and cube-texture loads crash
-            // in the WebGL upload path (no GL context). Surface a clear
-            // message and let callers skip GPU-only extras.
-            if (engine instanceof NullEngine) {
-                this.gpuUnavailable = true;
-                console.error('[engine] No GPU rendering available — WebGPU and WebGL are both unsupported in this browser. The game cannot render.');
-                this.showGpuUnavailableBanner();
-                return engine;
-            }
-            // Babylon picks WebGPU automatically when supported. Log which we got.
-            const usingWebGPU = engine instanceof WebGPUEngine;
-            console.info(`[engine] initialised: ${usingWebGPU ? 'WebGPU' : 'WebGL'}`);
-            return engine;
-        } catch (err) {
-            // Fallback: any failure (e.g. WebGPU init crashed mid-load) → plain WebGL.
-            console.warn('[engine] EngineFactory failed, falling back to WebGL:', err);
-            return new Engine(this.canvas, true);
-        }
-    }
-
     public async start(): Promise<void> {
-        // Async engine creation (WebGPU when available, WebGL otherwise).
-        this.engine = await this.createEngine();
+        this.sceneHost = new SceneHost();
 
-        // Wire GPU context-loss recovery BEFORE anything renders. Without this, a lost
-        // context latches Babylon's internal flag and the whole render loop stops while
-        // input/HUD keep working — the reported "black screen, game still running".
+        // Lights + cameras must exist before the composer (RenderPass binds
+        // scene + camera at construction).
+        this.setupScene();
+
+        // WebGL renderer + post-processing. Context creation can fail outright
+        // (no GPU, blocked driver) - surface it instead of a silent black canvas.
+        try {
+            this.rendererHost = new RendererHost(this.canvas, this.sceneHost.scene, this.activeCamera);
+            console.info('[engine] initialised: WebGL (three)');
+        } catch (err) {
+            this.gpuUnavailable = true;
+            console.error('[engine] No GPU rendering available - WebGL is unsupported in this browser. The game cannot render.', err);
+            this.showGpuUnavailableBanner();
+            return;
+        }
+        this.setClearColor(PALETTE.SKY);
+        this.rendererHost.resize(this.canvas.clientWidth || window.innerWidth, this.canvas.clientHeight || window.innerHeight);
+        this.updateOrthoBounds();
+
+        // Wire GPU context-loss recovery BEFORE anything renders. Without this, a
+        // lost context stops the frame while input/HUD keep working - the reported
+        // "black screen, game still running".
         this.installContextLossRecovery();
 
-        // Create the main scene (mesh-map options are read-only after construction).
-        this.scene = new Scene(this.engine, {
-            useGeometryUniqueIdsMap: true,
-            useMaterialMeshMap: true,
-            useClonedMeshMap: true,
-        });
-        this.scene.clearColor = PALETTE.SKY.clone();
-
         // Initialize managers
-        this.assetManager = new AssetManager(this.scene);
+        this.assetManager = new AssetManager();
         this.stateManager = new StateManager(this);
 
-        // Register game states (their constructors don't touch scene yet — only enter() does)
+        // Register game states (their constructors don't touch the scene yet - only enter() does)
         this.stateManager.registerState('menu', new MenuState(this));
-        this.stateManager.registerState('survivors', new SurvivorsGameplayState(this));
+        this.stateManager.registerState('survivors', new SurvivorsStubState(this));
         this.stateManager.registerState('gameOver', new GameOverState(this));
 
         // Initialize pause screen
         this.pauseScreen = new PauseScreen(this);
-
-        // Setup the scene
-        this.setupScene();
 
         // Start loading assets
         this.assetManager.loadAssets(() => {
@@ -148,7 +130,7 @@ export class Game {
             if (loadingScreen) {
                 loadingScreen.style.display = 'none';
             }
-            
+
             // Start with the menu state
             this.stateManager.changeState('menu');
 
@@ -156,18 +138,15 @@ export class Game {
             // the last-good-render timestamp so the watchdog has a fresh baseline.
             this._renderLoopStarted = true;
             this._lastRenderOkAt = performance.now();
-            if (!this.gpuUnavailable) this.installRenderWatchdog();
+            this.installRenderWatchdog();
 
             // Start the single, permanent render loop. It is installed ONCE here
-            // and never replaced — pause()/resume() only toggle _isPaused. This
+            // and never replaced - pause()/resume() only toggle _isPaused. This
             // keeps the update/render try/catch guards and the skipRenderThisFrame
-            // state-transition guard active for the ENTIRE session. (Previously
-            // pause/resume swapped in bare loops that dropped both guards, so a
-            // hero-death frame after any pause rendered a half-disposed scene and
-            // the throw escaped the rAF callback → permanent black canvas.)
-            this.engine.runRenderLoop(() => this.frameTick());
+            // state-transition guard active for the ENTIRE session.
+            this._lastFrameAt = performance.now(); // so frame 1 isn't a huge dt
+            this.rendererHost.renderer.setAnimationLoop(() => this.frameTick());
         }, (progress: number) => {
-            // Update loading progress
             const loadingBar = document.getElementById('loadingBar');
             if (loadingBar) {
                 loadingBar.style.width = `${progress * 100}%`;
@@ -181,28 +160,33 @@ export class Game {
      * live for the whole session.
      *
      *  - update() is skipped while paused (the scene keeps drawing for the pause
-     *    UI). A throw is logged via logLoopError, never escaping the rAF.
-     *  - update() can synchronously change state (hero death → gameOver), which
+     *    UI). A throw is logged via logLoopError, never escaping the loop.
+     *  - update() can synchronously change state (hero death -> gameOver), which
      *    runs exit()+enter() and tears the scene down. skipRenderThisFrame then
-     *    suppresses this frame's render so we don't draw a half-disposed scene
-     *    (skeleton bone-matrix texture, material textures, etc.). Render resumes
-     *    cleanly on the next rAF.
+     *    suppresses this frame's render so we don't draw a half-disposed scene.
+     *  - sceneHost.tick runs the per-frame buses + particles even while paused
+     *    (Babylon fired onBeforeRenderObservable while paused too); tweens and
+     *    mixers are gated inside by animationsEnabled.
      *  - a render-phase throw is surfaced (not swallowed) so a recurring black
      *    frame is diagnosable with a stack trace, and the loop survives it.
      */
     private frameTick(): void {
-        // [freeze:frame] instrument — measures the time ACTUALLY SPENT in our
-        // per-frame work (logic + render). Unlike the rAF-gap detector, this is
-        // immune to a browser-paused rAF (backgrounding/unfocus): if our code is
-        // the stall it fires and names update-vs-render; if it never fires while
-        // rAF-gaps still log, the "freeze" is paused rAF, not our compute.
+        // [freeze:frame] instrument - measures the time ACTUALLY SPENT in our
+        // per-frame work (logic + render), immune to a browser-paused rAF.
         const t0 = performance.now();
+        const dt = Math.min((t0 - this._lastFrameAt) / 1000, 0.25);
+        this._lastFrameAt = t0;
         if (!this._isPaused) {
             try {
-                this.stateManager.update(this.engine.getDeltaTime() / 1000);
+                this.stateManager.update(dt);
             } catch (err) {
                 logLoopError('update', err);
             }
+        }
+        try {
+            this.sceneHost.tick(dt);
+        } catch (err) {
+            logLoopError('tick', err);
         }
         const tAfterUpdate = performance.now();
 
@@ -212,7 +196,7 @@ export class Game {
         } else if (this.guardActiveCamera()) {
             rendered = true;
             try {
-                this.scene.render();
+                this.rendererHost.render(dt);
                 // Stamp a successful present so the render-health watchdog knows the
                 // canvas is alive. A NaN camera that renders "successfully" into black
                 // is caught by guardActiveCamera above, not here.
@@ -231,87 +215,81 @@ export class Game {
     }
 
     /**
-     * Cross-cutting guard against a NaN/Infinity camera transform — one of the two
-     * suspects for the "ranger black screen". The hero-follow camera lerps its
-     * position every frame; a single non-finite value makes the view matrix NaN,
-     * which clips EVERY mesh (even the never-culled sky dome) and leaves the
-     * near-black clear color = a permanent, sticky black canvas that does NOT throw
-     * (so the render try/catch above can't catch it). Detect it before it reaches
-     * the GPU: restore the last finite camera position and skip this frame so the
-     * canvas keeps its last good image. Returns false when it had to recover.
+     * Cross-cutting guard against a NaN/Infinity camera transform. The
+     * hero-follow camera lerps its position every frame; a single non-finite
+     * value makes the view matrix NaN, which clips EVERY mesh and leaves the
+     * near-black clear color = a permanent, sticky black canvas that does NOT
+     * throw. Detect it before it reaches the GPU: restore the last finite
+     * camera position and skip this frame so the canvas keeps its last good
+     * image. Returns false when it had to recover.
      */
     private guardActiveCamera(): boolean {
-        const cam = this.scene.activeCamera;
+        const cam = this.activeCamera;
         if (!cam) return false;
         const p = cam.position;
         if (!isFiniteVec3(p.x, p.y, p.z)) {
-            logLoopError('camera', new Error('non-finite activeCamera.position — recovered'));
-            p.copyFrom(this._lastGoodCamPos);
+            logLoopError('camera', new Error('non-finite activeCamera.position - recovered'));
+            p.copy(this._lastGoodCamPos);
             return false;
         }
 
-        // A finite POSITION is not sufficient: the view/projection matrices can still go
-        // non-finite while position stays clean — most often a NaN aspect ratio when the
-        // render canvas is momentarily 0-height (display/resolution/monitor-wake events),
-        // which poisons the projection, clips every mesh, and renders "successfully" into
-        // the near-black clear colour. scene.render() does NOT throw, so the render
-        // try/catch can't catch it and the watchdog's "frame rendered OK" stamp keeps
-        // updating — a permanent silent black screen. Validate the transforms directly.
-        // (Computing them here is free: scene.render() reuses Babylon's cached result.)
+        // A finite POSITION is not sufficient: the world/projection matrices can
+        // still go non-finite while position stays clean - most often a NaN aspect
+        // ratio when the render canvas is momentarily 0-height, which poisons the
+        // projection, clips every mesh, and renders "successfully" into the
+        // near-black clear colour. Validate the transforms directly.
         let transformsFinite: boolean;
         try {
-            transformsFinite = isFiniteMatrix(cam.getViewMatrix().m) && isFiniteMatrix(cam.getProjectionMatrix().m);
+            cam.updateMatrixWorld();
+            const proj = (cam as OrthographicCamera).projectionMatrix;
+            transformsFinite = isFiniteMatrix(cam.matrixWorld.elements) && isFiniteMatrix(proj.elements);
         } catch (_) {
             transformsFinite = false;
         }
         if (!transformsFinite) {
-            logLoopError('camera', new Error('non-finite camera view/projection — recovered'));
-            p.copyFrom(this._lastGoodCamPos);
-            // The usual culprit is a degenerate render size feeding a NaN aspect ratio.
-            // Recompute it so Babylon rebuilds the projection from valid dimensions next
-            // frame; meanwhile skip THIS frame so the canvas keeps its last good image
-            // instead of flashing black.
-            try { this.engine.resize(); } catch (_) { /* engine mid-teardown — ignore */ }
+            logLoopError('camera', new Error('non-finite camera view/projection - recovered'));
+            p.copy(this._lastGoodCamPos);
+            // The usual culprit is a degenerate render size feeding a NaN aspect
+            // ratio. Recompute from valid dimensions; meanwhile skip THIS frame so
+            // the canvas keeps its last good image instead of flashing black.
+            try { this.resize(); } catch (_) { /* mid-teardown - ignore */ }
             return false;
         }
 
-        this._lastGoodCamPos.copyFrom(p);
+        this._lastGoodCamPos.copy(p);
         return true;
     }
 
     /**
-     * Wire GPU context-loss recovery. We can't prevent a lost WebGL/WebGPU context
-     * (driver reset, GPU-process crash, OOM), but we make it never silently permanent:
-     * surface a banner, let Babylon attempt its restore, and let the watchdog hard-
-     * reload if it can't recover within the grace window (see renderHealth.ts).
+     * Wire GPU context-loss recovery. We can't prevent a lost WebGL context
+     * (driver reset, GPU-process crash, OOM), but we make it never silently
+     * permanent: surface a banner, let the browser attempt its restore, and let
+     * the watchdog hard-reload if it can't recover within the grace window.
      */
     private installContextLossRecovery(): void {
-        this.engine.onContextLostObservable.add(() => {
-            console.error('[engine] GPU context LOST — attempting recovery');
+        this.rendererHost.onContextLost = () => {
+            console.error('[engine] GPU context LOST - attempting recovery');
             this._contextLost = true;
             this._contextLostAt = performance.now();
-            this.showBlackoutBanner('Rendering lost — attempting to recover…');
-        });
-        this.engine.onContextRestoredObservable.add(() => {
+            this.showBlackoutBanner('Rendering lost - attempting to recover…');
+        };
+        this.rendererHost.onContextRestored = () => {
             console.info('[engine] GPU context restored');
             this._contextLost = false;
             this._contextLostAt = 0;
             this._lastRenderOkAt = performance.now();
             this.hideBlackoutBanner();
             this.updateOrthoBounds();
-        });
-        // A WebGL fallback engine needs the loss event default-prevented for the
-        // browser to even attempt firing 'webglcontextrestored'. Harmless under
-        // WebGPU (which never fires this DOM event).
-        this.canvas.addEventListener('webglcontextlost', (e) => e.preventDefault(), false);
+        };
     }
 
     /**
-     * Render-health watchdog. Runs on a SEPARATE setInterval, NOT inside the rAF
-     * render loop, because the leading black-screen cause (context loss) freezes the
-     * rAF callback itself — an in-loop check would never run. The recovery decision
-     * is the pure evaluateRenderHealth(); its conservative gates make a backgrounded
-     * or main-thread-throttled tab impossible to mistake for a render stall.
+     * Render-health watchdog. Runs on a SEPARATE setInterval, NOT inside the
+     * render loop, because the leading black-screen cause (context loss) freezes
+     * the rAF callback itself - an in-loop check would never run. The recovery
+     * decision is the pure evaluateRenderHealth(); its conservative gates make a
+     * backgrounded or main-thread-throttled tab impossible to mistake for a
+     * render stall.
      */
     private installRenderWatchdog(): void {
         const INTERVAL_MS = 1_000;
@@ -329,7 +307,7 @@ export class Game {
                 visible: typeof document === 'undefined' || document.visibilityState === 'visible',
                 paused: this._isPaused,
                 // If our own timer fired late, the main thread was blocked/throttled, so
-                // msSinceLastRenderOk is inflated by the same block — don't trust it.
+                // msSinceLastRenderOk is inflated by the same block - don't trust it.
                 jsClockHealthy: tickGap < INTERVAL_MS * 3,
             };
 
@@ -337,13 +315,13 @@ export class Game {
             if (action === 'reload') {
                 if (this._reloadScheduled) return;
                 this._reloadScheduled = true;
-                console.error('[render-watchdog] no successful frame — reloading to recover');
-                this.showBlackoutBanner('Rendering could not recover — reloading…');
+                console.error('[render-watchdog] no successful frame - reloading to recover');
+                this.showBlackoutBanner('Rendering could not recover - reloading…');
                 setTimeout(() => { try { location.reload(); } catch { /* non-browser env */ } }, 700);
             } else if (action === 'warn') {
                 this.showBlackoutBanner(this._contextLost
-                    ? 'Rendering lost — attempting to recover…'
-                    : 'Rendering stalled — recovering…');
+                    ? 'Rendering lost - attempting to recover…'
+                    : 'Rendering stalled - recovering…');
             } else if (!this._reloadScheduled) {
                 this.hideBlackoutBanner();
             }
@@ -367,228 +345,154 @@ export class Game {
     }
 
     public resize(): void {
-        // Guard against early resize events that fire before async engine init completes.
-        if (!this.engine || !this.scene) return;
-        this.engine.resize();
+        // Guard against early resize events that fire before async init completes.
+        if (!this.rendererHost) return;
+        this.rendererHost.resize(this.canvas.clientWidth || window.innerWidth, this.canvas.clientHeight || window.innerHeight);
         this.updateOrthoBounds();
+        const cam = this.activeCamera as { aspect?: number; updateProjectionMatrix?: () => void };
+        if (cam.aspect !== undefined && cam.updateProjectionMatrix) {
+            cam.aspect = (this.canvas.clientWidth || window.innerWidth) / Math.max(1, this.canvas.clientHeight || window.innerHeight);
+            cam.updateProjectionMatrix();
+        }
     }
 
     /**
      * Recalculate orthographic bounds to fit the map in the viewport.
-     * If camera.metadata.orthoZoom is set, uses that fixed value.
-     * Otherwise, auto-computes optimal zoom to fill the screen with the isometric map.
+     * If orthoZoomOverride is set, uses that fixed value. Otherwise
+     * auto-computes optimal zoom to fill the screen with the isometric map.
      */
     public updateOrthoBounds(): void {
-        const camera = this.scene.activeCamera as ArcRotateCamera;
-        if (!camera || camera.mode !== Camera.ORTHOGRAPHIC_CAMERA) return;
+        const camera = this.orthoCamera;
+        if (!camera || this.activeCamera !== camera) return;
 
-        const aspect = this.engine.getAspectRatio(camera);
+        const w = this.canvas.clientWidth || window.innerWidth;
+        const h = Math.max(1, this.canvas.clientHeight || window.innerHeight);
+        const aspect = w / h;
         let zoom: number;
 
-        if (camera.metadata?.orthoZoom != null) {
-            zoom = camera.metadata.orthoZoom;
+        if (this.orthoZoomOverride != null) {
+            zoom = this.orthoZoomOverride;
         } else {
             // Auto-fit: compute zoom so the 40x40 isometric diamond fills the screen.
-            // With tilted isometric (alpha=-45°, beta=1.15):
-            //   horizontal extent = mapSize / √2 (diamond left/right, unchanged)
-            //   vertical extent uses sin(beta) for the tilt compression
             const mapSize = 40;
-            const sinBeta = Math.sin(camera.beta);
+            const sinBeta = Math.sin(camera.userData.beta as number);
             const screenHalfW = mapSize / Math.SQRT2 + 3;
             const screenHalfH = (mapSize / Math.SQRT2) * sinBeta * 0.55 + 6;
             zoom = Math.max(screenHalfH, screenHalfW / aspect);
         }
 
-        camera.orthoTop = zoom;
-        camera.orthoBottom = -zoom;
-        camera.orthoLeft = -zoom * aspect;
-        camera.orthoRight = zoom * aspect;
+        camera.top = zoom;
+        camera.bottom = -zoom;
+        camera.left = -zoom * aspect;
+        camera.right = zoom * aspect;
+        camera.updateProjectionMatrix();
     }
 
     private setupScene(): void {
-        // ─── Scene-level perf flags ───────────────────────────────────────────
-        this.scene.blockMaterialDirtyMechanism = true; // we never restructure materials at runtime
-        this.scene.fogEnabled = false;
-        this.scene.shadowsEnabled = false;
-        this.scene.skipPointerMovePicking = true;       // top-down game has no hover-pick UX
-        // useGeometryUniqueIdsMap / useMaterialMeshMap / useClonedMeshMap are
-        // constructor-only (SceneOptions) — passed above in new Scene(...).
+        const scene = this.sceneHost.scene;
 
-        // Warm hemisphere light for low-poly stylized look. Single global
-        // fill — survivors mode no longer stacks another hemi on top
-        // (was making the scene read as flat / "full bright").
-        const light = new HemisphericLight('light', new Vector3(0, 1, 0), this.scene);
-        light.diffuse = PALETTE.LIGHT_DIFFUSE.clone();
-        light.groundColor = PALETTE.LIGHT_GROUND.clone();
-        light.intensity = 0.55;
+        // Warm hemisphere light for the low-poly stylized look. Single global fill.
+        const light = new HemisphereLight(PALETTE.LIGHT_DIFFUSE.clone(), PALETTE.LIGHT_GROUND.clone(), 0.55);
+        light.name = 'light';
+        light.userData.persistent = true; // survives cleanupScene
+        scene.add(light);
 
-        // ── Pre-register the hero torch ───────────────────────────────────────
-        // Created here at intensity 0 so every material that compiles after
-        // this point picks up the slot in its shader. Champion.enableTorch()
-        // later parents this light to the hero mesh and cranks the intensity.
-        // Without pre-registration the dirty-block (set above) prevents the
-        // torch from ever reaching already-compiled materials.
-        this.heroTorch = new PointLight('heroTorch', new Vector3(0, 1.4, 0), this.scene);
-        this.heroTorch.diffuse  = new Color3(1.00, 0.62, 0.28);
-        this.heroTorch.specular = new Color3(0, 0, 0);
-        this.heroTorch.intensity = 0; // dormant until enabled
-        this.heroTorch.range = 9;
+        // The hero torch - created once here, owned by Game. Dormant until
+        // Champion.enableTorch parents it to the hero and raises intensity.
+        this.heroTorch = new PointLight(new Color(1.0, 0.62, 0.28), 0, 9, 1);
+        this.heroTorch.name = 'heroTorch';
+        this.heroTorch.position.set(0, 1.4, 0);
+        this.heroTorch.userData.persistent = true;
+        scene.add(this.heroTorch);
 
-        // Fog disabled -- doesn't work properly with orthographic projection
-        this.scene.fogMode = Scene.FOGMODE_NONE;
-
-        // Glow layer for emissive elements (portals, tower effects).
-        // mainTextureRatio 0.5 halves fill rate on retina/4K; blurKernelSize 16 halves blur work.
-        // Glow handles tight emissive highlights; bloom (set up below) adds the
-        // broader halo over the post-tone-mapped framebuffer.
-        const glowLayer = new GlowLayer('glowLayer', this.scene, { mainTextureRatio: 0.5 });
-        glowLayer.intensity = 0.4;
-        glowLayer.blurKernelSize = 16; // default 32 — half the blur work per frame
-        this.glowLayer = glowLayer;
-
-        // Tilted isometric beta angle: ~60° from pole (30° above horizon)
-        // gives a dramatic 3/4 view that shows tower sides clearly
-        const isoBeta = 1.05;
-
-        // Fixed isometric camera with orthographic projection
-        const camera = new ArcRotateCamera(
-            'camera',
-            -Math.PI / 4,      // alpha: -45° for classic isometric angle
-            isoBeta,            // beta: tilted isometric elevation
-            50,                 // radius: camera distance (doesn't affect ortho zoom)
-            new Vector3(20, 0, 20), // target: center of 20x20 grid (cells are 2 units)
-            this.scene
+        // Fixed isometric camera with orthographic projection (menu/boot).
+        // Babylon ArcRotateCamera(alpha=-45deg, beta=1.05, radius=50, target=(20,0,20)).
+        const alpha = -Math.PI / 4;
+        const beta = 1.05;
+        const radius = 50;
+        const target = new Vector3(20, 0, 20);
+        const camera = new OrthographicCamera(-1, 1, 1, -1, 0.1, 1000);
+        camera.name = 'camera';
+        camera.userData.persistent = true;
+        camera.userData.beta = beta;
+        const sinBeta = Math.sin(beta);
+        camera.position.set(
+            target.x + radius * sinBeta * Math.cos(alpha),
+            target.y + radius * Math.cos(beta),
+            target.z + radius * sinBeta * Math.sin(alpha),
         );
+        camera.lookAt(target);
+        scene.add(camera);
+        this.orthoCamera = camera;
+        this.activeCamera = camera;
+    }
 
-        // Switch to orthographic projection
-        camera.mode = Camera.ORTHOGRAPHIC_CAMERA;
+    /** Swap the camera the composer renders with (gameplay hero-follow camera). */
+    public setActiveCamera(camera: Camera): void {
+        this.activeCamera = camera;
+        this.rendererHost?.setCamera(camera);
+        if (camera === this.orthoCamera) this.updateOrthoBounds();
+    }
 
-        // Auto-compute ortho zoom to fit the map (null = auto)
-        camera.metadata = { orthoZoom: null };
+    public getActiveCamera(): Camera {
+        return this.activeCamera;
+    }
 
-        // Set initial ortho bounds
-        this.updateOrthoBounds();
+    /** Restore the fixed menu/boot ortho camera (used on state teardown). */
+    public restoreDefaultCamera(): void {
+        this.setActiveCamera(this.orthoCamera);
+    }
 
-        // No user controls -- camera is fully fixed, no rotation allowed
-        camera.inputs.clear();
-        camera.detachControl();
-
-        // Lock rotation angles so they can never change
-        camera.lowerAlphaLimit = camera.alpha;
-        camera.upperAlphaLimit = camera.alpha;
-        camera.lowerBetaLimit = camera.beta;
-        camera.upperBetaLimit = camera.beta;
-        camera.lowerRadiusLimit = camera.radius;
-        camera.upperRadiusLimit = camera.radius;
-
-        // ── Post-processing pipeline ──────────────────────────────────────────
-        // FXAA + bloom only. The previous experiment with ACES tone-mapping
-        // and a vignette darkened the 3D scene noticeably while doing nothing
-        // useful — most materials here are frozen-StandardMaterial with no
-        // dynamic-range content for ACES to flatter. Bloom alone gives the
-        // emissive elements (orbs, crit pops, boss eyes, UI titles) the halo
-        // the user actually liked.
-        const renderW = this.engine.getRenderWidth();
-        const isLowEnd = renderW < 800;
-        const pipeline = new DefaultRenderingPipeline('mainPipeline', true, this.scene, [camera]);
-
-        // FXAA — cheap edge smoothing, big readability win on low-poly geometry.
-        pipeline.fxaaEnabled = true;
-        pipeline.samples = 1; // we MSAA via FXAA, not HW multisample
-
-        // Bloom — soft halo over bright pixels only. Threshold keeps midtones
-        // out so the 3D scene isn't blurred; mostly catches emissive content
-        // and bright GUI text (which we like — gives titles a glow).
-        pipeline.bloomEnabled  = true;
-        pipeline.bloomThreshold = 0.85;
-        pipeline.bloomWeight    = isLowEnd ? 0.25 : 0.40;
-        pipeline.bloomScale     = isLowEnd ? 0.25 : 0.50; // RT size factor
-        pipeline.bloomKernel    = isLowEnd ? 32   : 64;
-        this.renderPipeline = pipeline;
-        // Snapshot the configured values so setPostFxReduced(false) restores
-        // exactly this (isLowEnd-dependent) baseline.
-        this.postFxDefaults = {
-            bloomWeight: pipeline.bloomWeight,
-            bloomKernel: pipeline.bloomKernel,
-            glowIntensity: glowLayer.intensity,
-        };
-
-        // ImageProcessing left disabled. Re-enable per-feature later if we
-        // want a specific look — but blanket enabling it stacks tone-mapping
-        // + vignette on top of an already low-dynamic-range scene.
-        pipeline.imageProcessingEnabled = false;
+    /** Background clear color (Babylon scene.clearColor). */
+    public setClearColor(c: RGBA): void {
+        this.rendererHost?.renderer.setClearColor(new Color(c.r, c.g, c.b), c.a);
     }
 
     /**
      * Late-wave performance trim: swap the post-fx between the configured
-     * baseline and a reduced set (half bloom kernel, lighter bloom weight,
-     * dimmer glow). Render-quality only — gameplay untouched. bloomScale is
-     * deliberately NOT touched (its setter rebuilds the whole bloom chain).
-     * SurvivorsGameplayState escalates into this when the FPS EMA sags in
-     * late waves and resets it (false) on run teardown.
+     * baseline and a reduced set. Render-quality only - gameplay untouched.
      */
     public setPostFxReduced(reduced: boolean): void {
-        const d = this.postFxDefaults;
-        if (this.renderPipeline) {
-            this.renderPipeline.bloomKernel = reduced ? Math.min(32, d.bloomKernel) : d.bloomKernel;
-            this.renderPipeline.bloomWeight = reduced ? d.bloomWeight * 0.75 : d.bloomWeight;
-        }
-        if (this.glowLayer) {
-            this.glowLayer.intensity = reduced ? d.glowIntensity * 0.5 : d.glowIntensity;
-        }
+        this.rendererHost?.setPostFxReduced(reduced);
     }
 
     /**
-     * Clean up the scene by disposing all meshes and resources
-     * This should be called when transitioning between states to ensure a clean slate
+     * Clean up the scene by disposing all meshes and resources.
+     * Called when transitioning between states to ensure a clean slate.
+     * Objects flagged userData.persistent (global lights, ortho camera)
+     * survive; cached GLB source assets are container-owned and never in
+     * the scene graph between runs.
      */
     public cleanupScene(): void {
-        // Dispose all meshes in the scene (cleanup what state.exit() may have
-        // missed). Use the default (false, false) — disposeMaterialAndTextures
-        // would nuke textures owned by cached GLB AssetContainers (loadAssetContainerAsync
-        // adds source textures to scene.textures), crashing the next
-        // instantiateModelsToScene call after a state change.
-        const meshes = this.scene.meshes.slice();
-        for (const mesh of meshes) {
-            if (!mesh.name.includes('camera')) {
-                try { mesh.dispose(); } catch (_) { /* already disposed */ }
-            }
+        const scene = this.sceneHost.scene;
+
+        // Dispose all live particle systems first (always state-owned).
+        for (const ps of this.sceneHost.particleSystems.slice()) {
+            try { (ps as { dispose?: () => void }).dispose?.(); } catch (_) { /* already disposed */ }
         }
 
-        // Dispose only ParticleSystems — those are always state-owned and
-        // never managed by cached AssetContainers. Materials, textures, and
-        // skeletons are intentionally NOT bulk-disposed here: they may be
-        // owned by cached GLB AssetContainers that the next state will
-        // re-instantiate from. State.exit() is responsible for disposing
-        // state-owned per-instance materials.
-        const particleSystems = this.scene.particleSystems.slice();
-        for (const particleSystem of particleSystems) {
-            try { particleSystem.dispose(); } catch (_) { /* already disposed */ }
+        // Dispose every non-persistent top-level object and its subtree.
+        // Geometry is freed unless cache-owned; materials only when a node is
+        // flagged ownedMaterial (state exit() is responsible for state-owned
+        // per-instance materials - same contract as the Babylon version).
+        for (const child of scene.children.slice()) {
+            if (child.userData.persistent) continue;
+            try {
+                disposeMesh(child);
+            } catch (_) { /* already disposed */ }
         }
 
-        // Clear all animations
-        this.scene.stopAllAnimations();
-        
-        // Clear all render observers
-        this.scene.onBeforeRenderObservable.clear();
-        this.scene.onAfterRenderObservable.clear();
-        
-        // Remove any scene metadata that might contain previous game state
-        this.scene.metadata = {};
-        
-        // Clear all event listeners to prevent memory leaks
-        this.scene.onPointerObservable.clear();
-        this.scene.onKeyboardObservable.clear();
-        
-        // Find and dispose any AdvancedDynamicTexture manually
-        // (They are not tracked by the scene automatically)
-        const guiTextures = this.scene.textures.filter(texture => 
-            texture.name && texture.name.indexOf("AdvancedDynamicTexture") !== -1);
-        for (const texture of guiTextures) {
-            texture.dispose();
-        }
-        
-        console.log("Scene thoroughly cleaned for state transition");
+        // Clear all per-frame hooks. States must not rely on hooks surviving a
+        // state change (Babylon cleared onBeforeRenderObservable here too).
+        this.sceneHost.onBeforeRender.clear();
+        this.sceneHost.onAnimUpdate.clear();
+        this.sceneHost.animationsEnabled = true;
+
+        // Reset the camera to the boot ortho camera in case the exiting state
+        // owned the active one (its object just got disposed with the scene).
+        this.restoreDefaultCamera();
+
+        console.log('Scene thoroughly cleaned for state transition');
     }
 
     public pause(): void {
@@ -596,51 +500,32 @@ export class Game {
             console.log('Game already paused, ignoring pause request');
             return;
         }
-        
+
         console.log('Pausing game');
         this._isPaused = true;
 
-        // NOTE: deliberately NO scene.freezeActiveMeshes() here. Freezing the active-mesh
-        // list while paused was a micro-optimisation (the scene is static), but it could
-        // flash one black frame on the pause/resume transition: the frozen list is
-        // evaluated at a transitional instant and can come up empty/partial, exposing the
-        // near-black clear colour for a frame. A paused scene is trivially cheap to keep
-        // re-evaluating, so correctness wins — and animationsEnabled=false (below) already
-        // removes the only meaningful per-frame cost. Removing it also kills a black-screen
-        // risk class outright (no frozen list to ever go stale).
-
         // Freeze ALL animation evaluation in one flag. This pauses GLB skeletal
-        // animation groups + every animatable without removing them from the
-        // active list, so resume() can simply re-enable evaluation. (The old
-        // code stopped per-mesh animations on pause and re-`beginAnimation`'d
-        // them with loop=true on resume — that LEAKED a looping animatable per
-        // mesh.animation on every pause/resume cycle.)
-        this.scene.animationsEnabled = false;
+        // animation mixers + every tween without removing them, so resume() can
+        // simply re-enable evaluation.
+        this.sceneHost.animationsEnabled = false;
 
-        this.scene.particleSystems.forEach(system => {
-            system.stop();
-        });
-        
+        for (const ps of this.sceneHost.particleSystems) {
+            (ps as { stop?: () => void }).stop?.();
+        }
+
         // No render-loop swap: the single permanent loop installed in start()
-        // keeps rendering every frame, and _isPaused (set above) makes frameTick()
-        // skip the game update while still drawing the scene + pause UI.
-
-        // Show the pause screen.
+        // keeps rendering every frame, and _isPaused makes frameTick() skip the
+        // game update while still drawing the scene + pause UI.
         try {
             if (this.pauseScreen) {
                 console.log('Showing pause screen');
                 this.pauseScreen.show();
-
-                // Force one render so the pause screen appears on this same tick.
-                try { this.scene.render(); } catch (err) { logLoopError('render', err); }
             }
         } catch (error) {
-            console.error("Error showing pause screen:", error);
+            console.error('Error showing pause screen:', error);
         }
-        
-        // Dispatch a custom event that the game was paused
-        const pauseEvent = new CustomEvent('gamePaused');
-        document.dispatchEvent(pauseEvent);
+
+        document.dispatchEvent(new CustomEvent('gamePaused'));
     }
 
     public resume(): void {
@@ -648,53 +533,42 @@ export class Game {
             console.log('Game not paused, ignoring resume request');
             return;
         }
-        
+
         console.log('Resuming game');
-        
-        // Hide the pause screen first
+
         try {
             if (this.pauseScreen) {
                 console.log('Hiding pause screen');
                 this.pauseScreen.hide();
             }
         } catch (error) {
-            console.error("Error hiding pause screen:", error);
+            console.error('Error hiding pause screen:', error);
         }
-        
+
         this._isPaused = false;
-        // No unfreezeActiveMeshes() — pause() no longer freezes (see the note there).
 
-        // Re-enable animation evaluation (see pause()). Animatables/groups resume
-        // from where they were — no new animatables are created.
-        this.scene.animationsEnabled = true;
+        // Re-enable animation evaluation (see pause()). Mixers/tweens resume
+        // from where they were - nothing is recreated.
+        this.sceneHost.animationsEnabled = true;
 
-        this.scene.particleSystems.forEach(system => {
-            system.start();
-        });
-        
-        // No render-loop swap: the single permanent loop keeps running; clearing
-        // _isPaused (above) re-enables the game update inside frameTick().
-        console.log('Resumed full game update in the permanent render loop');
+        for (const ps of this.sceneHost.particleSystems) {
+            (ps as { start?: () => void }).start?.();
+        }
 
-        // Dispatch a custom event that the game was resumed
-        const resumeEvent = new CustomEvent('gameResumed');
-        document.dispatchEvent(resumeEvent);
+        document.dispatchEvent(new CustomEvent('gameResumed'));
     }
 
     public getIsPaused(): boolean {
         return this._isPaused;
     }
 
-    // Getters for accessing game components
-    /** The pre-registered torch light (parented to origin until activated).
+    /** The torch light owned by Game (parented to origin until activated).
      *  Champion.enableTorch reparents it to the hero mesh and sets intensity. */
     public getHeroTorch(): PointLight {
         return this.heroTorch;
     }
 
-    /** True when EngineFactory fell back to a NullEngine (no WebGPU, no WebGL).
-     *  GPU-only extras (env cube textures, etc.) should be skipped — they crash
-     *  on the GL-less engine. */
+    /** True when WebGL context creation failed (no GPU rendering at all). */
     public isGpuUnavailable(): boolean {
         return this.gpuUnavailable;
     }
@@ -704,16 +578,17 @@ export class Game {
         const div = document.createElement('div');
         div.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;' +
             'background:#7a1f1f;color:#fff;font:14px sans-serif;padding:10px 16px;text-align:center;';
-        div.textContent = 'This browser has no GPU rendering support (WebGPU and WebGL unavailable) — the game cannot be displayed.';
+        div.textContent = 'This browser has no GPU rendering support (WebGL unavailable) - the game cannot be displayed.';
         document.body.appendChild(div);
     }
 
-    public getScene(): Scene {
-        return this.scene;
+    /** The scene host: THREE scene + update buses + particle registry. */
+    public getScene(): SceneHost {
+        return this.sceneHost;
     }
 
-    public getEngine(): AbstractEngine {
-        return this.engine;
+    public getRendererHost(): RendererHost {
+        return this.rendererHost;
     }
 
     public getCanvas(): HTMLCanvasElement {
@@ -748,7 +623,7 @@ export class Game {
     public showLoadingScreen(label?: string): void {
         const el = document.getElementById('loadingScreen');
         if (!el) return;
-        el.style.display = ''; // revert the inline 'none' → CSS default (flex)
+        el.style.display = ''; // revert the inline 'none' -> CSS default (flex)
         if (label) {
             const lbl = el.querySelector('.ktg-loading-label');
             if (lbl) lbl.textContent = label;
@@ -760,4 +635,10 @@ export class Game {
         const el = document.getElementById('loadingScreen');
         if (el) el.style.display = 'none';
     }
-} 
+
+    /** Register a state implementation (used to swap the survivors stub for
+     *  the real state as the migration lands). */
+    public registerState(name: string, state: GameState): void {
+        this.stateManager.registerState(name, state);
+    }
+}

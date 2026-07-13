@@ -1,15 +1,15 @@
 /**
- * ProjectilePool — lightweight mesh-reuse pool for short-lived projectile meshes.
+ * ProjectilePool - lightweight mesh-reuse pool for short-lived projectile meshes.
  *
- * Instead of calling MeshBuilder.Create + mesh.dispose() for every shot (which
- * triggers GPU buffer allocations and GC pressure), callers acquire a mesh from
- * the pool and release it back when the projectile lands or expires.
+ * Instead of creating + disposing a mesh for every shot (GPU buffer
+ * allocations and GC pressure), callers acquire a mesh from the pool and
+ * release it back when the projectile lands or expires.
  *
  * Usage:
- *   const mesh = acquireProjectile(scene, 'basic_attack', () =>
- *       MeshBuilder.CreateSphere('basicProj', { diameter: 0.3 }, scene));
- *   // … move mesh each frame …
- *   releaseProjectile('basic_attack', mesh); // instead of mesh.dispose()
+ *   const mesh = acquireProjectile('basic_attack', () =>
+ *       createSphere('basicProj', { diameter: 0.3 }, host));
+ *   // ... move mesh each frame ...
+ *   releaseProjectile('basic_attack', mesh); // instead of disposeMesh(mesh)
  *
  * Pool growth is capped at MAX_POOL_SIZE per key. Above that cap, the caller's
  * factory function is used to create a temporary mesh that is disposed on release
@@ -17,7 +17,8 @@
  * where many projectiles are live simultaneously.
  */
 
-import { Scene, Mesh, Vector3 } from '@babylonjs/core';
+import { Mesh } from 'three';
+import { disposeMesh, isMeshDisposed } from '../three/primitives';
 
 const MAX_POOL_SIZE = 32;
 
@@ -32,11 +33,10 @@ const pools = new Map<string, PoolEntry[]>();
 
 /**
  * Acquire a projectile mesh from the pool (or create a new one on miss).
- * The returned mesh is enabled and at an unspecified position — callers MUST
- * reset position, scaling, and rotation before use.
+ * The returned mesh is visible and at an unspecified position - callers MUST
+ * reset position, scale, and rotation before use.
  */
 export function acquireProjectile(
-    scene: Scene,
     key: string,
     create: () => Mesh,
 ): Mesh {
@@ -45,18 +45,18 @@ export function acquireProjectile(
 
     // Find a free slot
     for (const entry of pool) {
-        if (!entry.inUse && !entry.mesh.isDisposed()) {
+        if (!entry.inUse && !isMeshDisposed(entry.mesh)) {
             entry.inUse = true;
-            entry.mesh.setEnabled(true);
+            entry.mesh.visible = true;
             // Reset transforms so previous flight state doesn't leak
-            entry.mesh.position.setAll(0);
-            entry.mesh.scaling.setAll(1);
-            entry.mesh.rotation.setAll(0);
+            entry.mesh.position.set(0, 0, 0);
+            entry.mesh.scale.set(1, 1, 1);
+            entry.mesh.rotation.set(0, 0, 0);
             return entry.mesh;
         }
     }
 
-    // No free slot — create a new mesh
+    // No free slot - create a new mesh
     const mesh = create();
     const ephemeral = pool.length >= MAX_POOL_SIZE;
     pool.push({ mesh, inUse: true, ephemeral });
@@ -65,30 +65,30 @@ export function acquireProjectile(
 
 /**
  * Release a projectile mesh back to its pool.
- * The mesh is hidden (setEnabled(false)) so it doesn't appear in the scene.
+ * The mesh is hidden so it doesn't appear in the scene.
  * Ephemeral meshes (created beyond the cap) are disposed instead.
  */
 export function releaseProjectile(key: string, mesh: Mesh): void {
     const pool = pools.get(key);
     if (!pool) {
-        // Unknown pool — just dispose to avoid leaking
-        if (!mesh.isDisposed()) mesh.dispose();
+        // Unknown pool - just dispose to avoid leaking
+        if (!isMeshDisposed(mesh)) disposeMesh(mesh);
         return;
     }
     const entry = pool.find(e => e.mesh === mesh);
     if (!entry) {
-        if (!mesh.isDisposed()) mesh.dispose();
+        if (!isMeshDisposed(mesh)) disposeMesh(mesh);
         return;
     }
     if (entry.ephemeral) {
-        // Above-cap mesh — dispose and remove from pool
-        if (!mesh.isDisposed()) mesh.dispose();
+        // Above-cap mesh - dispose and remove from pool
+        if (!isMeshDisposed(mesh)) disposeMesh(mesh);
         const idx = pool.indexOf(entry);
         if (idx !== -1) pool.splice(idx, 1);
         return;
     }
     entry.inUse = false;
-    mesh.setEnabled(false);
+    mesh.visible = false;
 }
 
 /**
@@ -98,7 +98,7 @@ export function releaseProjectile(key: string, mesh: Mesh): void {
 export function clearProjectilePools(): void {
     for (const pool of pools.values()) {
         for (const entry of pool) {
-            try { if (!entry.mesh.isDisposed()) entry.mesh.dispose(); } catch { /* ignore */ }
+            try { if (!isMeshDisposed(entry.mesh)) disposeMesh(entry.mesh); } catch { /* ignore */ }
         }
     }
     pools.clear();

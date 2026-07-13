@@ -1,216 +1,44 @@
-import { Scene, AssetsManager, AbstractMesh, Texture, Sound, AssetContainer } from '@babylonjs/core';
-import '@babylonjs/loaders/glTF'; // registers .glb / .gltf loaders for SceneLoader + AssetsManager
+/**
+ * AssetManager - boot-time asset loading + sound playback facade.
+ *
+ * Slimmed down in the Three migration: the TD-era mesh/texture task queue
+ * (basic_tower.glb etc.) was dead weight - character/enemy GLBs are loaded
+ * on demand by SurvivorsGameplayState via engine/three/assets. What remains
+ * is the sound preload (tolerant of missing files, as before) and the
+ * playSound facade the gameplay call sites use.
+ */
+
+import { loadSound, playSound } from './three/audio';
+
+const SOUNDS: Array<{ name: string; url: string; volume: number }> = [
+    { name: 'bgMusic', url: 'assets/sounds/background.mp3', volume: 0.5 },
+    { name: 'towerShoot', url: 'assets/sounds/tower_shoot.mp3', volume: 0.7 },
+    { name: 'enemyDeath', url: 'assets/sounds/enemy_death.mp3', volume: 0.7 },
+    { name: 'explosion', url: 'assets/sounds/explosion.mp3', volume: 0.8 },
+];
 
 export class AssetManager {
-    private scene: Scene;
-    private assetsManager: AssetsManager;
-    private meshes: Map<string, AbstractMesh>;
-    private textures: Map<string, Texture>;
-    private sounds: Map<string, Sound>;
-    private containers: Map<string, AssetContainer>;
-
-    constructor(scene: Scene) {
-        this.scene = scene;
-        this.assetsManager = new AssetsManager(scene);
-        this.meshes = new Map<string, AbstractMesh>();
-        this.textures = new Map<string, Texture>();
-        this.sounds = new Map<string, Sound>();
-        this.containers = new Map<string, AssetContainer>();
-        
-        // Configure asset manager
-        this.assetsManager.useDefaultLoadingScreen = false;
-        this.assetsManager.onProgress = (remainingCount, totalCount) => {
-            const progress = (totalCount - remainingCount) / totalCount;
-            console.log(`Loading progress: ${Math.round(progress * 100)}%`);
-        };
-    }
+    private volumes = new Map<string, number>();
 
     /**
-     * Load all game assets
-     * @param onComplete Callback when all assets are loaded
+     * Load all boot assets.
+     * @param onComplete Callback when loading finishes (failures tolerated)
      * @param onProgress Callback for loading progress (0-1)
      */
     public loadAssets(onComplete: () => void, onProgress?: (progress: number) => void): void {
-        // Set up progress callback
-        if (onProgress) {
-            this.assetsManager.onProgressObservable.add((progress) => {
-                // Calculate progress as a ratio between 0 and 1
-                const progressRatio = progress ? (progress as any).loadedCount / (progress as any).totalCount : 0;
-                onProgress(progressRatio);
-            });
-        }
-
-        // Define assets to load
-        this.loadMeshes();
-        this.loadTextures();
-        this.loadSounds();
-
-        // Start loading and call onComplete when done
-        this.assetsManager.onFinish = onComplete;
-        this.assetsManager.load();
-    }
-
-    /**
-     * Load mesh assets
-     */
-    private loadMeshes(): void {
-        // Tower meshes
-        const basicTowerTask = this.assetsManager.addMeshTask("basicTower", "", "assets/models/", "basic_tower.glb");
-        basicTowerTask.onSuccess = (task) => {
-            if (task.loadedMeshes.length > 0) {
-                this.meshes.set("basicTower", task.loadedMeshes[0]);
-                task.loadedMeshes[0].setEnabled(false); // Hide until needed
-            }
-        };
-
-        // Enemy meshes
-        const basicEnemyTask = this.assetsManager.addMeshTask("basicEnemy", "", "assets/models/", "basic_enemy.glb");
-        basicEnemyTask.onSuccess = (task) => {
-            if (task.loadedMeshes.length > 0) {
-                this.meshes.set("basicEnemy", task.loadedMeshes[0]);
-                task.loadedMeshes[0].setEnabled(false); // Hide until needed
-            }
-        };
-
-        // Map elements
-        const mapTileTask = this.assetsManager.addMeshTask("mapTile", "", "assets/models/", "map_tile.glb");
-        mapTileTask.onSuccess = (task) => {
-            if (task.loadedMeshes.length > 0) {
-                this.meshes.set("mapTile", task.loadedMeshes[0]);
-                task.loadedMeshes[0].setEnabled(false); // Hide until needed
-            }
-        };
-
-        // NOTE: 3D character GLBs (ranger, etc.) are NOT loaded here. They get loaded
-        // on-demand by the state that needs them (e.g. SurvivorsGameplayState.enter())
-        // via SceneLoader.LoadAssetContainerAsync, because loading at boot and then
-        // using the container after Game.cleanupScene() runs causes the materials to
-        // render invisibly (PBR/texture references don't survive the scene cleanup
-        // even with metadata.protectedFromCleanup, for reasons I couldn't pin down).
-    }
-
-    /**
-     * Load texture assets
-     */
-    private loadTextures(): void {
-        // UI textures
-        const buttonTexture = this.assetsManager.addTextureTask("buttonTexture", "assets/textures/button.png");
-        buttonTexture.onSuccess = (task) => {
-            this.textures.set("button", task.texture);
-        };
-
-        // Game textures
-        const groundTexture = this.assetsManager.addTextureTask("groundTexture", "assets/textures/ground.png");
-        groundTexture.onSuccess = (task) => {
-            this.textures.set("ground", task.texture);
-        };
-
-        const pathTexture = this.assetsManager.addTextureTask("pathTexture", "assets/textures/path.png");
-        pathTexture.onSuccess = (task) => {
-            this.textures.set("path", task.texture);
-        };
-    }
-
-    /**
-     * Load sound assets
-     */
-    private loadSounds(): void {
-        // Background music
-        const bgMusic = new Sound("bgMusic", "assets/sounds/background.mp3", this.scene, null, {
-            loop: true,
-            autoplay: false,
-            volume: 0.5
+        let done = 0;
+        const total = SOUNDS.length;
+        const tasks = SOUNDS.map(async s => {
+            this.volumes.set(s.name, s.volume);
+            await loadSound(s.name, s.url);
+            done++;
+            onProgress?.(done / total);
         });
-        this.sounds.set("bgMusic", bgMusic);
-
-        // Sound effects
-        const towerShoot = new Sound("towerShoot", "assets/sounds/tower_shoot.mp3", this.scene, null, {
-            loop: false,
-            autoplay: false,
-            volume: 0.7
-        });
-        this.sounds.set("towerShoot", towerShoot);
-
-        const enemyDeath = new Sound("enemyDeath", "assets/sounds/enemy_death.mp3", this.scene, null, {
-            loop: false,
-            autoplay: false,
-            volume: 0.7
-        });
-        this.sounds.set("enemyDeath", enemyDeath);
-        
-        // Cannon explosion sound
-        const explosion = new Sound("explosion", "assets/sounds/explosion.mp3", this.scene, null, {
-            loop: false,
-            autoplay: false,
-            volume: 0.8
-        });
-        this.sounds.set("explosion", explosion);
+        void Promise.allSettled(tasks).then(() => onComplete());
     }
 
-    /**
-     * Get a preloaded AssetContainer by name. Returns null if the asset failed
-     * to load or wasn't registered. Caller is responsible for calling
-     * `container.instantiateModelsToScene(...)` to spawn instances.
-     */
-    public getContainer(name: string): AssetContainer | null {
-        const c = this.containers.get(name);
-        if (!c) {
-            console.warn(`AssetContainer '${name}' not found`);
-            return null;
-        }
-        return c;
-    }
-
-    /**
-     * Get a mesh by name
-     * @param name The name of the mesh
-     * @returns The mesh or null if not found
-     */
-    public getMesh(name: string): AbstractMesh | null {
-        const mesh = this.meshes.get(name);
-        if (!mesh) {
-            console.warn(`Mesh '${name}' not found`);
-            return null;
-        }
-        return mesh.clone(name, null);
-    }
-
-    /**
-     * Get a texture by name
-     * @param name The name of the texture
-     * @returns The texture or null if not found
-     */
-    public getTexture(name: string): Texture | null {
-        const texture = this.textures.get(name);
-        if (!texture) {
-            console.warn(`Texture '${name}' not found`);
-            return null;
-        }
-        return texture;
-    }
-
-    /**
-     * Get a sound by name
-     * @param name The name of the sound
-     * @returns The sound or null if not found
-     */
-    public getSound(name: string): Sound | null {
-        const sound = this.sounds.get(name);
-        if (!sound) {
-            console.warn(`Sound '${name}' not found`);
-            return null;
-        }
-        return sound;
-    }
-
-    /**
-     * Play a sound by name
-     * @param name The name of the sound
-     */
+    /** Play a preloaded sound by name (no-op if it failed to load). */
     public playSound(name: string): void {
-        const sound = this.getSound(name);
-        if (sound) {
-            sound.play();
-        }
+        playSound(name, this.volumes.get(name) ?? 1);
     }
-} 
+}

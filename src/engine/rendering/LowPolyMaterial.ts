@@ -1,36 +1,80 @@
-import { StandardMaterial, Color3, Scene, Mesh } from '@babylonjs/core';
-
 /**
- * Create a flat-shaded StandardMaterial with no specular (low-poly look).
+ * Low-poly material factories (Three.js). MeshPhongMaterial is the closest
+ * match to Babylon's StandardMaterial (diffuse + emissive + specular).
+ *
+ * Babylon's freeze() has no Three equivalent and none is needed - Three
+ * materials don't re-validate per frame; the shader program is compiled
+ * once per property-combination and shared.
+ *
+ * NOTE: these factories do NOT cache - every call is a fresh material.
+ * Transient FX must use getCachedMaterial (bounded key) or ensure the
+ * material is freed via disposeMesh (see the CLAUDE.md leak invariant).
  */
-export function createLowPolyMaterial(name: string, color: Color3, scene: Scene): StandardMaterial {
-    const mat = new StandardMaterial(name, scene);
-    mat.diffuseColor = color;
-    mat.specularColor = Color3.Black();
-    mat.specularPower = 0;
-    mat.freeze();
+
+import { BufferGeometry, Color, Mesh, MeshPhongMaterial } from 'three';
+import { GLOW_LAYER } from '../three/RendererHost';
+
+const BLACK = new Color(0, 0, 0);
+
+/** Flat-look Phong material with no specular highlight. */
+export function createLowPolyMaterial(name: string, color: Color): MeshPhongMaterial {
+    const mat = new MeshPhongMaterial({
+        color: color.clone(),
+        specular: BLACK.clone(),
+        shininess: 0,
+    });
+    mat.name = name;
+    return mat;
+}
+
+/** Emissive variant for glowing elements (orbs, crystals, FX). */
+export function createEmissiveMaterial(name: string, color: Color, emissiveStrength: number): MeshPhongMaterial {
+    const mat = createLowPolyMaterial(name, color);
+    mat.emissive = color.clone().multiplyScalar(emissiveStrength);
     return mat;
 }
 
 /**
- * Create a flat-shaded emissive material (for glowing elements like portals, crystals).
- */
-export function createEmissiveMaterial(name: string, color: Color3, emissiveStrength: number, scene: Scene): StandardMaterial {
-    // Build the material directly (not via createLowPolyMaterial) so we can freeze
-    // only after all properties are set — including emissiveColor.
-    const mat = new StandardMaterial(name, scene);
-    mat.diffuseColor = color;
-    mat.specularColor = Color3.Black();
-    mat.specularPower = 0;
-    mat.emissiveColor = color.scale(emissiveStrength);
-    mat.freeze();
-    return mat;
-}
-
-/**
- * Convert a mesh to flat-shaded (visible polygon facets).
- * Must be called AFTER the mesh is created and before parenting if needed.
+ * Convert a mesh's geometry to flat shading (visible polygon facets) -
+ * Babylon's convertToFlatShadedMesh. Splits shared vertices so each face
+ * gets its own normal; the old indexed geometry is disposed.
  */
 export function makeFlatShaded(mesh: Mesh): void {
-    mesh.convertToFlatShadedMesh();
+    const geo = mesh.geometry as BufferGeometry;
+    if (geo.index === null) {
+        geo.computeVertexNormals();
+        return;
+    }
+    const flat = geo.toNonIndexed();
+    flat.computeVertexNormals();
+    flat.userData.cached = geo.userData.cached ?? false;
+    mesh.geometry = flat;
+    if (!geo.userData.cached) geo.dispose();
+}
+
+/**
+ * Register a mesh with the emissive-glow pass (Babylon GlowLayer parity).
+ * Call for meshes whose material has a meaningful emissive component.
+ */
+export function markGlowing(mesh: Mesh): void {
+    mesh.layers.enable(GLOW_LAYER);
+}
+
+/**
+ * Per-mesh opacity fade (Babylon's mesh.visibility). Three has no per-mesh
+ * opacity, only per-material - so on first call the mesh's shared material
+ * is cloned into a mesh-owned transparent copy (flagged ownedMaterial so
+ * disposeMesh frees it; Three's program cache means no shader recompile).
+ * THE audited helper for fading FX meshes - never mutate a shared cached
+ * material's opacity directly.
+ */
+export function setMeshOpacity(mesh: Mesh, opacity: number): void {
+    let mat = mesh.material as MeshPhongMaterial;
+    if (!mesh.userData.ownedMaterial) {
+        mat = mat.clone();
+        mat.transparent = true;
+        mesh.material = mat;
+        mesh.userData.ownedMaterial = true;
+    }
+    mat.opacity = opacity;
 }

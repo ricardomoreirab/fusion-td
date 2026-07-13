@@ -1,6 +1,5 @@
 import { Game } from '../engine/Game';
 import { GameState } from '../engine/GameState';
-import { PlayerStats } from '../survivors/PlayerStats';
 import { tryHaptic } from '../shared/ui/HudStyle';
 import { GameUI } from '../ui/GameUI';
 import { el } from '../ui/dom';
@@ -30,7 +29,6 @@ export class GameOverState implements GameState {
     private game: Game;
     private gameUI: GameUI | null = null;
     private playerWon: boolean = false;
-    private playerStats: PlayerStats | null = null;
     private survivorsSummary: SurvivorsRunSummary | null = null;
     private lbOpen = false;
 
@@ -46,18 +44,6 @@ export class GameOverState implements GameState {
         console.log('Entering game over state');
         tryHaptic(20);
 
-        // Check if player won or lost
-        const stateManager = this.game.getStateManager();
-        const previousState = stateManager.getCurrentStateName();
-
-        if (previousState === 'gameplay') {
-            const scene = this.game.getScene();
-            this.playerStats = scene.metadata?.playerStats as PlayerStats;
-            if (this.playerStats) {
-                this.playerWon = this.playerStats.hasWon();
-            }
-        }
-
         // Create UI
         this.createUI();
     }
@@ -67,7 +53,6 @@ export class GameOverState implements GameState {
 
         this.gameUI?.dispose();
         this.gameUI = null;
-        this.playerStats = null;
         this.survivorsSummary = null;
         this.lbOpen = false; // singleton state — clear the guard so the board reopens next time
     }

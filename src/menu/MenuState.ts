@@ -1,4 +1,4 @@
-import { Color4, ParticleSystem, Mesh } from '@babylonjs/core';
+import { rgba } from '../engine/three/math';
 import { Game } from '../engine/Game';
 import { GameState } from '../engine/GameState';
 import { GameSettings, GraphicsQuality } from '../shared/GameSettings';
@@ -14,9 +14,6 @@ import { setPendingCoop } from '../survivors/coop/PendingCoop';
 export class MenuState implements GameState {
     private game: Game;
     private gameUI: GameUI | null = null;
-    private sceneObjects: Mesh[] = [];
-    private particleSystems: ParticleSystem[] = [];
-    private animationCallback: (() => void) | null = null;
     private lbOpen = false;
     private coopLobby: CoopLobbyOverlay | null = null;
 
@@ -40,25 +37,6 @@ export class MenuState implements GameState {
     public exit(): void {
         console.log('Exiting menu state');
 
-        // Remove animation callback
-        if (this.animationCallback) {
-            this.game.getScene().unregisterBeforeRender(this.animationCallback);
-            this.animationCallback = null;
-        }
-
-        // Dispose particle systems
-        for (const ps of this.particleSystems) {
-            ps.stop();
-            ps.dispose();
-        }
-        this.particleSystems = [];
-
-        // Dispose scene objects
-        for (const mesh of this.sceneObjects) {
-            mesh.dispose();
-        }
-        this.sceneObjects = [];
-
         // Dispose UI. The co-op lobby goes FIRST and explicitly: it may hold a
         // live transport (hosting, waiting for a teammate) whose socket must be
         // closed to free the room slot — removing its DOM alone wouldn't do that.
@@ -76,11 +54,9 @@ export class MenuState implements GameState {
     }
 
     private createBackground(): void {
-        const scene = this.game.getScene();
-
         // Solid dark backdrop — the themed UI rectangle in createUI() draws on top.
         // No 3D objects, no enemies, no particles. Clean start screen.
-        scene.clearColor = new Color4(0.027, 0.020, 0.039, 1.0); // matches #07050a
+        this.game.setClearColor(rgba(0.027, 0.020, 0.039, 1.0)); // matches #07050a
     }
 
     private createUI(): void {
