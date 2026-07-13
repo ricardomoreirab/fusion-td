@@ -26,10 +26,13 @@
     "@babylonjs/gui": "^9.9.1",
     "@babylonjs/loaders": "^9.9.1",
     "@babylonjs/materials": "^9.9.1",
-    "@babylonjs/procedural-textures": "^9.9.1"
+    "@babylonjs/procedural-textures": "^9.9.1",
+    "postprocessing": "^6.39.2",
+    "three": "^0.185.1"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260529.1",
+    "@types/three": "^0.185.1",
     "copy-webpack-plugin": "^11.0.0",
     "css-loader": "^6.11.0",
     "html-webpack-plugin": "^5.5.3",
