@@ -392,7 +392,9 @@ export class Game {
         const scene = this.sceneHost.scene;
 
         // Warm hemisphere light for the low-poly stylized look. Single global fill.
-        const light = new HemisphereLight(PALETTE.LIGHT_DIFFUSE.clone(), PALETTE.LIGHT_GROUND.clone(), 0.55);
+        // 0.55 pre-ACES; raised to compensate for filmic tone mapping's midtone
+        // compression (RendererHost pipes the frame through ACES).
+        const light = new HemisphereLight(PALETTE.LIGHT_DIFFUSE.clone(), PALETTE.LIGHT_GROUND.clone(), 0.75);
         light.name = 'light';
         light.userData.persistent = true; // survives cleanupScene
         scene.add(light);

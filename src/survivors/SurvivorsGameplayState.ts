@@ -615,12 +615,25 @@ export class SurvivorsGameplayState implements GameState {
         // (was 0.5) so it's the dominant directional source giving real form
         // and falloff after the SpotLight + ambient cuts below. Direction is
         // encoded via light.target (kept on the hero in update()).
-        const keyLight = new DirectionalLight(new Color(1.0, 0.78, 0.55), 0.9);
+        // 0.9 pre-ACES; raised for filmic midtone compression.
+        const keyLight = new DirectionalLight(new Color(1.0, 0.78, 0.55), 1.35);
         keyLight.name = 'survivorsKey';
         keyLight.position.copy(this._keyLightDir).multiplyScalar(-40);
         keyLight.target.position.set(0, 0, 0);
         this.scene.scene.add(keyLight);
         this.scene.scene.add(keyLight.target);
+
+        // Cool back-fill from the opposite side (no shadows): separates the
+        // dark-textured GLB characters from the grass under ACES by rimming
+        // their shadow side with faint sky light. Deliberately weak — the warm
+        // key must stay dominant or the scene flattens out again.
+        const fillLight = new DirectionalLight(new Color(0.55, 0.65, 0.9), 0.5);
+        fillLight.name = 'survivorsFill';
+        fillLight.position.copy(this._keyLightDir).multiplyScalar(40);
+        fillLight.position.y = 25;
+        fillLight.target.position.set(0, 0, 0);
+        this.scene.scene.add(fillLight);
+        this.scene.scene.add(fillLight.target);
         // Save for the shadow pass attached later.
         this.shadowSourceLight = keyLight;
 
@@ -1392,7 +1405,11 @@ export class SurvivorsGameplayState implements GameState {
             // GLB heroes/bosses; the Phong low-poly mats ignore it, same as the
             // Babylon StandardMaterials effectively did.)
             host.scene.environment = envTexture;
-            host.scene.environmentIntensity = 0.25;
+            // 0.25 pre-ACES; raised for filmic compression. Only the PBR GLB
+            // characters read this (grass/low-poly mats ignore IBL), so it is
+            // the character-brightness knob that leaves the field untouched.
+            host.scene.environmentIntensity = 0.65;
+
             this.envTexture = envTexture;
         }
 
