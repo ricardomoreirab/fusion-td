@@ -1,8 +1,18 @@
-import { Vector3, MeshBuilder, StandardMaterial, Color3, Mesh, Color4 } from '@babylonjs/core';
+import { Color, Mesh, MeshPhongMaterial, Vector3 } from 'three';
 import { Game } from '../../engine/Game';
 import { Enemy } from './Enemy';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../engine/rendering/LowPolyMaterial';
 import { PALETTE } from '../../engine/rendering/StyleConstants';
+import { headingToYaw } from '../../engine/three/math';
+import {
+    createBox,
+    createCylinder,
+    createDisc,
+    createPolyhedron,
+    createSphere,
+    disposeMesh,
+    isMeshDisposed,
+} from '../../engine/three/primitives';
 
 export class BossEnemy extends Enemy {
     private animationTime: number = 0;
@@ -56,60 +66,60 @@ export class BossEnemy extends Enemy {
         this.crystals = [];
 
         // --- Main body: tall broad torso (hunched) ---
-        this.mesh = MeshBuilder.CreateBox('bossBody', {
+        this.mesh = createBox('bossBody', {
             width: 1.60,
             height: 2.20,
             depth: 1.10
         }, this.scene);
         makeFlatShaded(this.mesh);
-        this.mesh.position = this.position.clone();
+        this.mesh.position.copy(this.position);
         this.mesh.position.y += 1.2;
-        this.mesh.material = createLowPolyMaterial('bossBodyMat', PALETTE.ENEMY_BOSS, this.scene);
+        this.mesh.material = createLowPolyMaterial('bossBodyMat', PALETTE.ENEMY_BOSS);
 
         // --- Chest cavity glow: emissive box visible in the front ---
-        const chestCore = MeshBuilder.CreateBox('bossChestCore', {
+        const chestCore = createBox('bossChestCore', {
             width: 0.40,
             height: 0.50,
             depth: 0.08
         }, this.scene);
         makeFlatShaded(chestCore);
-        chestCore.parent = this.mesh;
-        chestCore.position = new Vector3(0, 0.10, 0.56);
-        chestCore.material = createEmissiveMaterial('bossChestCoreMat', PALETTE.ENEMY_BOSS_FIRE, 1.5, this.scene);
+        this.mesh.add(chestCore);
+        chestCore.position.set(0, 0.10, 0.56);
+        chestCore.material = createEmissiveMaterial('bossChestCoreMat', PALETTE.ENEMY_BOSS_FIRE, 1.5);
 
         // --- Ribcage lines: 3 thin horizontal boxes across chest ---
         for (let i = 0; i < 3; i++) {
-            const rib = MeshBuilder.CreateBox(`bossRib${i}`, {
+            const rib = createBox(`bossRib${i}`, {
                 width: 0.55,
                 height: 0.04,
                 depth: 0.06
             }, this.scene);
             makeFlatShaded(rib);
-            rib.parent = this.mesh;
-            rib.position = new Vector3(0, 0.30 - i * 0.20, 0.56);
-            rib.material = createLowPolyMaterial(`bossRibMat${i}`, PALETTE.ENEMY_BOSS_BONE, this.scene);
+            this.mesh.add(rib);
+            rib.position.set(0, 0.30 - i * 0.20, 0.56);
+            rib.material = createLowPolyMaterial(`bossRibMat${i}`, PALETTE.ENEMY_BOSS_BONE);
         }
 
         // --- Shoulder pauldrons: large polyhedra on each shoulder ---
-        const leftPauldron = MeshBuilder.CreatePolyhedron('bossLeftPauldron', {
+        const leftPauldron = createPolyhedron('bossLeftPauldron', {
             type: 2, // Icosahedron
             size: 0.35
         }, this.scene);
         makeFlatShaded(leftPauldron);
-        leftPauldron.parent = this.mesh;
-        leftPauldron.position = new Vector3(-0.90, 0.85, 0);
-        leftPauldron.scaling = new Vector3(0.8, 0.6, 0.8);
-        leftPauldron.material = createLowPolyMaterial('bossLeftPauldronMat', PALETTE.ENEMY_BOSS_DARK, this.scene);
+        this.mesh.add(leftPauldron);
+        leftPauldron.position.set(-0.90, 0.85, 0);
+        leftPauldron.scale.set(0.8, 0.6, 0.8);
+        leftPauldron.material = createLowPolyMaterial('bossLeftPauldronMat', PALETTE.ENEMY_BOSS_DARK);
 
-        const rightPauldron = MeshBuilder.CreatePolyhedron('bossRightPauldron', {
+        const rightPauldron = createPolyhedron('bossRightPauldron', {
             type: 2,
             size: 0.35
         }, this.scene);
         makeFlatShaded(rightPauldron);
-        rightPauldron.parent = this.mesh;
-        rightPauldron.position = new Vector3(0.90, 0.85, 0);
-        rightPauldron.scaling = new Vector3(0.8, 0.6, 0.8);
-        rightPauldron.material = createLowPolyMaterial('bossRightPauldronMat', PALETTE.ENEMY_BOSS_DARK, this.scene);
+        this.mesh.add(rightPauldron);
+        rightPauldron.position.set(0.90, 0.85, 0);
+        rightPauldron.scale.set(0.8, 0.6, 0.8);
+        rightPauldron.material = createLowPolyMaterial('bossRightPauldronMat', PALETTE.ENEMY_BOSS_DARK);
 
         // --- Crystal growths: erupting from shoulders and back ---
         const crystalConfigs = [
@@ -124,244 +134,252 @@ export class BossEnemy extends Enemy {
 
         for (let i = 0; i < crystalConfigs.length; i++) {
             const cfg = crystalConfigs[i];
-            const crystal = MeshBuilder.CreateCylinder(`bossCrystal${i}`, {
+            const crystal = createCylinder(`bossCrystal${i}`, {
                 height: cfg.size * 3.5,
                 diameterTop: 0.0,
                 diameterBottom: cfg.size * 0.8,
                 tessellation: 4
             }, this.scene);
             makeFlatShaded(crystal);
-            crystal.parent = this.mesh;
-            crystal.position = cfg.pos;
-            crystal.rotation = cfg.rot;
-            crystal.material = createEmissiveMaterial(`bossCrystalMat${i}`, PALETTE.ENEMY_BOSS_CRYSTAL, 0.7, this.scene);
+            this.mesh.add(crystal);
+            crystal.position.copy(cfg.pos);
+            crystal.rotation.set(cfg.rot.x, cfg.rot.y, cfg.rot.z);
+            crystal.material = createEmissiveMaterial(`bossCrystalMat${i}`, PALETTE.ENEMY_BOSS_CRYSTAL, 0.7);
             this.crystals.push(crystal);
         }
 
         // --- Head (Skull): composed of a faceted dome + jaw ---
-        this.head = MeshBuilder.CreatePolyhedron('bossSkull', {
+        this.head = createPolyhedron('bossSkull', {
             type: 2, // Icosahedron for faceted skull
             size: 0.42
         }, this.scene);
         makeFlatShaded(this.head);
-        this.head.parent = this.mesh;
-        this.head.position = new Vector3(0, 1.45, 0.20);
-        this.head.scaling = new Vector3(1.0, 0.80, 1.10);
-        this.head.material = createLowPolyMaterial('bossSkullMat', PALETTE.ENEMY_BOSS_BONE, this.scene);
+        this.mesh.add(this.head);
+        this.head.position.set(0, 1.45, 0.20);
+        this.head.scale.set(1.0, 0.80, 1.10);
+        this.head.material = createLowPolyMaterial('bossSkullMat', PALETTE.ENEMY_BOSS_BONE);
 
         // --- Jaw: separate hinged box beneath skull ---
-        this.jaw = MeshBuilder.CreateBox('bossJaw', {
+        this.jaw = createBox('bossJaw', {
             width: 0.45,
             height: 0.15,
             depth: 0.40
         }, this.scene);
         makeFlatShaded(this.jaw);
-        this.jaw.parent = this.head;
-        this.jaw.position = new Vector3(0, -0.30, 0.08);
-        this.jaw.material = createLowPolyMaterial('bossJawMat', PALETTE.ENEMY_BOSS_BONE, this.scene);
+        this.head.add(this.jaw);
+        this.jaw.position.set(0, -0.30, 0.08);
+        this.jaw.material = createLowPolyMaterial('bossJawMat', PALETTE.ENEMY_BOSS_BONE);
 
         // --- Teeth: row of small cones hanging from jaw ---
         for (let i = 0; i < 4; i++) {
-            const tooth = MeshBuilder.CreateCylinder(`bossTooth${i}`, {
+            const tooth = createCylinder(`bossTooth${i}`, {
                 height: 0.10,
                 diameterTop: 0.04,
                 diameterBottom: 0.0,
                 tessellation: 3
             }, this.scene);
             makeFlatShaded(tooth);
-            tooth.parent = this.jaw;
-            tooth.position = new Vector3(-0.12 + i * 0.08, 0.08, 0.18);
-            tooth.material = createLowPolyMaterial(`bossToothMat${i}`, PALETTE.ENEMY_BOSS_BONE, this.scene);
+            this.jaw.add(tooth);
+            tooth.position.set(-0.12 + i * 0.08, 0.08, 0.18);
+            tooth.material = createLowPolyMaterial(`bossToothMat${i}`, PALETTE.ENEMY_BOSS_BONE);
         }
 
         // --- Eyes: large emissive slits ---
-        const leftEye = MeshBuilder.CreateBox('bossLeftEye', {
+        const leftEye = createBox('bossLeftEye', {
             width: 0.16,
             height: 0.06,
             depth: 0.06
         }, this.scene);
         makeFlatShaded(leftEye);
-        leftEye.parent = this.head;
-        leftEye.position = new Vector3(-0.18, 0.05, 0.38);
-        leftEye.material = createEmissiveMaterial('bossLeftEyeMat', PALETTE.ENEMY_BOSS_FIRE, 1.5, this.scene);
+        this.head.add(leftEye);
+        leftEye.position.set(-0.18, 0.05, 0.38);
+        leftEye.material = createEmissiveMaterial('bossLeftEyeMat', PALETTE.ENEMY_BOSS_FIRE, 1.5);
 
-        const rightEye = MeshBuilder.CreateBox('bossRightEye', {
+        const rightEye = createBox('bossRightEye', {
             width: 0.16,
             height: 0.06,
             depth: 0.06
         }, this.scene);
         makeFlatShaded(rightEye);
-        rightEye.parent = this.head;
-        rightEye.position = new Vector3(0.18, 0.05, 0.38);
-        rightEye.material = createEmissiveMaterial('bossRightEyeMat', PALETTE.ENEMY_BOSS_FIRE, 1.5, this.scene);
+        this.head.add(rightEye);
+        rightEye.position.set(0.18, 0.05, 0.38);
+        rightEye.material = createEmissiveMaterial('bossRightEyeMat', PALETTE.ENEMY_BOSS_FIRE, 1.5);
 
         // --- Horns: two massive swept-back cones ---
-        const leftHorn = MeshBuilder.CreateCylinder('bossLeftHorn', {
+        const leftHorn = createCylinder('bossLeftHorn', {
             height: 0.80,
             diameterTop: 0.0,
             diameterBottom: 0.18,
             tessellation: 5
         }, this.scene);
         makeFlatShaded(leftHorn);
-        leftHorn.parent = this.head;
-        leftHorn.position = new Vector3(-0.30, 0.25, -0.10);
+        this.head.add(leftHorn);
+        leftHorn.position.set(-0.30, 0.25, -0.10);
         leftHorn.rotation.z = -0.5;
         leftHorn.rotation.x = -0.3;
-        leftHorn.material = createLowPolyMaterial('bossLeftHornMat', PALETTE.ENEMY_BOSS_DARK, this.scene);
+        leftHorn.material = createLowPolyMaterial('bossLeftHornMat', PALETTE.ENEMY_BOSS_DARK);
 
-        const rightHorn = MeshBuilder.CreateCylinder('bossRightHorn', {
+        const rightHorn = createCylinder('bossRightHorn', {
             height: 0.80,
             diameterTop: 0.0,
             diameterBottom: 0.18,
             tessellation: 5
         }, this.scene);
         makeFlatShaded(rightHorn);
-        rightHorn.parent = this.head;
-        rightHorn.position = new Vector3(0.30, 0.25, -0.10);
+        this.head.add(rightHorn);
+        rightHorn.position.set(0.30, 0.25, -0.10);
         rightHorn.rotation.z = 0.5;
         rightHorn.rotation.x = -0.3;
-        rightHorn.material = createLowPolyMaterial('bossRightHornMat', PALETTE.ENEMY_BOSS_DARK, this.scene);
+        rightHorn.material = createLowPolyMaterial('bossRightHornMat', PALETTE.ENEMY_BOSS_DARK);
 
         // --- Left Arm: thick, long, with large claw ---
-        this.leftArm = MeshBuilder.CreateBox('bossLeftArm', {
+        this.leftArm = createBox('bossLeftArm', {
             width: 0.35,
             height: 1.80,
             depth: 0.35
         }, this.scene);
         makeFlatShaded(this.leftArm);
-        this.leftArm.parent = this.mesh;
-        this.leftArm.position = new Vector3(-1.00, 0.15, 0.10);
+        this.mesh.add(this.leftArm);
+        this.leftArm.position.set(-1.00, 0.15, 0.10);
         this.leftArm.rotation.z = Math.PI / 10;
-        this.leftArm.material = createLowPolyMaterial('bossLeftArmMat', PALETTE.ENEMY_BOSS, this.scene);
+        this.leftArm.material = createLowPolyMaterial('bossLeftArmMat', PALETTE.ENEMY_BOSS);
 
         // Left Claw: 3 small cones fanning out
         for (let c = 0; c < 3; c++) {
-            const claw = MeshBuilder.CreateCylinder(`bossLeftClaw${c}`, {
+            const claw = createCylinder(`bossLeftClaw${c}`, {
                 height: 0.25,
                 diameterTop: 0.0,
                 diameterBottom: 0.07,
                 tessellation: 3
             }, this.scene);
             makeFlatShaded(claw);
-            claw.parent = this.leftArm;
-            claw.position = new Vector3(-0.08 + c * 0.08, -1.0, 0.10);
+            this.leftArm.add(claw);
+            claw.position.set(-0.08 + c * 0.08, -1.0, 0.10);
             claw.rotation.x = 0.3;
             claw.rotation.z = (-1 + c) * 0.2;
-            claw.material = createLowPolyMaterial(`bossLeftClawMat${c}`, PALETTE.ENEMY_BOSS_BONE, this.scene);
+            claw.material = createLowPolyMaterial(`bossLeftClawMat${c}`, PALETTE.ENEMY_BOSS_BONE);
         }
 
         // --- Right Arm: thick, long, with large claw ---
-        this.rightArm = MeshBuilder.CreateBox('bossRightArm', {
+        this.rightArm = createBox('bossRightArm', {
             width: 0.35,
             height: 1.80,
             depth: 0.35
         }, this.scene);
         makeFlatShaded(this.rightArm);
-        this.rightArm.parent = this.mesh;
-        this.rightArm.position = new Vector3(1.00, 0.15, 0.10);
+        this.mesh.add(this.rightArm);
+        this.rightArm.position.set(1.00, 0.15, 0.10);
         this.rightArm.rotation.z = -Math.PI / 10;
-        this.rightArm.material = createLowPolyMaterial('bossRightArmMat', PALETTE.ENEMY_BOSS, this.scene);
+        this.rightArm.material = createLowPolyMaterial('bossRightArmMat', PALETTE.ENEMY_BOSS);
 
         // Right Claw: 3 small cones fanning out
         for (let c = 0; c < 3; c++) {
-            const claw = MeshBuilder.CreateCylinder(`bossRightClaw${c}`, {
+            const claw = createCylinder(`bossRightClaw${c}`, {
                 height: 0.25,
                 diameterTop: 0.0,
                 diameterBottom: 0.07,
                 tessellation: 3
             }, this.scene);
             makeFlatShaded(claw);
-            claw.parent = this.rightArm;
-            claw.position = new Vector3(-0.08 + c * 0.08, -1.0, 0.10);
+            this.rightArm.add(claw);
+            claw.position.set(-0.08 + c * 0.08, -1.0, 0.10);
             claw.rotation.x = 0.3;
             claw.rotation.z = (-1 + c) * 0.2;
-            claw.material = createLowPolyMaterial(`bossRightClawMat${c}`, PALETTE.ENEMY_BOSS_BONE, this.scene);
+            claw.material = createLowPolyMaterial(`bossRightClawMat${c}`, PALETTE.ENEMY_BOSS_BONE);
         }
 
         // --- Left Leg: thick pillar ---
-        this.leftLeg = MeshBuilder.CreateBox('bossLeftLeg', {
+        this.leftLeg = createBox('bossLeftLeg', {
             width: 0.50,
             height: 1.60,
             depth: 0.50
         }, this.scene);
         makeFlatShaded(this.leftLeg);
-        this.leftLeg.parent = this.mesh;
-        this.leftLeg.position = new Vector3(-0.48, -1.50, 0);
-        this.leftLeg.material = createLowPolyMaterial('bossLeftLegMat', PALETTE.ENEMY_BOSS_DARK, this.scene);
+        this.mesh.add(this.leftLeg);
+        this.leftLeg.position.set(-0.48, -1.50, 0);
+        this.leftLeg.material = createLowPolyMaterial('bossLeftLegMat', PALETTE.ENEMY_BOSS_DARK);
 
         // Left foot
-        const leftFoot = MeshBuilder.CreateBox('bossLeftFoot', {
+        const leftFoot = createBox('bossLeftFoot', {
             width: 0.60,
             height: 0.15,
             depth: 0.65
         }, this.scene);
         makeFlatShaded(leftFoot);
-        leftFoot.parent = this.leftLeg;
-        leftFoot.position = new Vector3(0, -0.82, 0.10);
-        leftFoot.material = createLowPolyMaterial('bossLeftFootMat', PALETTE.ENEMY_BOSS_DARK, this.scene);
+        this.leftLeg.add(leftFoot);
+        leftFoot.position.set(0, -0.82, 0.10);
+        leftFoot.material = createLowPolyMaterial('bossLeftFootMat', PALETTE.ENEMY_BOSS_DARK);
 
         // --- Right Leg: thick pillar ---
-        this.rightLeg = MeshBuilder.CreateBox('bossRightLeg', {
+        this.rightLeg = createBox('bossRightLeg', {
             width: 0.50,
             height: 1.60,
             depth: 0.50
         }, this.scene);
         makeFlatShaded(this.rightLeg);
-        this.rightLeg.parent = this.mesh;
-        this.rightLeg.position = new Vector3(0.48, -1.50, 0);
-        this.rightLeg.material = createLowPolyMaterial('bossRightLegMat', PALETTE.ENEMY_BOSS_DARK, this.scene);
+        this.mesh.add(this.rightLeg);
+        this.rightLeg.position.set(0.48, -1.50, 0);
+        this.rightLeg.material = createLowPolyMaterial('bossRightLegMat', PALETTE.ENEMY_BOSS_DARK);
 
         // Right foot
-        const rightFoot = MeshBuilder.CreateBox('bossRightFoot', {
+        const rightFoot = createBox('bossRightFoot', {
             width: 0.60,
             height: 0.15,
             depth: 0.65
         }, this.scene);
         makeFlatShaded(rightFoot);
-        rightFoot.parent = this.rightLeg;
-        rightFoot.position = new Vector3(0, -0.82, 0.10);
-        rightFoot.material = createLowPolyMaterial('bossRightFootMat', PALETTE.ENEMY_BOSS_DARK, this.scene);
+        this.rightLeg.add(rightFoot);
+        rightFoot.position.set(0, -0.82, 0.10);
+        rightFoot.material = createLowPolyMaterial('bossRightFootMat', PALETTE.ENEMY_BOSS_DARK);
 
         // --- Dark energy trailing wisps: small emissive shapes at the back ---
         for (let w = 0; w < 3; w++) {
-            const wisp = MeshBuilder.CreatePolyhedron(`bossWisp${w}`, {
+            const wisp = createPolyhedron(`bossWisp${w}`, {
                 type: 1, // Octahedron
                 size: 0.08 + w * 0.03
             }, this.scene);
             makeFlatShaded(wisp);
-            wisp.parent = this.mesh;
-            wisp.position = new Vector3(
+            this.mesh.add(wisp);
+            wisp.position.set(
                 (w - 1) * 0.25,
                 -0.30 - w * 0.25,
                 -0.60
             );
-            wisp.material = createEmissiveMaterial(`bossWispMat${w}`, PALETTE.ENEMY_BOSS_CRYSTAL, 0.5, this.scene);
+            wisp.material = createEmissiveMaterial(`bossWispMat${w}`, PALETTE.ENEMY_BOSS_CRYSTAL, 0.5);
         }
 
         // --- Ground glow: large red/purple disc at the boss's feet ──────────
-        const groundGlow = MeshBuilder.CreateDisc('bossGroundGlow', { radius: 2.0, tessellation: 20 }, this.scene);
-        groundGlow.parent = this.mesh;
-        groundGlow.rotation.x = Math.PI / 2;
-        groundGlow.position = new Vector3(0, -1.22, 0); // near feet
-        const groundGlowMat = new StandardMaterial('bossGroundGlowMat', this.scene);
-        groundGlowMat.emissiveColor = new Color3(0.55, 0.05, 0.40); // deep magenta
-        groundGlowMat.alpha = 0.45;
-        groundGlowMat.disableLighting = true;
+        const groundGlow = createDisc('bossGroundGlow', { radius: 2.0, tessellation: 20 }, this.scene);
+        this.mesh.add(groundGlow);
+        // Three discs face +Z, so -PI/2 (not Babylon's +PI/2) lays it flat facing up.
+        groundGlow.rotation.x = -Math.PI / 2;
+        groundGlow.position.set(0, -1.22, 0); // near feet
+        const groundGlowMat = new MeshPhongMaterial();
+        groundGlowMat.name = 'bossGroundGlowMat';
+        groundGlowMat.emissive = new Color(0.55, 0.05, 0.40); // deep magenta
+        groundGlowMat.color = new Color(0, 0, 0); // emissive-only look (was disableLighting)
+        groundGlowMat.specular = new Color(0, 0, 0);
+        groundGlowMat.opacity = 0.45;
+        groundGlowMat.transparent = true;
         groundGlow.material = groundGlowMat;
+        groundGlow.userData.ownedMaterial = true;
 
         // --- Orbiting wisps: 3 small spheres slowly circling the boss ────────
         this.orbitingWisps = [];
         const wispOrbitRadius = 1.1;
         for (let o = 0; o < 3; o++) {
-            const orb = MeshBuilder.CreateSphere(`bossOrbit${o}`, { diameter: 0.20, segments: 4 }, this.scene);
+            const orb = createSphere(`bossOrbit${o}`, { diameter: 0.20, segments: 4 }, this.scene);
             makeFlatShaded(orb);
             // Not parented to mesh — positioned in animateParts via world coords
-            const orbMat = new StandardMaterial(`bossOrbitMat${o}`, this.scene);
-            orbMat.emissiveColor = PALETTE.ENEMY_BOSS_CRYSTAL;
-            orbMat.diffuseColor = PALETTE.ENEMY_BOSS_CRYSTAL;
-            orbMat.specularColor = Color3.Black();
-            orbMat.alpha = 0.85;
+            const orbMat = new MeshPhongMaterial();
+            orbMat.name = `bossOrbitMat${o}`;
+            orbMat.emissive = PALETTE.ENEMY_BOSS_CRYSTAL.clone();
+            orbMat.color = PALETTE.ENEMY_BOSS_CRYSTAL.clone();
+            orbMat.specular = new Color(0, 0, 0);
+            orbMat.opacity = 0.85;
+            orbMat.transparent = true;
             orb.material = orbMat;
+            orb.userData.ownedMaterial = true;
             this.orbitingWisps.push(orb);
         }
 
@@ -461,7 +479,7 @@ export class BossEnemy extends Enemy {
         for (let i = 0; i < this.crystals.length; i++) {
             const crystal = this.crystals[i];
             const pulse = 1.0 + Math.sin(t * 2.0 + i * 1.2) * 0.08;
-            crystal.scaling.setAll(pulse); // mutate in place — no per-frame Vector3 alloc
+            crystal.scale.setScalar(pulse); // mutate in place — no per-frame Vector3 alloc
         }
 
         // --- Face direction of movement ---
@@ -471,8 +489,7 @@ export class BossEnemy extends Enemy {
             const dz = targetPoint.z - this.position.z;
 
             if (dx * dx + dz * dz > 0.0001) {
-                const angle = Math.atan2(dz, dx);
-                this.mesh.rotation.y = -angle + Math.PI / 2;
+                this.mesh.rotation.y = headingToYaw(dx, dz);
             }
         }
 
@@ -480,7 +497,7 @@ export class BossEnemy extends Enemy {
         const orbitR = 1.2;
         for (let o = 0; o < this.orbitingWisps.length; o++) {
             const orb = this.orbitingWisps[o];
-            if (orb.isDisposed()) continue;
+            if (isMeshDisposed(orb)) continue;
             const baseAngle = (o / this.orbitingWisps.length) * Math.PI * 2;
             const angle = baseAngle + t * 0.8; // slow orbit speed
             const heightOffset = 0.5 + Math.sin(t * 0.9 + baseAngle) * 0.8;
@@ -491,7 +508,7 @@ export class BossEnemy extends Enemy {
             );
             // Pulse scale
             const pulse = 0.9 + Math.sin(t * 2.5 + o * 2.1) * 0.25;
-            orb.scaling.setAll(pulse);
+            orb.scale.setScalar(pulse);
         }
     }
 
@@ -500,13 +517,14 @@ export class BossEnemy extends Enemy {
      * coords by animateParts), so the base mesh-tree release never reaches them.
      * Runs on every disposal path (die/disposeCorpse/dispose — the corpse path is
      * the ONLY one guest enemies take). Idempotent: the array is emptied.
-     * dispose(false, true) also frees each wisp's uniquely-owned 'bossOrbitMatN'
-     * StandardMaterial, which a default dispose() would strand in scene.materials.
+     * disposeMesh(orb, { materials: true }) also frees each wisp's uniquely-owned
+     * 'bossOrbitMatN' material, which a plain disposeMesh would strand otherwise
+     * (the ownedMaterial flag covers that too - belt and braces).
      */
     protected disposeAuxVisuals(): void {
         super.disposeAuxVisuals();
         for (const orb of this.orbitingWisps) {
-            if (!orb.isDisposed()) orb.dispose(false, true);
+            if (!isMeshDisposed(orb)) disposeMesh(orb, { materials: true });
         }
         this.orbitingWisps = [];
     }

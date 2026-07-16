@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, afterAll } from 'vitest';
-import { NullEngine, Scene, Vector3 } from '@babylonjs/core';
+import { describe, it, expect, vi } from 'vitest';
+import { Vector3 } from 'three';
+import { SceneHost } from '../src/engine/three/SceneHost';
 import { PowerSlotManager } from '../src/survivors/powers/PowerSlotManager';
 import type { PowerDefinition } from '../src/survivors/powers/PowerDefinitions';
 
@@ -14,13 +15,11 @@ import type { PowerDefinition } from '../src/survivors/powers/PowerDefinitions';
 // The fix: a per-frame `tick` hook that runs unconditionally, and gating the
 // onCast callback so only a real cast() drives the animation.
 
-const engine = new NullEngine();
-const scene = new Scene(engine);
-afterAll(() => { scene.dispose(); engine.dispose(); });
+const host = new SceneHost();
 
 function makeManager() {
     return new PowerSlotManager(
-        scene,
+        host,
         () => new Vector3(0, 0, 0),
         () => [], // no enemies in range
     );
@@ -67,7 +66,7 @@ describe('PowerSlotManager — tick powers', () => {
         const cast = vi.fn();
         const onCast = vi.fn();
         const mgr = new PowerSlotManager(
-            scene,
+            host,
             () => new Vector3(0, 0, 0),
             // one "enemy" within range
             () => [{ isAlive: () => true, getPosition: () => new Vector3(1, 0, 0) } as unknown as import('../src/survivors/enemies/Enemy').Enemy],
@@ -99,7 +98,7 @@ describe('PowerSlotManager — recastFree (Echo item effect)', () => {
             cooldownFor: () => 0.25, damageFor: () => 4, cast: castSpy,
         };
         const manager = new PowerSlotManager(
-            scene,
+            host,
             () => new Vector3(0, 0, 0),
             // one "enemy" within range so autocast actually fires
             () => [{ isAlive: () => true, getPosition: () => new Vector3(1, 0, 0) } as unknown as import('../src/survivors/enemies/Enemy').Enemy],
@@ -132,15 +131,12 @@ describe('PowerSlotManager — recastFree (Echo item effect)', () => {
     });
 });
 
-// TODO(three-migration Phase C): re-enable once PowerDefinitions is converted -
-// its blade meshes still call the Babylon-era getCachedMaterial(scene, ...)
-// signature against the converted MaterialCache.
-describe.skip('Whirling Blades — per-level blade count', () => {
+describe('Whirling Blades — per-level blade count', () => {
     const bladeCount = (mgr: PowerSlotManager) =>
         (mgr.getSlots()[0]!.state.data!['blades'] as unknown[]).length;
 
     it('starts with 2 blades and adds one per level (reactively, no re-init)', () => {
-        const mgr = new PowerSlotManager(scene, () => new Vector3(0, 0, 0), () => []);
+        const mgr = new PowerSlotManager(host, () => new Vector3(0, 0, 0), () => []);
         expect(mgr.addPower('mage_physical')).toBe(true);
 
         mgr.update(0.016);

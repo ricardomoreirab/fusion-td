@@ -1,9 +1,12 @@
 // Leak-safe, composable effect primitives + screen-FX for powers/fusions/ultimates.
 // THE single chokepoint enforcing CLAUDE.md leak rules: every material via
 // getCachedMaterial with a bounded (element) key; transient meshes fade via
-// mesh.visibility and are disposed with the observer removed; projectiles pool.
-import { Scene, Vector3, Color3, MeshBuilder } from '@babylonjs/core';
-import type { Observer } from '@babylonjs/core';
+// setMeshOpacity and are disposed with the update token removed; projectiles pool.
+import { LineBasicMaterial, Mesh, Vector3 } from 'three';
+import type { SceneHost, UpdateToken } from '../../engine/three/SceneHost';
+import { createDisc, createLines, createSphere, createTorus, disposeMesh } from '../../engine/three/primitives';
+import { setMeshOpacity } from '../../engine/rendering/LowPolyMaterial';
+import { headingToYaw } from '../../engine/three/math';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
 import { acquireProjectile, releaseProjectile } from '../../engine/rendering/ProjectilePool';
 import { ELEMENT_COLOR } from '../ElementColors';
@@ -35,41 +38,41 @@ const RICH_KINDS: RichStatusKind[] = ['burn', 'chill', 'curse', 'fragile'];
 function shouldEmitFx(): boolean { return isCoopFxActive() && !isReplayingFx(); }
 
 // ── active-effect registry ───────────────────────────────────────────────────
-// Lets resetPowerEffects() tear down any IN-FLIGHT effect (render observer + mesh)
+// Lets resetPowerEffects() tear down any IN-FLIGHT effect (update token + mesh)
 // at run exit, so a long-lived effect can't bleed damage or orphan a mesh/material
 // into the next run on the persistent scene (the project's historic freeze class).
-interface ActiveFx { scene: Scene; obs: Observer<Scene>; cleanup: () => void; }
+interface ActiveFx { scene: SceneHost; token: UpdateToken; cleanup: () => void; }
 const _activeEffects = new Set<ActiveFx>();
 
-/** End an effect: drop it from the registry, remove its observer, run cleanup. Idempotent. */
+/** End an effect: drop it from the registry, remove its update token, run cleanup. Idempotent. */
 function endFx(fx: ActiveFx): void {
     if (!_activeEffects.delete(fx)) return; // already ended
-    fx.scene.onBeforeRenderObservable.remove(fx.obs);
+    fx.scene.onBeforeRender.remove(fx.token);
     try { fx.cleanup(); } catch { /* mesh/material may already be disposed */ }
 }
 
 // ── leak-safe shared visual: expanding, fading ring ─────────────────────────
-/** Expanding ground ring that fades and self-disposes. Cached frozen material
- *  per element; faded via mesh.visibility (never the shared material's alpha). */
-function spawnExpandingRing(scene: Scene, x: number, z: number, maxRadius: number, element: PowerElement, lifeS: number): void {
-    const ring = MeshBuilder.CreateTorus('fx_ring', { diameter: 2, thickness: 0.28, tessellation: 28 }, scene);
+/** Expanding ground ring that fades and self-disposes. Cached shared material
+ *  per element; faded via setMeshOpacity (never the shared material's opacity). */
+function spawnExpandingRing(scene: SceneHost, x: number, z: number, maxRadius: number, element: PowerElement, lifeS: number): void {
+    const ring = createTorus('fx_ring', { diameter: 2, thickness: 0.28, tessellation: 28 }, scene);
     ring.position.set(x, 0.25, z);
-    ring.material = getCachedMaterial(scene, `fx_ring_${element}`, m => {
-        m.emissiveColor = ELEMENT_COLOR[element];
-        m.diffuseColor = Color3.Black();
-        m.disableLighting = true;
-        m.alpha = 0.8; // <1 so the frozen material renders in the transparent pass
+    ring.material = getCachedMaterial(`fx_ring_${element}`, m => {
+        m.emissive.copy(ELEMENT_COLOR[element]);
+        m.color.set(0, 0, 0);
+        m.opacity = 0.8;
+        m.transparent = true; // render in the transparent pass, like Babylon alpha<1
     });
     let elapsed = 0;
     let fx: ActiveFx;
-    const obs = scene.onBeforeRenderObservable.add(() => {
-        elapsed += scene.getEngine().getDeltaTime() / 1000;
+    const token = scene.onBeforeRender.add(() => {
+        elapsed += scene.deltaSeconds;
         const t = Math.min(elapsed / lifeS, 1);
-        ring.scaling.set(maxRadius * t, 1, maxRadius * t); // diameter 2 → grows to 2·maxRadius·t
-        ring.visibility = 1 - t;
+        ring.scale.set(maxRadius * t, 1, maxRadius * t); // diameter 2 → grows to 2·maxRadius·t
+        setMeshOpacity(ring, 0.8 * (1 - t)); // Babylon visibility × mat.alpha(0.8)
         if (t >= 1) endFx(fx);
     });
-    fx = { scene, obs: obs!, cleanup: () => ring.dispose() }; // dispose(false,false) keeps the cached material
+    fx = { scene, token, cleanup: () => disposeMesh(ring) }; // cached material survives; owned fade clone freed
     _activeEffects.add(fx);
 }
 
@@ -81,7 +84,7 @@ function applyStatus(e: Enemy, status: EffectStatus | undefined): void {
 /** Apply a direct elemental hit to one enemy, then fire any status cross-reaction
  *  (e.g. storm on a burning enemy → detonate burn as a fire AoE). Use this for the
  *  PRIMARY target of a power; AoE splash uses takeDamage directly (no nested reactions). */
-export function dealElementalHit(scene: Scene, enemies: Enemy[], target: Enemy, damage: number, element: PowerElement): void {
+export function dealElementalHit(scene: SceneHost, enemies: Enemy[], target: Enemy, damage: number, element: PowerElement): void {
     const died = target.takeDamage(damage, element);
     if (died) return;
     for (const kind of RICH_KINDS) {
@@ -109,7 +112,7 @@ export interface AoeOpts {
 }
 /** Radial damage to every live enemy within radius + an expanding ring. AoE splash
  *  uses takeDamage directly (reactions fire only on direct hits, not splash). */
-export function aoeBurst(scene: Scene, enemies: Enemy[], x: number, z: number, opts: AoeOpts): void {
+export function aoeBurst(scene: SceneHost, enemies: Enemy[], x: number, z: number, opts: AoeOpts): void {
     if (shouldEmitFx()) {
         emitCoopFx('pe', x, z, undefined, undefined,
             JSON.stringify({ p: 'aoeBurst', e: opts.element, r: opts.radius, l: opts.ringLifeS }));
@@ -174,28 +177,30 @@ export function resetPowerEffects(): void {
 }
 
 // ── chainHit — bouncing chain, optional split-on-hop ────────────────────────
-/** A fading line bolt between two points. LinesMesh owns its colour (no shared
- *  material to leak); disposed with the observer removed.
+/** A fading line bolt between two points. The Line owns its material (created
+ *  per bolt by createLines — no shared material to leak); disposed with the
+ *  update token removed.
  *  Co-op: chainHit's whole visual is composed of these bolts, and its hop targets
  *  are enemy-dependent (the teammate can't recompute them), so the 'pe' broadcast
  *  happens HERE per bolt — the receiver replays each segment verbatim, giving the
  *  exact chain shape. Bolt count is bounded by chainHit's hit-set de-dup.
  *  Exported for the co-op replay path only. */
-export function spawnBolt(scene: Scene, from: Vector3, to: Vector3, element: PowerElement, lifeS = 0.18): void {
+export function spawnBolt(scene: SceneHost, from: Vector3, to: Vector3, element: PowerElement, lifeS = 0.18): void {
     if (shouldEmitFx()) {
         emitCoopFx('pe', from.x, from.z, to.x, to.z, JSON.stringify({ p: 'bolt', e: element }));
     }
-    const lines = MeshBuilder.CreateLines('fx_bolt', { points: [from, to] }, scene);
-    lines.color = ELEMENT_COLOR[element];
-    lines.isPickable = false;
+    const lines = createLines('fx_bolt', { points: [from, to] }, scene);
+    const lineMat = lines.material as LineBasicMaterial; // owned by the Line (createLines flags ownedMaterial)
+    lineMat.color.copy(ELEMENT_COLOR[element]);
+    lineMat.transparent = true;
     let elapsed = 0;
     let fx: ActiveFx;
-    const obs = scene.onBeforeRenderObservable.add(() => {
-        elapsed += scene.getEngine().getDeltaTime() / 1000;
-        lines.alpha = Math.max(0, 1 - elapsed / lifeS);
+    const token = scene.onBeforeRender.add(() => {
+        elapsed += scene.deltaSeconds;
+        lineMat.opacity = Math.max(0, 1 - elapsed / lifeS);
         if (elapsed >= lifeS) endFx(fx);
     });
-    fx = { scene, obs: obs!, cleanup: () => lines.dispose() };
+    fx = { scene, token, cleanup: () => disposeMesh(lines) }; // owned material freed with the line
     _activeEffects.add(fx);
 }
 
@@ -213,7 +218,7 @@ export interface ChainOpts {
 /** Chain from `origin` to the nearest live, unhit enemy within `radius`, repeating
  *  `hops` times (falloff per hop). With `split`, each hop forks into 2 branches; the
  *  shared hit-set guarantees each enemy is hit at most once, bounding total work. */
-export function chainHit(scene: Scene, enemies: Enemy[], origin: Vector3, opts: ChainOpts): void {
+export function chainHit(scene: SceneHost, enemies: Enemy[], origin: Vector3, opts: ChainOpts): void {
     const falloff = opts.falloff ?? 0.75;
     const r2 = opts.radius * opts.radius;
     const hit = new Set<Enemy>();
@@ -259,13 +264,13 @@ export interface VortexOpts {
     finalBurst?: number;
 }
 /** A vortex orb at (x,z): pulls live enemies inward each frame, ticks damage, then
- *  emits a final burst. Self-disposing (orb mesh + observer). */
-export function gatherVortex(scene: Scene, enemies: Enemy[], x: number, z: number, opts: VortexOpts): void {
+ *  emits a final burst. Self-disposing (orb mesh + update token). */
+export function gatherVortex(scene: SceneHost, enemies: Enemy[], x: number, z: number, opts: VortexOpts): void {
     if (shouldEmitFx()) {
         emitCoopFx('pe', x, z, undefined, undefined,
             JSON.stringify({ p: 'vortex', e: opts.element, r: opts.radius, d: opts.durationS }));
     }
-    // Captured ONCE at creation: the per-frame observer below outlives the
+    // Captured ONCE at creation: the per-frame callback below outlives the
     // synchronous withFxReplay() window, so reading isReplayingFx() per frame
     // would wrongly report false. A replayed vortex must NEVER move enemies —
     // on the HOST the guest-redirect guard below is null, so without this a
@@ -273,19 +278,19 @@ export function gatherVortex(scene: Scene, enemies: Enemy[], x: number, z: numbe
     const isReplay = isReplayingFx();
     const tickInterval = opts.tickIntervalS ?? 0.2;
     const r2 = opts.radius * opts.radius;
-    const orb = MeshBuilder.CreateSphere('fx_vortex', { diameter: 1.0, segments: 8 }, scene);
+    const orb = createSphere('fx_vortex', { diameter: 1.0, segments: 8 }, scene);
     orb.position.set(x, 1, z);
-    orb.material = getCachedMaterial(scene, `fx_vortex_${opts.element}`, m => {
-        m.emissiveColor = ELEMENT_COLOR[opts.element];
-        m.diffuseColor = Color3.Black();
-        m.disableLighting = true;
-        m.alpha = 0.85;
+    orb.material = getCachedMaterial(`fx_vortex_${opts.element}`, m => {
+        m.emissive.copy(ELEMENT_COLOR[opts.element]);
+        m.color.set(0, 0, 0);
+        m.opacity = 0.85;
+        m.transparent = true;
     });
     let elapsed = 0;
     let tickAcc = 0;
     let fx: ActiveFx;
-    const obs = scene.onBeforeRenderObservable.add(() => {
-        const dt = scene.getEngine().getDeltaTime() / 1000;
+    const token = scene.onBeforeRender.add(() => {
+        const dt = scene.deltaSeconds;
         elapsed += dt;
         tickAcc += dt;
         orb.rotation.y += dt * 6;
@@ -318,7 +323,7 @@ export function gatherVortex(scene: Scene, enemies: Enemy[], x: number, z: numbe
             endFx(fx);
         }
     });
-    fx = { scene, obs: obs!, cleanup: () => orb.dispose() };
+    fx = { scene, token, cleanup: () => disposeMesh(orb) };
     _activeEffects.add(fx);
 }
 
@@ -337,8 +342,8 @@ export interface ZoneOpts {
     crawlSpeed?: number;
 }
 /** A flat ground disc that ticks damage to enemies inside it for `durationS`, and
- *  can creep toward a point. Cached frozen material; faded via visibility; self-disposing. */
-export function persistentZone(scene: Scene, enemies: Enemy[], x: number, z: number, opts: ZoneOpts): void {
+ *  can creep toward a point. Cached shared material; faded via setMeshOpacity; self-disposing. */
+export function persistentZone(scene: SceneHost, enemies: Enemy[], x: number, z: number, opts: ZoneOpts): void {
     if (shouldEmitFx()) {
         emitCoopFx('pe', x, z, undefined, undefined, JSON.stringify({
             p: 'zone', e: opts.element, r: opts.radius, d: opts.durationS,
@@ -348,23 +353,22 @@ export function persistentZone(scene: Scene, enemies: Enemy[], x: number, z: num
     const tickInterval = opts.tickIntervalS ?? 0.5;
     const crawlSpeed = opts.crawlSpeed ?? 1.5;
     let cx = x, cz = z;
-    const disc = MeshBuilder.CreateDisc('fx_zone', { radius: opts.radius, tessellation: 32 }, scene);
-    disc.rotation.x = Math.PI / 2; // lay flat on the ground
+    const disc = createDisc('fx_zone', { radius: opts.radius, tessellation: 32 }, scene);
+    disc.rotation.x = -Math.PI / 2; // lay flat facing up (+Y); sign flips with the RH handedness
     disc.position.set(cx, 0.06, cz);
-    disc.isPickable = false;
-    disc.material = getCachedMaterial(scene, `fx_zone_${opts.element}`, m => {
-        m.emissiveColor = ELEMENT_COLOR[opts.element];
-        m.diffuseColor = Color3.Black();
-        m.disableLighting = true;
-        m.alpha = 0.32;
+    disc.material = getCachedMaterial(`fx_zone_${opts.element}`, m => {
+        m.emissive.copy(ELEMENT_COLOR[opts.element]);
+        m.color.set(0, 0, 0);
+        m.opacity = 0.32;
+        m.transparent = true;
     });
-    disc.visibility = 0.7;
+    setMeshOpacity(disc, 0.32 * 0.7); // Babylon visibility(0.7) × mat.alpha(0.32)
     const r2 = opts.radius * opts.radius;
     let elapsed = 0;
     let tickAcc = 0;
     let fx: ActiveFx;
-    const obs = scene.onBeforeRenderObservable.add(() => {
-        const dt = scene.getEngine().getDeltaTime() / 1000;
+    const token = scene.onBeforeRender.add(() => {
+        const dt = scene.deltaSeconds;
         elapsed += dt;
         tickAcc += dt;
         if (opts.crawlToward) {
@@ -376,8 +380,8 @@ export function persistentZone(scene: Scene, enemies: Enemy[], x: number, z: num
                 disc.position.set(cx, 0.06, cz);
             }
         }
-        // gentle alpha pulse via visibility (never the shared material's alpha)
-        disc.visibility = 0.55 + 0.2 * Math.sin(elapsed * 6);
+        // gentle alpha pulse via the mesh-owned fade clone (never the shared material)
+        setMeshOpacity(disc, 0.32 * (0.55 + 0.2 * Math.sin(elapsed * 6)));
         if (tickAcc >= tickInterval) {
             tickAcc -= tickInterval;
             for (const e of enemies) {
@@ -392,7 +396,7 @@ export function persistentZone(scene: Scene, enemies: Enemy[], x: number, z: num
         }
         if (elapsed >= opts.durationS) endFx(fx);
     });
-    fx = { scene, obs: obs!, cleanup: () => disc.dispose() };
+    fx = { scene, token, cleanup: () => disposeMesh(disc) };
     _activeEffects.add(fx);
 }
 
@@ -410,30 +414,29 @@ export interface VolleyOpts {
 }
 /** Fire `count` projectiles outward in evenly-spaced directions from (x,z). Each
  *  damages the first live enemy it touches, then is recycled. Pooled via ProjectilePool. */
-export function omniVolley(scene: Scene, enemies: Enemy[], x: number, z: number, opts: VolleyOpts): void {
+export function omniVolley(scene: SceneHost, enemies: Enemy[], x: number, z: number, opts: VolleyOpts): void {
     if (shouldEmitFx()) {
         emitCoopFx('pe', x, z, undefined, undefined,
             JSON.stringify({ p: 'volley', e: opts.element, c: opts.count, s: opts.speed, l: opts.lifeS }));
     }
     const lifeS = opts.lifeS ?? 1.2;
     const hr2 = (opts.hitRadius ?? 0.6) ** 2;
-    interface Shot { mesh: import('@babylonjs/core').Mesh; vx: number; vz: number; t: number; done: boolean; }
+    interface Shot { mesh: Mesh; vx: number; vz: number; t: number; done: boolean; }
     const shots: Shot[] = [];
     for (let i = 0; i < opts.count; i++) {
         const ang = (i / opts.count) * Math.PI * 2;
-        const mesh = acquireProjectile(scene, 'fx_volley', () =>
-            MeshBuilder.CreateSphere('fx_volley', { diameter: 0.3, segments: 6 }, scene));
+        const mesh = acquireProjectile('fx_volley', () =>
+            createSphere('fx_volley', { diameter: 0.3, segments: 6 }, scene));
         mesh.position.set(x, 1, z);
-        mesh.material = getCachedMaterial(scene, `fx_volley_${opts.element}`, m => {
-            m.emissiveColor = ELEMENT_COLOR[opts.element];
-            m.diffuseColor = Color3.Black();
-            m.disableLighting = true;
+        mesh.material = getCachedMaterial(`fx_volley_${opts.element}`, m => {
+            m.emissive.copy(ELEMENT_COLOR[opts.element]);
+            m.color.set(0, 0, 0);
         });
         shots.push({ mesh, vx: Math.cos(ang) * opts.speed, vz: Math.sin(ang) * opts.speed, t: 0, done: false });
     }
     let fx: ActiveFx;
-    const obs = scene.onBeforeRenderObservable.add(() => {
-        const dt = scene.getEngine().getDeltaTime() / 1000;
+    const token = scene.onBeforeRender.add(() => {
+        const dt = scene.deltaSeconds;
         let liveCount = 0;
         for (const s of shots) {
             if (s.done) continue;
@@ -461,7 +464,7 @@ export function omniVolley(scene: Scene, enemies: Enemy[], x: number, z: number,
         }
         if (liveCount === 0) endFx(fx);
     });
-    fx = { scene, obs: obs!, cleanup: () => {
+    fx = { scene, token, cleanup: () => {
         for (const s of shots) { if (!s.done) { s.done = true; releaseProjectile('fx_volley', s.mesh); } }
     } };
     _activeEffects.add(fx);
@@ -469,7 +472,7 @@ export function omniVolley(scene: Scene, enemies: Enemy[], x: number, z: number,
 
 // ── deliverAutocast — class-aware effect delivery ────────────────────────────
 export function deliverAutocast(
-    ctx: { scene: Scene; heroPosition: { x: number; z: number } },
+    ctx: { scene: SceneHost; heroPosition: { x: number; z: number } },
     championType: ChampionType,
     target: Enemy,
     element: PowerElement,
@@ -497,12 +500,12 @@ export interface ArrowFlightTarget {
 
 /** Fire an arrow from (fromX,fromZ) toward `target`; on impact (or target death /
  *  timeout) call onImpact(x,z) exactly once. The arrow mesh (cached material by
- *  element) is disposed on impact, and the flight observer is torn down cross-run
+ *  element) is disposed on impact, and the flight callback is torn down cross-run
  *  via the active-effect registry. onImpact is NOT called on cross-run teardown.
  *  Co-op: the replayed arrow flies to the target's position AT EMIT TIME (a fixed
  *  point — close enough over a ~0.5s flight); its impact FX arrives as the
  *  impacted primitive's own 'pe' message, so the replay onImpact is a no-op. */
-export function arrowStrike(scene: Scene, fromX: number, fromZ: number, target: ArrowFlightTarget, element: PowerElement, onImpact: (x: number, z: number) => void): void {
+export function arrowStrike(scene: SceneHost, fromX: number, fromZ: number, target: ArrowFlightTarget, element: PowerElement, onImpact: (x: number, z: number) => void): void {
     if (shouldEmitFx()) {
         const tp0 = target.getPosition();
         emitCoopFx('pe', fromX, fromZ, tp0.x, tp0.z, JSON.stringify({ p: 'arrow', e: element }));
@@ -513,14 +516,14 @@ export function arrowStrike(scene: Scene, fromX: number, fromZ: number, target: 
     let fired = false;
     let fx: ActiveFx;
     const fire = (x: number, z: number) => { if (fired) return; fired = true; try { onImpact(x, z); } catch { /* ignore */ } };
-    const obs = scene.onBeforeRenderObservable.add(() => {
-        const dt = scene.getEngine().getDeltaTime() / 1000;
+    const token = scene.onBeforeRender.add(() => {
+        const dt = scene.deltaSeconds;
         elapsed += dt;
         const tp = target.isAlive() ? target.getPosition() : null;
         if (tp) {
             const dx = tp.x - proj.position.x, dz = tp.z - proj.position.z;
             const dist = Math.hypot(dx, dz);
-            if (dist > 0.001) proj.rotation.y = Math.atan2(dx, dz);
+            if (dist > 0.001) proj.rotation.y = headingToYaw(dx, dz);
             if (dist < 0.6 || elapsed >= ARROW_MAX_TRAVEL_S) { fire(proj.position.x, proj.position.z); endFx(fx); return; }
             const step = Math.min(dist, ARROW_SPEED * dt);
             proj.position.x += (dx / dist) * step;
@@ -529,20 +532,20 @@ export function arrowStrike(scene: Scene, fromX: number, fromZ: number, target: 
             fire(proj.position.x, proj.position.z); endFx(fx);
         }
     });
-    fx = { scene, obs: obs!, cleanup: () => { proj.getChildMeshes().forEach(c => c.dispose()); proj.dispose(); } };
+    fx = { scene, token, cleanup: () => disposeMesh(proj) }; // disposes the whole arrow subtree
     _activeEffects.add(fx);
 }
 
 // ── repeatStrikes — registry-tracked time-staggered repeat ──────────────────
 /** Fire `count` strikes spaced `intervalS` apart (registry-tracked, so it tears
  *  down cross-run). `onStrike(i)` runs each tick; the first fires immediately. */
-export function repeatStrikes(scene: Scene, count: number, intervalS: number, onStrike: (i: number) => void): void {
+export function repeatStrikes(scene: SceneHost, count: number, intervalS: number, onStrike: (i: number) => void): void {
     if (count <= 0) return;
     let fired = 0;
     let acc = intervalS; // fire #0 on the first frame
     let fx: ActiveFx;
-    const obs = scene.onBeforeRenderObservable.add(() => {
-        acc += scene.getEngine().getDeltaTime() / 1000;
+    const token = scene.onBeforeRender.add(() => {
+        acc += scene.deltaSeconds;
         while (acc >= intervalS && fired < count) {
             acc -= intervalS;
             try { onStrike(fired); } catch { /* ignore */ }
@@ -550,7 +553,7 @@ export function repeatStrikes(scene: Scene, count: number, intervalS: number, on
         }
         if (fired >= count) endFx(fx);
     });
-    fx = { scene, obs: obs!, cleanup: () => { /* no mesh; onStrike effects self-manage */ } };
+    fx = { scene, token, cleanup: () => { /* no mesh; onStrike effects self-manage */ } };
     _activeEffects.add(fx);
 }
 

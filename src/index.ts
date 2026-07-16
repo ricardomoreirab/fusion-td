@@ -9,6 +9,7 @@ window.addEventListener('DOMContentLoaded', () => {
     // assets finish, and resize handler is safe before engine init.
     const game = new Game('renderCanvas');
     game.start().catch(err => console.error('Game failed to start:', err));
+    (window as unknown as Record<string, unknown>).__ktgGame = game;
 
     if (new URLSearchParams(window.location.search).has('coopdebug')) {
         import('./net/coopDebug').then((m) => m.mountCoopDebug());

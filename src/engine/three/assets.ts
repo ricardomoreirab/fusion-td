@@ -36,11 +36,11 @@ export class GlbContainer {
 
     public instantiate(host: SceneHost, namePrefix = ''): ContainerInstance {
         const root = cloneSkinned(this.gltf.scene) as Group;
-        if (namePrefix) {
-            root.traverse(node => {
-                node.name = `${namePrefix}${node.name}`;
-            });
-        }
+        // Prefix ONLY the root. THREE resolves animation tracks by node NAME
+        // (PropertyBinding walks the mixer root's subtree with getObjectByName),
+        // so renaming descendants — the bones — silently unbinds every clip and
+        // the model T-poses. The root Group itself is never a track target.
+        if (namePrefix) root.name = `${namePrefix}${root.name}`;
 
         // Per-instance material clones so tint/flash effects never bleed
         // across instances (Babylon's cloneMaterials: true). Clones share

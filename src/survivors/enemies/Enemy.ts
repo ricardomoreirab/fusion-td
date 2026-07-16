@@ -1,11 +1,18 @@
-import { Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, Color4, Scene, ParticleSystem, Texture, DynamicTexture, Sound, Animation, AnimationGroup, Skeleton, ShadowGenerator, Observer } from '@babylonjs/core';
+import { Color, Mesh, MeshPhongMaterial, Object3D, Sprite, SpriteMaterial, Texture, TextureLoader, Vector3 } from 'three';
 import { Game } from '../../engine/Game';
 import { EnemyType, StatusEffect } from '../GameTypes';
 import { PowerElement } from '../powers/PowerDefinitions';
 import { StatusStacks, STATUS_TUNING, type RichStatusKind } from '../powers/StatusModel';
 import { type TargetProvider, pickNearestAlive } from './nearestTarget';
 import { rollCrit } from './critRoll';
-import { isCachedMaterial, getCachedMaterial } from '../../engine/rendering/MaterialCache';
+import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
+import { AnimGroup } from '../../engine/three/AnimGroup';
+import type { ContainerInstance } from '../../engine/three/assets';
+import { DynamicTexture } from '../../engine/three/DynamicTexture';
+import { headingToYaw, rgba } from '../../engine/three/math';
+import { ParticleSystem } from '../../engine/three/particles/ParticleSystem';
+import { createPlane, createSphere, disposeMesh, isMeshDisposed } from '../../engine/three/primitives';
+import type { SceneHost, UpdateToken } from '../../engine/three/SceneHost';
 import type { SnapshotEnemy } from '../../net/Protocol';
 
 // One-time per-enemy-class log when a GLB has no recognizable death clip, so the
@@ -14,53 +21,58 @@ const _deathClipWarned = new Set<string>();
 
 // Cached health-bar colors — shared across all enemy instances to avoid per-frame
 // allocations. Exported so enemy subclasses that override updateHealthBar() reuse
-// the same constants instead of allocating `new Color3(...)` every frame.
+// the same constants instead of allocating `new Color(...)` every frame.
 // These are assigned (never mutated in place) onto health-bar materials, so
 // sharing one instance across all enemies is safe.
-export const HEALTH_COLOR_GREEN  = new Color3(0.2, 0.8, 0.2);
-export const HEALTH_COLOR_YELLOW = new Color3(0.8, 0.8, 0.2);
-export const HEALTH_COLOR_RED    = new Color3(0.8, 0.2, 0.2);
+export const HEALTH_COLOR_GREEN  = new Color(0.2, 0.8, 0.2);
+export const HEALTH_COLOR_YELLOW = new Color(0.8, 0.8, 0.2);
+export const HEALTH_COLOR_RED    = new Color(0.8, 0.2, 0.2);
 
-/** Dedicated rendering group for enemy health bars. SurvivorsGameplayState.enter()
- *  configures this group to CLEAR the depth buffer before it renders, so health
- *  bars always draw ON TOP of the enemy mesh — they stay visible no matter how
- *  large the model is (big bosses used to occlude their own bar). */
-export const HEALTH_BAR_RENDER_GROUP = 1;
+/** Base renderOrder for enemy health bars. In the Babylon build this was a
+ *  rendering GROUP whose depth buffer was cleared before it rendered; in Three
+ *  the same "always on top" result comes from depthTest=false on every bar
+ *  material (set in their cached setups below) plus a high renderOrder so the
+ *  bars draw after the world. Outline/bg/fill/segments/label get +0..+4 so
+ *  they stack correctly without a depth buffer. */
+export const HEALTH_BAR_RENDER_GROUP = 1000;
 
 /** Health-fill color band. Bar color changes by SWAPPING between the three
  *  shared cached materials below — never by mutating a material's color, which
- *  would recolor every enemy at once (the materials are shared + frozen). */
+ *  would recolor every enemy at once (the materials are shared). */
 export type HealthBarBand = 'green' | 'yellow' | 'red';
 
-/** Shared cached fill material for a band. One frozen StandardMaterial per band
+/** Shared cached fill material for a band. One cached MeshPhongMaterial per band
  *  for ALL enemies (was: 1 fresh material per enemy per spawn). */
-export function healthBarFillMaterial(scene: Scene, band: HealthBarBand): StandardMaterial {
+export function healthBarFillMaterial(band: HealthBarBand): MeshPhongMaterial {
     const color = band === 'green' ? HEALTH_COLOR_GREEN
         : band === 'yellow' ? HEALTH_COLOR_YELLOW : HEALTH_COLOR_RED;
-    return getCachedMaterial(scene, `healthBarFillMat_${band}`, m => {
-        m.diffuseColor = color;
-        m.specularColor = Color3.Black();
+    return getCachedMaterial(`healthBarFillMat_${band}`, m => {
+        m.color = color.clone();
+        m.specular = new Color(0, 0, 0);
+        m.depthTest = false;
+        m.depthWrite = false;
     });
 }
 
 // Per-hit emissive tint — module-level constant so flashHit doesn't allocate
-// a fresh Color3 on every damage event (every chain-lightning sub-hit etc.).
-const HIT_TINT = new Color3(0.85, 0.10, 0.05);
+// a fresh Color on every damage event (every chain-lightning sub-hit etc.).
+const HIT_TINT = new Color(0.85, 0.10, 0.05);
 const HIT_FLASH_DURATION_S = 0.1;
 
-// Lazy-loaded shared texture for status-effect particle systems. Particle
-// systems that use it must dispose(false) so they don't take the shared texture
-// down with them; the `scene.textures` membership check below is a self-healing
-// backstop in case any caller forgets and disposes it anyway.
+// Lazy-loaded shared texture for status-effect particle systems. Flagged
+// userData.cached so no disposal path (disposeMesh / bulk material teardown)
+// ever frees the singleton out from under other live particle systems; the
+// engine ParticleSystem never disposes its texture (caller-owned by contract).
 let _statusEffectTexture: Texture | null = null;
-export function getStatusEffectTexture(scene: Scene): Texture {
-    if (!_statusEffectTexture || scene.textures.indexOf(_statusEffectTexture) === -1) {
-        _statusEffectTexture = new Texture('assets/textures/particle.png', scene);
+export function getStatusEffectTexture(_host?: SceneHost): Texture {
+    if (!_statusEffectTexture) {
+        _statusEffectTexture = new TextureLoader().load('assets/textures/particle.png');
+        _statusEffectTexture.userData.cached = true;
     }
     return _statusEffectTexture;
 }
 
-// Hard cap on simultaneously-alive death-burst ParticleSystems. scene.particleSystems
+// Hard cap on simultaneously-alive death-burst ParticleSystems. host.particleSystems
 // is walked + updated every frame, so a mass AoE wipe (Frost Nova / Meteor / Whirlwind)
 // killing dozens of enemies in a single frame would otherwise spawn dozens of concurrent
 // systems and spike the per-frame particle walk for ~1-2s. Past the cap, extra deaths
@@ -92,44 +104,44 @@ interface BurstTeardown {
     ps: ParticleSystem;
     /** Seconds of emission left before stop() is called. */
     emitRemainingS: number;
-    /** Forwarded to ps.dispose(disposeTexture) — false preserves the SHARED
-     *  status-effect texture (getStatusEffectTexture singleton). */
-    disposeTexture: boolean;
     stopped: boolean;
     /** Set when the system was disposed externally (run teardown). */
     dead: boolean;
 }
 const _liveBursts: BurstTeardown[] = [];
-let _burstReaper: Observer<Scene> | null = null;
+let _burstReaper: UpdateToken | null = null;
+let _burstReaperHost: SceneHost | null = null;
 
 /** Emit for `emitS` seconds, then dispose once the last particle expires.
  *  Releases the death-burst budget slot exactly once, even if the run tears
- *  the system down first. Caller must have acquired the slot and started ps. */
+ *  the system down first. Caller must have acquired the slot and started ps.
+ *  (The old disposeTexture flag is gone: the engine ParticleSystem never
+ *  disposes its texture — the shared status-effect singleton is always safe.) */
 export function scheduleDeathBurstTeardown(
-    scene: Scene,
+    host: SceneHost,
     ps: ParticleSystem,
     emitS: number,
-    disposeTexture: boolean = true,
 ): void {
-    const entry: BurstTeardown = { ps, emitRemainingS: emitS, disposeTexture, stopped: false, dead: false };
+    const entry: BurstTeardown = { ps, emitRemainingS: emitS, stopped: false, dead: false };
     // Fires on BOTH reaper disposal and external (teardown) disposal.
-    ps.onDisposeObservable.addOnce(() => {
+    ps.onDispose = () => {
         entry.dead = true;
         releaseDeathBurst();
-    });
+    };
     _liveBursts.push(entry);
     if (_burstReaper) return;
-    _burstReaper = scene.onBeforeRenderObservable.add(() => {
-        const dt = scene.getEngine().getDeltaTime() / 1000;
+    _burstReaperHost = host;
+    _burstReaper = host.onBeforeRender.add(h => {
+        const dt = h.deltaSeconds;
         for (let i = _liveBursts.length - 1; i >= 0; i--) {
             const b = _liveBursts[i];
             if (!b.dead) {
                 if (!b.stopped) {
                     b.emitRemainingS -= dt;
                     if (b.emitRemainingS <= 0) { b.ps.stop(); b.stopped = true; }
-                } else if (!b.ps.isAlive()) {
+                } else if (b.ps.getLiveCount() === 0) {
                     // Emission stopped and the last particle expired.
-                    b.ps.dispose(b.disposeTexture); // → onDispose sets dead + releases budget
+                    b.ps.dispose(); // → onDispose sets dead + releases budget
                 }
             }
             if (b.dead) {
@@ -137,9 +149,10 @@ export function scheduleDeathBurstTeardown(
                 _liveBursts.pop();
             }
         }
-        if (_liveBursts.length === 0 && _burstReaper) {
-            scene.onBeforeRenderObservable.remove(_burstReaper);
+        if (_liveBursts.length === 0 && _burstReaper && _burstReaperHost) {
+            _burstReaperHost.onBeforeRender.remove(_burstReaper);
             _burstReaper = null;
+            _burstReaperHost = null;
         }
     });
 }
@@ -193,7 +206,7 @@ export class Enemy {
         | null = null;
 
     protected game: Game;
-    protected scene: Scene;
+    protected scene: SceneHost;
     protected mesh: Mesh | null = null;
     protected healthBarMesh: Mesh | null = null;
     protected healthBarBackgroundMesh: Mesh | null = null;
@@ -209,7 +222,7 @@ export class Enemy {
     protected barHeightOffset: number = 1.0;
     protected bossLabel: string | null = null;
     protected barSegmentMeshes: Mesh[] = [];
-    protected barLabelMesh: Mesh | null = null;
+    protected barLabelMesh: Sprite | null = null;
     protected barLabelTexture: DynamicTexture | null = null;
     protected position: Vector3;
     protected speed: number;
@@ -282,59 +295,51 @@ export class Enemy {
     private meleeTimer: number = 0;
     private meleeStrikeHasHit: boolean = false;
 
-    /** AnimationGroups cloned by GLB instantiation. Subclasses register them
+    /** AnimGroups cloned by GLB instantiation. Subclasses register them
      *  here (typically `this.glbAnimationGroups = inst.animationGroups`) so
-     *  dispose() can stop+release them. Without this every dead enemy left
-     *  ~hundreds of animatables ticking in the scene every frame — the leak
-     *  that made each subsequent wave's freeze longer than the last. */
-    protected glbAnimationGroups: AnimationGroup[] = [];
+     *  the release path can stop them and every clip lookup (death/net anims)
+     *  has one source of truth. The groups themselves are owned + disposed by
+     *  `glbInstance.dispose()`. */
+    protected glbAnimationGroups: AnimGroup[] = [];
+
+    /** The whole GLB clone (root + mixer + anim groups + cloned materials +
+     *  skeletons). Subclasses assign it in createMeshFromGLB
+     *  (`this.glbInstance = inst`); _releaseMeshAndAnimations disposes it —
+     *  which frees the cloned materials, every per-clone skeleton (and its
+     *  bone-matrix texture), stops the mixer, and removes its update hook from
+     *  the SceneHost animation bus. Without this every dead enemy leaked its
+     *  clone-owned GPU resources — the leak that made each subsequent wave's
+     *  freeze longer than the last. */
+    protected glbInstance: ContainerInstance | null = null;
 
     // ── Guest-side network visuals (co-op) ──────────────────────────────────
     // These drive a render-only enemy from host snapshots. They are SEPARATE from
     // each subclass's host-side anim fields (glbWalkAnim/glbCurrentAnim/…) because
     // the subclass update() — which owns those — is NEVER ticked on the guest.
     // Categorised lazily from glbAnimationGroups (which the base already holds).
-    private _netWalkAnim: AnimationGroup | null = null;
-    private _netAttackAnim: AnimationGroup | null = null;
-    private _netCurrentAnim: AnimationGroup | null = null;
+    private _netWalkAnim: AnimGroup | null = null;
+    private _netAttackAnim: AnimGroup | null = null;
+    private _netCurrentAnim: AnimGroup | null = null;
     private _netAnimCategorized = false;
     /** Lazy lookup of named GLB skill clips (`<prefix>_skillN`) ↔ snapshot anim
      *  codes 10+N (see SnapshotEnemy.anim). Used by BOTH sides: the host maps
      *  the currently playing clip → code (getNetAnimCode), the guest maps a
      *  received code → clip (_applyNetworkAnim). Cleared with the groups in
      *  _releaseMeshAndAnimations. */
-    private _netSkillClips: { ag: AnimationGroup; code: number }[] | null = null;
+    private _netSkillClips: { ag: AnimGroup; code: number }[] | null = null;
     /** Guest-only corpse tick (playDeathAnimThenDispose). There is no EnemyManager
      *  corpse list on the guest, so the lingering corpse self-ticks via this
-     *  observer; disposeCorpse() removes it so an early teardown can't leave a
+     *  update token; disposeCorpse() removes it so an early teardown can't leave a
      *  per-frame callback firing against a released mesh. */
-    private _netCorpseObserver: Observer<Scene> | null = null;
+    private _netCorpseObserver: UpdateToken | null = null;
     private _netCorpseOnDisposed: (() => void) | null = null;
     /** Host-authoritative HP the displayed bar eases toward (-1 = uninitialised). */
     private _netHpTarget = -1;
 
-    /** Skeletons cloned by GLB instantiation (`instantiateModelsToScene` with
-     *  doNotInstantiate:true does a full Skeleton.clone() per instance). Each
-     *  cloned skeleton allocates its OWN bone-matrix RawTexture on first render
-     *  (Skeleton.useTextureToStoreBoneMatrices defaults true), freed only by
-     *  Skeleton.dispose(). mesh.dispose() does NOT cascade to the skeleton, so
-     *  without this every spawn leaked one texture (the steady scene.textures
-     *  climb across waves). Subclasses register them via
-     *  `this.glbSkeletons = inst.skeletons`. */
-    protected glbSkeletons: Skeleton[] = [];
-
-    /** ShadowGenerators this enemy's mesh was registered into (set by EnemyManager
-     *  at spawn via setShadowGenerators). _releaseMeshAndAnimations removes the mesh
-     *  from each renderList right before disposing it — Babylon never prunes a
-     *  disposed mesh from a ShadowGenerator renderList, so without this every
-     *  spawned enemy permanently bloats both per-frame shadow passes (the primary
-     *  in-run freeze). */
-    private _shadowGenerators: ShadowGenerator[] = [];
-
     /** Death-sequence ("corpse") state. On death the enemy plays its GLB death clip
      *  (or shrinks away if the asset has none), lingers `corpseLingerS`, then frees
      *  its mesh. EnemyManager owns the corpse list + per-frame tick + final release. */
-    protected glbDeathAnim: AnimationGroup | null = null;
+    protected glbDeathAnim: AnimGroup | null = null;
     /** Seconds a corpse lingers AFTER its death clip finishes before being cleared. */
     protected corpseLingerS: number = 1.0;
     private corpseTimeRemaining: number = 0;
@@ -345,7 +350,7 @@ export class Enemy {
     protected enemyType: EnemyType = EnemyType.NORMAL;
     protected isFlying: boolean = false;
     protected isHeavy: boolean = false;
-    
+
     // Status effect properties
     protected activeStatusEffects: Map<StatusEffect, { endTime: number, strength: number }> = new Map();
     protected statusEffectParticles: Map<StatusEffect, ParticleSystem> = new Map();
@@ -375,12 +380,12 @@ export class Enemy {
     private _scratchMovement: Vector3 = new Vector3();
 
     // Hit-flash state: per-instance restore cache + countdown timer. We store the
-    // material's ORIGINAL emissiveColor object by reference (not r/g/b numbers and
+    // material's ORIGINAL emissive Color object by reference (not r/g/b numbers and
     // not a clone) — restore reassigns it, so there's zero per-hit allocation AND
     // we never mutate the shared HIT_TINT constant (the old `.set()` path mutated
     // it in place, which corrupted the tint for the whole run). Driven by
     // Enemy.update() — no setTimeout pile-up.
-    private _flashRestore: { mat: StandardMaterial; original: Color3 }[] = [];
+    private _flashRestore: { mat: MeshPhongMaterial; original: Color }[] = [];
     private _flashTimeRemaining: number = 0;
 
     constructor(game: Game, position: Vector3, path: Vector3[], speed: number, health: number, damage: number, reward: number) {
@@ -431,17 +436,18 @@ export class Enemy {
      */
     protected createMesh(): void {
         // Create a simple sphere for the enemy
-        this.mesh = MeshBuilder.CreateSphere('enemy', {
+        this.mesh = createSphere('enemy', {
             diameter: 0.8
         }, this.scene);
-        
+
         // Position at starting position
-        this.mesh.position = this.position.clone();
-        
-        // Create material
-        const material = new StandardMaterial('enemyMaterial', this.scene);
-        material.diffuseColor = new Color3(0.8, 0.2, 0.2);
+        this.mesh.position.copy(this.position);
+
+        // Create material (per-enemy owned — freed by disposeMesh in release)
+        const material = new MeshPhongMaterial({ color: new Color(0.8, 0.2, 0.2) });
+        material.name = 'enemyMaterial';
         this.mesh.material = material;
+        this.mesh.userData.ownedMaterial = true;
     }
 
     /**
@@ -509,82 +515,84 @@ export class Enemy {
         this._barBand = null; // force the fill-material assignment in updateHealthBar
 
         // All bar materials are shared cached instances (healthBarFillMaterial +
-        // the frame/bg variants below) — was 3 fresh StandardMaterials per spawn.
+        // the frame/bg variants below) — was 3 fresh materials per spawn. Every
+        // bar material sets depthTest=false so bars always draw on top (the
+        // Babylon depth-clear render group equivalent).
 
         // Frame: elite/boss get a dedicated glowing outline mesh behind the bar.
         // The basic tier (the bulk of the horde) skips it — its background IS the
         // frame-sized near-black slab, same framed look with one less mesh each.
         if (this.barTier === 'boss' || this.barTier === 'elite') {
-            this.healthBarOutlineMesh = MeshBuilder.CreateBox('healthBarOutline', {
+            this.healthBarOutlineMesh = createPlane('healthBarOutline', {
                 width:  width  + 0.08,
                 height: height + 0.06,
-                depth:  0.04,
             }, this.scene);
-            this.healthBarOutlineMesh.position = new Vector3(this.position.x, y, this.position.z);
+            this.healthBarOutlineMesh.position.set(this.position.x, y, this.position.z);
             this.healthBarOutlineMesh.material = getCachedMaterial(
-                this.scene, `healthBarFrameMat_${this.barTier}`, m => {
+                `healthBarFrameMat_${this.barTier}`, m => {
                     if (this.barTier === 'boss') {
-                        m.diffuseColor  = new Color3(1.0, 0.20, 0.15);
-                        m.emissiveColor = new Color3(0.55, 0.10, 0.05);
+                        m.color    = new Color(1.0, 0.20, 0.15);
+                        m.emissive = new Color(0.55, 0.10, 0.05);
                     } else {
-                        m.diffuseColor  = new Color3(1.0, 0.55, 0.15);
-                        m.emissiveColor = new Color3(0.35, 0.18, 0.04);
+                        m.color    = new Color(1.0, 0.55, 0.15);
+                        m.emissive = new Color(0.35, 0.18, 0.04);
                     }
-                    m.specularColor = Color3.Black();
+                    m.specular = new Color(0, 0, 0);
+                    m.depthTest = false;
+                    m.depthWrite = false;
                 });
-            this.healthBarOutlineMesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
         }
 
         // Background. Basic tier: frame-sized near-black slab (doubles as the
         // frame). Elite/boss: classic gray inset behind the fill.
         const basicTier = this.barTier !== 'boss' && this.barTier !== 'elite';
-        this.healthBarBackgroundMesh = MeshBuilder.CreateBox('healthBarBg', {
+        this.healthBarBackgroundMesh = createPlane('healthBarBg', {
             width:  basicTier ? width  + 0.08 : width,
             height: basicTier ? height + 0.06 : height,
-            depth: 0.05,
         }, this.scene);
-        this.healthBarBackgroundMesh.position = new Vector3(this.position.x, y, this.position.z);
+        this.healthBarBackgroundMesh.position.set(this.position.x, y, this.position.z);
         this.healthBarBackgroundMesh.material = basicTier
-            ? getCachedMaterial(this.scene, 'healthBarBgFrameMat', m => {
-                m.diffuseColor  = new Color3(0.05, 0.05, 0.05);
-                m.specularColor = Color3.Black();
+            ? getCachedMaterial('healthBarBgFrameMat', m => {
+                m.color    = new Color(0.05, 0.05, 0.05);
+                m.specular = new Color(0, 0, 0);
+                m.depthTest = false;
+                m.depthWrite = false;
             })
-            : getCachedMaterial(this.scene, 'healthBarBgMat', m => {
-                m.diffuseColor  = new Color3(0.3, 0.3, 0.3);
-                m.specularColor = Color3.Black();
+            : getCachedMaterial('healthBarBgMat', m => {
+                m.color    = new Color(0.3, 0.3, 0.3);
+                m.specular = new Color(0, 0, 0);
+                m.depthTest = false;
+                m.depthWrite = false;
             });
 
         // Foreground (health fill) — material assigned by updateHealthBar's band swap.
-        this.healthBarMesh = MeshBuilder.CreateBox('healthBar', { width, height, depth: 0.06 }, this.scene);
-        this.healthBarMesh.position = new Vector3(this.position.x, y, this.position.z);
-
-        this.healthBarBackgroundMesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
-        this.healthBarMesh.billboardMode           = Mesh.BILLBOARDMODE_ALL;
+        this.healthBarMesh = createPlane('healthBar', { width, height }, this.scene);
+        this.healthBarMesh.position.set(this.position.x, y, this.position.z);
 
         // Boss-only: 3 thin black dividers carving the bar into 4 chunks
         this.barSegmentMeshes = [];
         if (this.barTier === 'boss') {
             for (let i = 1; i <= 3; i++) {
-                const seg = MeshBuilder.CreateBox(`healthBarSeg_${i}`, {
+                const seg = createPlane(`healthBarSeg_${i}`, {
                     width:  0.04,
                     height: height + 0.02,
-                    depth:  0.07,
                 }, this.scene);
-                seg.material = getCachedMaterial(this.scene, 'healthBarSegMat', m => {
-                    m.diffuseColor  = Color3.Black();
-                    m.specularColor = Color3.Black();
+                seg.material = getCachedMaterial('healthBarSegMat', m => {
+                    m.color    = new Color(0, 0, 0);
+                    m.specular = new Color(0, 0, 0);
+                    m.depthTest = false;
+                    m.depthWrite = false;
                 });
-                seg.billboardMode   = Mesh.BILLBOARDMODE_ALL;
-                seg.position        = new Vector3(this.position.x, y, this.position.z);
+                seg.position.set(this.position.x, y, this.position.z);
                 this.barSegmentMeshes.push(seg);
             }
         }
 
-        // Boss-only: name label above the bar
+        // Boss-only: name label above the bar (canvas-drawn texture on a Sprite —
+        // sprites self-billboard, like the Babylon BILLBOARDMODE_ALL plane did).
         if (this.barTier === 'boss' && this.bossLabel) {
-            const tex = new DynamicTexture('bossLabelTex', { width: 256, height: 64 }, this.scene, false);
-            tex.hasAlpha = true;
-            const ctx = tex.getContext() as CanvasRenderingContext2D;
+            const tex = new DynamicTexture('bossLabelTex', { width: 256, height: 64 });
+            const ctx = tex.getContext();
             ctx.clearRect(0, 0, 256, 64);
             ctx.font = 'bold 36px Arial';
             ctx.textAlign = 'center';
@@ -596,19 +604,20 @@ export class Enemy {
             ctx.fillText(this.bossLabel, 128, 32);
             tex.update();
 
-            const labelMat = new StandardMaterial('bossLabelMat', this.scene);
-            labelMat.diffuseTexture            = tex;
-            labelMat.useAlphaFromDiffuseTexture = true;
-            labelMat.disableLighting           = true;
-            labelMat.emissiveColor             = new Color3(1, 1, 1);
-            labelMat.backFaceCulling           = false;
-            labelMat.specularColor             = Color3.Black();
+            const labelMat = new SpriteMaterial({
+                map: tex.texture,
+                transparent: true,
+                depthTest: false,
+                depthWrite: false,
+            });
+            labelMat.name = 'bossLabelMat';
 
-            this.barLabelMesh = MeshBuilder.CreatePlane('bossLabel', { width: 2.6, height: 0.65 }, this.scene);
-            this.barLabelMesh.material      = labelMat;
-            this.barLabelMesh.position      = new Vector3(this.position.x, y + 0.45, this.position.z);
-            this.barLabelMesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
-            this.barLabelTexture            = tex;
+            this.barLabelMesh = new Sprite(labelMat);
+            this.barLabelMesh.name = 'bossLabel';
+            this.barLabelMesh.scale.set(2.6, 0.65, 1);
+            this.barLabelMesh.position.set(this.position.x, y + 0.45, this.position.z);
+            this.scene.scene.add(this.barLabelMesh);
+            this.barLabelTexture = tex;
         }
 
         this.updateHealthBar();
@@ -627,7 +636,7 @@ export class Enemy {
         const healthPercent = Math.max(0, this.health / this.maxHealth);
 
         // Update health bar width based on health percentage
-        this.healthBarMesh.scaling.x = healthPercent;
+        this.healthBarMesh.scale.x = healthPercent;
 
         // Adjust position to align left side (offset scales with bar width)
         const offset = (1 - healthPercent) * (width * 0.5);
@@ -638,7 +647,7 @@ export class Enemy {
         this.applyHealthBarBand(healthPercent);
 
         // Position outline behind everything
-        if (this.healthBarOutlineMesh && !this.healthBarOutlineMesh.isDisposed()) {
+        if (this.healthBarOutlineMesh && !isMeshDisposed(this.healthBarOutlineMesh)) {
             this.healthBarOutlineMesh.position.x = this.position.x;
             this.healthBarOutlineMesh.position.y = y;
             this.healthBarOutlineMesh.position.z = this.position.z;
@@ -656,7 +665,7 @@ export class Enemy {
         if (this.barSegmentMeshes.length > 0) {
             for (let i = 0; i < this.barSegmentMeshes.length; i++) {
                 const seg = this.barSegmentMeshes[i];
-                if (!seg || seg.isDisposed()) continue;
+                if (!seg || isMeshDisposed(seg)) continue;
                 const segOffset = ((i + 1) * 0.25 - 0.5) * width; // -0.25w, 0, +0.25w
                 seg.position.x = this.position.x + segOffset;
                 seg.position.y = y;
@@ -664,11 +673,24 @@ export class Enemy {
             }
         }
 
-        if (this.barLabelMesh && !this.barLabelMesh.isDisposed()) {
+        if (this.barLabelMesh && !isMeshDisposed(this.barLabelMesh)) {
             this.barLabelMesh.position.x = this.position.x;
             this.barLabelMesh.position.y = y + 0.45;
             this.barLabelMesh.position.z = this.position.z;
         }
+
+        this._billboardHealthBar();
+    }
+
+    /** Face every bar plane at the active camera (Babylon BILLBOARDMODE_ALL).
+     *  The boss label is a THREE.Sprite and billboards itself. Shared by the
+     *  base and subclass updateHealthBar overrides. */
+    protected _billboardHealthBar(): void {
+        const q = this.game.getActiveCamera().quaternion;
+        if (this.healthBarOutlineMesh) this.healthBarOutlineMesh.quaternion.copy(q);
+        if (this.healthBarBackgroundMesh) this.healthBarBackgroundMesh.quaternion.copy(q);
+        if (this.healthBarMesh) this.healthBarMesh.quaternion.copy(q);
+        for (const seg of this.barSegmentMeshes) seg.quaternion.copy(q);
     }
 
     /** Swap the fill mesh's shared cached material when the health band changes.
@@ -678,35 +700,39 @@ export class Enemy {
             : healthPercent > 0.3 ? 'yellow' : 'red';
         if (band !== this._barBand && this.healthBarMesh) {
             this._barBand = band;
-            this.healthBarMesh.material = healthBarFillMaterial(this.scene, band);
+            this.healthBarMesh.material = healthBarFillMaterial(band);
         }
     }
 
     /** Dispose only the health-bar meshes (keeps the enemy alive). Bar materials
      *  are SHARED cached instances — never dispose them here (that would break
      *  every other live bar referencing them; clearMaterialCache() frees them on
-     *  run teardown). Only the per-instance boss label material/texture is freed. */
+     *  run teardown; disposeMesh skips userData.cached materials automatically).
+     *  Only the per-instance boss label material/texture is freed. */
     private _disposeHealthBarMeshes(): void {
         if (this.healthBarMesh) {
-            this.healthBarMesh.dispose();
+            disposeMesh(this.healthBarMesh);
             this.healthBarMesh = null;
         }
         if (this.healthBarBackgroundMesh) {
-            this.healthBarBackgroundMesh.dispose();
+            disposeMesh(this.healthBarBackgroundMesh);
             this.healthBarBackgroundMesh = null;
         }
         if (this.healthBarOutlineMesh) {
-            this.healthBarOutlineMesh.dispose();
+            disposeMesh(this.healthBarOutlineMesh);
             this.healthBarOutlineMesh = null;
         }
         for (const seg of this.barSegmentMeshes) {
-            if (seg && !seg.isDisposed()) seg.dispose();
+            if (seg && !isMeshDisposed(seg)) disposeMesh(seg);
         }
         this.barSegmentMeshes = [];
         if (this.barLabelMesh) {
-            const m = this.barLabelMesh.material;
-            this.barLabelMesh.dispose();
-            if (m) m.dispose();
+            // Sprites share one static geometry across ALL sprites — never run
+            // them through disposeMesh (it would free the shared geometry).
+            // Free only what this label owns: its material and canvas texture.
+            this.barLabelMesh.removeFromParent();
+            this.barLabelMesh.userData.disposed = true;
+            (this.barLabelMesh.material as SpriteMaterial).dispose();
             this.barLabelMesh = null;
         }
         if (this.barLabelTexture) {
@@ -716,22 +742,24 @@ export class Enemy {
     }
 
     /**
-     * Put every health-bar mesh into HEALTH_BAR_RENDER_GROUP. That group's depth
-     * buffer is cleared before it renders (configured once in
-     * SurvivorsGameplayState.enter), so the bar always draws on top of the enemy
-     * mesh and stays visible regardless of the model's size — large bosses used to
-     * occlude their own bar. Called after every createHealthBar() (init + re-tier),
-     * and safe to call when some bar meshes are absent (null-guarded).
+     * Put every health-bar mesh on the HEALTH_BAR_RENDER_GROUP renderOrder band.
+     * Their materials all disable depthTest (set once in the cached setups), so
+     * a high renderOrder makes the bar always draw on top of the enemy mesh and
+     * stay visible regardless of the model's size — large bosses used to occlude
+     * their own bar. The +0..+4 offsets replace the depth buffer for stacking
+     * outline < background < fill < segments < label. Called after every
+     * createHealthBar() (init + re-tier), and safe to call when some bar meshes
+     * are absent (null-guarded).
      */
     private _makeHealthBarAlwaysVisible(): void {
-        const set = (m: Mesh | null): void => {
-            if (m && !m.isDisposed()) m.renderingGroupId = HEALTH_BAR_RENDER_GROUP;
+        const set = (m: Object3D | null, offset: number): void => {
+            if (m && !isMeshDisposed(m)) m.renderOrder = HEALTH_BAR_RENDER_GROUP + offset;
         };
-        set(this.healthBarOutlineMesh);
-        set(this.healthBarBackgroundMesh);
-        set(this.healthBarMesh);
-        for (const seg of this.barSegmentMeshes) set(seg);
-        set(this.barLabelMesh);
+        set(this.healthBarOutlineMesh, 0);
+        set(this.healthBarBackgroundMesh, 1);
+        set(this.healthBarMesh, 2);
+        for (const seg of this.barSegmentMeshes) set(seg, 3);
+        set(this.barLabelMesh, 4);
     }
 
     /**
@@ -791,15 +819,15 @@ export class Enemy {
             const rooted = this.meleeRootDuringSwing &&
                 (this.meleeState === 'windup' || this.meleeState === 'strike');
 
-            targetPos.subtractToRef(this.position, this._scratchDir);
+            this._scratchDir.subVectors(targetPos, this.position);
             this._scratchDir.y = 0;
             const dist = this._scratchDir.length();
 
             if (dist > 0.001 && !rooted) {
                 this._scratchDir.normalize();
                 // Respect slow/freeze speed modifications already applied to this.speed
-                this._scratchDir.scaleToRef(this.speed * deltaTime, this._scratchMovement);
-                this.position.addInPlace(this._scratchMovement);
+                this._scratchMovement.copy(this._scratchDir).multiplyScalar(this.speed * deltaTime);
+                this.position.add(this._scratchMovement);
             } else if (dist > 0.001) {
                 // Rooted: still normalize the direction so the mesh faces the hero
                 this._scratchDir.normalize();
@@ -807,17 +835,17 @@ export class Enemy {
 
             this._curveDropY = Enemy.curveDropFn
                 ? Enemy.curveDropFn(this.position.x, this.position.z) : 0;
-            if (this.mesh && !this.mesh.isDisposed()) {
-                this.mesh.position.copyFrom(this.position);
+            if (this.mesh && !isMeshDisposed(this.mesh)) {
+                this.mesh.position.copy(this.position);
                 this.mesh.position.y -= this._curveDropY; // render-only globe drop
                 if (dist > 0.01) {
-                    this.mesh.rotation.y = Math.atan2(-this._scratchDir.x, -this._scratchDir.z);
+                    this.mesh.rotation.y = headingToYaw(-this._scratchDir.x, -this._scratchDir.z);
                 }
             }
 
             // Update health bar
-            if (this.healthBarMesh && !this.healthBarMesh.isDisposed() &&
-                this.healthBarBackgroundMesh && !this.healthBarBackgroundMesh.isDisposed()) {
+            if (this.healthBarMesh && !isMeshDisposed(this.healthBarMesh) &&
+                this.healthBarBackgroundMesh && !isMeshDisposed(this.healthBarBackgroundMesh)) {
                 this.updateHealthBar();
             }
 
@@ -837,27 +865,27 @@ export class Enemy {
         if (this.currentPathIndex >= this.path.length) {
             return true;
         }
-        
+
         // Get the next point in the path
         const targetPoint = this.path[this.currentPathIndex];
-        
+
         // Calculate direction to the target
-        targetPoint.subtractToRef(this.position, this._scratchDir);
+        this._scratchDir.subVectors(targetPoint, this.position);
 
         // Find the closest point on the path if we're too far from our target
         const distanceToPath = this._scratchDir.length();
         if (distanceToPath > 2) { // If we're more than 2 units away from our target
             // Reset to the last known good position
             this.position = this.path[Math.max(0, this.currentPathIndex - 1)].clone();
-            targetPoint.subtractToRef(this.position, this._scratchDir);
+            this._scratchDir.subVectors(targetPoint, this.position);
         }
-        
+
         // If confused, modify the direction but maintain general path following
         if (this.isConfused) {
             // Update confused direction more frequently for more erratic movement
             if (!this.confusedDirection || Math.random() < 0.1) {
                 // Create a random offset perpendicular to the path direction
-                const pathDirection = this._scratchDir.normalizeToNew();
+                const pathDirection = this._scratchDir.clone().normalize();
                 const perpX = pathDirection.z;
                 const perpZ = -pathDirection.x;
                 const perpLength = Math.sqrt(perpX * perpX + perpZ * perpZ);
@@ -879,9 +907,9 @@ export class Enemy {
 
             // Use a stronger mix of confused direction to make movement more erratic
             if (this.confusedDirection) {
-                this._scratchDir.scaleInPlace(0.5);
-                this.confusedDirection.scaleToRef(0.5, this._scratchMovement);
-                this._scratchDir.addInPlace(this._scratchMovement);
+                this._scratchDir.multiplyScalar(0.5);
+                this._scratchMovement.copy(this.confusedDirection).multiplyScalar(0.5);
+                this._scratchDir.add(this._scratchMovement);
             }
         } else {
             // Reset confused direction when not confused
@@ -901,7 +929,7 @@ export class Enemy {
             }
 
             // Ensure we're exactly on the path point when reaching it
-            this.position.copyFrom(targetPoint);
+            this.position.copy(targetPoint);
             return false;
         }
 
@@ -909,31 +937,31 @@ export class Enemy {
 
         // Move towards the target with reduced speed when confused
         const currentSpeed = this.isConfused ? this.speed * 0.7 : this.speed;
-        this._scratchDir.scaleToRef(currentSpeed * deltaTime, this._scratchMovement);
-        this.position.addInPlace(this._scratchMovement);
+        this._scratchMovement.copy(this._scratchDir).multiplyScalar(currentSpeed * deltaTime);
+        this.position.add(this._scratchMovement);
 
         // Ensure we don't overshoot the target
-        this.position.subtractToRef(targetPoint, this._scratchMovement);
+        this._scratchMovement.subVectors(this.position, targetPoint);
         const newDistanceToTarget = this._scratchMovement.length();
         if (newDistanceToTarget > distance) {
-            this.position.copyFrom(targetPoint);
+            this.position.copy(targetPoint);
         }
 
         // Update mesh position if it still exists
-        if (this.mesh && !this.mesh.isDisposed()) {
-            this.mesh.position.copyFrom(this.position);
+        if (this.mesh && !isMeshDisposed(this.mesh)) {
+            this.mesh.position.copy(this.position);
             this.mesh.position.y -= this._curveDropY; // render-only globe drop
         }
-        
+
         // Update health bar position if it still exists
-        if (this.healthBarMesh && !this.healthBarMesh.isDisposed() && 
-            this.healthBarBackgroundMesh && !this.healthBarBackgroundMesh.isDisposed()) {
+        if (this.healthBarMesh && !isMeshDisposed(this.healthBarMesh) &&
+            this.healthBarBackgroundMesh && !isMeshDisposed(this.healthBarBackgroundMesh)) {
             this.updateHealthBar();
         }
-        
+
         return false;
     }
-    
+
     /**
      * Update active status effects.
      *
@@ -1212,20 +1240,20 @@ export class Enemy {
      */
     protected removeStatusEffect(effect: StatusEffect): void {
         this.activeStatusEffects.delete(effect);
-        
+
         // Remove effect-specific changes
         switch (effect) {
             case StatusEffect.BURNING:
                 // Stop burning particles
                 this.stopStatusEffectParticles(effect);
                 break;
-                
+
             case StatusEffect.SLOWED:
                 // Restore original speed
                 this.speed = this.originalSpeed;
                 this.stopStatusEffectParticles(effect);
                 break;
-                
+
             case StatusEffect.FROZEN:
                 this.isFrozen = false;
                 this.speed = this.originalSpeed;
@@ -1240,7 +1268,7 @@ export class Enemy {
                 this.stunImmunityUntil = performance.now() + 5000;
                 this.stopStatusEffectParticles(effect);
                 break;
-                
+
             case StatusEffect.CONFUSED:
                 this.isConfused = false;
                 this.confusedDirection = null;
@@ -1248,116 +1276,116 @@ export class Enemy {
                 break;
         }
     }
-    
+
     /**
      * Create particles for a status effect
      * @param effect The status effect to create particles for
      */
     protected createStatusEffectParticles(effect: StatusEffect): void {
         if (!this.mesh) return;
-        
+
         // Idempotent: keep a running ParticleSystem instead of dispose+recreate on every
         // status re-apply (Frostfire etc. refresh BURNING/CHILL each cast). Recreating the
         // system per apply churns GPU buffers across many enemies = a per-frame hitch. It
         // persists until the status expires (stopStatusEffectParticles is called on expiry).
         if (this.statusEffectParticles.has(effect)) return;
-        
+
         // Create a new particle system
         const particleSystem = new ParticleSystem(`${effect}Particles`, 20, this.scene);
-        
+
         // Set particle texture (shared singleton — avoids N parallel texture loads on AoE bursts)
-        particleSystem.particleTexture = getStatusEffectTexture(this.scene);
-        
+        particleSystem.particleTexture = getStatusEffectTexture();
+
         // Set emission properties
         particleSystem.emitter = this.mesh;
-        particleSystem.minEmitBox = new Vector3(-0.4, 0, -0.4);
-        particleSystem.maxEmitBox = new Vector3(0.4, 0.8, 0.4);
-        
+        particleSystem.minEmitBox.set(-0.4, 0, -0.4);
+        particleSystem.maxEmitBox.set(0.4, 0.8, 0.4);
+
         // Set particle properties based on effect
         switch (effect) {
             case StatusEffect.BURNING:
-                particleSystem.color1 = new Color4(1, 0.5, 0, 1.0);
-                particleSystem.color2 = new Color4(1, 0, 0, 1.0);
-                particleSystem.colorDead = new Color4(0.3, 0, 0, 0.0);
+                particleSystem.color1 = rgba(1, 0.5, 0, 1.0);
+                particleSystem.color2 = rgba(1, 0, 0, 1.0);
+                particleSystem.colorDead = rgba(0.3, 0, 0, 0.0);
                 particleSystem.minSize = 0.1;
                 particleSystem.maxSize = 0.3;
                 particleSystem.minLifeTime = 0.2;
                 particleSystem.maxLifeTime = 0.4;
                 particleSystem.emitRate = 30;
-                particleSystem.direction1 = new Vector3(0, 1, 0);
-                particleSystem.direction2 = new Vector3(0, 1, 0);
+                particleSystem.direction1.set(0, 1, 0);
+                particleSystem.direction2.set(0, 1, 0);
                 particleSystem.minEmitPower = 1;
                 particleSystem.maxEmitPower = 2;
                 break;
-                
+
             case StatusEffect.SLOWED:
-                particleSystem.color1 = new Color4(0, 0.5, 1, 1.0);
-                particleSystem.color2 = new Color4(0, 0, 1, 1.0);
-                particleSystem.colorDead = new Color4(0, 0, 0.3, 0.0);
+                particleSystem.color1 = rgba(0, 0.5, 1, 1.0);
+                particleSystem.color2 = rgba(0, 0, 1, 1.0);
+                particleSystem.colorDead = rgba(0, 0, 0.3, 0.0);
                 particleSystem.minSize = 0.1;
                 particleSystem.maxSize = 0.2;
                 particleSystem.minLifeTime = 0.5;
                 particleSystem.maxLifeTime = 1.0;
                 particleSystem.emitRate = 10;
-                particleSystem.direction1 = new Vector3(-0.5, -1, -0.5);
-                particleSystem.direction2 = new Vector3(0.5, -1, 0.5);
+                particleSystem.direction1.set(-0.5, -1, -0.5);
+                particleSystem.direction2.set(0.5, -1, 0.5);
                 particleSystem.minEmitPower = 0.5;
                 particleSystem.maxEmitPower = 1;
                 break;
-                
+
             case StatusEffect.FROZEN:
-                particleSystem.color1 = new Color4(0.8, 0.8, 1, 1.0);
-                particleSystem.color2 = new Color4(0.5, 0.5, 1, 1.0);
-                particleSystem.colorDead = new Color4(0, 0, 0.5, 0.0);
+                particleSystem.color1 = rgba(0.8, 0.8, 1, 1.0);
+                particleSystem.color2 = rgba(0.5, 0.5, 1, 1.0);
+                particleSystem.colorDead = rgba(0, 0, 0.5, 0.0);
                 particleSystem.minSize = 0.05;
                 particleSystem.maxSize = 0.15;
                 particleSystem.minLifeTime = 1.0;
                 particleSystem.maxLifeTime = 2.0;
                 particleSystem.emitRate = 20;
-                particleSystem.direction1 = new Vector3(-0.1, 0.1, -0.1);
-                particleSystem.direction2 = new Vector3(0.1, 0.1, 0.1);
+                particleSystem.direction1.set(-0.1, 0.1, -0.1);
+                particleSystem.direction2.set(0.1, 0.1, 0.1);
                 particleSystem.minEmitPower = 0.1;
                 particleSystem.maxEmitPower = 0.3;
                 break;
-                
+
             case StatusEffect.STUNNED:
-                particleSystem.color1 = new Color4(1, 1, 0, 1.0);
-                particleSystem.color2 = new Color4(1, 0.5, 0, 1.0);
-                particleSystem.colorDead = new Color4(0.5, 0.5, 0, 0.0);
+                particleSystem.color1 = rgba(1, 1, 0, 1.0);
+                particleSystem.color2 = rgba(1, 0.5, 0, 1.0);
+                particleSystem.colorDead = rgba(0.5, 0.5, 0, 0.0);
                 particleSystem.minSize = 0.1;
                 particleSystem.maxSize = 0.2;
                 particleSystem.minLifeTime = 0.3;
                 particleSystem.maxLifeTime = 0.6;
                 particleSystem.emitRate = 15;
-                particleSystem.direction1 = new Vector3(-0.5, 1, -0.5);
-                particleSystem.direction2 = new Vector3(0.5, 1, 0.5);
+                particleSystem.direction1.set(-0.5, 1, -0.5);
+                particleSystem.direction2.set(0.5, 1, 0.5);
                 particleSystem.minEmitPower = 1;
                 particleSystem.maxEmitPower = 2;
                 break;
-                
+
             case StatusEffect.CONFUSED:
-                particleSystem.color1 = new Color4(1, 0, 1, 1.0);
-                particleSystem.color2 = new Color4(0.5, 0, 0.5, 1.0);
-                particleSystem.colorDead = new Color4(0.3, 0, 0.3, 0.0);
+                particleSystem.color1 = rgba(1, 0, 1, 1.0);
+                particleSystem.color2 = rgba(0.5, 0, 0.5, 1.0);
+                particleSystem.colorDead = rgba(0.3, 0, 0.3, 0.0);
                 particleSystem.minSize = 0.1;
                 particleSystem.maxSize = 0.3;
                 particleSystem.minLifeTime = 0.5;
                 particleSystem.maxLifeTime = 1.0;
                 particleSystem.emitRate = 10;
-                particleSystem.direction1 = new Vector3(-1, 1, -1);
-                particleSystem.direction2 = new Vector3(1, 1, 1);
+                particleSystem.direction1.set(-1, 1, -1);
+                particleSystem.direction2.set(1, 1, 1);
                 particleSystem.minEmitPower = 0.5;
                 particleSystem.maxEmitPower = 1;
                 break;
         }
-        
+
         // Start the particle system
         particleSystem.start();
-        
+
         // Store the particle system
         this.statusEffectParticles.set(effect, particleSystem);
     }
-    
+
     /**
      * Stop particles for a status effect
      * @param effect The status effect to stop particles for
@@ -1366,11 +1394,9 @@ export class Enemy {
         const particleSystem = this.statusEffectParticles.get(effect);
         if (particleSystem) {
             particleSystem.stop();
-            // dispose(false): the particleTexture is the shared status-effect
-            // singleton (getStatusEffectTexture). dispose() defaults to
-            // disposeTexture=true, which would destroy the shared texture for
-            // every other enemy. Keep the texture; only free this system.
-            particleSystem.dispose(false);
+            // The engine ParticleSystem never disposes its texture, so the shared
+            // status-effect singleton (getStatusEffectTexture) is safe here.
+            particleSystem.dispose();
             this.statusEffectParticles.delete(effect);
         }
     }
@@ -1400,7 +1426,7 @@ export class Enemy {
 
         console.log(`Enemy stats multiplied by ${multiplier.toFixed(2)}, health: ${this.maxHealth} (×${healthMultiplier.toFixed(2)}), resistance: ${(this.damageResistance * 100).toFixed(0)}%`);
     }
-    
+
     /**
      * Apply damage to the enemy with damage resistance
      * @param amount The amount of damage to apply
@@ -1467,13 +1493,13 @@ export class Enemy {
      * underlying texture visible — a full-white emissive blew out detail.
      *
      * Avoids per-hit allocations: HIT_TINT is module-level, the restore cache
-     * is a per-instance field, original colors are stored as r/g/b numbers (no
-     * Color3.clone), and the timeout is driven by the update() loop (no
+     * is a per-instance field, original colors are stored by reference (no
+     * Color.clone), and the timeout is driven by the update() loop (no
      * setTimeout pile-up). Re-flashes on an already-flashing enemy just refresh
      * the countdown — the cache stays valid.
      */
     protected flashHit(): void {
-        if (!this.mesh || this.mesh.isDisposed()) return;
+        if (!this.mesh || isMeshDisposed(this.mesh)) return;
 
         // Already flashing — just refresh the timer; emissive is already HIT_TINT.
         if (this._flashTimeRemaining > 0) {
@@ -1481,26 +1507,26 @@ export class Enemy {
             return;
         }
 
-        // Snapshot emissive colors for restore, then overwrite. Walk children once.
+        // Snapshot emissive colors for restore, then overwrite. Walk the tree once.
         this._flashRestore.length = 0;
-        this._collectFlashEmissive(this.mesh);
-        for (const child of this.mesh.getChildMeshes(false)) {
-            this._collectFlashEmissive(child);
-        }
+        this.mesh.traverse(node => this._collectFlashEmissive(node as Mesh));
         this._flashTimeRemaining = HIT_FLASH_DURATION_S;
     }
 
     /** Push one mesh's emissive into the flash restore cache and tint it. */
-    private _collectFlashEmissive(mesh: { material: unknown }): void {
-        const mat = mesh.material as StandardMaterial | null;
-        if (!mat || mat.emissiveColor === undefined) return;
-        // Material already shows the shared HIT_TINT (another enemy sharing a
-        // cached material is mid-flash) — don't capture/re-tint it. Capturing
-        // HIT_TINT as the "original" would leave it stuck red once we restore,
-        // and the other enemy already owns the restore.
-        if (mat.emissiveColor === HIT_TINT) return;
-        this._flashRestore.push({ mat, original: mat.emissiveColor });
-        mat.emissiveColor = HIT_TINT;
+    private _collectFlashEmissive(mesh: { material?: unknown }): void {
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        for (const raw of mats) {
+            const mat = raw as MeshPhongMaterial | null | undefined;
+            if (!mat || mat.emissive === undefined) continue;
+            // Material already shows the shared HIT_TINT (another enemy sharing a
+            // cached material is mid-flash) — don't capture/re-tint it. Capturing
+            // HIT_TINT as the "original" would leave it stuck red once we restore,
+            // and the other enemy already owns the restore.
+            if (mat.emissive === HIT_TINT) continue;
+            this._flashRestore.push({ mat, original: mat.emissive });
+            mat.emissive = HIT_TINT;
+        }
     }
 
     /** Tick the hit-flash timer. Called from update() — restores original
@@ -1513,30 +1539,18 @@ export class Enemy {
     }
 
     /** Restore every flashed material to its original emissive and clear the
-     *  cache. Reassigns the original Color3 reference (never mutates HIT_TINT).
+     *  cache. Reassigns the original Color reference (never mutates HIT_TINT).
      *  Called when the flash window expires, and on death/dispose so a flash
      *  that's interrupted by death doesn't leave a shared material stuck red. */
     private _restoreFlash(): void {
         for (let i = 0; i < this._flashRestore.length; i++) {
             const e = this._flashRestore[i];
-            try { e.mat.emissiveColor = e.original; } catch (_) { /* mat disposed */ }
+            try { e.mat.emissive = e.original; } catch (_) { /* mat disposed */ }
         }
         this._flashRestore.length = 0;
         this._flashTimeRemaining = 0;
     }
 
-    /**
-     * Release this enemy's GPU/scene resources: stop + dispose the GLB-cloned
-     * AnimationGroups, dispose the per-instance (cloned) materials, then dispose
-     * the mesh. Shared by die() (normal in-wave death) and dispose() (teardown)
-     * so a death frees exactly what a teardown does.
-     *
-     * mesh.dispose() alone does NOT stop the cloned AnimationGroups and does NOT
-     * dispose cloned materials. Disposing only the mesh on death therefore leaked
-     * tens of bone animatables (ticked forever) plus materials per kill —
-     * scene._activeAnimatables climbed into the thousands with only a few enemies
-     * alive, producing multi-second stop-the-world freezes by wave 4+.
-     */
     /**
      * Free subclass-owned aux visuals that are NOT parented to this.mesh (boss
      * orbiting wisps, fast-enemy ghost trails, milestone-boss telegraphs, …), so
@@ -1547,17 +1561,28 @@ export class Enemy {
      */
     protected disposeAuxVisuals(): void { /* subclass hook */ }
 
+    /**
+     * Release this enemy's GPU/scene resources: stop the GLB-cloned AnimGroups,
+     * dispose the ContainerInstance (frees cloned materials + per-clone
+     * skeletons/bone textures + mixer hook), then dispose the remaining mesh
+     * tree with its per-instance materials. Shared by die() (normal in-wave
+     * death, via disposeCorpse) and dispose() (teardown) so a death frees
+     * exactly what a teardown does.
+     *
+     * Removing the mesh from the scene alone would NOT stop the clone's mixer
+     * hook and would NOT free cloned materials/skeleton textures. That leak
+     * made each subsequent wave's freeze longer than the last in the Babylon
+     * build — the same invariant holds here.
+     */
     protected _releaseMeshAndAnimations(): void {
-        // Stop + dispose every AnimationGroup that GLB instantiation cloned for
-        // this enemy, or the animatables keep running every frame after the mesh
-        // is gone.
+        // Stop every AnimGroup the GLB instantiation cloned for this enemy;
+        // glbInstance.dispose() below fully disposes them (and the mixer).
         for (const ag of this.glbAnimationGroups) {
             try { ag.stop(); } catch (_) { /* already stopped */ }
-            try { ag.dispose(); } catch (_) { /* already disposed */ }
         }
         this.glbAnimationGroups.length = 0;
         this.glbDeathAnim = null;
-        // Net-anim caches all point into the groups disposed above — null the lot
+        // Net-anim caches all point into the groups released above — null the lot
         // so the teardown contract is self-evident (and lazy re-categorization
         // would start clean if a mesh were ever rebuilt).
         this._netSkillClips = null;
@@ -1566,56 +1591,30 @@ export class Enemy {
         this._netAttackAnim = null;
         this._netCurrentAnim = null;
 
-        if (this.mesh) {
-            // Remove the mesh (+ descendants) from every shadow renderList it was
-            // registered into BEFORE disposing it. Babylon's ObjectRenderer only
-            // SKIPS disposed meshes in a renderList — it never splices them out — so
-            // without this each spawned enemy permanently grows both per-frame shadow
-            // passes (refreshRate=1) for the whole run: the steady, worsens-over-time
-            // freeze. Bounds each renderList to live enemies + lingering corpses.
-            for (const g of this._shadowGenerators) {
-                try { g.removeShadowCaster(this.mesh, true); } catch (_) { /* not registered */ }
-            }
+        // Dispose the GLB clone FIRST: this frees the per-instance cloned
+        // materials (clones share the container's source textures — those are
+        // container-owned and stay alive for the next instantiate), disposes
+        // every per-clone skeleton (freeing its bone-matrix texture), stops the
+        // mixer, removes its SceneHost animation hook, and detaches the GLB
+        // root from this.mesh — so the disposeMesh below can't double-free the
+        // clone's resources or touch the shared source textures.
+        if (this.glbInstance) {
+            this.glbInstance.dispose();
+            this.glbInstance = null;
+        }
 
-            // Dispose the per-instance materials AND their textures. These materials
-            // are cloned per-instance by instantiateModelsToScene(cloneMaterials=true),
-            // and Babylon's Material.clone() also clones the material's TEXTURES — so
-            // every GLB spawn adds a fresh '<asset> (Base Color)' texture to
-            // scene.textures. forceDisposeTextures=true frees that per-instance clone;
-            // it does NOT touch the source AssetContainer's textures (different objects,
-            // so a later re-instantiate still renders). The cloned skeleton's
-            // bone-matrix RawTexture is freed separately below (glbSkeletons.dispose).
-            // Procedural enemy materials are colour-only (no textures), so the `true`
-            // is a no-op for them. Leaving this `false` leaked ~one texture per spawn
-            // (the steady cross-run scene.textures climb).
-            //
-            // SHARED cached materials (isCachedMaterial) must be skipped: elite
-            // aura/glow/spike meshes parented under this.mesh use getCachedMaterial
-            // — disposing one on the first elite death would blank every other live
-            // elite of that element AND leave the cache handing out a dead material.
-            // Only clearMaterialCache() (run teardown) may dispose those.
-            const allMeshes = [this.mesh, ...this.mesh.getChildMeshes(false)];
-            for (const m of allMeshes) {
-                const mat = m.material;
-                if (mat) {
-                    m.material = null;
-                    if (!isCachedMaterial(mat)) {
-                        try { mat.dispose(false, true); } catch (_) { /* already disposed */ }
-                    }
-                }
-            }
-            this.mesh.dispose();
+        if (this.mesh) {
+            // Dispose the remaining tree (procedural parts, elite decorations)
+            // WITH its materials. SHARED cached materials (userData.cached —
+            // elite aura/glow/spike, healthbar mats) are skipped automatically
+            // by disposeMesh: disposing one on the first elite death would blank
+            // every other live elite of that element AND leave the cache handing
+            // out a dead material. Only clearMaterialCache() (run teardown) may
+            // dispose those. Shadow casting needs no unregistration in Three —
+            // removing the mesh from the scene removes it from the shadow pass.
+            disposeMesh(this.mesh, { materials: true });
             this.mesh = null;
         }
-
-        // Dispose the per-instance cloned skeleton AFTER the mesh — frees its
-        // bone-matrix RawTexture (mesh.dispose() does not cascade to skeletons).
-        // These are the CLONED skeletons (inst.skeletons), never the source
-        // skeleton owned by the cached AssetContainer, so this is safe.
-        for (const sk of this.glbSkeletons) {
-            try { sk.dispose(); } catch (_) { /* already disposed */ }
-        }
-        this.glbSkeletons.length = 0;
     }
 
     /**
@@ -1624,9 +1623,9 @@ export class Enemy {
      * The mesh is NOT freed here. Instead the enemy enters a short "corpse" phase:
      * its GLB death clip plays (or it shrinks away if the asset has no death clip),
      * it lingers `corpseLingerS`, then EnemyManager calls disposeCorpse() to release
-     * the mesh/skeleton/animation-groups/shadow-casters. EnemyManager owns the corpse
-     * list (so wave-clear, which keys off live enemy count, is not stalled) and caps
-     * the number of simultaneous corpses so a mass kill can't pile up skinned meshes.
+     * the mesh/skeleton/animation-groups. EnemyManager owns the corpse list (so
+     * wave-clear, which keys off live enemy count, is not stalled) and caps the
+     * number of simultaneous corpses so a mass kill can't pile up skinned meshes.
      */
     protected die(): void {
         if (!this.alive) return;
@@ -1664,7 +1663,7 @@ export class Enemy {
         this._disposeHealthBarMeshes();
         this.statusEffectParticles.forEach(particleSystem => {
             particleSystem.stop();
-            particleSystem.dispose(false);
+            particleSystem.dispose();
         });
         this.statusEffectParticles.clear();
 
@@ -1682,7 +1681,7 @@ export class Enemy {
      * Sets the total corpse time = death-clip duration + corpseLingerS.
      */
     protected _beginDeathSequence(): void {
-        this.corpseBaseScale = this.mesh ? this.mesh.scaling.x : 1;
+        this.corpseBaseScale = this.mesh ? this.mesh.scale.x : 1;
 
         if (this.glbAnimationGroups.length > 0) {
             for (const ag of this.glbAnimationGroups) {
@@ -1693,11 +1692,7 @@ export class Enemy {
                 this.glbDeathAnim = death;
                 let dur = 1.0;
                 try {
-                    const ta = death.targetedAnimations[0];
-                    const fps = ta?.animation?.framePerSecond || 60;
-                    const frames = Math.abs(death.to - death.from);
-                    const sr = Math.abs(death.speedRatio || 1);
-                    const est = frames / fps / sr;
+                    const est = death.duration / Math.abs(death.speedRatio || 1);
                     if (est > 0.1 && est < 6) dur = est;
                 } catch (_) { /* keep the 1.0s fallback */ }
                 try { death.start(false); } catch (_) { /* ignore */ }
@@ -1718,7 +1713,7 @@ export class Enemy {
      *  weaker fallbacks, so a clip like "fall"/"knock" can't steal the match from a
      *  real death clip that sorts later. Returns null (with a one-time per-class log
      *  of the available names) if none match. */
-    private _findDeathClip(): AnimationGroup | null {
+    private _findDeathClip(): AnimGroup | null {
         const strong = (n: string): boolean =>
             n.includes('dead') || n.includes('death') || n.includes('die') || n.includes('defeat');
         const weak = (n: string): boolean =>
@@ -1752,22 +1747,22 @@ export class Enemy {
      */
     public tickCorpse(deltaTime: number): boolean {
         this.corpseTimeRemaining -= deltaTime;
-        if (!this.corpseHasDeathClip && this.mesh && !this.mesh.isDisposed()) {
+        if (!this.corpseHasDeathClip && this.mesh && !isMeshDisposed(this.mesh)) {
             const SHRINK = 0.4;
             if (this.corpseTimeRemaining < SHRINK) {
                 const k = Math.max(0, this.corpseTimeRemaining / SHRINK);
-                this.mesh.scaling.setAll(this.corpseBaseScale * k);
+                this.mesh.scale.setScalar(this.corpseBaseScale * k);
             }
         }
         return this.corpseTimeRemaining <= 0;
     }
 
-    /** Release a finished corpse's mesh/skeleton/animation-groups/shadow-casters.
-     *  Idempotent. Also the early-out for a guest corpse mid-linger: cancels the
-     *  self-tick observer so teardown can't leave it firing on a released mesh. */
+    /** Release a finished corpse's mesh/skeleton/animation-groups. Idempotent.
+     *  Also the early-out for a guest corpse mid-linger: cancels the self-tick
+     *  callback so teardown can't leave it firing on a released mesh. */
     public disposeCorpse(): void {
         if (this._netCorpseObserver) {
-            this.scene.onBeforeRenderObservable.remove(this._netCorpseObserver);
+            this.scene.onBeforeRender.remove(this._netCorpseObserver);
             this._netCorpseObserver = null;
         }
         this.corpseTimeRemaining = 0;
@@ -1781,13 +1776,6 @@ export class Enemy {
         if (done) done();
     }
 
-    /** Record the shadow generators this enemy's mesh was registered into, so the
-     *  mesh can be removed from their renderLists when it is disposed. Called by
-     *  EnemyManager when it registers the enemy as a shadow caster. */
-    public setShadowGenerators(generators: ShadowGenerator[]): void {
-        this._shadowGenerators = generators;
-    }
-
     /**
      * Create a death effect — particle burst + gold reward float text
      */
@@ -1799,22 +1787,22 @@ export class Enemy {
         if (tryAcquireDeathBurst()) {
             const ps = new ParticleSystem('deathBurst', 30, this.scene);
             ps.emitter = deathPos;
-            ps.minEmitBox = new Vector3(-0.2, 0, -0.2);
-            ps.maxEmitBox = new Vector3(0.2, 0, 0.2);
-            ps.color1 = new Color4(1, 0.8, 0.3, 1);
-            ps.color2 = new Color4(0.8, 0.3, 0.1, 1);
-            ps.colorDead = new Color4(0.3, 0.1, 0, 0);
+            ps.minEmitBox.set(-0.2, 0, -0.2);
+            ps.maxEmitBox.set(0.2, 0, 0.2);
+            ps.color1 = rgba(1, 0.8, 0.3, 1);
+            ps.color2 = rgba(0.8, 0.3, 0.1, 1);
+            ps.colorDead = rgba(0.3, 0.1, 0, 0);
             ps.minSize = 0.1;
             ps.maxSize = 0.35;
             ps.minLifeTime = 0.2;
             ps.maxLifeTime = 0.5;
             ps.emitRate = 100;
             ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-            ps.direction1 = new Vector3(-1, 1, -1);
-            ps.direction2 = new Vector3(1, 2, 1);
+            ps.direction1.set(-1, 1, -1);
+            ps.direction2.set(1, 2, 1);
             ps.minEmitPower = 1;
             ps.maxEmitPower = 3;
-            ps.gravity = new Vector3(0, -5, 0);
+            ps.gravity.set(0, -5, 0);
             ps.start();
             scheduleDeathBurstTeardown(this.scene, ps, 0.15);
         }
@@ -1914,7 +1902,7 @@ export class Enemy {
         // Guest corpse self-tick (playDeathAnimThenDispose) — cancel it so it
         // can't fire against the mesh released below.
         if (this._netCorpseObserver) {
-            this.scene.onBeforeRenderObservable.remove(this._netCorpseObserver);
+            this.scene.onBeforeRender.remove(this._netCorpseObserver);
             this._netCorpseObserver = null;
         }
 
@@ -1925,18 +1913,19 @@ export class Enemy {
         // Unparented aux visuals (idempotent — a die()d enemy already freed them).
         this.disposeAuxVisuals();
 
-        // Release the mesh together with its cloned AnimationGroups + per-instance
-        // materials (shared with die() so a kill frees the same resources).
+        // Release the mesh together with its GLB clone + per-instance materials
+        // (shared with die()/disposeCorpse so a kill frees the same resources).
         this._releaseMeshAndAnimations();
 
-        // Health bar materials are per-enemy `new StandardMaterial(...)` allocations
-        // (see createHealthBar). Dispose them explicitly along with their meshes.
+        // Health-bar meshes + the per-instance boss label material/texture.
+        // Bar materials are shared cached instances and are skipped (see
+        // _disposeHealthBarMeshes).
         this._disposeHealthBarMeshes();
 
-        // Dispose all status-effect particle systems. dispose(false): keep the
-        // shared status-effect texture (see stopStatusEffectParticles).
+        // Dispose all status-effect particle systems. The shared status-effect
+        // texture is caller-owned and untouched (see stopStatusEffectParticles).
         this.statusEffectParticles.forEach(particleSystem => {
-            particleSystem.dispose(false);
+            particleSystem.dispose();
         });
         this.statusEffectParticles.clear();
     }
@@ -1948,7 +1937,7 @@ export class Enemy {
     public getEnemyType(): EnemyType {
         return this.enemyType;
     }
-    
+
     /**
      * Check if the enemy is flying
      * @returns True if the enemy is flying
@@ -1956,7 +1945,7 @@ export class Enemy {
     public isEnemyFlying(): boolean {
         return this.isFlying;
     }
-    
+
     /**
      * Check if the enemy is heavy
      * @returns True if the enemy is heavy
@@ -1964,79 +1953,82 @@ export class Enemy {
     public isEnemyHeavy(): boolean {
         return this.isHeavy;
     }
-    
+
     /**
      * Set the enemy type
      * @param type The enemy type
      */
     public setEnemyType(type: EnemyType): void {
         this.enemyType = type;
-        
+
         // Update flying and heavy flags based on type
         this.isFlying = type === EnemyType.FLYING;
         this.isHeavy = type === EnemyType.HEAVY;
-        
+
         // Update visuals based on type
         this.updateTypeVisuals();
     }
-    
+
     /**
      * Update visuals based on enemy type
      */
     protected updateTypeVisuals(): void {
         if (!this.mesh) return;
-        
-        const material = this.mesh.material as StandardMaterial;
-        
+
+        // TD-era tinting — only ever touches the base-class enemy sphere, whose
+        // material is per-instance (ownedMaterial), never a shared cached one.
+        const material = this.mesh.material as MeshPhongMaterial;
+        if (!material || material.color === undefined) return;
+
         switch (this.enemyType) {
             case EnemyType.FIRE:
-                material.diffuseColor = new Color3(1, 0.3, 0);
+                material.color = new Color(1, 0.3, 0);
                 break;
-                
+
             case EnemyType.WATER:
-                material.diffuseColor = new Color3(0, 0.5, 1);
+                material.color = new Color(0, 0.5, 1);
                 break;
-                
+
             case EnemyType.WIND:
-                material.diffuseColor = new Color3(0.7, 1, 0.7);
+                material.color = new Color(0.7, 1, 0.7);
                 break;
-                
+
             case EnemyType.EARTH:
-                material.diffuseColor = new Color3(0.6, 0.3, 0);
+                material.color = new Color(0.6, 0.3, 0);
                 break;
-                
+
             case EnemyType.ICE:
-                material.diffuseColor = new Color3(0.8, 0.9, 1);
+                material.color = new Color(0.8, 0.9, 1);
                 break;
-                
+
             case EnemyType.PLANT:
-                material.diffuseColor = new Color3(0, 0.8, 0);
+                material.color = new Color(0, 0.8, 0);
                 break;
-                
+
             case EnemyType.FLYING:
-                material.diffuseColor = new Color3(0.8, 0.8, 1);
+                material.color = new Color(0.8, 0.8, 1);
                 // Make flying enemies hover higher
                 this.mesh.position.y = 1.5;
                 break;
-                
+
             case EnemyType.HEAVY:
-                material.diffuseColor = new Color3(0.5, 0.5, 0.5);
+                material.color = new Color(0.5, 0.5, 0.5);
                 // Make heavy enemies larger
-                this.mesh.scaling = new Vector3(1.5, 1.5, 1.5);
+                this.mesh.scale.set(1.5, 1.5, 1.5);
                 break;
-                
+
             case EnemyType.LIGHT:
-                material.diffuseColor = new Color3(1, 1, 0.8);
+                material.color = new Color(1, 1, 0.8);
                 // Make light enemies smaller
-                this.mesh.scaling = new Vector3(0.7, 0.7, 0.7);
+                this.mesh.scale.set(0.7, 0.7, 0.7);
                 break;
-                
+
             case EnemyType.ELECTRIC:
-                material.diffuseColor = new Color3(0.9, 0.9, 0);
+                material.color = new Color(0.9, 0.9, 0);
                 break;
-                
+
             default:
-                material.diffuseColor = new Color3(0.8, 0.2, 0.2);
+                material.color = new Color(0.8, 0.2, 0.2);
                 break;
         }
     }
@@ -2069,8 +2061,8 @@ export class Enemy {
         if (this.isFrozen || this.isStunned) return;
         this.position.x += dirX * magnitude;
         this.position.z += dirZ * magnitude;
-        if (this.mesh && !this.mesh.isDisposed()) {
-            this.mesh.position.copyFrom(this.position);
+        if (this.mesh && !isMeshDisposed(this.mesh)) {
+            this.mesh.position.copy(this.position);
             this.mesh.position.y -= this._curveDropY; // render-only globe drop
         }
     }
@@ -2105,7 +2097,7 @@ export class Enemy {
      *  codes. Clip names follow `<prefix>_skillN` (variants like `_skill2_3`
      *  map to their base skill, here 12). Empty for procedural enemies and for
      *  GLBs without skill-named clips. */
-    private _getNetSkillClips(): { ag: AnimationGroup; code: number }[] {
+    private _getNetSkillClips(): { ag: AnimGroup; code: number }[] {
         if (!this._netSkillClips) {
             this._netSkillClips = [];
             for (const ag of this.glbAnimationGroups) {
@@ -2184,8 +2176,8 @@ export class Enemy {
         const k = 1 - Math.exp(-12 * deltaTime);
         this.health += (this._netHpTarget - this.health) * k;
         if (Math.abs(this.health - this._netHpTarget) < 0.5) this.health = this._netHpTarget;
-        if (this.healthBarMesh && !this.healthBarMesh.isDisposed() &&
-            this.healthBarBackgroundMesh && !this.healthBarBackgroundMesh.isDisposed()) {
+        if (this.healthBarMesh && !isMeshDisposed(this.healthBarMesh) &&
+            this.healthBarBackgroundMesh && !isMeshDisposed(this.healthBarBackgroundMesh)) {
             this.updateHealthBar();
         }
     }
@@ -2221,7 +2213,7 @@ export class Enemy {
             if (!this._netWalkAnim && this.glbAnimationGroups.length > 0) this._netWalkAnim = this.glbAnimationGroups[0];
             if (!this._netAttackAnim) this._netAttackAnim = this._netWalkAnim;
         }
-        let slot: AnimationGroup | null;
+        let slot: AnimGroup | null;
         if (anim >= 10) {
             slot = this._getNetSkillClips().find(s => s.code === anim)?.ag ?? this._netAttackAnim;
         } else {
@@ -2243,8 +2235,8 @@ export class Enemy {
         this.position.z = z;
         // Guest render copy: same render-only globe drop as the host's update().
         this._curveDropY = Enemy.curveDropFn ? Enemy.curveDropFn(x, z) : 0;
-        if (!this.mesh.isDisposed()) {
-            this.mesh.position.copyFrom(this.position);
+        if (!isMeshDisposed(this.mesh)) {
+            this.mesh.position.copy(this.position);
             this.mesh.position.y -= this._curveDropY;
             this.mesh.rotation.y = ry;
         }
@@ -2269,7 +2261,7 @@ export class Enemy {
      */
     public tickNetworkProceduralAnim(deltaTime: number, speed: number): void {
         if (this.glbAnimationGroups.length > 0) return; // GLB: clips drive it
-        if (!this.alive || !this.mesh || this.mesh.isDisposed()) return;
+        if (!this.alive || !this.mesh || isMeshDisposed(this.mesh)) return;
         // While frozen/stunned or (near) stationary, HOLD the pose rather than
         // skip it: applyNetworkPosition rewrites mesh.position from the
         // ground-level network y every frame, so the pose pass must still run
@@ -2291,9 +2283,9 @@ export class Enemy {
     /**
      * Guest-only death (driven by a host DeathMsg): play the GLB `<prefix>_dead`
      * clip, linger, then release through the same leak-safe path as a host kill
-     * (disposeCorpse → skeleton RawTexture + anim groups + per-instance materials
-     * + shadow renderLists). Runs NONE of the host-side death logic — no reward,
-     * no kill/shatter callbacks, no drops; those already happened on the host.
+     * (disposeCorpse → per-clone skeleton textures + anim groups + per-instance
+     * materials). Runs NONE of the host-side death logic — no reward, no
+     * kill/shatter callbacks, no drops; those already happened on the host.
      *
      * The caller (GuestEnemies.death) must have removed this enemy from its
      * registry FIRST, so snapshots/interpolation can no longer drive it, and
@@ -2317,12 +2309,12 @@ export class Enemy {
         this._disposeHealthBarMeshes();
         this.statusEffectParticles.forEach(particleSystem => {
             particleSystem.stop();
-            particleSystem.dispose(false);
+            particleSystem.dispose();
         });
         this.statusEffectParticles.clear();
 
         // No GLB animation (procedural enemy) or no mesh left: nothing to play.
-        if (this.glbAnimationGroups.length === 0 || !this.mesh || this.mesh.isDisposed()) {
+        if (this.glbAnimationGroups.length === 0 || !this.mesh || isMeshDisposed(this.mesh)) {
             this.disposeCorpse();
             return;
         }
@@ -2332,9 +2324,8 @@ export class Enemy {
         this._netCurrentAnim = null;
         this._beginDeathSequence();
 
-        this._netCorpseObserver = this.scene.onBeforeRenderObservable.add(() => {
-            const dt = this.scene.getEngine().getDeltaTime() / 1000;
-            if (this.tickCorpse(dt)) this.disposeCorpse();
+        this._netCorpseObserver = this.scene.onBeforeRender.add(h => {
+            if (this.tickCorpse(h.deltaSeconds)) this.disposeCorpse();
         });
     }
 

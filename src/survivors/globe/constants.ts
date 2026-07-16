@@ -18,7 +18,7 @@ export const GRASS_FAR_FADE_END = 102;     // zero height past here — already 
 // ── Horizon distance fog ─────────────────────────────────────────────────────
 // Linear fog that blends the finite (square) terrain cap + the grass-fade seam
 // into the sky's horizon band when the camera is zoomed out (and gently even at
-// default zoom). Distances are CAMERA distance — Babylon's fog metric — measured
+// default zoom). Distances are CAMERA distance (THREE.Fog near/far) - measured
 // at DEFAULT zoom; the gameplay layer shifts the band outward as the camera
 // recedes with zoom (HeroController.getCameraDistanceFromDefault) so the hero +
 // spawn ring stay crisp. Tune START/END by eye in a zoomed-out playtest:
@@ -30,5 +30,5 @@ export const FOG_START = 60;   // camera-distance where haze begins
 export const FOG_END   = 92;   // fully hazed beyond here — far grass dissolves into the sky
 // Matches the GlobeSky horizon band (GlobeSky.ts `horizon`) so ground/grass melt
 // into the sky rather than into a flat grey. A tuple keeps this module
-// dependency-free (no @babylonjs/core import).
+// dependency-free (no 'three' import).
 export const FOG_COLOR_RGB: [number, number, number] = [0.52, 0.58, 0.86];

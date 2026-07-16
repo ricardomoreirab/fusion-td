@@ -1,4 +1,7 @@
-import { Scene, Mesh, InstancedMesh, AssetContainer, LoadAssetContainerAsync, Quaternion, Vector3, Matrix } from '@babylonjs/core';
+import { BufferGeometry, Material, Mesh, Quaternion, Vector3 } from 'three';
+import type { SceneHost } from '../../engine/three/SceneHost';
+import { loadContainer } from '../../engine/three/assets';
+import { V3_UP } from '../../engine/three/math';
 import { PROP_RECYCLE_DIST, GLOBE_RADIUS } from './constants';
 import { curveDropAt } from './curvature';
 
@@ -37,10 +40,18 @@ export function computeRecycledPosition(
     return { x: heroX + Math.cos(theta) * r, z: heroZ + Math.sin(theta) * r };
 }
 
+/** One source part of a variant: a baked (identity-transform) geometry clone
+ *  plus the pack's SHARED material — instances never clone materials. */
+interface PropSource {
+    name: string;
+    geometry: BufferGeometry;
+    material: Material | Material[];
+}
+
 interface PropVariant {
-    /** Hidden source meshes (transform baked to identity). Multi-mesh variants
-     *  (high-poly trunk + branches) instance every part, parented to part 0. */
-    sources: Mesh[];
+    /** Source parts (transform baked to identity). Multi-part variants
+     *  (high-poly trunk + branches) build a mesh per part, parented to part 0. */
+    sources: PropSource[];
     /** Uniform scale applied to instances of this variant. */
     scale: number;
     /** Ground offset so the variant's bounding-box floor sits on y=0. */
@@ -50,10 +61,10 @@ interface PropVariant {
 }
 
 interface PlacedProp {
-    root: InstancedMesh;
+    root: Mesh;
     baseY: number;
     /** Random yaw assigned at placement/recycle; combined per-frame with the
-     *  globe-tangent tilt into root.rotationQuaternion. */
+     *  globe-tangent tilt into root.quaternion. */
     yaw: number;
 }
 
@@ -70,48 +81,49 @@ const _yawQ = new Quaternion();
  * motion cue that sells the rotating-globe illusion.
  *
  * The GLB loads async; until it resolves update() is a no-op and the field
- * is simply empty. Sources are hidden, transform-baked to identity, and
- * instanced (shared materials — no per-instance clones, no material-cache
- * involvement). dispose() removes instances first, then the container
- * (which owns the pack's meshes/materials/textures).
+ * is simply empty. Instances are plain Meshes sharing the baked geometry
+ * clones + the pack's SOURCE materials (no per-instance clones, no
+ * material-cache involvement). dispose() removes instances, then frees the
+ * baked geometry clones; the cached container keeps the pack's source
+ * meshes/materials/textures.
  */
 export class PropField {
     private props: PlacedProp[] = [];
-    private container: AssetContainer | null = null;
+    private bakedGeometries: BufferGeometry[] = [];
     private disposed = false;
 
-    constructor(scene: Scene) {
-        void this.load(scene);
+    constructor(host: SceneHost) {
+        void this.load(host);
     }
 
-    private async load(scene: Scene): Promise<void> {
-        let container: AssetContainer;
+    private async load(host: SceneHost): Promise<void> {
+        let packRoot;
         try {
-            container = await LoadAssetContainerAsync(PACK_URL, scene);
+            packRoot = (await loadContainer(PACK_URL)).gltf.scene;
         } catch (err) {
             console.error('[globe] forest pack failed to load — prop field stays empty:', err);
             return;
         }
-        if (this.disposed) { container.dispose(); return; }
-        this.container = container;
-        container.addAllToScene();
+        if (this.disposed) return;
 
         // ── Bake every leaf mesh to identity ─────────────────────────────────
         // The Sketchfab FBX wraps everything in transform nodes (unit scale,
-        // axis rotation). setParent(null) folds the ancestor chain into the
-        // node transform; baking folds that into the vertices, so instances
-        // need no parent bookkeeping at all.
-        const leaves: Mesh[] = [];
-        for (const m of container.meshes) {
-            if (!(m instanceof Mesh) || m.getTotalVertices() === 0) continue;
-            m.setParent(null);
-            m.computeWorldMatrix(true);
-            m.bakeCurrentTransformIntoVertices();
-            m.refreshBoundingInfo();
-            m.isVisible = false;
-            m.isPickable = false;
-            leaves.push(m);
-        }
+        // axis rotation). Baking each mesh's WORLD matrix into a private
+        // geometry clone folds the whole ancestor chain away, so instances
+        // need no parent bookkeeping at all. (Clones, not the sources — the
+        // source geometries are shared with the module-level container cache
+        // and must survive for the next run.)
+        packRoot.updateMatrixWorld(true);
+        const leaves: PropSource[] = [];
+        packRoot.traverse(node => {
+            const m = node as Mesh;
+            if (!m.isMesh || (m.geometry.getAttribute('position')?.count ?? 0) === 0) return;
+            const geometry = m.geometry.clone();
+            geometry.applyMatrix4(m.matrixWorld);
+            geometry.computeBoundingBox();
+            leaves.push({ name: m.name, geometry, material: m.material });
+        });
+        this.bakedGeometries = leaves.map(l => l.geometry);
 
         // ── Re-center each variant's geometry on its own base ───────────────
         // The pack authors every element at an offset from the pack origin, so
@@ -122,39 +134,38 @@ export class PropField {
         // high-poly trunk+branch pairs stay aligned (see grouping below).
 
         // ── Group leaves into variants ───────────────────────────────────────
-        const atlas = leaves.filter(m => m.name.startsWith('Background_Tree_Atlas'));
-        const rocks = leaves.filter(m => m.name.startsWith('Rocks'));
+        const atlas = leaves.filter(l => l.name.startsWith('Background_Tree_Atlas'));
+        const rocks = leaves.filter(l => l.name.startsWith('Rocks'));
         // High-poly trees: pair Tree_Trunk_XX[.nnn] with Tree_Branches_XX[.nnn]
         // by their shared suffix (e.g. "01.002" → trunk 01.002 + branches 01.002).
         const suffixOf = (name: string, prefix: string) =>
             name.replace(prefix, '').split('_')[0]; // "Tree_Trunk_01.002_..." → "01.002"
-        const trunks = leaves.filter(m => m.name.startsWith('Tree_Trunk_'));
-        const branches = leaves.filter(m => m.name.startsWith('Tree_Branches_'));
-        const hiPoly: Mesh[][] = trunks.map(t => {
+        const trunks = leaves.filter(l => l.name.startsWith('Tree_Trunk_'));
+        const branches = leaves.filter(l => l.name.startsWith('Tree_Branches_'));
+        const hiPoly: PropSource[][] = trunks.map(t => {
             const suffix = suffixOf(t.name, 'Tree_Trunk_');
             const match = branches.filter(b => suffixOf(b.name, 'Tree_Branches_') === suffix);
             return [t, ...match];
         });
 
-        const heightOf = (ms: Mesh[]) => Math.max(...ms.map(m => {
-            const bb = m.getBoundingInfo().boundingBox;
-            return bb.maximum.y - bb.minimum.y;
+        const heightOf = (ls: PropSource[]) => Math.max(...ls.map(l => {
+            const bb = l.geometry.boundingBox!;
+            return bb.max.y - bb.min.y;
         }));
 
         /** Translate a variant group so its combined bbox base-centre lands on
          *  the origin (pivot under the trunk). Same offset for every part. */
-        const recenter = (ms: Mesh[]): void => {
+        const recenter = (ls: PropSource[]): void => {
             let minX = Infinity, maxX = -Infinity, minY = Infinity, minZ = Infinity, maxZ = -Infinity;
-            for (const m of ms) {
-                const bb = m.getBoundingInfo().boundingBox;
-                minX = Math.min(minX, bb.minimum.x); maxX = Math.max(maxX, bb.maximum.x);
-                minZ = Math.min(minZ, bb.minimum.z); maxZ = Math.max(maxZ, bb.maximum.z);
-                minY = Math.min(minY, bb.minimum.y);
+            for (const l of ls) {
+                const bb = l.geometry.boundingBox!;
+                minX = Math.min(minX, bb.min.x); maxX = Math.max(maxX, bb.max.x);
+                minZ = Math.min(minZ, bb.min.z); maxZ = Math.max(maxZ, bb.max.z);
+                minY = Math.min(minY, bb.min.y);
             }
-            const t = Matrix.Translation(-(minX + maxX) / 2, -minY, -(minZ + maxZ) / 2);
-            for (const m of ms) {
-                m.bakeTransformIntoVertices(t);
-                m.refreshBoundingInfo();
+            for (const l of ls) {
+                l.geometry.translate(-(minX + maxX) / 2, -minY, -(minZ + maxZ) / 2);
+                l.geometry.computeBoundingBox();
             }
         };
 
@@ -165,18 +176,18 @@ export class PropField {
         // Pivot under every variant's base, then scatter in force — full
         // forest ambiance: tall trees ×3, ground cover ×4, rocks ×3,
         // high-poly trees ×2.
-        const groups: Mesh[][] = [...atlas.map(m => [m]), ...rocks.map(m => [m]), ...hiPoly];
+        const groups: PropSource[][] = [...atlas.map(l => [l]), ...rocks.map(l => [l]), ...hiPoly];
         for (const g of groups) recenter(g);
 
         const coverCutoff = TALLEST_TREE_HEIGHT * GROUND_COVER_FRACTION;
         const variants: PropVariant[] = [
-            ...atlas.map(m => {
-                const h = heightOf([m]) * packScale;
-                return { sources: [m], scale: packScale, baseY: 0,
+            ...atlas.map(l => {
+                const h = heightOf([l]) * packScale;
+                return { sources: [l], scale: packScale, baseY: 0,
                          copies: h < coverCutoff ? 4 : 3 };
             }),
-            ...rocks.map(m => ({ sources: [m], scale: packScale, baseY: 0, copies: 3 })),
-            ...hiPoly.map(ms => ({ sources: ms, scale: packScale, baseY: 0, copies: 2 })),
+            ...rocks.map(l => ({ sources: [l], scale: packScale, baseY: 0, copies: 3 })),
+            ...hiPoly.map(ls => ({ sources: ls, scale: packScale, baseY: 0, copies: 2 })),
         ];
 
         // ── Scatter all copies around the start area ─────────────────────────
@@ -184,17 +195,19 @@ export class PropField {
             const v = variants[i];
             for (let c = 0; c < v.copies; c++) {
                 const jitter = 0.85 + Math.random() * 0.4;
-                const parts = v.sources.map((src, p) =>
-                    src.createInstance(`globeProp_${i}_${c}_${p}`));
+                const parts = v.sources.map((src, p) => {
+                    const part = new Mesh(src.geometry, src.material);
+                    part.name = `globeProp_${i}_${c}_${p}`;
+                    return part;
+                });
                 const root = parts[0];
-                for (let p = 1; p < parts.length; p++) parts[p].parent = root;
-                for (const part of parts) part.isPickable = false;
-                root.scaling.setAll(v.scale * jitter);
+                for (let p = 1; p < parts.length; p++) root.add(parts[p]);
+                host.scene.add(root);
+                root.scale.setScalar(v.scale * jitter);
                 const theta = Math.random() * Math.PI * 2;
                 const r = 12 + Math.random() * (PROP_MAX_R - 12);
                 const baseY = v.baseY * jitter;
                 root.position.set(Math.cos(theta) * r, baseY, Math.sin(theta) * r);
-                root.rotationQuaternion = Quaternion.Identity(); // driven by update()
                 this.props.push({ root, baseY, yaw: Math.random() * Math.PI * 2 });
             }
         }
@@ -222,12 +235,12 @@ export class PropField {
             // instead of rotating over the curve.
             const d = Math.hypot(dx, dz);
             let tilt = 0;
-            if (d > 1e-3 && p.root.rotationQuaternion) {
+            if (d > 1e-3) {
                 tilt = Math.atan(d / GLOBE_RADIUS);
                 _tiltAxis.set(dz / d, 0, -dx / d); // up × radial → lean-away axis
-                Quaternion.RotationAxisToRef(_tiltAxis, tilt, _tiltQ);
-                Quaternion.RotationYawPitchRollToRef(p.yaw, 0, 0, _yawQ);
-                _tiltQ.multiplyToRef(_yawQ, p.root.rotationQuaternion);
+                _tiltQ.setFromAxisAngle(_tiltAxis, tilt);
+                _yawQ.setFromAxisAngle(V3_UP as Vector3, p.yaw);
+                p.root.quaternion.copy(_tiltQ).multiply(_yawQ);
             }
 
             // Embed the base in the ground — a flat constant plus extra with
@@ -240,14 +253,12 @@ export class PropField {
 
     public dispose(): void {
         this.disposed = true;
-        // Instances first (they reference container-owned sources), then the
-        // container, which owns the pack's meshes, materials and textures.
-        for (const p of this.props) {
-            for (const child of p.root.getChildMeshes()) child.dispose();
-            p.root.dispose();
-        }
+        // Instances first (they reference the baked geometries), then the
+        // baked geometry clones. Materials stay — they belong to the cached
+        // GLB container.
+        for (const p of this.props) p.root.removeFromParent();
         this.props = [];
-        this.container?.dispose();
-        this.container = null;
+        for (const geo of this.bakedGeometries) geo.dispose();
+        this.bakedGeometries = [];
     }
 }

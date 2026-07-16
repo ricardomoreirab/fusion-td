@@ -1,9 +1,14 @@
-import { Vector3, MeshBuilder, StandardMaterial, Color3, Color4, ParticleSystem, Texture, Mesh, AssetContainer, AnimationGroup, TransformNode, Quaternion } from '@babylonjs/core';
+import { Box3, Color, Mesh, Vector3 } from 'three';
 import { Game } from '../../engine/Game';
 import { Enemy, tryAcquireDeathBurst, scheduleDeathBurstTeardown } from './Enemy';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../engine/rendering/LowPolyMaterial';
 import { PALETTE } from '../../engine/rendering/StyleConstants';
+import { AnimGroup } from '../../engine/three/AnimGroup';
+import type { GlbContainer } from '../../engine/three/assets';
+import { headingToYaw, rgba } from '../../engine/three/math';
+import { ParticleSystem } from '../../engine/three/particles/ParticleSystem';
+import { createBox, createCylinder, createPlane } from '../../engine/three/primitives';
 
 /**
  * MiniEnemy — spawned when a SplittingEnemy dies.
@@ -12,16 +17,16 @@ import { PALETTE } from '../../engine/rendering/StyleConstants';
 export class MiniEnemy extends Enemy {
     /** Static slot used by EnemyManager (split handler) to stage a preloaded GLB
      *  asset before constructing a MiniEnemy. createMesh() consumes + clears it. */
-    public static pendingAsset: AssetContainer | null = null;
+    public static pendingAsset: GlbContainer | null = null;
 
     private walkTime: number = 0;
 
     /** True when this instance renders via the thunder-fenrir-cab GLB. */
     private usingGLB: boolean = false;
-    private glbWalkAnim: AnimationGroup | null = null;
-    private glbAttackAnim: AnimationGroup | null = null;
-    private glbIdleAnim: AnimationGroup | null = null;
-    private glbCurrentAnim: AnimationGroup | null = null;
+    private glbWalkAnim: AnimGroup | null = null;
+    private glbAttackAnim: AnimGroup | null = null;
+    private glbIdleAnim: AnimGroup | null = null;
+    private glbCurrentAnim: AnimGroup | null = null;
     private glbAttackHoldTimer: number = 0;
     private static readonly GLB_ATTACK_RANGE = 2.8;
     private static readonly GLB_ATTACK_HOLD = 0.5;
@@ -55,42 +60,30 @@ export class MiniEnemy extends Enemy {
         this.createMeshProcedural();
     }
 
-    private createMeshFromGLB(asset: AssetContainer): void {
+    private createMeshFromGLB(asset: GlbContainer): void {
         this.usingGLB = true;
-        this.mesh = new Mesh('miniEnemyGlbRoot', this.scene);
-        this.mesh.position.copyFrom(this.position);
+        this.mesh = new Mesh();
+        this.mesh.name = 'miniEnemyGlbRoot';
+        this.scene.scene.add(this.mesh);
+        this.mesh.position.copy(this.position);
 
-        const inst = asset.instantiateModelsToScene(
-            name => `mini_${name}`,
-            true,
-            { doNotInstantiate: true },
-        );
-        for (const root of inst.rootNodes) {
-            root.parent = this.mesh;
-            if ('scaling' in root && root.scaling) {
-                (root as TransformNode).scaling.scaleInPlace(MiniEnemy.GLB_SCALE);
-            }
-            const tn = root as TransformNode;
-            const flip = Quaternion.RotationYawPitchRoll(Math.PI, 0, 0);
-            if (tn.rotationQuaternion) {
-                tn.rotationQuaternion = flip.multiply(tn.rotationQuaternion);
-            } else if (tn.rotation) {
-                tn.rotation.y += Math.PI;
-            }
-        }
+        const inst = asset.instantiate(this.scene, 'mini_');
+        this.glbInstance = inst;
+        const root = inst.root;
+        this.mesh.add(root);
+        root.scale.multiplyScalar(MiniEnemy.GLB_SCALE);
+        // 180° Y flip — same pattern as BasicEnemy GLB. Kept from the Babylon
+        // build so facing math stays aligned (the Phase D handedness audit may
+        // remove it).
+        root.rotation.y += Math.PI;
 
-        this.mesh.computeWorldMatrix(true);
-        const bbox = this.mesh.getHierarchyBoundingVectors(true);
+        this.mesh.updateMatrixWorld(true);
+        const bbox = new Box3().setFromObject(this.mesh);
         const feetOffset = -bbox.min.y;
-        for (const root of inst.rootNodes) {
-            if ('position' in root && root.position) {
-                (root as TransformNode).position.y += feetOffset;
-            }
-        }
+        root.position.y += feetOffset;
 
         // Register groups for base-class dispose cleanup (prevents animatable leak).
         this.glbAnimationGroups = inst.animationGroups;
-        this.glbSkeletons = inst.skeletons;
 
         for (const ag of inst.animationGroups) ag.stop();
         for (const ag of inst.animationGroups) {
@@ -112,7 +105,7 @@ export class MiniEnemy extends Enemy {
         }
     }
 
-    private playGlbAnim(slot: AnimationGroup | null, loop: boolean): void {
+    private playGlbAnim(slot: AnimGroup | null, loop: boolean): void {
         if (!slot) return;
         if (this.glbCurrentAnim === slot) return;
         if (this.glbCurrentAnim) this.glbCurrentAnim.stop();
@@ -122,45 +115,45 @@ export class MiniEnemy extends Enemy {
 
     private createMeshProcedural(): void {
         // Small blob body — bumped 1.1× from original 0.40/0.30/0.35 for readability
-        this.mesh = MeshBuilder.CreateBox('miniEnemyBody', {
+        this.mesh = createBox('miniEnemyBody', {
             width: 0.44,
             height: 0.33,
             depth: 0.39
         }, this.scene);
         makeFlatShaded(this.mesh);
-        this.mesh.position = this.position.clone();
+        this.mesh.position.copy(this.position);
         this.mesh.position.y += 0.28;
         // Slightly brighter tint (splitter parentage cue) — lighter cyan-green
         const miniBodyColor = PALETTE.ENEMY_SPLITTING_BELLY;
-        this.mesh.material = createLowPolyMaterial('miniBodyMat', miniBodyColor, this.scene);
+        this.mesh.material = createLowPolyMaterial('miniBodyMat', miniBodyColor);
 
         // Belly
-        const belly = MeshBuilder.CreateBox('miniBelly', {
+        const belly = createBox('miniBelly', {
             width: 0.28, height: 0.18, depth: 0.06
         }, this.scene);
         makeFlatShaded(belly);
-        belly.parent = this.mesh;
-        belly.position = new Vector3(0, -0.02, 0.18);
-        belly.material = createLowPolyMaterial('miniBellyMat', PALETTE.ENEMY_SPLITTING_BELLY, this.scene);
+        this.mesh.add(belly);
+        belly.position.set(0, -0.02, 0.18);
+        belly.material = createLowPolyMaterial('miniBellyMat', PALETTE.ENEMY_SPLITTING_BELLY);
 
         // Single head nub
-        const head = MeshBuilder.CreateCylinder('miniHead', {
+        const head = createCylinder('miniHead', {
             height: 0.20, diameterTop: 0.05, diameterBottom: 0.15, tessellation: 4
         }, this.scene);
         makeFlatShaded(head);
-        head.parent = this.mesh;
-        head.position = new Vector3(0, 0.22, 0.08);
-        head.material = createLowPolyMaterial('miniHeadMat', PALETTE.ENEMY_SPLITTING, this.scene);
+        this.mesh.add(head);
+        head.position.set(0, 0.22, 0.08);
+        head.material = createLowPolyMaterial('miniHeadMat', PALETTE.ENEMY_SPLITTING);
 
         // Eyes
         for (let i = 0; i < 2; i++) {
-            const eye = MeshBuilder.CreateBox(`miniEye${i}`, {
+            const eye = createBox(`miniEye${i}`, {
                 width: 0.06, height: 0.04, depth: 0.03
             }, this.scene);
             makeFlatShaded(eye);
-            eye.parent = head;
-            eye.position = new Vector3(i === 0 ? -0.04 : 0.04, 0.02, 0.07);
-            eye.material = createEmissiveMaterial(`miniEyeMat${i}`, PALETTE.ENEMY_SPLITTING_EYE, 0.8, this.scene);
+            head.add(eye);
+            eye.position.set(i === 0 ? -0.04 : 0.04, 0.02, 0.07);
+            eye.material = createEmissiveMaterial(`miniEyeMat${i}`, PALETTE.ENEMY_SPLITTING_EYE, 0.8);
         }
 
         this.originalScale = 1.0;
@@ -172,30 +165,30 @@ export class MiniEnemy extends Enemy {
 
         // Two meshes, shared cached materials (see Enemy.createHealthBar): the
         // frame-sized near-black background doubles as the outline.
-        this.healthBarBackgroundMesh = MeshBuilder.CreateBox('healthBarBg', {
-            width: 0.65, height: 0.10, depth: 0.04
+        this.healthBarBackgroundMesh = createPlane('healthBarBg', {
+            width: 0.65, height: 0.10
         }, this.scene);
-        this.healthBarBackgroundMesh.position = new Vector3(this.position.x, this.position.y + 1.0, this.position.z);
-        this.healthBarBackgroundMesh.material = getCachedMaterial(this.scene, 'healthBarBgFrameMat', m => {
-            m.diffuseColor  = new Color3(0.05, 0.05, 0.05);
-            m.specularColor = Color3.Black();
+        this.healthBarBackgroundMesh.position.set(this.position.x, this.position.y + 1.0, this.position.z);
+        this.healthBarBackgroundMesh.material = getCachedMaterial('healthBarBgFrameMat', m => {
+            m.color    = new Color(0.05, 0.05, 0.05);
+            m.specular = new Color(0, 0, 0);
+            m.depthTest = false;
+            m.depthWrite = false;
         });
 
         // Health fill — material assigned by updateHealthBar's band swap.
-        this.healthBarMesh = MeshBuilder.CreateBox('healthBar', {
-            width: 0.6, height: 0.06, depth: 0.05
+        this.healthBarMesh = createPlane('healthBar', {
+            width: 0.6, height: 0.06
         }, this.scene);
-        this.healthBarMesh.position = new Vector3(this.position.x, this.position.y + 1.0, this.position.z);
+        this.healthBarMesh.position.set(this.position.x, this.position.y + 1.0, this.position.z);
 
-        this.healthBarBackgroundMesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
-        this.healthBarMesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
         this.updateHealthBar();
     }
 
     protected updateHealthBar(): void {
         if (!this.mesh || !this.healthBarMesh || !this.healthBarBackgroundMesh) return;
         const healthPercent = Math.max(0, this.health / this.maxHealth);
-        this.healthBarMesh.scaling.x = healthPercent;
+        this.healthBarMesh.scale.x = healthPercent;
         const offset = (1 - healthPercent) * 0.3;
         this.healthBarMesh.position.x = this.position.x - offset;
 
@@ -206,6 +199,8 @@ export class MiniEnemy extends Enemy {
         this.healthBarBackgroundMesh.position.z = this.position.z;
         this.healthBarMesh.position.y = this.position.y + 1.0;
         this.healthBarMesh.position.z = this.position.z;
+
+        this._billboardHealthBar();
     }
 
     public update(deltaTime: number): boolean {
@@ -246,8 +241,7 @@ export class MiniEnemy extends Enemy {
                 const dx = targetPoint.x - this.position.x;
                 const dz = targetPoint.z - this.position.z;
                 if (dx * dx + dz * dz > 0.0001) {
-                    const angle = Math.atan2(dz, dx);
-                    this.mesh.rotation.y = -angle + Math.PI / 2;
+                    this.mesh.rotation.y = headingToYaw(dx, dz);
                 }
             }
         }
@@ -280,20 +274,20 @@ export class MiniEnemy extends Enemy {
         const ps = new ParticleSystem('miniDeathParticles', 20, this.scene);
         ps.emitter = this.position.clone();
         (ps.emitter as Vector3).y += 0.3;
-        ps.minEmitBox = new Vector3(-0.1, 0, -0.1);
-        ps.maxEmitBox = new Vector3(0.1, 0, 0.1);
-        ps.color1 = new Color4(0.3, 0.7, 0.5, 1.0);
-        ps.color2 = new Color4(0.5, 0.8, 0.4, 1.0);
-        ps.colorDead = new Color4(0.2, 0.3, 0.1, 0.0);
+        ps.minEmitBox.set(-0.1, 0, -0.1);
+        ps.maxEmitBox.set(0.1, 0, 0.1);
+        ps.color1 = rgba(0.3, 0.7, 0.5, 1.0);
+        ps.color2 = rgba(0.5, 0.8, 0.4, 1.0);
+        ps.colorDead = rgba(0.2, 0.3, 0.1, 0.0);
         ps.minSize = 0.05;
         ps.maxSize = 0.2;
         ps.minLifeTime = 0.2;
         ps.maxLifeTime = 0.6;
         ps.emitRate = 60;
         ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-        ps.gravity = new Vector3(0, 5, 0);
-        ps.direction1 = new Vector3(-1, 5, -1);
-        ps.direction2 = new Vector3(1, 5, 1);
+        ps.gravity.set(0, 5, 0);
+        ps.direction1.set(-1, 5, -1);
+        ps.direction2.set(1, 5, 1);
         ps.minEmitPower = 0.5;
         ps.maxEmitPower = 2;
         ps.start();

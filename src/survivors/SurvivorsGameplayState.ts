@@ -1,14 +1,14 @@
-import { Scene, Vector3, Color3, Color4, DirectionalLight, AssetContainer, LoadAssetContainerAsync, CubeTexture, MeshBuilder, Mesh, ShadowGenerator, KeyboardEventTypes, Observer } from '@babylonjs/core';
-// WebGPU cube-texture upload support is a SIDE-EFFECT module in Babylon's ES
-// build. It used to ride in transitively via the BackgroundMaterial import
-// (removed with the old env-cube skybox); without it, CreateFromImages on a
-// WebGPU engine falls back to the WebGL path and crashes in the image loader
-// (reading gl.TEXTURE_CUBE_MAP_POSITIVE_X of undefined).
-import '@babylonjs/core/Engines/WebGPU/Extensions/engine.cubeTexture';
-import '@babylonjs/loaders/glTF';
-import { AdvancedDynamicTexture } from '@babylonjs/gui';
+import {
+    Vector3, Color, DirectionalLight, DoubleSide, Fog, CubeTexture, CubeTextureLoader,
+    Mesh, Object3D, Material, Texture,
+} from 'three';
 import { Game } from '../engine/Game';
 import { GameState } from '../engine/GameState';
+import { SceneHost, UpdateToken } from '../engine/three/SceneHost';
+import { GlbContainer, loadContainer } from '../engine/three/assets';
+import { createSphere, disposeMesh, isMeshDisposed } from '../engine/three/primitives';
+import { rgba } from '../engine/three/math';
+import { setMeshOpacity } from '../engine/rendering/LowPolyMaterial';
 import { GlobeGround } from './globe/GlobeGround';
 import { PropField } from './globe/PropField';
 import { GlobeSky } from './globe/GlobeSky';
@@ -29,7 +29,7 @@ import { getFusionFor, getFusionsForClass, getUltimateOfferForFusions } from './
 import { aoeBurst, gatherVortex, persistentZone, omniVolley, spawnBolt, arrowStrike, setCameraShakeHook, resetPowerEffects } from './powers/PowerEffects';
 import { getAutocastArchetype, archetypeKey } from './powers/FusionArchetypeRegistry';
 import './powers/FusionArchetypes'; // registers fusion archetypes at load
-import { Enemy, HEALTH_BAR_RENDER_GROUP } from './enemies/Enemy';
+import { Enemy } from './enemies/Enemy';
 import { BasicAttackTarget } from './champions/HeroBasicAttack';
 import { PowerChoiceOverlay, PowerCard } from '../ui/overlays/PowerChoice';
 import { ReplaceSlotOverlay } from '../ui/overlays/ReplaceSlot';
@@ -150,49 +150,41 @@ const ENEMY_GLB_PATHS: Partial<Record<string, { dir: string; file: string }>> = 
     boss_tier4:  { dir: 'assets/bane-lord-of-scalding-seas-in-game/source/', file: 'bane_lord_of_scalding_seas_in_game.glb' },
     boss_tier5:  { dir: 'assets/elemental-lord/source/',                    file: 'elemental_lord.glb' },
 };
-function loadChampionAsset(championType: string, scene: Scene): Promise<AssetContainer> | null {
-    return loadAsset(CHAMPION_GLB_PATHS, championType, scene);
+function loadChampionAsset(championType: string): Promise<GlbContainer> | null {
+    return loadAsset(CHAMPION_GLB_PATHS, championType);
 }
 
-function loadEnemyAsset(enemyType: string, scene: Scene): Promise<AssetContainer> | null {
-    return loadAsset(ENEMY_GLB_PATHS, enemyType, scene);
+function loadEnemyAsset(enemyType: string): Promise<GlbContainer> | null {
+    return loadAsset(ENEMY_GLB_PATHS, enemyType);
 }
 
 /** Synchronously fetch a preloaded enemy GLB from the module cache (populated by
  *  enter()'s preload), or null if not cached / no GLB for this type. Lets the
  *  guest stage the same model the host renders instead of the procedural mesh. */
-function getCachedEnemyAsset(enemyType: string): AssetContainer | null {
+function getCachedEnemyAsset(enemyType: string): GlbContainer | null {
     const path = ENEMY_GLB_PATHS[enemyType];
     if (!path) return null;
     return _glbAssets[`${path.dir}${path.file}`] ?? null;
 }
 
-const _glbAssets: Record<string, AssetContainer> = {};
-const _glbAssetPromises: Record<string, Promise<AssetContainer>> = {};
+/** Synchronous mirror of the resolved containers. engine/three/assets'
+ *  loadContainer() is the real (promise-keyed) cross-run cache; this map only
+ *  exists so getCachedEnemyAsset can stay synchronous for the guest registry. */
+const _glbAssets: Record<string, GlbContainer> = {};
 
 function loadAsset(
     registry: Partial<Record<string, { dir: string; file: string }>>,
     key: string,
-    scene: Scene,
-): Promise<AssetContainer> | null {
+): Promise<GlbContainer> | null {
     const path = registry[key];
     if (!path) return null;
     const cacheKey = `${path.dir}${path.file}`;
-    if (cacheKey in _glbAssets) return Promise.resolve(_glbAssets[cacheKey]);
-    if (cacheKey in _glbAssetPromises) return _glbAssetPromises[cacheKey];
-    // Babylon 9 module-level loader (replaces deprecated SceneLoader.LoadAssetContainerAsync).
-    // Better tree-shaking and cleaner async signature. Pass the full URL as one string.
-    const p = LoadAssetContainerAsync(`${path.dir}${path.file}`, scene)
-        .then(container => {
-            _glbAssets[cacheKey] = container;
-            return container;
-        })
-        .catch(err => {
-            delete _glbAssetPromises[cacheKey];
-            throw err;
-        });
-    _glbAssetPromises[cacheKey] = p;
-    return p;
+    // loadContainer caches by URL (module-level, survives across runs — same
+    // lifetime the Babylon-era _glbAssets cache had).
+    return loadContainer(cacheKey).then(container => {
+        _glbAssets[cacheKey] = container;
+        return container;
+    });
 }
 
 /** Float-text labels and colors for item pickups (mirror the HUD slot colors). */
@@ -268,10 +260,32 @@ function makePlayerSlot(id: number, isLocal: boolean): PlayerSlot {
     return { id, isLocal, stats: null, level: null, hero: null, powers: null, abilities: null, items: null };
 }
 
+/** Fade a champion's whole mesh tree (spectate/death ghosting) — replaces the
+ *  Babylon `mesh.visibility = a`. GLB instances own their material clones so
+ *  they are mutated directly; shared cache-owned materials go through
+ *  setMeshOpacity (clone-on-write) so the cache is never mutated. */
+function setChampionOpacity(champ: Champion | null, alpha: number): void {
+    const root = (champ as unknown as { mesh?: Object3D | null } | null)?.mesh;
+    if (!root) return;
+    root.traverse(node => {
+        const m = node as Mesh;
+        if (!m.isMesh || !m.material) return;
+        if (!Array.isArray(m.material) && (m.material as Material).userData.cached) {
+            setMeshOpacity(m, alpha);
+            return;
+        }
+        const mats = Array.isArray(m.material) ? m.material : [m.material];
+        for (const mat of mats) {
+            if ((mat as Material).userData.cached) continue;
+            (mat as Material).transparent = alpha < 1 || (mat as Material).transparent;
+            (mat as Material).opacity = alpha;
+        }
+    });
+}
+
 export class SurvivorsGameplayState implements GameState {
     private game: Game;
-    private scene: Scene | null = null;
-    private ui: AdvancedDynamicTexture | null = null;
+    private scene: SceneHost | null = null;
     private map: GlobeGround | null = null;
     private propField: PropField | null = null;
     // Previous-frame hero position — yields the travel direction the prop
@@ -407,14 +421,20 @@ export class SurvivorsGameplayState implements GameState {
      *  rim (the isometric camera's telephoto lens magnifies that band). */
     private grassFar: ReturnType<typeof createProceduralGrass> | null = null;
     private shadowSourceLight: DirectionalLight | null = null;
-    private shadowGenerator: ShadowGenerator | null = null;
+    /** Normalized key-light direction (Babylon's DirectionalLight direction vector)
+     *  — drives the per-frame hero-follow of the shadow light position. */
+    private readonly _keyLightDir = new Vector3(-0.4, -1, -0.6).normalize();
+    /** Directional shadow-map refresh throttle (Babylon shadowMap.refreshRate):
+     *  the map re-renders every Nth frame (2 = every other frame; the late-wave
+     *  perf trim raises it to 3). Driven in update() via shadow.needsUpdate. */
+    private _shadowRefreshInterval = 2;
+    private _shadowRefreshCounter = 0;
     /** Slow FPS EMA (~8s time constant) sampled across each wave — read at wave
      *  clear by maybeTrimPerformance to decide late-wave quality stepdowns. */
     private _fpsEma = 60;
     /** One-way per-run quality ratchet: 0 full, 1 reduced post-fx, 2 + slower
      *  shadow refresh. Reset (with the post-fx baseline) in exit(). */
     private _perfTrimLevel = 0;
-    private torchShadowGenerator: ShadowGenerator | null = null;
     // After this wave clears, enemies stop casting shadows: the hordes grow large
     // enough that the per-caster shadow-map cost outweighs the visual detail. The
     // hero keeps its directional shadow. Idempotent guard so we only flip once.
@@ -451,7 +471,14 @@ export class SurvivorsGameplayState implements GameState {
     // post-revive invulnerability window. Tracked so it can be removed on shield
     // expiry and on exit().
     private reviveShieldMesh: Mesh | null = null;
-    private reviveShieldObs: Observer<Scene> | null = null;
+    private reviveShieldObs: UpdateToken | null = null;
+
+    // Window keyboard listener for the Q/E/Space/Escape hotkeys (replaces the
+    // Babylon scene.onKeyboardObservable) — tracked so exit() removes it.
+    private _hotkeyHandler: ((e: KeyboardEvent) => void) | null = null;
+
+    // Per-run env cube (scene.environment IBL) — disposed in exit().
+    private envTexture: CubeTexture | null = null;
 
     // Contact damage radius (hero bounding circle)
     private readonly heroRadius: number = 0.6;
@@ -470,9 +497,9 @@ export class SurvivorsGameplayState implements GameState {
     // Influencers list and torch-opts object are passed straight to the grass
     // shader; HUD waveInfo is a mutable struct that the HUD reads each frame.
     private _scratchInfluencers: Vector3[] = [];
-    private _scratchTorchOpts: { position: Vector3; color: Color3; intensity: number; range: number } = {
+    private _scratchTorchOpts: { position: Vector3; color: Color; intensity: number; range: number } = {
         position: new Vector3(),
-        color: new Color3(),
+        color: new Color(),
         intensity: 0,
         range: 0,
     };
@@ -524,6 +551,11 @@ export class SurvivorsGameplayState implements GameState {
     // bump (equipping two new elements ≈ +12 cached FX materials) so only a genuine
     // per-action orphan (which adds dozens/wave) trips it.
     private static readonly RESOURCE_PER_WAVE_TOLERANCE: number = 20;
+    // Texture slots the watchdog's scene walk inspects on each material — three
+    // has no global texture list, so the live set is what materials reference.
+    private static readonly TEXTURE_SLOTS = [
+        'map', 'emissiveMap', 'normalMap', 'alphaMap', 'aoMap', 'roughnessMap', 'metalnessMap',
+    ] as const;
 
     // Floating damage / reward text
     private damageNumbers: DamageNumberManager | null = null;
@@ -569,12 +601,11 @@ export class SurvivorsGameplayState implements GameState {
     public enter(): void {
         this.game.cleanupScene();
         this.scene = this.game.getScene();
-        this.scene.clearColor = new Color4(0.04, 0.03, 0.05, 1); // near-black warm
+        this.game.setClearColor(rgba(0.04, 0.03, 0.05, 1)); // near-black warm
 
-        // Clear the depth buffer before the health-bar rendering group so enemy
-        // health bars always draw ON TOP of their model and stay visible no matter
-        // how large the monster is (big bosses used to occlude their own bar).
-        this.scene.setRenderingAutoClearDepthStencil(HEALTH_BAR_RENDER_GROUP, true, true, false);
+        // (Babylon setRenderingAutoClearDepthStencil for the health-bar rendering
+        // group is gone — Enemy puts bars on the HEALTH_BAR_RENDER_GROUP renderOrder
+        // band with depth handling baked into their materials.)
 
         // No second hemispheric light here — Game.setupScene already added
         // 'light' (warm fill, intensity 0.55). Stacking another hemi was
@@ -582,23 +613,24 @@ export class SurvivorsGameplayState implements GameState {
         //
         // Key light — warm directional from upper-left-front. Bumped to 0.9
         // (was 0.5) so it's the dominant directional source giving real form
-        // and falloff after the SpotLight + ambient cuts below.
-        const keyLight = new DirectionalLight('survivorsKey', new Vector3(-0.4, -1, -0.6), this.scene);
-        keyLight.intensity = 0.9;
-        keyLight.diffuse = new Color3(1.0, 0.78, 0.55);
-        keyLight.specular = new Color3(0, 0, 0); // low-poly mats are spec-zero anyway
+        // and falloff after the SpotLight + ambient cuts below. Direction is
+        // encoded via light.target (kept on the hero in update()).
+        const keyLight = new DirectionalLight(new Color(1.0, 0.78, 0.55), 0.9);
+        keyLight.name = 'survivorsKey';
+        keyLight.position.copy(this._keyLightDir).multiplyScalar(-40);
+        keyLight.target.position.set(0, 0, 0);
+        this.scene.scene.add(keyLight);
+        this.scene.scene.add(keyLight.target);
         // Save for the shadow pass attached later.
         this.shadowSourceLight = keyLight;
 
         // Build base scene resources first
-        this.map = new GlobeGround(this.scene);
+        this.map = new GlobeGround(this.scene, this.game.getRendererHost().renderer);
 
         // Layer on the ancient-ruins ambience: skybox, warm spot, env IBL, stone ground texture
         this.applyRuinsAmbience();
 
-        // Create UI layer
-        this.ui = AdvancedDynamicTexture.CreateFullscreenUI('survivorsUI', true, this.scene);
-        this.ui.idealWidth = 800; // cap GUI rasterization — matches MenuState and GameOverState
+        // Create UI layer (DOM — the Babylon fullscreen ADT is gone; nothing drew to it)
         this.gameUI = new GameUI();
 
         // Show champion select; actual run starts when player picks
@@ -628,11 +660,11 @@ export class SurvivorsGameplayState implements GameState {
         // Preload every known champion + enemy GLB in parallel so whichever the user
         // picks is likely already loaded by the time startRun fires.
         for (const type of Object.keys(CHAMPION_GLB_PATHS)) {
-            const p = loadChampionAsset(type, this.scene);
+            const p = loadChampionAsset(type);
             if (p) p.catch(err => console.error(`Champion GLB preload failed (${type}):`, err));
         }
         for (const type of Object.keys(ENEMY_GLB_PATHS)) {
-            const p = loadEnemyAsset(type, this.scene);
+            const p = loadEnemyAsset(type);
             if (p) p.catch(err => console.error(`Enemy GLB preload failed (${type}):`, err));
         }
 
@@ -651,7 +683,7 @@ export class SurvivorsGameplayState implements GameState {
 
     /** Initialize all gameplay systems and begin the run. Called once champion is chosen. */
     private async startRun(championType: string): Promise<void> {
-        if (!this.scene || !this.ui || !this.map) return;
+        if (!this.scene || !this.map) return;
 
         // Co-op M4: establish the local player's slot BEFORE any per-player system is
         // constructed below — the playerStats/heroController/… setters write into it.
@@ -675,8 +707,8 @@ export class SurvivorsGameplayState implements GameState {
         // Await the picked champion's GLB if one exists. No-op for champion types without
         // a GLB; instant if the preload already finished. On failure we fall through with
         // null and Champion uses the procedural builder.
-        let championAsset: AssetContainer | null = null;
-        const assetPromise = loadChampionAsset(championType, this.scene);
+        let championAsset: GlbContainer | null = null;
+        const assetPromise = loadChampionAsset(championType);
         if (assetPromise) {
             try {
                 championAsset = await assetPromise;
@@ -719,34 +751,38 @@ export class SurvivorsGameplayState implements GameState {
         // so leaving torch.intensity at 0 keeps both quiet. Toggle on by
         // calling `this.hero.enableTorch()` for a moodier night-arena look.
 
-        // Register the hero as a shadow caster.
-        // GLB heroes are skinned, so all child meshes get added.
-        const heroMesh = (this.hero as unknown as { mesh: Mesh | null }).mesh;
-        if (heroMesh && this.shadowGenerator) {
-            this.shadowGenerator.addShadowCaster(heroMesh, true);
+        // Register the hero as a shadow caster (directional key light).
+        // GLB heroes are skinned, so the whole mesh tree is flagged.
+        // TODO(phase F): torch self-shadow exclusion via layers — with the layer
+        // plumbing skipped for now, the hero would also render into the torch's
+        // cube shadow map if the torch were ever lit (it is dormant with
+        // castShadow=false, so this is currently moot).
+        const heroMesh = (this.hero as unknown as { mesh: Object3D | null }).mesh;
+        if (heroMesh) {
+            heroMesh.traverse(node => {
+                if ((node as Mesh).isMesh) node.castShadow = true;
+            });
         }
         // DEBUG: log shadow state once after a short delay to verify casters
-        // are in the shadow map's render list and the map is being rendered.
+        // are flagged and the shadow map is configured.
         setTimeout(() => {
-            if (!this.shadowGenerator) {
-                console.log('[shadow-debug] no shadowGenerator');
+            const light = this.shadowSourceLight;
+            if (!light || !light.castShadow) {
+                console.log('[shadow-debug] no shadow-casting key light');
                 return;
             }
-            const sm = this.shadowGenerator.getShadowMap();
-            const rl = sm?.renderList ?? null;
+            let casters = 0;
+            this.scene?.scene.traverse(n => { if ((n as Mesh).isMesh && n.castShadow) casters++; });
             console.log('[shadow-debug]', {
-                scene_shadowsEnabled: this.scene?.shadowsEnabled,
-                light_intensity: this.shadowSourceLight?.intensity,
-                shadowMap_renderListSize: rl?.length ?? 'null',
-                shadowMap_renderListNames: rl?.map(m => m.name).slice(0, 10) ?? null,
-                shadowMap_isReady: sm?.isReady() ?? false,
-                ESM_depthScale: (this.shadowGenerator as unknown as { depthScale: number }).depthScale,
-                useESM: (this.shadowGenerator as unknown as { useExponentialShadowMap: boolean }).useExponentialShadowMap,
+                light_intensity: light.intensity,
+                light_castShadow: light.castShadow,
+                shadowMapSize: `${light.shadow.mapSize.x}x${light.shadow.mapSize.y}`,
+                shadowCasters: casters,
             });
         }, 1500);
 
         this.heroController = new HeroController(
-            this.scene,
+            this.game,
             this.hero,
             Infinity, // infinite map — arenaClampScale(…, Infinity) never clamps
             variant.speed,
@@ -882,10 +918,10 @@ export class SurvivorsGameplayState implements GameState {
                 this.coopSession.sendReward({ t: 'reward', heroId, gold: rawReward });
             }
         });
-        // Wire the shadow generator so bosses + elites auto-register as casters.
+        // Wire the shadow lights so bosses + elites auto-register as casters.
         // Reset per run: enemy shadows start on and get cut off after wave 5.
         this.enemyShadowsDisabled = false;
-        this.enemyManager.setShadowGenerators([this.shadowGenerator, this.torchShadowGenerator]);
+        this.enemyManager.setShadowGenerators([this.shadowSourceLight, this.game.getHeroTorch()]);
         // Cache the last known hero position so the provider stays null-safe even
         // when an enemy attack kills the hero mid-frame: HeroController.takeDamage
         // triggers state.exit() synchronously (nulling this.hero), and the rest of
@@ -899,7 +935,7 @@ export class SurvivorsGameplayState implements GameState {
             {
                 getPosition: () => {
                     const p = this.hero?.getPosition();
-                    if (p) { heroPosFallback.copyFrom(p); return p; }
+                    if (p) { heroPosFallback.copy(p); return p; }
                     return heroPosFallback;
                 },
                 takeDamage: (amount: number, sourcePos?: Vector3) => {
@@ -927,7 +963,7 @@ export class SurvivorsGameplayState implements GameState {
         // on the per-class pendingAsset slots before construction. Loaded lazily (await
         // here) — the preload kick-off in enter() means this is usually a cache hit.
         for (const enemyType of Object.keys(ENEMY_GLB_PATHS)) {
-            const p = loadEnemyAsset(enemyType, this.scene);
+            const p = loadEnemyAsset(enemyType);
             if (!p) continue;
             try {
                 const container = await p;
@@ -949,11 +985,12 @@ export class SurvivorsGameplayState implements GameState {
         // cycle for reasons I haven't tracked down, and sit at origin looking
         // like a pink sphere. Sweep them after the prewarm completes.
         if (this.scene) {
-            for (const m of [...this.scene.meshes]) {
-                if (m.name.startsWith('bossOrbit') && !m.isDisposed()) {
-                    m.dispose();
-                }
-            }
+            const strays: Mesh[] = [];
+            this.scene.scene.traverse(node => {
+                const m = node as Mesh;
+                if (m.isMesh && m.name.startsWith('bossOrbit') && !isMeshDisposed(m)) strays.push(m);
+            });
+            for (const m of strays) disposeMesh(m);
         }
 
         // Damage / reward floating text manager.
@@ -1227,7 +1264,7 @@ export class SurvivorsGameplayState implements GameState {
         // ---------- UI ----------
 
         // Mobile virtual joystick
-        this.joystick = new SurvivorsJoystick(this.ui);
+        this.joystick = new SurvivorsJoystick(this.game.getCanvas());
         this.joystick.onDirection((dx, dz) => {
             if (this.heroController) this.heroController.setExternalInput(dx, dz);
         });
@@ -1267,22 +1304,22 @@ export class SurvivorsGameplayState implements GameState {
 
         // Q / E / Space → first / second / third ultimate. Mirrors a tap on the HUD
         // button exactly (Hud.triggerUltimateByIndex shares the same closure as
-        // the press handler). The scene-wide onKeyboardObservable is cleared by
-        // Game.cleanupScene() on state exit, so no manual disposal needed.
+        // the press handler). Window keydown listener (replaces the Babylon
+        // scene.onKeyboardObservable); tracked + removed in exit().
         // Space-bar = dash/jump/teleport (always index 2 — every class has it).
-        this.game.getScene().onKeyboardObservable.add((kbInfo) => {
-            if (kbInfo.type !== KeyboardEventTypes.KEYDOWN) return;
-            const key = kbInfo.event.key.toLowerCase();
+        this._hotkeyHandler = (e: KeyboardEvent) => {
+            const key = e.key.toLowerCase();
             if (key === 'q') this.hud?.triggerUltimateByIndex(0);
             else if (key === 'e') this.hud?.triggerUltimateByIndex(1);
             else if (key === ' ') {
                 this.hud?.triggerUltimateByIndex(2);
-                kbInfo.event.preventDefault?.(); // stop the browser from scrolling
+                e.preventDefault(); // stop the browser from scrolling
             }
             else if (key === 'escape') this.hud?.togglePause();
             else if (this.testMode && key === ']') this.cycleTestFusion();
             else if (this.testMode && key === '\\') this.stressLoad();
-        });
+        };
+        window.addEventListener('keydown', this._hotkeyHandler);
 
         // Overlays
         this.powerChoice     = new PowerChoiceOverlay(this.gameUI!.layer('overlay'));
@@ -1299,8 +1336,7 @@ export class SurvivorsGameplayState implements GameState {
 
         // Off-screen enemy indicators (all tiers)
         this.offscreenIndicators = new OffscreenEnemyIndicators(
-            this.ui,
-            this.scene,
+            this.game.getCanvas(),
             this.heroController.getCamera(),
             () => this.enemyManager?.getEnemies() ?? [],
         );
@@ -1327,7 +1363,9 @@ export class SurvivorsGameplayState implements GameState {
                 omniVolley(scene, [], p.x, p.z, { count: 2, speed: 4, damage: 0, element: el, lifeS: 0.05 });
             }
         });
-        scene.render(); // kick shader compilation for the spawned FX meshes
+        // One real render: Three compiles every needed GPU program synchronously
+        // inside this call (replaces Babylon's scene.render() shader kick).
+        this.game.getRendererHost().render(0);
         resetPowerEffects(); // dispose all the just-spawned prewarm FX + observers
     }
 
@@ -1338,106 +1376,93 @@ export class SurvivorsGameplayState implements GameState {
      *  so we don't need to bundle them. */
     private applyRuinsAmbience(): void {
         if (!this.scene) return;
-        const scene = this.scene;
+        const host = this.scene;
         const envBase = 'https://raw.githubusercontent.com/CedricGuillemet/dump/master/starryassets/env/';
         const envFiles = ['px.png', 'py.png', 'pz.png', 'nx.png', 'ny.png', 'nz.png'].map(f => envBase + f);
 
         // ── Env cube (IBL only) ──────────────────────────────────────────────
-        // Skipped on the NullEngine fallback (no WebGPU/WebGL): the cube upload
-        // takes the GL path with no GL context and crashes in the image-load
-        // handler ("reading 'TEXTURE_CUBE_MAP_POSITIVE_X' of undefined").
+        // Skipped when no GL context exists (nothing to upload into).
         if (!this.game.isGpuUnavailable()) {
-            const envTexture = CubeTexture.CreateFromImages(envFiles, scene);
+            const envTexture = new CubeTextureLoader().load(envFiles);
             // Use the env as scene IBL so the rigged GLB heroes pick up nice reflections.
             // intensity reduced 0.6 → 0.25 — IBL was adding a huge uniform ambient
             // term on every surface, which is the dominant cause of the "full bright"
             // / flat look. 0.25 still gives heroes some sky reflection.
-            scene.environmentTexture = envTexture;
-            scene.environmentIntensity = 0.25;
+            // (Three: scene.environment only affects PBR materials — exactly the
+            // GLB heroes/bosses; the Phong low-poly mats ignore it, same as the
+            // Babylon StandardMaterials effectively did.)
+            host.scene.environment = envTexture;
+            host.scene.environmentIntensity = 0.25;
+            this.envTexture = envTexture;
         }
 
         // Gradient + stars sky dome (globe map): warm dusk band at the curved
         // horizon fading to indigo overhead, so the space above the world's rim
         // isn't a black void. The env cube above stays for IBL reflections only.
-        this.globeSky = new GlobeSky(scene, this.game.isGpuUnavailable());
+        this.globeSky = new GlobeSky(host, this.game.isGpuUnavailable());
 
         // ── Horizon distance fog ──────────────────────────────────────────────
         // Blend the far ground cap + grass-fade seam into the sky's horizon band
         // so the finite (square) terrain edge isn't visible when the camera is
-        // zoomed out. Game.setupScene disables fog globally (it broke the old
-        // orthographic TD camera); survivors uses a perspective camera, so it's
-        // safe here. fogStart/fogEnd are refreshed every frame in update()
-        // (shifted outward with zoom); exit() restores the fog-off default.
-        scene.fogMode = Scene.FOGMODE_LINEAR;
-        scene.fogColor.copyFromFloats(FOG_COLOR_RGB[0], FOG_COLOR_RGB[1], FOG_COLOR_RGB[2]);
-        scene.fogStart = FOG_START;
-        scene.fogEnd = FOG_END;
-        scene.fogEnabled = true;
+        // zoomed out. The menu/boot scene runs fog-free; survivors uses a
+        // perspective camera, so linear fog is safe here. fog.near/far are
+        // refreshed every frame in update() (shifted outward with zoom);
+        // exit() restores the fog-off default.
+        host.scene.fog = new Fog(
+            new Color(FOG_COLOR_RGB[0], FOG_COLOR_RGB[1], FOG_COLOR_RGB[2]),
+            FOG_START,
+            FOG_END,
+        );
 
         // (Removed ruinsSpot SpotLight — it didn't cast shadows and was
         // washing out the directional's shadows at world origin where the
         // hero spawns. The hemispheric + directional combo gives the arena
         // enough ambient by itself.)
 
-        // ── Shadow generator ──────────────────────────────────────────────────
-        // ESM (ExponentialShadowMap) so the procedural-grass custom shader
-        // can sample the map as a plain sampler2D — Babylon's PCF maps use a
-        // sampler2DShadow which can't be sampled this way. ESM also gives
-        // softer edges for free.
+        // ── Directional shadow map ────────────────────────────────────────────
+        // Replaces the Babylon ShadowGenerator: casting is per-mesh (castShadow)
+        // and the map lives on the light. The ortho frustum is a fixed ±35-unit
+        // box that follows the hero every frame (see update()) — the world is a
+        // hero-centred treadmill, so the light must travel with it.
         if (this.shadowSourceLight) {
-            // Position the light high above the arena center so the orthographic
-            // shadow frustum covers the whole disc symmetrically. Offset a bit
-            // on +X/+Z so shadows have a visible angle (not straight-down).
-            // Ortho extents tightened to ~arena radius (25) so the 1024² shadow
-            // map gives ~0.05 world units per texel — sharper shadow edges.
-            this.shadowSourceLight.position = new Vector3(8, 40, 8);
-            this.shadowSourceLight.shadowMinZ = 1;
-            this.shadowSourceLight.shadowMaxZ = 100;
-            this.shadowSourceLight.orthoLeft   = -30;
-            this.shadowSourceLight.orthoRight  =  30;
-            this.shadowSourceLight.orthoTop    =  30;
-            this.shadowSourceLight.orthoBottom = -30;
-            this.shadowSourceLight.autoCalcShadowZBounds = false;
+            const light = this.shadowSourceLight;
+            // Low preset turns shadow rendering off entirely (set from the
+            // main-menu graphics preset) — Babylon's scene.shadowsEnabled.
+            light.castShadow = GameSettings.getGraphicsQuality() !== 'low';
+            light.shadow.mapSize.set(1024, 1024);
+            const cam = light.shadow.camera;
+            cam.left = -35;
+            cam.right = 35;
+            cam.top = 35;
+            cam.bottom = -35;
+            cam.near = 1;
+            cam.far = 120;
+            cam.updateProjectionMatrix();
+            light.shadow.bias = -0.0008;
+            // refresh throttle: shadow map every other frame (top-down:
+            // imperceptible, ~halves shadow cost). update() drives needsUpdate.
+            light.shadow.autoUpdate = false;
+            light.shadow.needsUpdate = true;
+            this._shadowRefreshInterval = 2;
+            this._shadowRefreshCounter = 0;
 
-            // Re-enable scene-wide shadow rendering — Game.setupScene() sets
-            // `scene.shadowsEnabled = false` as a perf default (no shadows in
-            // the menu state). Survivors needs them on Medium/High; Low turns
-            // shadow rendering off entirely (set from the main-menu graphics
-            // preset).
-            scene.shadowsEnabled = GameSettings.getGraphicsQuality() !== 'low';
-
-            // Default PCF shadow map — Babylon's most tested path. Grass
-            // can't sample this kind of texture from a custom shader, so the
-            // grass shadow integration is disabled (shadowGenerator: undefined
-            // below) — just trying to get the StandardMaterial ground to show
-            // hero shadows first as a sanity check.
-            const shadow = new ShadowGenerator(1024, this.shadowSourceLight);
-            shadow.usePercentageCloserFiltering = true;
-            shadow.filteringQuality = ShadowGenerator.QUALITY_LOW;
-            shadow.bias = 0.0008;
-            shadow.normalBias = 0.02;
-            shadow.darkness = 0.4;
-            shadow.transparencyShadow = false;
-            // No frustum edge falloff — gives a hard outer edge but avoids
-            // unintended "fading" mid-arena that some receivers can show.
-            shadow.frustumEdgeFalloff = 0;
-            const shadowMap = shadow.getShadowMap();
-            // refreshRate 2: shadow map every other frame (top-down: imperceptible, ~halves shadow cost)
-            if (shadowMap) shadowMap.refreshRate = 2;
-            this.shadowGenerator = shadow;
-
-            for (const m of scene.meshes) {
-                if (m.name.startsWith('arenaGround')) {
-                    m.receiveShadows = true;
+            host.scene.traverse(node => {
+                const m = node as Mesh;
+                if (m.isMesh && m.name.startsWith('arenaGround')) {
+                    m.receiveShadow = true;
                 }
-            }
+            });
         }
 
         // ── Grass blades ──────────────────────────────────────────────────────
         // Texture-free, sampler-free shader → identical pipeline state on
         // WebGL and WebGPU. Up to 32000 hardware-instanced blades (quality-
         // tiered) with vertex lighting and a sin-based wind sway.
-        this.grass = createProceduralGrass(scene, {
+        // Shadow receive: the grass fragment shader samples the directional
+        // light's shadow map directly (shadowLight) — only wired when the
+        // light actually casts (Low preset compiles without shadow code).
+        const grassShadowLight = this.shadowSourceLight?.castShadow ? this.shadowSourceLight : undefined;
+        this.grass = createProceduralGrass(host, {
             tileSize: GRASS_TILE_SIZE,
             curveRadius: GLOBE_RADIUS,
             bladeCount: bladeCountForQuality(GameSettings.getGraphicsQuality()),
@@ -1450,11 +1475,12 @@ export class SurvivorsGameplayState implements GameState {
             fadeStart: 14,
             fadeEnd: 22,
             directionalLight: this.shadowSourceLight ?? undefined,
-            // shadowGenerator: this.shadowGenerator ?? undefined, // disabled while debugging
-            ambientColor: new Color3(0.42, 0.50, 0.32),
-            colorRoot: new Color3(0.18, 0.26, 0.10),
-            colorTip:  new Color3(0.55, 0.78, 0.30),
-            colorDry:  new Color3(0.72, 0.65, 0.32),
+            shadowLight: grassShadowLight,
+            shadowDarkness: 0.4,
+            ambientColor: new Color(0.42, 0.50, 0.32),
+            colorRoot: new Color(0.18, 0.26, 0.10),
+            colorTip:  new Color(0.55, 0.78, 0.30),
+            colorDry:  new Color(0.72, 0.65, 0.32),
             influencerRadius: 0.9,
             influencerStrength: 0.55,
         });
@@ -1467,7 +1493,7 @@ export class SurvivorsGameplayState implements GameState {
         // LOD: 2 curve segments (12 verts vs 20 — curve detail is invisible at
         // distance) and no influencer bend loop (characters never reach it),
         // which together cut this layer's vertex cost to a fraction.
-        this.grassFar = createProceduralGrass(scene, {
+        this.grassFar = createProceduralGrass(host, {
             tileSize: GRASS_FAR_TILE_SIZE,
             curveRadius: GLOBE_RADIUS,
             bladeCount: bladeCountForQuality(GameSettings.getGraphicsQuality()) * 3,
@@ -1478,49 +1504,36 @@ export class SurvivorsGameplayState implements GameState {
             fadeStart: GRASS_FAR_FADE_START,
             fadeEnd: GRASS_FAR_FADE_END,
             directionalLight: this.shadowSourceLight ?? undefined,
-            ambientColor: new Color3(0.42, 0.50, 0.32),
-            colorRoot: new Color3(0.18, 0.26, 0.10),
-            colorTip:  new Color3(0.55, 0.78, 0.30),
-            colorDry:  new Color3(0.72, 0.65, 0.32),
+            ambientColor: new Color(0.42, 0.50, 0.32),
+            colorRoot: new Color(0.18, 0.26, 0.10),
+            colorTip:  new Color(0.55, 0.78, 0.30),
+            colorDry:  new Color(0.72, 0.65, 0.32),
         });
 
 
 
-        // ── Torch (point-light) shadow generator ──────────────────────────────
+        // ── Torch (point-light) shadow map ────────────────────────────────────
         // Cube shadow map on the hero's torch so bosses + heavies cast a
         // shadow pool around the hero. 512 cube = 6 × 512² render targets per
         // frame — heavy, but the caster set is intentionally small (bosses,
-        // tanks, etc). Hero itself is excluded so it doesn't block its own
-        // light. Re-uses the pre-registered torch from Game.setupScene.
+        // tanks, etc). Re-uses the pre-registered torch from Game.setupScene.
         const torch = this.game.getHeroTorch();
-        torch.shadowMinZ = 0.5;
-        torch.shadowMaxZ = 12;
-        const torchShadow = new ShadowGenerator(512, torch);
-        torchShadow.useExponentialShadowMap = true; // soft + fast on point lights
-        torchShadow.bias = 0.001;
-        torchShadow.darkness = 0.55; // a touch lighter than the directional
-        torchShadow.transparencyShadow = false;
-        this.torchShadowGenerator = torchShadow;
+        torch.shadow.mapSize.set(512, 512);
+        torch.shadow.camera.near = 0.1;
+        torch.shadow.camera.far = 9;
+        torch.shadow.bias = 0.001;
 
         // The torch is left dormant (intensity 0; enableTorch() is never called in
-        // the current design — see startRun). A point-light ShadowGenerator renders
-        // a 6-face cube depth map EVERY frame for every registered caster as long as
-        // light.shadowEnabled is true — gated on shadowEnabled, NOT intensity — so
-        // while the torch emits no light this is pure GPU waste (zero visible shadow),
+        // the current design — see startRun). A shadow-casting point light renders
+        // a 6-face cube depth map EVERY frame for every flagged caster as long as
+        // castShadow is true — gated on castShadow, NOT intensity — so while the
+        // torch emits no light this is pure GPU waste (zero visible shadow),
         // roughly doubling boss-wave shadow cost. Disable shadow casting until the
         // torch is actually lit. NB: if Champion.enableTorch() is ever wired into a
-        // run, it must set heroTorch.shadowEnabled = true to restore the shadow pool.
-        torch.shadowEnabled = false;
-    }
-
-    /** Public so EnemyManager can register boss/elite casters. */
-    public getShadowGenerator(): ShadowGenerator | null {
-        return this.shadowGenerator;
-    }
-
-    /** Public so EnemyManager can register boss/elite casters for the torch. */
-    public getTorchShadowGenerator(): ShadowGenerator | null {
-        return this.torchShadowGenerator;
+        // run, it must set heroTorch.castShadow = true to restore the shadow pool.
+        // TODO(phase F): torch self-shadow exclusion via layers (hero must not
+        // block its own light) — moot while the torch shadow stays off.
+        torch.castShadow = false;
     }
 
     private spawnItemDrop(position: Vector3, waveTier: number): void {
@@ -1573,18 +1586,17 @@ export class SurvivorsGameplayState implements GameState {
         this.removeReviveShield(); // idempotent guard
         const scene = this.scene;
         const hero = this.hero;
-        const bubble = MeshBuilder.CreateSphere('reviveShield', { diameter: 3.2, segments: 12 }, scene);
-        bubble.isPickable = false;
-        bubble.material = getCachedMaterial(scene, 'reviveShieldMat', m => {
-            m.emissiveColor = new Color3(0.27, 0.88, 0.45);
-            m.diffuseColor = new Color3(0, 0, 0);
-            m.disableLighting = true;
-            m.alpha = 0.26;
-            m.backFaceCulling = false;
+        const bubble = createSphere('reviveShield', { diameter: 3.2, segments: 12 }, scene);
+        bubble.material = getCachedMaterial('reviveShieldMat', m => {
+            m.emissive.setRGB(0.27, 0.88, 0.45);
+            m.color.setRGB(0, 0, 0); // black diffuse — only the emissive renders (unlit look)
+            m.transparent = true;
+            m.opacity = 0.26;
+            m.side = DoubleSide; // Babylon backFaceCulling = false
         });
         const p0 = hero.getPosition();
         bubble.position.set(p0.x, p0.y + 1.2, p0.z);
-        this.reviveShieldObs = scene.onBeforeRenderObservable.add(() => {
+        this.reviveShieldObs = scene.onBeforeRender.add(() => {
             const p = hero.getPosition();
             bubble.position.set(p.x, p.y + 1.2, p.z);
             bubble.rotation.y += 0.03; // slow shimmer spin
@@ -1595,11 +1607,11 @@ export class SurvivorsGameplayState implements GameState {
     /** Remove the revive shield bubble + its follow observer (idempotent). */
     private removeReviveShield(): void {
         if (this.reviveShieldObs && this.scene) {
-            this.scene.onBeforeRenderObservable.remove(this.reviveShieldObs);
+            this.scene.onBeforeRender.remove(this.reviveShieldObs);
         }
         this.reviveShieldObs = null;
         if (this.reviveShieldMesh) {
-            this.reviveShieldMesh.dispose(); // cached material is shared — leave it
+            disposeMesh(this.reviveShieldMesh); // cached material is shared — leave it
             this.reviveShieldMesh = null;
         }
     }
@@ -1812,10 +1824,9 @@ export class SurvivorsGameplayState implements GameState {
         if (this.heroController) this.heroController.spectating = true;
         // Play the champion's death animation (GLB `_dead` clip) and crumple in place.
         (this.hero as unknown as { triggerDeath?: () => void } | null)?.triggerDeath?.();
-        const mesh = (this.hero as unknown as { mesh?: { visibility: number } } | null)?.mesh;
         // Keep the body mostly visible so the death animation reads; still slightly
         // ghosted to signal the inert spectate state.
-        if (mesh) mesh.visibility = 0.6;
+        setChampionOpacity(this.hero, 0.6);
         this.showDownedBanner();
     }
 
@@ -1824,8 +1835,7 @@ export class SurvivorsGameplayState implements GameState {
         this._spectating = false;
         (this.hero as unknown as { clearDeath?: () => void } | null)?.clearDeath?.();
         this.heroController?.respawn(x, z);
-        const mesh = (this.hero as unknown as { mesh?: { visibility: number } } | null)?.mesh;
-        if (mesh) mesh.visibility = 1;
+        setChampionOpacity(this.hero, 1);
         this.hideDownedBanner();
     }
 
@@ -1873,9 +1883,10 @@ export class SurvivorsGameplayState implements GameState {
             this.guestHeroHp = this.guestHeroMaxHp;
             this.guestHeroAlive = true;
             (this.coopGhost as unknown as { clearDeath?: () => void }).clearDeath?.();
-            const g = this.coopGhost as unknown as { position: Vector3; mesh: (Mesh & { visibility: number }) | null };
+            const g = this.coopGhost as unknown as { position: Vector3; mesh: Object3D | null };
             g.position.set(1.5, g.position.y, 0);
-            if (g.mesh) { g.mesh.position.x = 1.5; g.mesh.position.z = 0; g.mesh.visibility = 1; }
+            if (g.mesh) { g.mesh.position.x = 1.5; g.mesh.position.z = 0; }
+            setChampionOpacity(this.coopGhost, 1);
         }
     }
 
@@ -2874,9 +2885,6 @@ export class SurvivorsGameplayState implements GameState {
         this.hero?.dispose();
         this.hero = null;
 
-        this.ui?.dispose();
-        this.ui = null;
-
         this.map?.dispose();
         this.map = null;
         this.propField?.dispose();
@@ -2891,30 +2899,27 @@ export class SurvivorsGameplayState implements GameState {
         this.grassFar = null;
 
         // Restore Game.setupScene's fog-off default so the menu / game-over
-        // (and any non-survivors flow) aren't left hazed by this run.
+        // (and any non-survivors flow) aren't left hazed by this run, and drop
+        // the per-run env cube reference off the scene.
         if (this.scene) {
-            this.scene.fogEnabled = false;
-            this.scene.fogMode = Scene.FOGMODE_NONE;
+            this.scene.scene.fog = null;
+            this.scene.scene.environment = null;
         }
 
-        // Dispose per-run lights, shadow generators, and env/sky textures. None of
-        // these are meshes / particle systems / ADT textures, so Game.cleanupScene()
-        // does NOT free them — without this they accumulate one set per run on the
-        // persistent (never-disposed) scene. Each leaked ShadowGenerator keeps
-        // rendering a full shadow map every frame (refreshRate=1), the dominant
-        // "later runs freeze worse" cost. Dispose each generator BEFORE the light it
-        // references; disposing the torch generator does NOT touch the shared
-        // heroTorch light (only its per-run generator).
-        this.shadowGenerator?.dispose();
-        this.shadowGenerator = null;
-        this.torchShadowGenerator?.dispose();
-        this.torchShadowGenerator = null;
-        this.shadowSourceLight?.dispose();
-        this.shadowSourceLight = null;
-        if (this.scene?.environmentTexture) {
-            this.scene.environmentTexture.dispose();
-            this.scene.environmentTexture = null;
+        // Dispose the per-run key light and env cube. Game.cleanupScene() removes
+        // the light from the scene graph but does not free its shadow-map render
+        // target — light.dispose() does; leaking one per run keeps a full shadow
+        // map alive, the dominant "later runs freeze worse" cost in the Babylon
+        // era. The env cube is a scene-level texture (not a material), so nothing
+        // else frees it.
+        if (this.shadowSourceLight) {
+            this.shadowSourceLight.target.removeFromParent();
+            this.shadowSourceLight.removeFromParent();
+            this.shadowSourceLight.dispose();
+            this.shadowSourceLight = null;
         }
+        this.envTexture?.dispose();
+        this.envTexture = null;
         this.globeSky?.dispose();
         this.globeSky = null;
 
@@ -3011,7 +3016,7 @@ export class SurvivorsGameplayState implements GameState {
             if (champ && !this.coopGhost && !this.coopGhostPending) {
                 this.coopGhostPending = true;
                 const champType = champ as 'barbarian' | 'ranger' | 'mage';
-                const assetP = loadChampionAsset(champType, this.scene!);
+                const assetP = loadChampionAsset(champType);
                 const ready = assetP ? assetP.catch(() => null) : Promise.resolve(null);
                 void ready.then((asset) => {
                     this.coopGhostPending = false;
@@ -3159,12 +3164,28 @@ export class SurvivorsGameplayState implements GameState {
             this.map?.update(hp.x, hp.z);
             // Sky dome follows the hero so a long run never walks out of it.
             this.globeSky?.update(hp.x, hp.z, deltaTime);
-            // Directional shadow frustum is a fixed ±30-unit ortho box around
-            // the light — keep it centred on the hero. Snap to 0.5 u so the
-            // shadow texels don't shimmer as the hero moves.
+            // Directional shadow frustum is a fixed ±35-unit ortho box around
+            // the light — keep it centred on the hero (the world is a
+            // hero-centred treadmill). Snap the follow point to 0.5 u so the
+            // shadow texels don't shimmer as the hero moves. The light sits
+            // 40 units back along its (fixed) direction; the target rides the
+            // hero so the direction vector never changes.
             if (this.shadowSourceLight) {
-                this.shadowSourceLight.position.x = Math.round((hp.x + 8) * 2) / 2;
-                this.shadowSourceLight.position.z = Math.round((hp.z + 8) * 2) / 2;
+                const light = this.shadowSourceLight;
+                const sx = Math.round(hp.x * 2) / 2;
+                const sz = Math.round(hp.z * 2) / 2;
+                light.position.set(sx, hp.y, sz).addScaledVector(this._keyLightDir, -40);
+                light.target.position.set(sx, hp.y, sz);
+                light.target.updateMatrixWorld();
+                // Shadow-map refresh throttle (Babylon shadowMap.refreshRate):
+                // re-render the map every Nth frame only.
+                if (light.castShadow) {
+                    this._shadowRefreshCounter++;
+                    if (this._shadowRefreshCounter >= this._shadowRefreshInterval) {
+                        this._shadowRefreshCounter = 0;
+                        light.shadow.needsUpdate = true;
+                    }
+                }
             }
             this.grass?.setHeroPos(hp); // grass treadmill recentre
             this.grassFar?.setHeroPos(hp);
@@ -3179,14 +3200,14 @@ export class SurvivorsGameplayState implements GameState {
 
         // Shift the distance-fog band outward by however far the camera has
         // receded with zoom, so the hero + spawn ring stay crisp at every zoom
-        // and only the far horizon hazes. (Babylon fog is camera-distance based;
-        // a fixed band would creep over the play area as you zoom out.) The grass
-        // shader reads scene.fogStart/End, so both layers track this too.
-        const fogScene = this.scene;
-        if (fogScene && fogScene.fogEnabled) {
+        // and only the far horizon hazes. (Fog is camera-distance based; a fixed
+        // band would creep over the play area as you zoom out.) The grass shader
+        // mirrors scene.fog.near/far per frame, so both layers track this too.
+        const fog = this.scene?.scene.fog;
+        if (fog instanceof Fog) {
             const fogShift = this.heroController?.getCameraDistanceFromDefault() ?? 0;
-            fogScene.fogStart = FOG_START + fogShift;
-            fogScene.fogEnd = FOG_END + fogShift;
+            fog.near = FOG_START + fogShift;
+            fog.far = FOG_END + fogShift;
         }
 
         // Keep the procedural-grass shader's torch uniforms in sync with the
@@ -3198,8 +3219,8 @@ export class SurvivorsGameplayState implements GameState {
                 // Mutate the pre-allocated torch-opts struct in place so we
                 // don't churn a fresh object every frame.
                 const opts = this._scratchTorchOpts;
-                opts.position.copyFrom(this.hero.getPosition());
-                opts.color.copyFrom(torch.diffuse);
+                opts.position.copy(this.hero.getPosition());
+                opts.color.copy(torch.color);
                 opts.intensity = TORCH_INTENSITY * (torch.intensity / 5.0);
                 opts.range = TORCH_RANGE;
                 this.grass.setTorch(opts);
@@ -3776,31 +3797,29 @@ export class SurvivorsGameplayState implements GameState {
         const scene = this.scene;
         const pos = this.hero.getPosition().clone();
         pos.y = 1.2;
-        const color = isUltimate ? new Color3(1, 0.9, 0.4) : new Color3(0.75, 0.45, 1);
-        const burst = MeshBuilder.CreateSphere('forgeBurst', { diameter: 0.6, segments: 8 }, scene);
-        burst.position.copyFrom(pos);
+        const burst = createSphere('forgeBurst', { diameter: 0.6, segments: 8 }, scene);
+        burst.position.copy(pos);
         // Cache by bounded key (ult vs fuse — two colours). Math.random() name
         // defeated the cache and forced a shader recompile per forge. Fade via
-        // mesh.visibility, not the frozen mat's .alpha.
+        // setMeshOpacity, never the shared cached material's opacity.
         const matKey = isUltimate ? 'forgeBurstMat_ult' : 'forgeBurstMat_fuse';
-        burst.material = getCachedMaterial(scene, matKey, m => {
-            m.emissiveColor = color;
-            m.diffuseColor = new Color3(0, 0, 0);
-            m.disableLighting = true;
-            m.alpha = 0.9;
+        burst.material = getCachedMaterial(matKey, m => {
+            if (isUltimate) m.emissive.setRGB(1, 0.9, 0.4);
+            else m.emissive.setRGB(0.75, 0.45, 1);
+            m.color.setRGB(0, 0, 0); // black diffuse — only the emissive renders (unlit look)
+            m.transparent = true;
+            m.opacity = 0.9;
         });
-        burst.visibility = 0.9;
         const lifeS = isUltimate ? 0.7 : 0.5;
         let elapsed = 0;
-        const obs = scene.onBeforeRenderObservable.add(() => {
-            const dt = scene.getEngine().getDeltaTime() / 1000;
-            elapsed += dt;
+        const token = scene.onBeforeRender.add(() => {
+            elapsed += scene.deltaSeconds;
             const t = Math.min(elapsed / lifeS, 1);
-            burst.scaling.setAll(0.6 + t * (isUltimate ? 10 : 6));
-            burst.visibility = 0.9 * (1 - t);
+            burst.scale.setScalar(0.6 + t * (isUltimate ? 10 : 6));
+            setMeshOpacity(burst, 0.9 * (1 - t));
             if (t >= 1) {
-                burst.dispose(); // keeps the cached/shared material
-                scene.onBeforeRenderObservable.remove(obs);
+                disposeMesh(burst); // cached material is shared — leave it; the fade clone is owned and freed
+                scene.onBeforeRender.remove(token);
             }
         });
     }
@@ -4418,26 +4437,30 @@ export class SurvivorsGameplayState implements GameState {
         if (this.replaceSlotOverlay?.isOpen()) overlays.push('replaceSlot');
         const overlayStr = overlays.length ? ` · overlay=[${overlays.join(',')}]` : '';
 
-        // Snapshot Babylon scene state — these are the lists the scene walks
-        // every frame. If they grow across waves, we have a leak (the most
-        // likely cause given the rAF gap is outside our update tick).
+        // Snapshot scene + renderer state — these are the sets walked or
+        // rendered every frame. If they grow across waves, we have a leak (the
+        // most likely cause given the rAF gap is outside our update tick).
         const scene = this.scene;
-        // shadowRL = directional/torch shadow-map renderList sizes. These must track
-        // the LIVE enemy count (+ a few lingering corpses), NOT climb monotonically —
-        // a steady climb means dead-enemy meshes are leaking into the shadow passes.
-        // lights must stay flat (3) across menu→play→gameOver→play; a climb means a
-        // per-run light leak. Both are the confirmed freeze sources.
-        const shadowRL = (g: ShadowGenerator | null): number | string =>
-            g?.getShadowMap()?.renderList?.length ?? '?';
-        const sceneInfo = scene
-            ? ` · ps=${scene.particleSystems.length}` +
-              ` anim=${(scene as unknown as { _activeAnimatables?: unknown[] })._activeAnimatables?.length ?? '?'}` +
-              ` meshes=${scene.meshes.length}` +
-              ` materials=${scene.materials.length}` +
-              ` textures=${scene.textures.length}` +
-              ` lights=${scene.lights.length}` +
-              ` shadowRL=${shadowRL(this.shadowGenerator)}/${shadowRL(this.torchShadowGenerator)}`
-            : '';
+        // shadowCasters = castShadow-flagged meshes: must track the LIVE enemy
+        // count (+ a few lingering corpses), NOT climb monotonically — a steady
+        // climb means dead-enemy meshes are leaking into the shadow pass. lights
+        // must stay flat across menu→play→gameOver→play; a climb means a per-run
+        // light leak. Both were the confirmed Babylon-era freeze sources.
+        let sceneInfo = '';
+        if (scene) {
+            const walk = this.collectSceneResources(scene);
+            const gpu = this.game.isGpuUnavailable() ? null : this.game.getRendererHost().info;
+            sceneInfo =
+                ` · ps=${scene.particleSystems.length}` +
+                ` hooks=${scene.onBeforeRender.size}/${scene.onAnimUpdate.size}` +
+                ` meshes=${walk.meshes}` +
+                ` materials=${walk.materials.length}` +
+                ` textures=${gpu?.textures ?? '?'}` +
+                ` geometries=${gpu?.geometries ?? '?'}` +
+                ` programs=${gpu?.programs ?? '?'}` +
+                ` lights=${walk.lights}` +
+                ` shadowCasters=${walk.shadowCasters}`;
+        }
         // hidden/focus classify an rAF-gap: hidden=true → tab backgrounded;
         // hidden=false focus=false → window unfocused (rAF throttled, NOT a hang);
         // hidden=false focus=true → genuinely foreground (cross-check [freeze:frame]).
@@ -4447,12 +4470,49 @@ export class SurvivorsGameplayState implements GameState {
         console.error(`[freeze:${kind}] ${durationMs}ms at t=${tRun}s · wave ${wave} · ${enemies} enemies${overlayStr}${vis}${sceneInfo}`);
     }
 
+    /** Walk the scene graph collecting the live resource sets. Three has no
+     *  global material/texture lists (Babylon's scene.materials/textures) — the
+     *  scene walk IS the live set, so the watchdog counts what a frame renders. */
+    private collectSceneResources(host: SceneHost): {
+        meshes: number; lights: number; shadowCasters: number;
+        materials: Material[]; textureNames: string[];
+    } {
+        let meshes = 0;
+        let lights = 0;
+        let shadowCasters = 0;
+        const materials = new Set<Material>();
+        const textures = new Set<Texture>();
+        host.scene.traverse(node => {
+            const mesh = node as Mesh;
+            if (mesh.isMesh) {
+                meshes++;
+                if (mesh.castShadow) shadowCasters++;
+                const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+                for (const mat of mats) {
+                    if (!mat) continue;
+                    materials.add(mat);
+                    for (const slot of SurvivorsGameplayState.TEXTURE_SLOTS) {
+                        const tex = (mat as unknown as Record<string, Texture | null | undefined>)[slot];
+                        if (tex?.isTexture) textures.add(tex);
+                    }
+                }
+            }
+            if ((node as unknown as { isLight?: boolean }).isLight) lights++;
+        });
+        return {
+            meshes, lights, shadowCasters,
+            materials: [...materials],
+            textureNames: [...textures].map(t => t.name || '(unnamed)'),
+        };
+    }
+
     /** Snapshot the post-setup scene resource counts as the leak-watchdog floor. */
     private captureResourceBaseline(): void {
         const s = this.scene;
         if (!s) return;
-        this.resourceBaselineMaterials = s.materials.length;
-        this.resourceBaselineTextures = s.textures.length;
+        this.resourceBaselineMaterials = this.collectSceneResources(s).materials.length;
+        this.resourceBaselineTextures = this.game.isGpuUnavailable()
+            ? 0 : this.game.getRendererHost().info.textures;
         this.resourceWaveSamples = [];
         console.info(
             `[resource-watchdog] baseline materials=${this.resourceBaselineMaterials} ` +
@@ -4489,8 +4549,10 @@ export class SurvivorsGameplayState implements GameState {
     private checkResourceBudget(wave: number): void {
         const s = this.scene;
         if (!s) return;
-        const materials = s.materials.length;
-        const textures = s.textures.length;
+        const walk = this.collectSceneResources(s);
+        const materials = walk.materials.length;
+        const textures = this.game.isGpuUnavailable()
+            ? 0 : this.game.getRendererHost().info.textures;
         const prev = this.resourceWaveSamples[this.resourceWaveSamples.length - 1];
         this.resourceWaveSamples.push({ wave, materials, textures });
 
@@ -4500,8 +4562,8 @@ export class SurvivorsGameplayState implements GameState {
         const slowClimb = wave >= 3 && grewVsPrev > SurvivorsGameplayState.RESOURCE_PER_WAVE_TOLERANCE;
         if (!overCeiling && !slowClimb) return;
 
-        const matBuckets = formatBuckets(s.materials.map(m => m.name));
-        const texBuckets = formatBuckets(s.textures.map(t => t.name));
+        const matBuckets = formatBuckets(walk.materials.map(m => m.name));
+        const texBuckets = formatBuckets(walk.textureNames);
         console.error(
             `[resource-watchdog] LEAK SUSPECTED at wave ${wave} cleared: ` +
             `materials=${materials} (baseline ${this.resourceBaselineMaterials}, ceiling ${ceiling}, ` +
@@ -4527,8 +4589,7 @@ export class SurvivorsGameplayState implements GameState {
             this.game.setPostFxReduced(true);
             console.info(`[perf-trim] wave ${clearedWave} cleared at ≈${Math.round(this._fpsEma)} fps → reduced post-fx (level 1)`);
         } else {
-            const map = this.shadowGenerator?.getShadowMap();
-            if (map) map.refreshRate = 3;
+            this._shadowRefreshInterval = 3;
             console.info(`[perf-trim] wave ${clearedWave} cleared at ≈${Math.round(this._fpsEma)} fps → shadow map every 3rd frame (level 2)`);
         }
     }
@@ -4628,8 +4689,7 @@ export class SurvivorsGameplayState implements GameState {
                         // local-hero spectate fade). The ghost is a full Champion, so it
                         // crumples on the host's screen too.
                         (this.coopGhost as unknown as { triggerDeath?: () => void } | null)?.triggerDeath?.();
-                        const gm = (this.coopGhost as unknown as { mesh?: { visibility: number } } | null)?.mesh;
-                        if (gm) gm.visibility = 0.6;
+                        setChampionOpacity(this.coopGhost, 0.6);
                         // M4-11: the guest just died. If the host is also down, both are
                         // dead → end the run; otherwise the guest spectates (it sees its
                         // alive flag flip in the snapshot) and the host plays on.

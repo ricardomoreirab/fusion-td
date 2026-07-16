@@ -1,4 +1,5 @@
-import { Scene, Vector3 } from '@babylonjs/core';
+import { Vector3 } from 'three';
+import type { SceneHost } from '../../engine/three/SceneHost';
 import { PowerDefinition, PowerRuntimeState, PowerContext, PowerElement } from './PowerDefinitions';
 import { getAnyPowerDef, getFusionFor } from './FusionDefinitions';
 import { Enemy } from '../enemies/Enemy';
@@ -11,7 +12,7 @@ export interface PowerSlot {
 export class PowerSlotManager {
     public static readonly MAX_SLOTS = 4;
     private slots: (PowerSlot | null)[] = [null, null, null, null];
-    private scene: Scene;
+    private scene: SceneHost;
     private heroProvider: () => Vector3;
     private enemyProvider: () => Enemy[];
     private damageMultiplierProvider: () => number;
@@ -29,7 +30,7 @@ export class PowerSlotManager {
     private lastCastSlot: PowerSlot | null = null;
 
     constructor(
-        scene: Scene,
+        scene: SceneHost,
         heroProvider: () => Vector3,
         enemyProvider: () => Enemy[],
         damageMultiplierProvider: () => number = () => 1.0,

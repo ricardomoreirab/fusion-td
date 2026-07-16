@@ -1,4 +1,5 @@
-import { Vector3, AssetContainer } from '@babylonjs/core';
+import { Vector3 } from 'three';
+import type { GlbContainer } from '../../engine/three/assets';
 import { Game } from '../../engine/Game';
 import { Enemy } from './Enemy';
 import { BasicEnemy } from './BasicEnemy';
@@ -22,7 +23,7 @@ import { HornedLizard } from './HornedLizard';
  * Construct a concrete Enemy of the given type at a position, for GUEST
  * render-only use. Mirrors the type switch in EnemyManager.spawnSurvivorsEnemy.
  *
- * `asset` is the preloaded GLB AssetContainer for this type (from the module
+ * `asset` is the preloaded GlbContainer for this type (from the module
  * cache, supplied by the caller). It is staged on the SAME static `pendingAsset`
  * slot the host uses before construction, so `createMesh()` builds the proper
  * GLB model instead of the procedural fallback. The red-tier variants extend a
@@ -38,7 +39,7 @@ export function createEnemyOfType(
     game: Game,
     type: string,
     pos: Vector3,
-    asset: AssetContainer | null = null,
+    asset: GlbContainer | null = null,
     bossTier: number = 1,
 ): Enemy | null {
     switch (type) {

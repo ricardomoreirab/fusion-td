@@ -1,14 +1,18 @@
-import { Vector3, MeshBuilder, StandardMaterial, Color3, Mesh, AssetContainer, AnimationGroup, TransformNode, Quaternion } from '@babylonjs/core';
+import { Box3, Color, Mesh, MeshPhongMaterial, Vector3 } from 'three';
 import { Game } from '../../engine/Game';
 import { Enemy } from './Enemy';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../engine/rendering/LowPolyMaterial';
 import { PALETTE } from '../../engine/rendering/StyleConstants';
+import { AnimGroup } from '../../engine/three/AnimGroup';
+import type { GlbContainer } from '../../engine/three/assets';
+import { headingToYaw } from '../../engine/three/math';
+import { createBox, createCylinder, createPlane, createPolyhedron, createSphere, disposeMesh, isMeshDisposed } from '../../engine/three/primitives';
 
 export class FastEnemy extends Enemy {
     /** Static slot used by EnemyManager.spawnSurvivorsEnemy to stage a preloaded GLB
      *  asset before constructing a FastEnemy. createMesh() consumes + clears it. */
-    public static pendingAsset: AssetContainer | null = null;
+    public static pendingAsset: GlbContainer | null = null;
 
     private flyTime: number = 0;
     private leftWing: Mesh | null = null;
@@ -25,10 +29,10 @@ export class FastEnemy extends Enemy {
 
     /** True when this instance renders via the artillery-carriage GLB. */
     private usingGLB: boolean = false;
-    private glbWalkAnim: AnimationGroup | null = null;
-    private glbAttackAnim: AnimationGroup | null = null;
-    private glbIdleAnim: AnimationGroup | null = null;
-    private glbCurrentAnim: AnimationGroup | null = null;
+    private glbWalkAnim: AnimGroup | null = null;
+    private glbAttackAnim: AnimGroup | null = null;
+    private glbIdleAnim: AnimGroup | null = null;
+    private glbCurrentAnim: AnimGroup | null = null;
     private static readonly GLB_ATTACK_RANGE = 2.5;
 
     constructor(game: Game, position: Vector3, path: Vector3[]) {
@@ -67,45 +71,32 @@ export class FastEnemy extends Enemy {
         this.createMeshProcedural();
     }
 
-    private createMeshFromGLB(asset: AssetContainer): void {
+    private createMeshFromGLB(asset: GlbContainer): void {
         this.usingGLB = true;
-        this.mesh = new Mesh('fastEnemyGlbRoot', this.scene);
-        this.mesh.position.copyFrom(this.position);
+        this.mesh = new Mesh();
+        this.mesh.name = 'fastEnemyGlbRoot';
+        this.scene.scene.add(this.mesh);
+        this.mesh.position.copy(this.position);
 
-        const inst = asset.instantiateModelsToScene(
-            name => `fast_${name}`,
-            true,
-            { doNotInstantiate: true },
-        );
+        const inst = asset.instantiate(this.scene, 'fast_');
+        this.glbInstance = inst;
+        const root = inst.root;
+        this.mesh.add(root);
         const FAST_SCALE = 1.0;
-        for (const root of inst.rootNodes) {
-            root.parent = this.mesh;
-            if ('scaling' in root && root.scaling) {
-                (root as TransformNode).scaling.scaleInPlace(FAST_SCALE);
-            }
-            // 180° Y flip — same pattern as BasicEnemy GLB. Quaternion-aware.
-            const tn = root as TransformNode;
-            const flip = Quaternion.RotationYawPitchRoll(Math.PI, 0, 0);
-            if (tn.rotationQuaternion) {
-                tn.rotationQuaternion = flip.multiply(tn.rotationQuaternion);
-            } else if (tn.rotation) {
-                tn.rotation.y += Math.PI;
-            }
-        }
+        root.scale.multiplyScalar(FAST_SCALE);
+        // 180° Y flip — same pattern as BasicEnemy GLB. Kept from the Babylon
+        // build so facing math stays aligned (the Phase D handedness audit may
+        // remove it).
+        root.rotation.y += Math.PI;
 
         // Feet-on-ground offset.
-        this.mesh.computeWorldMatrix(true);
-        const bbox = this.mesh.getHierarchyBoundingVectors(true);
+        this.mesh.updateMatrixWorld(true);
+        const bbox = new Box3().setFromObject(this.mesh);
         const feetOffset = -bbox.min.y;
-        for (const root of inst.rootNodes) {
-            if ('position' in root && root.position) {
-                (root as TransformNode).position.y += feetOffset;
-            }
-        }
+        root.position.y += feetOffset;
 
         // Register groups for base-class dispose cleanup (prevents animatable leak).
         this.glbAnimationGroups = inst.animationGroups;
-        this.glbSkeletons = inst.skeletons;
 
         for (const ag of inst.animationGroups) ag.stop();
         for (const ag of inst.animationGroups) {
@@ -129,7 +120,7 @@ export class FastEnemy extends Enemy {
         }
     }
 
-    private playGlbAnim(slot: AnimationGroup | null, loop: boolean): void {
+    private playGlbAnim(slot: AnimGroup | null, loop: boolean): void {
         if (!slot) return;
         if (this.glbCurrentAnim === slot) return;
         if (this.glbCurrentAnim) this.glbCurrentAnim.stop();
@@ -144,7 +135,7 @@ export class FastEnemy extends Enemy {
      */
     private createMeshProcedural(): void {
         // --- Core body: tall narrow cone tapering downward (spectral cloak shape) ---
-        this.mesh = MeshBuilder.CreateCylinder('fastEnemyBody', {
+        this.mesh = createCylinder('fastEnemyBody', {
             height: 1.1,
             diameterTop: 0.50,
             diameterBottom: 0.08,
@@ -153,179 +144,187 @@ export class FastEnemy extends Enemy {
         makeFlatShaded(this.mesh);
 
         // Position at starting position, raised for flying
-        this.mesh.position = this.position.clone();
+        this.mesh.position.copy(this.position);
         this.mesh.position.y += 1.3;
 
-        const bodyMat = createLowPolyMaterial('fastBodyMat', PALETTE.ENEMY_FAST, this.scene);
-        bodyMat.alpha = 0.85; // Slightly translucent for ghostly feel
+        const bodyMat = createLowPolyMaterial('fastBodyMat', PALETTE.ENEMY_FAST);
+        bodyMat.transparent = true;
+        bodyMat.opacity = 0.85; // Slightly translucent for ghostly feel
         this.mesh.material = bodyMat;
 
         // --- Hood / Head: slightly squashed sphere-like shape ---
-        this.head = MeshBuilder.CreatePolyhedron('fastHead', {
+        this.head = createPolyhedron('fastHead', {
             type: 2, // Icosahedron for faceted look
             size: 0.22
         }, this.scene);
         makeFlatShaded(this.head);
-        this.head.parent = this.mesh;
-        this.head.position = new Vector3(0, 0.55, 0.05);
-        this.head.scaling = new Vector3(1.0, 0.85, 1.1); // Slightly flattened, elongated
-        this.head.material = createLowPolyMaterial('fastHeadMat', PALETTE.ENEMY_FAST_CLOAK, this.scene);
+        this.mesh.add(this.head);
+        this.head.position.set(0, 0.55, 0.05);
+        this.head.scale.set(1.0, 0.85, 1.1); // Slightly flattened, elongated
+        this.head.material = createLowPolyMaterial('fastHeadMat', PALETTE.ENEMY_FAST_CLOAK);
 
         // --- Hood cowl: half-cylinder draping behind the head ---
-        const cowl = MeshBuilder.CreateCylinder('fastCowl', {
+        const cowl = createCylinder('fastCowl', {
             height: 0.35,
             diameterTop: 0.48,
             diameterBottom: 0.55,
             tessellation: 5
         }, this.scene);
         makeFlatShaded(cowl);
-        cowl.parent = this.head;
-        cowl.position = new Vector3(0, 0.10, -0.08);
-        cowl.material = createLowPolyMaterial('fastCowlMat', PALETTE.ENEMY_FAST_CLOAK, this.scene);
+        this.head.add(cowl);
+        cowl.position.set(0, 0.10, -0.08);
+        cowl.material = createLowPolyMaterial('fastCowlMat', PALETTE.ENEMY_FAST_CLOAK);
 
         // --- Left Eye: eerie pale glow ---
-        const leftEye = MeshBuilder.CreateBox('fastLeftEye', {
+        const leftEye = createBox('fastLeftEye', {
             width: 0.12,
             height: 0.04,
             depth: 0.04
         }, this.scene);
         makeFlatShaded(leftEye);
-        leftEye.parent = this.head;
-        leftEye.position = new Vector3(-0.10, 0.0, 0.20);
-        leftEye.material = createEmissiveMaterial('fastLeftEyeMat', PALETTE.ENEMY_FAST_EYE, 1.2, this.scene);
+        this.head.add(leftEye);
+        leftEye.position.set(-0.10, 0.0, 0.20);
+        leftEye.material = createEmissiveMaterial('fastLeftEyeMat', PALETTE.ENEMY_FAST_EYE, 1.2);
 
         // --- Right Eye: eerie pale glow ---
-        const rightEye = MeshBuilder.CreateBox('fastRightEye', {
+        const rightEye = createBox('fastRightEye', {
             width: 0.12,
             height: 0.04,
             depth: 0.04
         }, this.scene);
         makeFlatShaded(rightEye);
-        rightEye.parent = this.head;
-        rightEye.position = new Vector3(0.10, 0.0, 0.20);
-        rightEye.material = createEmissiveMaterial('fastRightEyeMat', PALETTE.ENEMY_FAST_EYE, 1.2, this.scene);
+        this.head.add(rightEye);
+        rightEye.position.set(0.10, 0.0, 0.20);
+        rightEye.material = createEmissiveMaterial('fastRightEyeMat', PALETTE.ENEMY_FAST_EYE, 1.2);
 
         // --- Left Arm: thin bony reaching limb ---
-        this.leftWing = MeshBuilder.CreateBox('fastLeftArm', {
+        this.leftWing = createBox('fastLeftArm', {
             width: 0.55,
             height: 0.06,
             depth: 0.08
         }, this.scene);
         makeFlatShaded(this.leftWing);
-        this.leftWing.parent = this.mesh;
-        this.leftWing.position = new Vector3(-0.38, 0.25, 0.12);
+        this.mesh.add(this.leftWing);
+        this.leftWing.position.set(-0.38, 0.25, 0.12);
         this.leftWing.rotation.z = Math.PI / 6;
         this.leftWing.rotation.y = -0.3;
-        this.leftWing.material = createLowPolyMaterial('fastLeftArmMat', PALETTE.ENEMY_FAST_CLOAK, this.scene);
+        this.leftWing.material = createLowPolyMaterial('fastLeftArmMat', PALETTE.ENEMY_FAST_CLOAK);
 
         // Left claw: small cone
-        const leftClaw = MeshBuilder.CreateCylinder('fastLeftClaw', {
+        const leftClaw = createCylinder('fastLeftClaw', {
             height: 0.12,
             diameterTop: 0.0,
             diameterBottom: 0.06,
             tessellation: 3
         }, this.scene);
         makeFlatShaded(leftClaw);
-        leftClaw.parent = this.leftWing;
-        leftClaw.position = new Vector3(-0.28, 0, 0.02);
+        this.leftWing.add(leftClaw);
+        leftClaw.position.set(-0.28, 0, 0.02);
         leftClaw.rotation.z = Math.PI / 2;
-        leftClaw.material = createLowPolyMaterial('fastLeftClawMat', PALETTE.ENEMY_FAST_WISP, this.scene);
+        leftClaw.material = createLowPolyMaterial('fastLeftClawMat', PALETTE.ENEMY_FAST_WISP);
 
         // --- Right Arm: thin bony reaching limb ---
-        this.rightWing = MeshBuilder.CreateBox('fastRightArm', {
+        this.rightWing = createBox('fastRightArm', {
             width: 0.55,
             height: 0.06,
             depth: 0.08
         }, this.scene);
         makeFlatShaded(this.rightWing);
-        this.rightWing.parent = this.mesh;
-        this.rightWing.position = new Vector3(0.38, 0.25, 0.12);
+        this.mesh.add(this.rightWing);
+        this.rightWing.position.set(0.38, 0.25, 0.12);
         this.rightWing.rotation.z = -Math.PI / 6;
         this.rightWing.rotation.y = 0.3;
-        this.rightWing.material = createLowPolyMaterial('fastRightArmMat', PALETTE.ENEMY_FAST_CLOAK, this.scene);
+        this.rightWing.material = createLowPolyMaterial('fastRightArmMat', PALETTE.ENEMY_FAST_CLOAK);
 
         // Right claw: small cone
-        const rightClaw = MeshBuilder.CreateCylinder('fastRightClaw', {
+        const rightClaw = createCylinder('fastRightClaw', {
             height: 0.12,
             diameterTop: 0.0,
             diameterBottom: 0.06,
             tessellation: 3
         }, this.scene);
         makeFlatShaded(rightClaw);
-        rightClaw.parent = this.rightWing;
-        rightClaw.position = new Vector3(0.28, 0, 0.02);
+        this.rightWing.add(rightClaw);
+        rightClaw.position.set(0.28, 0, 0.02);
         rightClaw.rotation.z = -Math.PI / 2;
-        rightClaw.material = createLowPolyMaterial('fastRightClawMat', PALETTE.ENEMY_FAST_WISP, this.scene);
+        rightClaw.material = createLowPolyMaterial('fastRightClawMat', PALETTE.ENEMY_FAST_WISP);
 
         // --- Cloak flare left: flat triangle trailing behind ---
-        this.cloakLeft = MeshBuilder.CreateCylinder('fastCloakLeft', {
+        this.cloakLeft = createCylinder('fastCloakLeft', {
             height: 0.5,
             diameterTop: 0.30,
             diameterBottom: 0.0,
             tessellation: 3
         }, this.scene);
         makeFlatShaded(this.cloakLeft);
-        this.cloakLeft.parent = this.mesh;
-        this.cloakLeft.position = new Vector3(-0.18, -0.45, -0.15);
+        this.mesh.add(this.cloakLeft);
+        this.cloakLeft.position.set(-0.18, -0.45, -0.15);
         this.cloakLeft.rotation.x = 0.3;
-        const cloakMatL = createLowPolyMaterial('fastCloakLeftMat', PALETTE.ENEMY_FAST, this.scene);
-        cloakMatL.alpha = 0.7;
+        const cloakMatL = createLowPolyMaterial('fastCloakLeftMat', PALETTE.ENEMY_FAST);
+        cloakMatL.transparent = true;
+        cloakMatL.opacity = 0.7;
         this.cloakLeft.material = cloakMatL;
 
         // --- Cloak flare right ---
-        this.cloakRight = MeshBuilder.CreateCylinder('fastCloakRight', {
+        this.cloakRight = createCylinder('fastCloakRight', {
             height: 0.5,
             diameterTop: 0.30,
             diameterBottom: 0.0,
             tessellation: 3
         }, this.scene);
         makeFlatShaded(this.cloakRight);
-        this.cloakRight.parent = this.mesh;
-        this.cloakRight.position = new Vector3(0.18, -0.45, -0.15);
+        this.mesh.add(this.cloakRight);
+        this.cloakRight.position.set(0.18, -0.45, -0.15);
         this.cloakRight.rotation.x = 0.3;
-        const cloakMatR = createLowPolyMaterial('fastCloakRightMat', PALETTE.ENEMY_FAST, this.scene);
-        cloakMatR.alpha = 0.7;
+        const cloakMatR = createLowPolyMaterial('fastCloakRightMat', PALETTE.ENEMY_FAST);
+        cloakMatR.transparent = true;
+        cloakMatR.opacity = 0.7;
         this.cloakRight.material = cloakMatR;
 
         // --- Tail Wisp: glowing small emissive shape trailing below ---
-        this.tailWisp = MeshBuilder.CreatePolyhedron('fastTailWisp', {
+        this.tailWisp = createPolyhedron('fastTailWisp', {
             type: 1, // Octahedron
             size: 0.08
         }, this.scene);
         makeFlatShaded(this.tailWisp);
-        this.tailWisp.parent = this.mesh;
-        this.tailWisp.position = new Vector3(0, -0.65, -0.08);
-        this.tailWisp.material = createEmissiveMaterial('fastTailWispMat', PALETTE.ENEMY_FAST_WISP, 1.0, this.scene);
+        this.mesh.add(this.tailWisp);
+        this.tailWisp.position.set(0, -0.65, -0.08);
+        this.tailWisp.material = createEmissiveMaterial('fastTailWispMat', PALETTE.ENEMY_FAST_WISP, 1.0);
 
         // --- Core glow: small emissive sphere in chest area ---
-        const coreGlow = MeshBuilder.CreateSphere('fastCoreGlow', {
+        const coreGlow = createSphere('fastCoreGlow', {
             diameter: 0.14,
             segments: 4
         }, this.scene);
         makeFlatShaded(coreGlow);
-        coreGlow.parent = this.mesh;
-        coreGlow.position = new Vector3(0, 0.20, 0.12);
-        coreGlow.material = createEmissiveMaterial('fastCoreGlowMat', PALETTE.ENEMY_FAST_EYE, 1.5, this.scene);
+        this.mesh.add(coreGlow);
+        coreGlow.position.set(0, 0.20, 0.12);
+        coreGlow.material = createEmissiveMaterial('fastCoreGlowMat', PALETTE.ENEMY_FAST_EYE, 1.5);
 
         // --- Motion trail: 1 ghost clone of the body trailing behind the wraith ---
         // Reduced from 3 → 1 to cut FastEnemy mesh count and draw calls.
         this.ghostTrails = [];
         {
-            const ghost = MeshBuilder.CreateCylinder('fastGhost0', {
+            const ghost = createCylinder('fastGhost0', {
                 height: 1.1,
                 diameterTop: 0.50,
                 diameterBottom: 0.08,
                 tessellation: 5
             }, this.scene);
             makeFlatShaded(ghost);
-            ghost.position = this.position.clone();
+            ghost.position.copy(this.position);
             ghost.position.y += 1.3;
-            const ghostMat = new StandardMaterial('fastGhostMat', this.scene);
-            ghostMat.diffuseColor = PALETTE.ENEMY_FAST;
-            ghostMat.emissiveColor = PALETTE.ENEMY_FAST_WISP.scale(0.5);
-            ghostMat.specularColor = Color3.Black();
-            ghostMat.alpha = 0.22;
+            const ghostMat = new MeshPhongMaterial();
+            ghostMat.name = 'fastGhostMat';
+            ghostMat.color = PALETTE.ENEMY_FAST.clone();
+            ghostMat.emissive = PALETTE.ENEMY_FAST_WISP.clone().multiplyScalar(0.5);
+            ghostMat.specular = new Color(0, 0, 0);
+            ghostMat.transparent = true;
+            ghostMat.opacity = 0.22;
             ghost.material = ghostMat;
+            // Uniquely-owned animated material — flagged so any disposal path
+            // frees it (disposeAuxVisuals also passes { materials: true }).
+            ghost.userData.ownedMaterial = true;
             this.ghostTrails.push(ghost);
         }
 
@@ -343,28 +342,24 @@ export class FastEnemy extends Enemy {
 
         // Two meshes, shared cached materials (see Enemy.createHealthBar): the
         // frame-sized near-black background doubles as the outline.
-        this.healthBarBackgroundMesh = MeshBuilder.CreateBox('healthBarBg', {
+        this.healthBarBackgroundMesh = createPlane('healthBarBg', {
             width: 0.88,
-            height: 0.14,
-            depth: 0.05
+            height: 0.14
         }, this.scene);
-        this.healthBarBackgroundMesh.position = new Vector3(this.position.x, this.position.y + 2.3, this.position.z);
-        this.healthBarBackgroundMesh.material = getCachedMaterial(this.scene, 'healthBarBgFrameMat', m => {
-            m.diffuseColor  = new Color3(0.05, 0.05, 0.05);
-            m.specularColor = Color3.Black();
+        this.healthBarBackgroundMesh.position.set(this.position.x, this.position.y + 2.3, this.position.z);
+        this.healthBarBackgroundMesh.material = getCachedMaterial('healthBarBgFrameMat', m => {
+            m.color    = new Color(0.05, 0.05, 0.05);
+            m.specular = new Color(0, 0, 0);
+            m.depthTest = false;
+            m.depthWrite = false;
         });
 
         // Health fill — material assigned by updateHealthBar's band swap.
-        this.healthBarMesh = MeshBuilder.CreateBox('healthBar', {
+        this.healthBarMesh = createPlane('healthBar', {
             width: 0.8,
-            height: 0.08,
-            depth: 0.06
+            height: 0.08
         }, this.scene);
-        this.healthBarMesh.position = new Vector3(this.position.x, this.position.y + 2.3, this.position.z);
-
-        // Billboard mode
-        this.healthBarBackgroundMesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
-        this.healthBarMesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
+        this.healthBarMesh.position.set(this.position.x, this.position.y + 2.3, this.position.z);
 
         this.updateHealthBar();
     }
@@ -377,7 +372,7 @@ export class FastEnemy extends Enemy {
 
         const healthPercent = Math.max(0, this.health / this.maxHealth);
 
-        this.healthBarMesh.scaling.x = healthPercent;
+        this.healthBarMesh.scale.x = healthPercent;
 
         const offset = (1 - healthPercent) * 0.4; // Adjusted for narrower bar (0.8 width)
         this.healthBarMesh.position.x = this.position.x - offset;
@@ -390,6 +385,8 @@ export class FastEnemy extends Enemy {
 
         this.healthBarMesh.position.y = this.position.y + 2.3;
         this.healthBarMesh.position.z = this.position.z;
+
+        this._billboardHealthBar();
     }
 
     /**
@@ -434,8 +431,7 @@ export class FastEnemy extends Enemy {
                 const dz = targetPoint.z - this.position.z;
 
                 if (dx * dx + dz * dz > 0.0001) {
-                    const angle = Math.atan2(dz, dx);
-                    this.mesh.rotation.y = -angle + Math.PI / 2;
+                    this.mesh.rotation.y = headingToYaw(dx, dz);
                 }
             }
         }
@@ -460,13 +456,13 @@ export class FastEnemy extends Enemy {
         // Update ghost trail positions (sample every 3 frames back)
         for (let g = 0; g < this.ghostTrails.length; g++) {
             const ghost = this.ghostTrails[g];
-            if (ghost.isDisposed()) continue;
+            if (isMeshDisposed(ghost)) continue;
             const histIdx = Math.min((g + 1) * 3, this.trailPositions.length - 1);
             if (histIdx < this.trailPositions.length) {
                 const hp = this.trailPositions[histIdx];
                 ghost.position.set(hp.x, hp.y, hp.z);
                 ghost.rotation.y = this.mesh ? this.mesh.rotation.y : 0;
-                ghost.scaling.copyFrom(this.mesh ? this.mesh.scaling : ghost.scaling);
+                ghost.scale.copy(this.mesh ? this.mesh.scale : ghost.scale);
             }
         }
 
@@ -475,11 +471,12 @@ export class FastEnemy extends Enemy {
             const hoverY = Math.sin(this.flyTime * 0.6) * 0.25;
             this.mesh.position.y = this.position.y + 1.3 + hoverY;
 
-            // Subtle emissive pulse on body
-            const bodyMat = this.mesh.material as StandardMaterial;
+            // Subtle emissive pulse on body (per-instance material — never a
+            // shared cached one; assign a fresh Color, don't mutate in place)
+            const bodyMat = this.mesh.material as MeshPhongMaterial;
             if (bodyMat) {
                 const pulse = 0.5 + 0.3 * Math.sin(this.flyTime * 2.5);
-                bodyMat.emissiveColor = PALETTE.ENEMY_FAST_WISP.scale(pulse);
+                bodyMat.emissive = PALETTE.ENEMY_FAST_WISP.clone().multiplyScalar(pulse);
             }
 
             // Gentle body tilt as it sways
@@ -517,7 +514,7 @@ export class FastEnemy extends Enemy {
             this.tailWisp.position.y = -0.65 + Math.sin(this.flyTime * 2.0) * 0.05;
             // Pulsing scale
             const pulse = 0.9 + Math.sin(this.flyTime * 3.0) * 0.3;
-            this.tailWisp.scaling = new Vector3(pulse, pulse, pulse);
+            this.tailWisp.scale.set(pulse, pulse, pulse);
         }
     }
 
@@ -536,15 +533,16 @@ export class FastEnemy extends Enemy {
 
     /** Free the procedural ghost-trail meshes AND their per-instance materials.
      *  Ghosts are NOT parented to this.mesh, so the base mesh dispose never
-     *  reaches them; dispose(false, true) also frees the uniquely-named
-     *  'fastGhostMat' that default dispose() would strand in scene.materials.
+     *  reaches them; disposeMesh(ghost, { materials: true }) also frees the
+     *  uniquely-named 'fastGhostMat' that a bare disposeMesh would otherwise
+     *  strand (belt-and-braces: the ghost is also flagged ownedMaterial).
      *  Runs on every disposal path (die/disposeCorpse/dispose — the corpse path
      *  is the ONLY one guest enemies take). Idempotent: the array is emptied.
      *  No-op on the GLB path (ghostTrails is empty there). */
     protected disposeAuxVisuals(): void {
         super.disposeAuxVisuals();
         for (const ghost of this.ghostTrails) {
-            if (!ghost.isDisposed()) ghost.dispose(false, true);
+            if (!isMeshDisposed(ghost)) disposeMesh(ghost, { materials: true });
         }
         this.ghostTrails = [];
     }

@@ -1,21 +1,26 @@
-import { Vector3, Mesh, MeshBuilder, StandardMaterial, DynamicTexture, Scene, Color3 } from '@babylonjs/core';
+import { Vector3, Sprite, SpriteMaterial } from 'three';
 import { Game } from '../engine/Game';
 import { PowerElement } from './powers/PowerDefinitions';
 import { ELEMENT_HEX } from './ElementColors';
+import { DynamicTexture } from '../engine/three/DynamicTexture';
+import type { SceneHost } from '../engine/three/SceneHost';
 
 /**
  * Pre-allocated reusable damage-number slot. We keep N of these alive for the
  * lifetime of the manager and recycle them on each showDamage/showReward call.
  *
  * Why: the original implementation allocated a fresh DynamicTexture + Mesh +
- * StandardMaterial on every hit. During wave bursts (e.g. Frost Nova hitting
+ * material on every hit. During wave bursts (e.g. Frost Nova hitting
  * 20+ enemies at once) that was 20+ GPU texture uploads in one frame — the
  * dominant cause of mid-game ~1 second freezes.
  */
 interface DamageNumberSlot {
-    mesh: Mesh;
+    /** THREE.Sprite = always-camera-facing quad (Babylon BILLBOARDMODE_ALL plane). */
+    mesh: Sprite;
     texture: DynamicTexture;
-    material: StandardMaterial;
+    /** Slot-owned material (flagged ownedMaterial) — its opacity is mutated per
+     *  frame for the fade, which is safe because nothing else references it. */
+    material: SpriteMaterial;
     inUse: boolean;
     lifetime: number;
     maxLifetime: number;
@@ -34,17 +39,19 @@ const POOL_SIZE = 24;
 // the font as a final safety net for anything still wider than the canvas.
 const TEX_WIDTH = 384;
 const TEX_HEIGHT = 160;
-// Billboard plane world size. Kept at a constant 0.009375 world-units-per
+// Billboard world size. Kept at a constant 0.009375 world-units-per
 // texture-pixel (TEX_WIDTH * 0.009375 = PLANE_WIDTH, same for height) so text
 // renders at the EXACT same apparent size as the original 160×80 / 1.5×0.75
 // setup — we only added canvas margin around the text, we did not rescale it.
+// A Sprite's world size is its scale, so scale = (PLANE_WIDTH, PLANE_HEIGHT)
+// at rest and is multiplied by the pop animation below.
 const PLANE_WIDTH = 3.6;
 const PLANE_HEIGHT = 1.5;
 // Pixels kept clear around the text (also absorbs the stroke spread).
 const TEXT_PAD = 10;
 
 export class DamageNumberManager {
-    private scene: Scene;
+    private scene: SceneHost;
     private pool: DamageNumberSlot[] = [];
     private nextSlotIdx: number = 0;
 
@@ -52,20 +59,21 @@ export class DamageNumberManager {
         this.scene = game.getScene();
 
         for (let i = 0; i < POOL_SIZE; i++) {
-            const texture = new DynamicTexture(`dmgTex${i}`, { width: TEX_WIDTH, height: TEX_HEIGHT }, this.scene, false);
-            texture.hasAlpha = true;
+            const texture = new DynamicTexture(`dmgTex${i}`, { width: TEX_WIDTH, height: TEX_HEIGHT });
 
-            const material = new StandardMaterial(`dmgMat${i}`, this.scene);
-            material.diffuseTexture = texture;
-            material.emissiveColor = new Color3(1, 1, 1);
-            material.disableLighting = true;
-            material.useAlphaFromDiffuseTexture = true;
-            material.backFaceCulling = false;
+            const material = new SpriteMaterial({
+                map: texture.texture,
+                transparent: true,
+                depthWrite: false,
+            });
+            material.name = `dmgMat${i}`;
 
-            const mesh = MeshBuilder.CreatePlane(`dmgNum${i}`, { width: PLANE_WIDTH, height: PLANE_HEIGHT }, this.scene);
-            mesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
-            mesh.material = material;
-            mesh.setEnabled(false);
+            const mesh = new Sprite(material);
+            mesh.name = `dmgNum${i}`;
+            mesh.scale.set(PLANE_WIDTH, PLANE_HEIGHT, 1);
+            mesh.visible = false;
+            mesh.userData.ownedMaterial = true; // slot-owned; freed in dispose()
+            this.scene.scene.add(mesh);
 
             this.pool.push({
                 mesh,
@@ -103,7 +111,7 @@ export class DamageNumberManager {
         const key = `${text}|${color}|${fontSize}`;
         if (slot.lastDrawn === key) return; // texture already shows exactly this
         slot.lastDrawn = key;
-        const ctx = slot.texture.getContext() as CanvasRenderingContext2D;
+        const ctx = slot.texture.getContext();
         ctx.clearRect(0, 0, TEX_WIDTH, TEX_HEIGHT);
 
         // Fit the requested font to the canvas so text is NEVER clipped: cap by
@@ -143,13 +151,13 @@ export class DamageNumberManager {
         slot.mesh.position.x = position.x + (Math.random() - 0.5) * 0.5;
         slot.mesh.position.y = position.y + 1.5;
         slot.mesh.position.z = position.z + (Math.random() - 0.5) * 0.5;
-        slot.material.alpha = 1;
+        slot.material.opacity = 1;
         slot.inUse = true;
         slot.lifetime = 0;
         slot.maxLifetime = isCrit ? 1.1 : 0.8;
         slot.startY = slot.mesh.position.y;
         slot.critScale = isCrit ? 1.6 : 1.0;
-        slot.mesh.setEnabled(true);
+        slot.mesh.visible = true;
     }
 
     /** Show arbitrary float text at a world position (used by item pickups). */
@@ -159,13 +167,13 @@ export class DamageNumberManager {
         slot.mesh.position.x = position.x;
         slot.mesh.position.y = position.y + 1.8;
         slot.mesh.position.z = position.z;
-        slot.material.alpha = 1;
+        slot.material.opacity = 1;
         slot.inUse = true;
         slot.lifetime = 0;
         slot.maxLifetime = 1.2;
         slot.startY = slot.mesh.position.y;
         slot.critScale = 1.0;
-        slot.mesh.setEnabled(true);
+        slot.mesh.visible = true;
     }
 
     public showReward(position: Vector3, reward: number): void {
@@ -174,13 +182,13 @@ export class DamageNumberManager {
         slot.mesh.position.x = position.x;
         slot.mesh.position.y = position.y + 1.8;
         slot.mesh.position.z = position.z;
-        slot.material.alpha = 1;
+        slot.material.opacity = 1;
         slot.inUse = true;
         slot.lifetime = 0;
         slot.maxLifetime = 1.0;
         slot.startY = slot.mesh.position.y;
         slot.critScale = 1.0;
-        slot.mesh.setEnabled(true);
+        slot.mesh.visible = true;
     }
 
     public update(deltaTime: number): void {
@@ -194,7 +202,7 @@ export class DamageNumberManager {
             slot.mesh.position.y = slot.startY + progress * 2.0;
 
             if (progress > 0.5) {
-                slot.material.alpha = 1 - (progress - 0.5) / 0.5;
+                slot.material.opacity = 1 - (progress - 0.5) / 0.5;
             }
 
             const popDuration = 0.25;
@@ -209,11 +217,13 @@ export class DamageNumberManager {
             } else {
                 scale = restScale;
             }
-            slot.mesh.scaling.setAll(scale);
+            // Sprite scale IS its world size — multiply the base plane dimensions
+            // by the pop factor (Babylon animated mesh.scaling on a fixed-size plane).
+            slot.mesh.scale.set(PLANE_WIDTH * scale, PLANE_HEIGHT * scale, 1);
 
             if (progress >= 1) {
                 slot.inUse = false;
-                slot.mesh.setEnabled(false);
+                slot.mesh.visible = false;
             }
         }
     }
@@ -224,7 +234,7 @@ export class DamageNumberManager {
 
     public dispose(): void {
         for (const slot of this.pool) {
-            slot.mesh.dispose();
+            slot.mesh.removeFromParent();
             slot.material.dispose();
             slot.texture.dispose();
         }

@@ -1,15 +1,17 @@
-import { Scene, Vector3, Mesh, MeshBuilder, Color3 } from '@babylonjs/core';
+import { Color, Mesh, Vector3 } from 'three';
+import type { SceneHost } from '../engine/three/SceneHost';
+import { createCylinder, createPolyhedron, disposeMesh, isMeshDisposed } from '../engine/three/primitives';
 import { getCachedMaterial } from '../engine/rendering/MaterialCache';
 import { curveDropAt } from './globe/curvature';
 import { ItemId } from './RunItems';
 
 /** Visual color per item — matches the HUD slot color so the link reads. */
-const ITEM_COLORS: Record<ItemId, Color3> = {
-    extraLife:       new Color3(0.27, 0.88, 0.35),  // green
-    multishotCleave: new Color3(1.0, 0.85, 0.30),   // gold
-    knockback:       new Color3(0.30, 0.65, 1.0),   // blue
-    attackSpeed:     new Color3(1.0, 1.0, 0.55),    // yellow-white
-    elementalCore:   new Color3(1.0, 0.35, 0.18),   // ember orange
+const ITEM_COLORS: Record<ItemId, Color> = {
+    extraLife:       new Color(0.27, 0.88, 0.35),  // green
+    multishotCleave: new Color(1.0, 0.85, 0.30),   // gold
+    knockback:       new Color(0.30, 0.65, 1.0),   // blue
+    attackSpeed:     new Color(1.0, 1.0, 0.55),    // yellow-white
+    elementalCore:   new Color(1.0, 0.35, 0.18),   // ember orange
 };
 
 export interface ItemDropOpts {
@@ -20,10 +22,10 @@ export interface ItemDropOpts {
 }
 
 export class ItemDrop {
-    private scene: Scene;
+    private scene: SceneHost;
     private mesh: Mesh;
     private pillar: Mesh;
-    private color: Color3;
+    private color: Color;
     public itemId: ItemId;
     private opts: ItemDropOpts;
     private alive: boolean = true;
@@ -31,7 +33,7 @@ export class ItemDrop {
     private spawnTime: number = performance.now();
 
     constructor(
-        scene: Scene,
+        scene: SceneHost,
         position: Vector3,
         itemId: ItemId,
         heroProvider: () => Vector3,
@@ -39,37 +41,37 @@ export class ItemDrop {
     ) {
         this.scene = scene;
         this.itemId = itemId;
-        this.color = ITEM_COLORS[itemId] ?? new Color3(1, 1, 1);
+        this.color = ITEM_COLORS[itemId] ?? new Color(1, 1, 1);
         this.opts = opts;
         this.heroProvider = heroProvider;
 
-        // Faceted icosahedron gem
-        this.mesh = MeshBuilder.CreatePolyhedron(`itemGem_${itemId}`,
+        // Faceted dodecahedron gem
+        this.mesh = createPolyhedron(`itemGem_${itemId}`,
             { type: 2, size: 0.45 }, scene);
-        this.mesh.position.copyFrom(position);
+        this.mesh.position.copy(position);
         this.mesh.position.y = 0.8;
         // Cache by itemId (bounded: 4 ids). Math.random() suffix defeated the
         // cache and forced a shader recompile per drop.
-        this.mesh.material = getCachedMaterial(scene, `itemGemMat_${itemId}`, m => {
-            m.emissiveColor = this.color;
-            m.diffuseColor  = this.color.scale(0.3);
-            m.specularColor = Color3.Black();
-            m.disableLighting = true;
+        this.mesh.material = getCachedMaterial(`itemGemMat_${itemId}`, m => {
+            m.emissive.copy(this.color);
+            // Babylon set diffuse = color*0.3 + disableLighting, so only the
+            // emissive rendered; black diffuse reproduces the unlit look.
+            m.color.set(0, 0, 0);
+            m.specular.set(0, 0, 0);
         });
 
         // Pillar of light — tall thin cylinder behind the gem
-        this.pillar = MeshBuilder.CreateCylinder(`itemPillar_${itemId}`,
+        this.pillar = createCylinder(`itemPillar_${itemId}`,
             { height: 8, diameterTop: 0.3, diameterBottom: 0.9, tessellation: 8 }, scene);
-        this.pillar.position.copyFrom(position);
+        this.pillar.position.copy(position);
         this.pillar.position.y = 4;
-        this.pillar.material = getCachedMaterial(scene, `itemPillarMat_${itemId}`, m => {
-            m.emissiveColor = this.color;
-            m.diffuseColor  = new Color3(0, 0, 0);
-            m.specularColor = Color3.Black();
-            m.disableLighting = true;
-            m.alpha = 0.20;
+        this.pillar.material = getCachedMaterial(`itemPillarMat_${itemId}`, m => {
+            m.emissive.copy(this.color);
+            m.color.set(0, 0, 0);
+            m.specular.set(0, 0, 0);
+            m.opacity = 0.20;
+            m.transparent = true;
         });
-        this.pillar.isPickable = false;
     }
 
     public isAlive(): boolean {
@@ -111,18 +113,18 @@ export class ItemDrop {
         // Cache by itemId (bounded: 4 ids). Math.random() suffix forced a shader
         // recompile per pickup. The gem material is shared/cached — do NOT dispose
         // it before swapping; just replace the mesh's material reference.
-        this.mesh.material = getCachedMaterial(this.scene, `itemFlash_${this.itemId}`, m => {
-            m.emissiveColor = this.color.scale(2.5);
-            m.specularColor = Color3.Black();
-            m.disableLighting = true;
+        this.mesh.material = getCachedMaterial(`itemFlash_${this.itemId}`, m => {
+            m.emissive.copy(this.color).multiplyScalar(2.5);
+            m.color.set(0, 0, 0);
+            m.specular.set(0, 0, 0);
         });
-        this.mesh.scaling.setAll(2.0);
+        this.mesh.scale.setScalar(2.0);
     }
 
     public dispose(): void {
         this.alive = false;
-        // All materials are shared/cached — use default dispose() (keeps material).
-        if (!this.mesh.isDisposed()) this.mesh.dispose();
-        if (!this.pillar.isDisposed()) this.pillar.dispose();
+        // All materials are shared/cached — disposeMesh keeps them (userData.cached).
+        if (!isMeshDisposed(this.mesh)) disposeMesh(this.mesh);
+        if (!isMeshDisposed(this.pillar)) disposeMesh(this.pillar);
     }
 }

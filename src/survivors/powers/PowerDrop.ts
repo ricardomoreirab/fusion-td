@@ -1,4 +1,6 @@
-import { Scene, Vector3, Mesh, MeshBuilder, Color3 } from '@babylonjs/core';
+import { Color, Mesh, Vector3 } from 'three';
+import type { SceneHost } from '../../engine/three/SceneHost';
+import { createSphere, disposeMesh, isMeshDisposed } from '../../engine/three/primitives';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
 import { curveDropAt } from '../globe/curvature';
 import { ELEMENT_COLOR as ELEMENT_COLORS } from '../ElementColors';
@@ -19,7 +21,7 @@ export interface PowerDropOpts {
  * Phase 4 will replace onPickup with the 3-card power-choice overlay.
  */
 export class PowerDrop {
-    private scene: Scene;
+    private scene: SceneHost;
     private mesh: Mesh;
     public element: string;
     private opts: PowerDropOpts;
@@ -27,7 +29,7 @@ export class PowerDrop {
     private heroProvider: () => Vector3;
 
     constructor(
-        scene: Scene,
+        scene: SceneHost,
         position: Vector3,
         element: string,
         heroProvider: () => Vector3,
@@ -38,11 +40,11 @@ export class PowerDrop {
         this.opts = opts;
         this.heroProvider = heroProvider;
 
-        this.mesh = MeshBuilder.CreateSphere('powerOrb_' + element + '_' + Math.random(), { diameter: 0.6 }, scene);
-        this.mesh.position.copyFrom(position);
+        this.mesh = createSphere('powerOrb_' + element + '_' + Math.random(), { diameter: 0.6 }, scene);
+        this.mesh.position.copy(position);
         this.mesh.position.y = 0.6;
-        this.mesh.material = getCachedMaterial(scene, 'powerOrbMat_' + element, m => {
-            m.emissiveColor = ELEMENT_COLORS[element as keyof typeof ELEMENT_COLORS] ?? new Color3(1, 1, 1);
+        this.mesh.material = getCachedMaterial('powerOrbMat_' + element, m => {
+            m.emissive.copy(ELEMENT_COLORS[element as keyof typeof ELEMENT_COLORS] ?? new Color(1, 1, 1));
         });
     }
 
@@ -82,20 +84,20 @@ export class PowerDrop {
      * The mesh will already be disposed by then; the short animation fires and forgets.
      */
     private playPickupFlash(): void {
-        const col = ELEMENT_COLORS[this.element as keyof typeof ELEMENT_COLORS] ?? new Color3(1, 1, 1);
+        const col = ELEMENT_COLORS[this.element as keyof typeof ELEMENT_COLORS] ?? new Color(1, 1, 1);
         // Cache the flash material by element (bounded). A Math.random() name recompiled
-        // a shader per pickup. The cached material is shared/frozen — never disposed here.
-        this.mesh.material = getCachedMaterial(this.scene, `orbFlash_${this.element}`, m => {
-            m.emissiveColor = col.scale(2);  // bright burst
-            m.disableLighting = true;
+        // a shader per pickup. The cached material is shared — never disposed here.
+        this.mesh.material = getCachedMaterial(`orbFlash_${this.element}`, m => {
+            m.emissive.copy(col).multiplyScalar(2); // bright burst
+            m.color.set(0, 0, 0);                   // unlit look (Babylon disableLighting)
         });
-        this.mesh.scaling.setAll(2.2);          // pop-out scale
+        this.mesh.scale.setScalar(2.2);         // pop-out scale
     }
 
     public dispose(): void {
         this.alive = false;
-        if (!this.mesh.isDisposed()) {
-            this.mesh.dispose();
+        if (!isMeshDisposed(this.mesh)) {
+            disposeMesh(this.mesh);
         }
     }
 }

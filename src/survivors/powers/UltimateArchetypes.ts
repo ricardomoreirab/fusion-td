@@ -1,4 +1,4 @@
-import { Vector3 } from '@babylonjs/core';
+import { Vector3 } from 'three';
 import { StatusEffect } from '../GameTypes';
 import {
     aoeBurst, chainHit, gatherVortex, omniVolley, deliverAutocast, repeatStrikes, ultimateImpact,

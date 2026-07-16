@@ -1,14 +1,19 @@
-import { Vector3, MeshBuilder, StandardMaterial, Color3, Color4, ParticleSystem, Mesh, AssetContainer, AnimationGroup, TransformNode, Quaternion } from '@babylonjs/core';
+import { Box3, Color, Mesh, MeshBasicMaterial, Vector3 } from 'three';
 import { Game } from '../../engine/Game';
 import { Enemy, getStatusEffectTexture, tryAcquireDeathBurst, scheduleDeathBurstTeardown } from './Enemy';
-import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../engine/rendering/LowPolyMaterial';
+import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded, setMeshOpacity } from '../../engine/rendering/LowPolyMaterial';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
 import { PALETTE } from '../../engine/rendering/StyleConstants';
+import { AnimGroup } from '../../engine/three/AnimGroup';
+import type { GlbContainer } from '../../engine/three/assets';
+import { headingToYaw, rgba } from '../../engine/three/math';
+import { ParticleSystem } from '../../engine/three/particles/ParticleSystem';
+import { createBox, createCylinder, createDisc, createSphere, createTorus, disposeMesh, isMeshDisposed } from '../../engine/three/primitives';
 
 export class HealerEnemy extends Enemy {
     /** Static slot used by EnemyManager.spawnSurvivorsEnemy to stage a preloaded GLB
      *  asset before constructing a HealerEnemy. createMesh() consumes + clears it. */
-    public static pendingAsset: AssetContainer | null = null;
+    public static pendingAsset: GlbContainer | null = null;
 
     private walkTime: number = 0;
     private healTimer: number = 0;
@@ -24,10 +29,10 @@ export class HealerEnemy extends Enemy {
 
     /** True when this instance renders via the blue-wizard GLB. */
     private usingGLB: boolean = false;
-    private glbWalkAnim: AnimationGroup | null = null;
-    private glbAttackAnim: AnimationGroup | null = null;
-    private glbIdleAnim: AnimationGroup | null = null;
-    private glbCurrentAnim: AnimationGroup | null = null;
+    private glbWalkAnim: AnimGroup | null = null;
+    private glbAttackAnim: AnimGroup | null = null;
+    private glbIdleAnim: AnimGroup | null = null;
+    private glbCurrentAnim: AnimGroup | null = null;
     protected glbAttackHoldTimer: number = 0;
     private static readonly GLB_ATTACK_RANGE = 4.0;
     private static readonly GLB_ATTACK_HOLD = 0.6;
@@ -69,44 +74,32 @@ export class HealerEnemy extends Enemy {
         this.createMeshProcedural();
     }
 
-    private createMeshFromGLB(asset: AssetContainer): void {
+    private createMeshFromGLB(asset: GlbContainer): void {
         this.usingGLB = true;
-        this.mesh = new Mesh('healerEnemyGlbRoot', this.scene);
-        this.mesh.position.copyFrom(this.position);
+        this.mesh = new Mesh(); // empty transform host (renders nothing)
+        this.mesh.name = 'healerEnemyGlbRoot';
+        this.scene.scene.add(this.mesh);
+        this.mesh.position.copy(this.position);
 
-        const inst = asset.instantiateModelsToScene(
-            name => `healer_${name}`,
-            true,
-            { doNotInstantiate: true },
-        );
-        for (const root of inst.rootNodes) {
-            root.parent = this.mesh;
-            if ('scaling' in root && root.scaling) {
-                (root as TransformNode).scaling.scaleInPlace(HealerEnemy.GLB_SCALE);
-            }
-            // 180° Y flip — same pattern as BasicEnemy GLB.
-            const tn = root as TransformNode;
-            const flip = Quaternion.RotationYawPitchRoll(Math.PI, 0, 0);
-            if (tn.rotationQuaternion) {
-                tn.rotationQuaternion = flip.multiply(tn.rotationQuaternion);
-            } else if (tn.rotation) {
-                tn.rotation.y += Math.PI;
-            }
-        }
+        const inst = asset.instantiate(this.scene, 'healer_');
+        // Base Enemy field; its dispose() frees cloned materials + skeletons + mixer hook.
+        this.glbInstance = inst;
+        const root = inst.root;
+        this.mesh.add(root);
+        root.scale.multiplyScalar(HealerEnemy.GLB_SCALE);
+        // Keep the Babylon-era 180-degree Y pre-rotation so facing math stays aligned
+        // (Phase D handedness audit may remove it) — same pattern as BasicEnemy GLB.
+        root.rotation.y += Math.PI;
 
         // Feet-on-ground offset.
-        this.mesh.computeWorldMatrix(true);
-        const bbox = this.mesh.getHierarchyBoundingVectors(true);
+        this.mesh.updateMatrixWorld(true);
+        const bbox = new Box3().setFromObject(this.mesh);
         const feetOffset = -bbox.min.y;
-        for (const root of inst.rootNodes) {
-            if ('position' in root && root.position) {
-                (root as TransformNode).position.y += feetOffset;
-            }
-        }
+        root.position.y += feetOffset;
 
-        // Register groups for base-class dispose cleanup (prevents animatable leak).
+        // Register groups on the base class so the release path can stop them
+        // (glbInstance.dispose() owns their actual disposal).
         this.glbAnimationGroups = inst.animationGroups;
-        this.glbSkeletons = inst.skeletons;
 
         for (const ag of inst.animationGroups) ag.stop();
         for (const ag of inst.animationGroups) {
@@ -128,7 +121,7 @@ export class HealerEnemy extends Enemy {
         }
     }
 
-    private playGlbAnim(slot: AnimationGroup | null, loop: boolean): void {
+    private playGlbAnim(slot: AnimGroup | null, loop: boolean): void {
         if (!slot) return;
         if (this.glbCurrentAnim === slot) return;
         if (this.glbCurrentAnim) this.glbCurrentAnim.stop();
@@ -143,149 +136,155 @@ export class HealerEnemy extends Enemy {
      */
     private createMeshProcedural(): void {
         // --- Robed Body: tapered cylinder (wide at bottom, narrow at top) ---
-        this.mesh = MeshBuilder.CreateCylinder('healerEnemyBody', {
+        this.mesh = createCylinder('healerEnemyBody', {
             height: 1.0,
             diameterTop: 0.45,
             diameterBottom: 0.65,
             tessellation: 6
         }, this.scene);
         makeFlatShaded(this.mesh);
-        this.mesh.position = this.position.clone();
+        this.mesh.position.copy(this.position);
         this.mesh.position.y += 0.7;
-        this.mesh.material = createLowPolyMaterial('healerBodyMat', PALETTE.ENEMY_HEALER, this.scene);
+        this.mesh.material = createLowPolyMaterial('healerBodyMat', PALETTE.ENEMY_HEALER);
 
         // --- Robe trim: thin ring at bottom of robe ---
-        const robeTrim = MeshBuilder.CreateTorus('healerRobeTrim', {
+        const robeTrim = createTorus('healerRobeTrim', {
             diameter: 0.65,
             thickness: 0.06,
             tessellation: 8
         }, this.scene);
         makeFlatShaded(robeTrim);
-        robeTrim.parent = this.mesh;
-        robeTrim.position = new Vector3(0, -0.48, 0);
-        robeTrim.material = createEmissiveMaterial('healerRobeTrimMat', PALETTE.ENEMY_HEALER_GLOW, 0.4, this.scene);
+        this.mesh.add(robeTrim);
+        robeTrim.position.set(0, -0.48, 0);
+        robeTrim.material = createEmissiveMaterial('healerRobeTrimMat', PALETTE.ENEMY_HEALER_GLOW, 0.4);
 
         // --- Hood / Head: sphere-like polyhedron with hood drape ---
-        this.head = MeshBuilder.CreateBox('healerHead', {
+        this.head = createBox('healerHead', {
             width: 0.40,
             height: 0.38,
             depth: 0.40
         }, this.scene);
         makeFlatShaded(this.head);
-        this.head.parent = this.mesh;
-        this.head.position = new Vector3(0, 0.65, 0.02);
-        this.head.material = createLowPolyMaterial('healerHeadMat', PALETTE.ENEMY_HEALER, this.scene);
+        this.mesh.add(this.head);
+        this.head.position.set(0, 0.65, 0.02);
+        this.head.material = createLowPolyMaterial('healerHeadMat', PALETTE.ENEMY_HEALER);
 
         // --- Hood cowl: slightly larger cylinder behind head ---
-        const cowl = MeshBuilder.CreateCylinder('healerCowl', {
+        const cowl = createCylinder('healerCowl', {
             height: 0.35,
             diameterTop: 0.42,
             diameterBottom: 0.50,
             tessellation: 5
         }, this.scene);
         makeFlatShaded(cowl);
-        cowl.parent = this.head;
-        cowl.position = new Vector3(0, 0.05, -0.08);
-        cowl.material = createLowPolyMaterial('healerCowlMat', PALETTE.ENEMY_HEALER, this.scene);
+        this.head.add(cowl);
+        cowl.position.set(0, 0.05, -0.08);
+        cowl.material = createLowPolyMaterial('healerCowlMat', PALETTE.ENEMY_HEALER);
 
         // --- Left Eye: emissive cyan-green ---
-        const leftEye = MeshBuilder.CreateBox('healerLeftEye', {
+        const leftEye = createBox('healerLeftEye', {
             width: 0.10,
             height: 0.06,
             depth: 0.05
         }, this.scene);
         makeFlatShaded(leftEye);
-        leftEye.parent = this.head;
-        leftEye.position = new Vector3(-0.10, 0.02, 0.20);
-        leftEye.material = createEmissiveMaterial('healerLeftEyeMat', PALETTE.ENEMY_HEALER_EYE, 1.0, this.scene);
+        this.head.add(leftEye);
+        leftEye.position.set(-0.10, 0.02, 0.20);
+        leftEye.material = createEmissiveMaterial('healerLeftEyeMat', PALETTE.ENEMY_HEALER_EYE, 1.0);
 
         // --- Right Eye: emissive cyan-green ---
-        const rightEye = MeshBuilder.CreateBox('healerRightEye', {
+        const rightEye = createBox('healerRightEye', {
             width: 0.10,
             height: 0.06,
             depth: 0.05
         }, this.scene);
         makeFlatShaded(rightEye);
-        rightEye.parent = this.head;
-        rightEye.position = new Vector3(0.10, 0.02, 0.20);
-        rightEye.material = createEmissiveMaterial('healerRightEyeMat', PALETTE.ENEMY_HEALER_EYE, 1.0, this.scene);
+        this.head.add(rightEye);
+        rightEye.position.set(0.10, 0.02, 0.20);
+        rightEye.material = createEmissiveMaterial('healerRightEyeMat', PALETTE.ENEMY_HEALER_EYE, 1.0);
 
         // --- Left Arm: short robed arm ---
-        this.leftArm = MeshBuilder.CreateBox('healerLeftArm', {
+        this.leftArm = createBox('healerLeftArm', {
             width: 0.14,
             height: 0.45,
             depth: 0.14
         }, this.scene);
         makeFlatShaded(this.leftArm);
-        this.leftArm.parent = this.mesh;
-        this.leftArm.position = new Vector3(-0.32, 0.15, 0);
-        this.leftArm.material = createLowPolyMaterial('healerLeftArmMat', PALETTE.ENEMY_HEALER, this.scene);
+        this.mesh.add(this.leftArm);
+        this.leftArm.position.set(-0.32, 0.15, 0);
+        this.leftArm.material = createLowPolyMaterial('healerLeftArmMat', PALETTE.ENEMY_HEALER);
 
         // --- Right Arm: short robed arm (holds staff) ---
-        this.rightArm = MeshBuilder.CreateBox('healerRightArm', {
+        this.rightArm = createBox('healerRightArm', {
             width: 0.14,
             height: 0.45,
             depth: 0.14
         }, this.scene);
         makeFlatShaded(this.rightArm);
-        this.rightArm.parent = this.mesh;
-        this.rightArm.position = new Vector3(0.32, 0.15, 0);
-        this.rightArm.material = createLowPolyMaterial('healerRightArmMat', PALETTE.ENEMY_HEALER, this.scene);
+        this.mesh.add(this.rightArm);
+        this.rightArm.position.set(0.32, 0.15, 0);
+        this.rightArm.material = createLowPolyMaterial('healerRightArmMat', PALETTE.ENEMY_HEALER);
 
         // --- Staff: tall thin cylinder held by right arm ---
-        this.staff = MeshBuilder.CreateCylinder('healerStaff', {
+        this.staff = createCylinder('healerStaff', {
             height: 1.6,
             diameterTop: 0.05,
             diameterBottom: 0.07,
             tessellation: 5
         }, this.scene);
         makeFlatShaded(this.staff);
-        this.staff.parent = this.rightArm;
-        this.staff.position = new Vector3(0.10, 0.35, 0.05);
-        this.staff.material = createLowPolyMaterial('healerStaffMat', PALETTE.ENEMY_HEALER_STAFF, this.scene);
+        this.rightArm.add(this.staff);
+        this.staff.position.set(0.10, 0.35, 0.05);
+        this.staff.material = createLowPolyMaterial('healerStaffMat', PALETTE.ENEMY_HEALER_STAFF);
 
         // --- Staff Orb: glowing emissive sphere on top of staff ---
-        this.staffOrb = MeshBuilder.CreateSphere('healerStaffOrb', {
+        this.staffOrb = createSphere('healerStaffOrb', {
             diameter: 0.22,
             segments: 4
         }, this.scene);
         makeFlatShaded(this.staffOrb);
-        this.staffOrb.parent = this.staff;
-        this.staffOrb.position = new Vector3(0, 0.85, 0);
-        this.staffOrb.material = createEmissiveMaterial('healerStaffOrbMat', PALETTE.ENEMY_HEALER_GLOW, 1.5, this.scene);
+        this.staff.add(this.staffOrb);
+        this.staffOrb.position.set(0, 0.85, 0);
+        this.staffOrb.material = createEmissiveMaterial('healerStaffOrbMat', PALETTE.ENEMY_HEALER_GLOW, 1.5);
 
         // --- Staff Orb ring: small torus around the orb ---
-        const orbRing = MeshBuilder.CreateTorus('healerOrbRing', {
+        const orbRing = createTorus('healerOrbRing', {
             diameter: 0.28,
             thickness: 0.03,
             tessellation: 8
         }, this.scene);
         makeFlatShaded(orbRing);
-        orbRing.parent = this.staffOrb;
-        orbRing.position = new Vector3(0, 0, 0);
-        orbRing.material = createEmissiveMaterial('healerOrbRingMat', PALETTE.ENEMY_HEALER_GLOW, 0.8, this.scene);
+        this.staffOrb.add(orbRing);
+        orbRing.position.set(0, 0, 0);
+        orbRing.material = createEmissiveMaterial('healerOrbRingMat', PALETTE.ENEMY_HEALER_GLOW, 0.8);
 
         // --- Aura Ring at feet: thin emissive torus on the ground ---
-        this.auraRing = MeshBuilder.CreateTorus('healerAuraRing', {
+        this.auraRing = createTorus('healerAuraRing', {
             diameter: 1.2,
             thickness: 0.06,
             tessellation: 16
         }, this.scene);
         makeFlatShaded(this.auraRing);
-        this.auraRing.parent = this.mesh;
-        this.auraRing.position = new Vector3(0, -0.50, 0);
-        this.auraRing.material = createEmissiveMaterial('healerAuraRingMat', PALETTE.ENEMY_HEALER_GLOW, 1.2, this.scene);
+        this.mesh.add(this.auraRing);
+        this.auraRing.position.set(0, -0.50, 0);
+        this.auraRing.material = createEmissiveMaterial('healerAuraRingMat', PALETTE.ENEMY_HEALER_GLOW, 1.2);
 
         // --- Ground glow: soft constant disc at feet so players spot healers at a glance ---
-        this.groundGlow = MeshBuilder.CreateDisc('healerGroundGlow', { radius: 0.70, tessellation: 16 }, this.scene);
-        this.groundGlow.parent = this.mesh;
-        this.groundGlow.rotation.x = Math.PI / 2;
-        this.groundGlow.position = new Vector3(0, -0.52, 0);
-        const groundGlowMat = new StandardMaterial('healerGroundGlowMat', this.scene);
-        groundGlowMat.emissiveColor = PALETTE.ENEMY_HEALER_GLOW;
-        groundGlowMat.alpha = 0.35;
-        groundGlowMat.disableLighting = true;
+        this.groundGlow = createDisc('healerGroundGlow', { radius: 0.70, tessellation: 16 }, this.scene);
+        this.mesh.add(this.groundGlow);
+        this.groundGlow.rotation.x = -Math.PI / 2; // lie flat, facing up (+Y normal in Three)
+        this.groundGlow.position.set(0, -0.52, 0);
+        // Babylon disableLighting rendered emissive only → unlit basic material,
+        // uniquely owned by this mesh (freed with the tree via ownedMaterial).
+        const groundGlowMat = new MeshBasicMaterial({
+            color: PALETTE.ENEMY_HEALER_GLOW.clone(),
+            transparent: true,
+            opacity: 0.35,
+            depthWrite: false,
+        });
+        groundGlowMat.name = 'healerGroundGlowMat';
         this.groundGlow.material = groundGlowMat;
+        this.groundGlow.userData.ownedMaterial = true;
 
         // Store original scale
         this.originalScale = 1.0;
@@ -310,7 +309,7 @@ export class HealerEnemy extends Enemy {
         this.performSupportBehavior(deltaTime);
 
         // GLB wizard skips the procedural staff/orb anim — the asset's clips drive it.
-        // Facing is handled by Enemy.update's seek-rotation; the GLB roots are pre-rotated
+        // Facing is handled by Enemy.update's seek-rotation; the GLB root is pre-rotated
         // 180° in createMeshFromGLB so the model ends up facing the hero.
         if (this.usingGLB) {
             if (this.glbAttackHoldTimer > 0) {
@@ -349,8 +348,7 @@ export class HealerEnemy extends Enemy {
                 const dz = targetPoint.z - this.position.z;
 
                 if (dx * dx + dz * dz > 0.0001) {
-                    const angle = Math.atan2(dz, dx);
-                    this.mesh.rotation.y = -angle + Math.PI / 2;
+                    this.mesh.rotation.y = headingToYaw(dx, dz);
                 }
             }
         }
@@ -392,13 +390,13 @@ export class HealerEnemy extends Enemy {
         // Staff orb: pulsing glow scale
         if (this.staffOrb) {
             const orbPulse = 0.9 + Math.sin(this.walkTime * 2.0) * 0.2;
-            this.staffOrb.scaling = new Vector3(orbPulse, orbPulse, orbPulse);
+            this.staffOrb.scale.set(orbPulse, orbPulse, orbPulse);
         }
 
         // Aura ring: pulsing scale and gentle rotation
         if (this.auraRing) {
             const auraPulse = 0.85 + Math.sin(this.walkTime * 1.5) * 0.2;
-            this.auraRing.scaling = new Vector3(auraPulse, 1.0, auraPulse);
+            this.auraRing.scale.set(auraPulse, 1.0, auraPulse);
             this.auraRing.rotation.y += deltaTime * 1.2;
         }
     }
@@ -444,18 +442,18 @@ export class HealerEnemy extends Enemy {
         const particleSystem = new ParticleSystem('deathParticles', 50, this.scene);
 
         // Set particle texture
-        particleSystem.particleTexture = getStatusEffectTexture(this.scene);
+        particleSystem.particleTexture = getStatusEffectTexture();
 
         // Set emission properties
         particleSystem.emitter = this.position.clone();
         (particleSystem.emitter as Vector3).y += 0.7;
-        particleSystem.minEmitBox = new Vector3(-0.2, 0, -0.2);
-        particleSystem.maxEmitBox = new Vector3(0.2, 0, 0.2);
+        particleSystem.minEmitBox.set(-0.2, 0, -0.2);
+        particleSystem.maxEmitBox.set(0.2, 0, 0.2);
 
         // Set particle properties - green/purple mystic poof
-        particleSystem.color1 = new Color4(0.30, 0.95, 0.50, 1.0);
-        particleSystem.color2 = new Color4(0.40, 0.25, 0.65, 1.0);
-        particleSystem.colorDead = new Color4(0.15, 0.30, 0.20, 0.0);
+        particleSystem.color1 = rgba(0.30, 0.95, 0.50, 1.0);
+        particleSystem.color2 = rgba(0.40, 0.25, 0.65, 1.0);
+        particleSystem.colorDead = rgba(0.15, 0.30, 0.20, 0.0);
 
         particleSystem.minSize = 0.1;
         particleSystem.maxSize = 0.5;
@@ -467,10 +465,10 @@ export class HealerEnemy extends Enemy {
 
         particleSystem.blendMode = ParticleSystem.BLENDMODE_ONEONE;
 
-        particleSystem.gravity = new Vector3(0, 8, 0);
+        particleSystem.gravity.set(0, 8, 0);
 
-        particleSystem.direction1 = new Vector3(-1, 8, -1);
-        particleSystem.direction2 = new Vector3(1, 8, 1);
+        particleSystem.direction1.set(-1, 8, -1);
+        particleSystem.direction2.set(1, 8, 1);
 
         particleSystem.minAngularSpeed = 0;
         particleSystem.maxAngularSpeed = Math.PI;
@@ -486,11 +484,11 @@ export class HealerEnemy extends Enemy {
         this.game.getAssetManager().playSound('enemyDeath');
 
         // Emit 1s, dispose when the last particle expires (render-loop driven —
-        // see scheduleDeathBurstTeardown). disposeTexture=false preserves the
-        // SHARED status-effect texture (getStatusEffectTexture) — disposing it
-        // would destroy the singleton out from under other enemies' live status
-        // particles, forcing a sync re-create.
-        scheduleDeathBurstTeardown(this.scene, particleSystem, 1.0, false);
+        // see scheduleDeathBurstTeardown). The engine ParticleSystem never
+        // disposes its texture, so the SHARED status-effect singleton
+        // (getStatusEffectTexture) stays alive for other enemies' live status
+        // particles.
+        scheduleDeathBurstTeardown(this.scene, particleSystem, 1.0);
     }
 
     /**
@@ -498,41 +496,44 @@ export class HealerEnemy extends Enemy {
      * Ring animates from radius 0.5 → 3.0 over 0.5 s then disposes.
      */
     private spawnHealPulseRing(): void {
-        const ring = MeshBuilder.CreateDisc('healPulseRing', { radius: 0.5, tessellation: 24 }, this.scene);
-        ring.rotation.x = Math.PI / 2;
-        ring.position = this.position.clone();
+        const ring = createDisc('healPulseRing', { radius: 0.5, tessellation: 24 }, this.scene);
+        ring.rotation.x = -Math.PI / 2; // lie flat, facing up (+Y normal in Three)
+        ring.position.copy(this.position);
         ring.position.y += 0.05;
 
-        // Cache by stable key — one shared frozen material for all heal rings.
-        // Math.random() name forced a shader recompile per heal pulse. Fade via
-        // mesh.visibility, not the frozen mat's .alpha.
-        ring.material = getCachedMaterial(this.scene, 'healPulseRingMat', m => {
-            m.emissiveColor = PALETTE.ENEMY_HEALER_GLOW;
-            m.alpha = 0.60;
-            m.disableLighting = true;
+        // Cache by stable key — one shared material for all heal rings.
+        // Math.random() name forced a fresh material per heal pulse. Fade via
+        // setMeshOpacity (clone-on-write), never the shared mat's .opacity.
+        // Black diffuse + emissive ≈ Babylon's disableLighting emissive-only look.
+        ring.material = getCachedMaterial('healPulseRingMat', m => {
+            m.emissive = PALETTE.ENEMY_HEALER_GLOW.clone();
+            m.color = new Color(0, 0, 0);
+            m.transparent = true;
+            m.opacity = 0.60;
+            m.depthWrite = false;
         });
-        ring.visibility = 0.60;
+        setMeshOpacity(ring, 0.60);
 
         const startTime = performance.now();
         const duration = 500; // ms
         const startRadius = 0.5;
         const endRadius = 3.0;
 
-        const observer = this.scene.onBeforeRenderObservable.add(() => {
-            if (ring.isDisposed()) {
-                this.scene.onBeforeRenderObservable.remove(observer);
+        const observer = this.scene.onBeforeRender.add(() => {
+            if (isMeshDisposed(ring)) {
+                this.scene.onBeforeRender.remove(observer);
                 return;
             }
             const elapsed = performance.now() - startTime;
             const t = Math.min(elapsed / duration, 1.0);
             const radius = startRadius + (endRadius - startRadius) * t;
             const scale = radius / startRadius;
-            ring.scaling.set(scale, scale, scale);
-            ring.visibility = 0.60 * (1 - t);
+            ring.scale.set(scale, scale, scale);
+            setMeshOpacity(ring, 0.60 * (1 - t));
 
             if (t >= 1.0) {
-                this.scene.onBeforeRenderObservable.remove(observer);
-                ring.dispose(); // keeps the cached/shared material
+                this.scene.onBeforeRender.remove(observer);
+                disposeMesh(ring); // frees the mesh-owned fade clone; the cached mat survives
             }
         });
     }

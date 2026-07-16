@@ -1,14 +1,18 @@
-import { Vector3, MeshBuilder, StandardMaterial, Color3, Mesh, AssetContainer, AnimationGroup, TransformNode, Quaternion } from '@babylonjs/core';
+import { Box3, Color, Mesh, Vector3 } from 'three';
 import { Game } from '../../engine/Game';
 import { Enemy } from './Enemy';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../engine/rendering/LowPolyMaterial';
 import { PALETTE } from '../../engine/rendering/StyleConstants';
+import { AnimGroup } from '../../engine/three/AnimGroup';
+import type { GlbContainer } from '../../engine/three/assets';
+import { headingToYaw } from '../../engine/three/math';
+import { createBox, createCylinder, createPlane, createPolyhedron, createSphere } from '../../engine/three/primitives';
 
 export class TankEnemy extends Enemy {
     /** Static slot used by EnemyManager.spawnSurvivorsEnemy to stage a preloaded GLB
      *  asset before constructing a TankEnemy. createMesh() consumes + clears it. */
-    public static pendingAsset: AssetContainer | null = null;
+    public static pendingAsset: GlbContainer | null = null;
 
     private stompTime: number = 0;
     private rocks: Mesh[] = [];
@@ -19,10 +23,10 @@ export class TankEnemy extends Enemy {
 
     /** True when this instance renders via the lava-golem GLB. */
     private usingGLB: boolean = false;
-    private glbWalkAnim: AnimationGroup | null = null;
-    private glbAttackAnim: AnimationGroup | null = null;
-    private glbIdleAnim: AnimationGroup | null = null;
-    private glbCurrentAnim: AnimationGroup | null = null;
+    private glbWalkAnim: AnimGroup | null = null;
+    private glbAttackAnim: AnimGroup | null = null;
+    private glbIdleAnim: AnimGroup | null = null;
+    private glbCurrentAnim: AnimGroup | null = null;
     private glbAttackHoldTimer: number = 0;
     private static readonly GLB_ATTACK_RANGE = 4.0;
     private static readonly GLB_ATTACK_HOLD = 0.8;
@@ -67,46 +71,34 @@ export class TankEnemy extends Enemy {
         this.createMeshProcedural();
     }
 
-    private createMeshFromGLB(asset: AssetContainer): void {
+    private createMeshFromGLB(asset: GlbContainer): void {
         this.usingGLB = true;
-        this.mesh = new Mesh('tankEnemyGlbRoot', this.scene);
-        this.mesh.position.copyFrom(this.position);
+        this.mesh = new Mesh(); // empty transform host (renders nothing)
+        this.mesh.name = 'tankEnemyGlbRoot';
+        this.scene.scene.add(this.mesh);
+        this.mesh.position.copy(this.position);
 
-        const inst = asset.instantiateModelsToScene(
-            name => `tank_${name}`,
-            true,
-            { doNotInstantiate: true },
-        );
-        for (const root of inst.rootNodes) {
-            root.parent = this.mesh;
-            if ('scaling' in root && root.scaling) {
-                (root as TransformNode).scaling.scaleInPlace(this.glbScale);
-            }
-            // 180° Y flip — same pattern as BasicEnemy GLB. Enemy.update's seek-rotation
-            // expects the model to be authored facing -z.
-            const tn = root as TransformNode;
-            const flip = Quaternion.RotationYawPitchRoll(Math.PI, 0, 0);
-            if (tn.rotationQuaternion) {
-                tn.rotationQuaternion = flip.multiply(tn.rotationQuaternion);
-            } else if (tn.rotation) {
-                tn.rotation.y += Math.PI;
-            }
-        }
+        const inst = asset.instantiate(this.scene, 'tank_');
+        // Base Enemy field; its dispose() frees cloned materials + skeletons + mixer hook.
+        this.glbInstance = inst;
+        const root = inst.root;
+        this.mesh.add(root);
+        root.scale.multiplyScalar(this.glbScale);
+        // Keep the Babylon-era 180-degree Y pre-rotation so facing math stays aligned
+        // (Phase D handedness audit may remove it). Enemy.update's seek-rotation
+        // expects the model to be authored facing -z.
+        root.rotation.y += Math.PI;
 
         // Feet-on-ground offset.
-        this.mesh.computeWorldMatrix(true);
-        const bbox = this.mesh.getHierarchyBoundingVectors(true);
+        this.mesh.updateMatrixWorld(true);
+        const bbox = new Box3().setFromObject(this.mesh);
         const feetOffset = -bbox.min.y;
-        for (const root of inst.rootNodes) {
-            if ('position' in root && root.position) {
-                (root as TransformNode).position.y += feetOffset;
-            }
-        }
+        root.position.y += feetOffset;
 
         // Categorize animation clips for walk/attack/idle state.
-        // Register groups for base-class dispose cleanup (prevents animatable leak).
+        // Register groups on the base class so the release path can stop them
+        // (glbInstance.dispose() owns their actual disposal).
         this.glbAnimationGroups = inst.animationGroups;
-        this.glbSkeletons = inst.skeletons;
 
         for (const ag of inst.animationGroups) ag.stop();
         for (const ag of inst.animationGroups) {
@@ -128,7 +120,7 @@ export class TankEnemy extends Enemy {
         }
     }
 
-    private playGlbAnim(slot: AnimationGroup | null, loop: boolean): void {
+    private playGlbAnim(slot: AnimGroup | null, loop: boolean): void {
         if (!slot) return;
         if (this.glbCurrentAnim === slot) return;
         if (this.glbCurrentAnim) this.glbCurrentAnim.stop();
@@ -147,124 +139,124 @@ export class TankEnemy extends Enemy {
         this.legs = [];
 
         // --- Main body: wide squat box (beetle thorax) ---
-        this.mesh = MeshBuilder.CreateBox('tankEnemyBody', {
+        this.mesh = createBox('tankEnemyBody', {
             width: 1.30,
             height: 0.55,
             depth: 1.10
         }, this.scene);
         makeFlatShaded(this.mesh);
-        this.mesh.position = this.position.clone();
+        this.mesh.position.copy(this.position);
         this.mesh.position.y += 0.35;
-        this.mesh.material = createLowPolyMaterial('tankBodyMat', PALETTE.ENEMY_TANK, this.scene);
+        this.mesh.material = createLowPolyMaterial('tankBodyMat', PALETTE.ENEMY_TANK);
 
         // --- Domed shell: large flattened polyhedron on top ---
-        this.shellTop = MeshBuilder.CreatePolyhedron('tankShell', {
+        this.shellTop = createPolyhedron('tankShell', {
             type: 2, // Icosahedron
             size: 0.55
         }, this.scene);
         makeFlatShaded(this.shellTop);
-        this.shellTop.parent = this.mesh;
-        this.shellTop.position = new Vector3(0, 0.35, -0.05);
-        this.shellTop.scaling = new Vector3(1.20, 0.50, 1.05); // Wide and flat dome
-        this.shellTop.material = createLowPolyMaterial('tankShellMat', PALETTE.ENEMY_TANK_SHELL, this.scene);
+        this.mesh.add(this.shellTop);
+        this.shellTop.position.set(0, 0.35, -0.05);
+        this.shellTop.scale.set(1.20, 0.50, 1.05); // Wide and flat dome
+        this.shellTop.material = createLowPolyMaterial('tankShellMat', PALETTE.ENEMY_TANK_SHELL);
 
         // --- Shell ridge plates: 3 boxes along the top of the shell ---
         for (let i = 0; i < 3; i++) {
-            const ridge = MeshBuilder.CreateBox(`tankRidge${i}`, {
+            const ridge = createBox(`tankRidge${i}`, {
                 width: 0.12,
                 height: 0.10,
                 depth: 0.28
             }, this.scene);
             makeFlatShaded(ridge);
-            ridge.parent = this.shellTop;
-            ridge.position = new Vector3(0, 0.28, -0.25 + i * 0.25);
-            ridge.material = createLowPolyMaterial(`tankRidgeMat${i}`, PALETTE.ENEMY_TANK, this.scene);
+            this.shellTop.add(ridge);
+            ridge.position.set(0, 0.28, -0.25 + i * 0.25);
+            ridge.material = createLowPolyMaterial(`tankRidgeMat${i}`, PALETTE.ENEMY_TANK);
             this.rocks.push(ridge);
         }
 
         // --- Head: smaller box protruding forward ---
-        const head = MeshBuilder.CreateBox('tankHead', {
+        const head = createBox('tankHead', {
             width: 0.60,
             height: 0.35,
             depth: 0.40
         }, this.scene);
         makeFlatShaded(head);
-        head.parent = this.mesh;
-        head.position = new Vector3(0, 0.05, 0.65);
-        head.material = createLowPolyMaterial('tankHeadMat', PALETTE.ENEMY_TANK, this.scene);
+        this.mesh.add(head);
+        head.position.set(0, 0.05, 0.65);
+        head.material = createLowPolyMaterial('tankHeadMat', PALETTE.ENEMY_TANK);
 
         // --- Eyes: two emissive amber orbs ---
-        const leftEye = MeshBuilder.CreateSphere('tankLeftEye', {
+        const leftEye = createSphere('tankLeftEye', {
             diameter: 0.12,
             segments: 4
         }, this.scene);
         makeFlatShaded(leftEye);
-        leftEye.parent = head;
-        leftEye.position = new Vector3(-0.20, 0.08, 0.18);
-        leftEye.material = createEmissiveMaterial('tankLeftEyeMat', PALETTE.ENEMY_TANK_AMBER, 1.0, this.scene);
+        head.add(leftEye);
+        leftEye.position.set(-0.20, 0.08, 0.18);
+        leftEye.material = createEmissiveMaterial('tankLeftEyeMat', PALETTE.ENEMY_TANK_AMBER, 1.0);
 
-        const rightEye = MeshBuilder.CreateSphere('tankRightEye', {
+        const rightEye = createSphere('tankRightEye', {
             diameter: 0.12,
             segments: 4
         }, this.scene);
         makeFlatShaded(rightEye);
-        rightEye.parent = head;
-        rightEye.position = new Vector3(0.20, 0.08, 0.18);
-        rightEye.material = createEmissiveMaterial('tankRightEyeMat', PALETTE.ENEMY_TANK_AMBER, 1.0, this.scene);
+        head.add(rightEye);
+        rightEye.position.set(0.20, 0.08, 0.18);
+        rightEye.material = createEmissiveMaterial('tankRightEyeMat', PALETTE.ENEMY_TANK_AMBER, 1.0);
 
         // --- Mandibles: two curved cone shapes flanking the head ---
-        this.mandibleLeft = MeshBuilder.CreateCylinder('tankMandibleL', {
+        this.mandibleLeft = createCylinder('tankMandibleL', {
             height: 0.40,
             diameterTop: 0.0,
             diameterBottom: 0.12,
             tessellation: 4
         }, this.scene);
         makeFlatShaded(this.mandibleLeft);
-        this.mandibleLeft.parent = head;
-        this.mandibleLeft.position = new Vector3(-0.28, -0.08, 0.25);
+        head.add(this.mandibleLeft);
+        this.mandibleLeft.position.set(-0.28, -0.08, 0.25);
         this.mandibleLeft.rotation.x = Math.PI / 2.2;
         this.mandibleLeft.rotation.z = 0.4;
-        this.mandibleLeft.material = createLowPolyMaterial('tankMandibleLMat', PALETTE.ENEMY_TANK_MANDIBLE, this.scene);
+        this.mandibleLeft.material = createLowPolyMaterial('tankMandibleLMat', PALETTE.ENEMY_TANK_MANDIBLE);
 
-        this.mandibleRight = MeshBuilder.CreateCylinder('tankMandibleR', {
+        this.mandibleRight = createCylinder('tankMandibleR', {
             height: 0.40,
             diameterTop: 0.0,
             diameterBottom: 0.12,
             tessellation: 4
         }, this.scene);
         makeFlatShaded(this.mandibleRight);
-        this.mandibleRight.parent = head;
-        this.mandibleRight.position = new Vector3(0.28, -0.08, 0.25);
+        head.add(this.mandibleRight);
+        this.mandibleRight.position.set(0.28, -0.08, 0.25);
         this.mandibleRight.rotation.x = Math.PI / 2.2;
         this.mandibleRight.rotation.z = -0.4;
-        this.mandibleRight.material = createLowPolyMaterial('tankMandibleRMat', PALETTE.ENEMY_TANK_MANDIBLE, this.scene);
+        this.mandibleRight.material = createLowPolyMaterial('tankMandibleRMat', PALETTE.ENEMY_TANK_MANDIBLE);
 
         // --- Antennae: two thin cones on top of head ---
-        const leftAntenna = MeshBuilder.CreateCylinder('tankAntennaL', {
+        const leftAntenna = createCylinder('tankAntennaL', {
             height: 0.35,
             diameterTop: 0.0,
             diameterBottom: 0.04,
             tessellation: 3
         }, this.scene);
         makeFlatShaded(leftAntenna);
-        leftAntenna.parent = head;
-        leftAntenna.position = new Vector3(-0.15, 0.18, 0.10);
+        head.add(leftAntenna);
+        leftAntenna.position.set(-0.15, 0.18, 0.10);
         leftAntenna.rotation.x = -0.4;
         leftAntenna.rotation.z = -0.3;
-        leftAntenna.material = createLowPolyMaterial('tankAntennaLMat', PALETTE.ENEMY_TANK_LEG, this.scene);
+        leftAntenna.material = createLowPolyMaterial('tankAntennaLMat', PALETTE.ENEMY_TANK_LEG);
 
-        const rightAntenna = MeshBuilder.CreateCylinder('tankAntennaR', {
+        const rightAntenna = createCylinder('tankAntennaR', {
             height: 0.35,
             diameterTop: 0.0,
             diameterBottom: 0.04,
             tessellation: 3
         }, this.scene);
         makeFlatShaded(rightAntenna);
-        rightAntenna.parent = head;
-        rightAntenna.position = new Vector3(0.15, 0.18, 0.10);
+        head.add(rightAntenna);
+        rightAntenna.position.set(0.15, 0.18, 0.10);
         rightAntenna.rotation.x = -0.4;
         rightAntenna.rotation.z = 0.3;
-        rightAntenna.material = createLowPolyMaterial('tankAntennaRMat', PALETTE.ENEMY_TANK_LEG, this.scene);
+        rightAntenna.material = createLowPolyMaterial('tankAntennaRMat', PALETTE.ENEMY_TANK_LEG);
 
         // --- 6 Legs: 3 per side, box segments ---
         const legSide = [-1, 1]; // Left (-1) and Right (1)
@@ -273,114 +265,114 @@ export class TankEnemy extends Enemy {
         for (const side of legSide) {
             for (let i = 0; i < legZOffsets.length; i++) {
                 // Upper leg segment
-                const upperLeg = MeshBuilder.CreateBox(`tankLeg_${side}_${i}`, {
+                const upperLeg = createBox(`tankLeg_${side}_${i}`, {
                     width: 0.35,
                     height: 0.10,
                     depth: 0.10
                 }, this.scene);
                 makeFlatShaded(upperLeg);
-                upperLeg.parent = this.mesh;
-                upperLeg.position = new Vector3(
+                this.mesh.add(upperLeg);
+                upperLeg.position.set(
                     side * 0.65,
                     -0.15,
                     legZOffsets[i]
                 );
                 upperLeg.rotation.z = side * 0.3; // Angle outward
-                upperLeg.material = createLowPolyMaterial(`tankLegMat_${side}_${i}`, PALETTE.ENEMY_TANK_LEG, this.scene);
+                upperLeg.material = createLowPolyMaterial(`tankLegMat_${side}_${i}`, PALETTE.ENEMY_TANK_LEG);
 
                 // Lower leg segment (foot)
-                const foot = MeshBuilder.CreateBox(`tankFoot_${side}_${i}`, {
+                const foot = createBox(`tankFoot_${side}_${i}`, {
                     width: 0.08,
                     height: 0.20,
                     depth: 0.08
                 }, this.scene);
                 makeFlatShaded(foot);
-                foot.parent = upperLeg;
-                foot.position = new Vector3(side * 0.18, -0.12, 0);
-                foot.material = createLowPolyMaterial(`tankFootMat_${side}_${i}`, PALETTE.ENEMY_TANK_LEG, this.scene);
+                upperLeg.add(foot);
+                foot.position.set(side * 0.18, -0.12, 0);
+                foot.material = createLowPolyMaterial(`tankFootMat_${side}_${i}`, PALETTE.ENEMY_TANK_LEG);
 
                 this.legs.push(upperLeg);
             }
         }
 
         // --- Thorax glow vents: 2 emissive amber slits on the sides ---
-        const leftVent = MeshBuilder.CreateBox('tankVentL', {
+        const leftVent = createBox('tankVentL', {
             width: 0.06,
             height: 0.06,
             depth: 0.35
         }, this.scene);
         makeFlatShaded(leftVent);
-        leftVent.parent = this.mesh;
-        leftVent.position = new Vector3(-0.66, 0.10, 0);
-        leftVent.material = createEmissiveMaterial('tankVentLMat', PALETTE.ENEMY_TANK_AMBER, 0.8, this.scene);
+        this.mesh.add(leftVent);
+        leftVent.position.set(-0.66, 0.10, 0);
+        leftVent.material = createEmissiveMaterial('tankVentLMat', PALETTE.ENEMY_TANK_AMBER, 0.8);
 
-        const rightVent = MeshBuilder.CreateBox('tankVentR', {
+        const rightVent = createBox('tankVentR', {
             width: 0.06,
             height: 0.06,
             depth: 0.35
         }, this.scene);
         makeFlatShaded(rightVent);
-        rightVent.parent = this.mesh;
-        rightVent.position = new Vector3(0.66, 0.10, 0);
-        rightVent.material = createEmissiveMaterial('tankVentRMat', PALETTE.ENEMY_TANK_AMBER, 0.8, this.scene);
+        this.mesh.add(rightVent);
+        rightVent.position.set(0.66, 0.10, 0);
+        rightVent.material = createEmissiveMaterial('tankVentRMat', PALETTE.ENEMY_TANK_AMBER, 0.8);
 
         // --- Rear plate: angled box at the back ---
-        const rearPlate = MeshBuilder.CreateBox('tankRear', {
+        const rearPlate = createBox('tankRear', {
             width: 0.80,
             height: 0.25,
             depth: 0.10
         }, this.scene);
         makeFlatShaded(rearPlate);
-        rearPlate.parent = this.mesh;
-        rearPlate.position = new Vector3(0, 0.10, -0.58);
+        this.mesh.add(rearPlate);
+        rearPlate.position.set(0, 0.10, -0.58);
         rearPlate.rotation.x = -0.3;
-        rearPlate.material = createLowPolyMaterial('tankRearMat', PALETTE.ENEMY_TANK_SHELL, this.scene);
+        rearPlate.material = createLowPolyMaterial('tankRearMat', PALETTE.ENEMY_TANK_SHELL);
 
         // --- Armor plates: dark metallic slabs on the sides for a bulkier silhouette ---
-        const armorPlateColor = new Color3(0.22, 0.20, 0.26); // Near-black dark metal
+        const armorPlateColor = new Color(0.22, 0.20, 0.26); // Near-black dark metal
 
-        const leftPlate = MeshBuilder.CreateBox('tankLeftPlate', {
+        const leftPlate = createBox('tankLeftPlate', {
             width: 0.10,
             height: 0.38,
             depth: 0.75
         }, this.scene);
         makeFlatShaded(leftPlate);
-        leftPlate.parent = this.mesh;
-        leftPlate.position = new Vector3(-0.72, 0.05, 0);
-        leftPlate.material = createLowPolyMaterial('tankLeftPlateMat', armorPlateColor, this.scene);
+        this.mesh.add(leftPlate);
+        leftPlate.position.set(-0.72, 0.05, 0);
+        leftPlate.material = createLowPolyMaterial('tankLeftPlateMat', armorPlateColor);
 
-        const rightPlate = MeshBuilder.CreateBox('tankRightPlate', {
+        const rightPlate = createBox('tankRightPlate', {
             width: 0.10,
             height: 0.38,
             depth: 0.75
         }, this.scene);
         makeFlatShaded(rightPlate);
-        rightPlate.parent = this.mesh;
-        rightPlate.position = new Vector3(0.72, 0.05, 0);
-        rightPlate.material = createLowPolyMaterial('tankRightPlateMat', armorPlateColor, this.scene);
+        this.mesh.add(rightPlate);
+        rightPlate.position.set(0.72, 0.05, 0);
+        rightPlate.material = createLowPolyMaterial('tankRightPlateMat', armorPlateColor);
 
         // Front armor brow: thick horizontal slab above the head for an imposing forehead
-        const frontBrow = MeshBuilder.CreateBox('tankFrontBrow', {
+        const frontBrow = createBox('tankFrontBrow', {
             width: 0.70,
             height: 0.14,
             depth: 0.16
         }, this.scene);
         makeFlatShaded(frontBrow);
-        frontBrow.parent = this.mesh;
-        frontBrow.position = new Vector3(0, 0.22, 0.60);
-        frontBrow.material = createLowPolyMaterial('tankFrontBrowMat', armorPlateColor, this.scene);
+        this.mesh.add(frontBrow);
+        frontBrow.position.set(0, 0.22, 0.60);
+        frontBrow.material = createLowPolyMaterial('tankFrontBrowMat', armorPlateColor);
 
         // Helmet horn: small polyhedron spike on top centre for an intimidating silhouette
-        const helmetHorn = MeshBuilder.CreateCylinder('tankHelmetHorn', {
+        const helmetHorn = createCylinder('tankHelmetHorn', {
             height: 0.28,
             diameterTop: 0.0,
             diameterBottom: 0.12,
             tessellation: 4
         }, this.scene);
         makeFlatShaded(helmetHorn);
-        helmetHorn.parent = this.shellTop;
-        helmetHorn.position = new Vector3(0, 0.28, 0);
-        helmetHorn.material = createLowPolyMaterial('tankHelmetHornMat', armorPlateColor, this.scene);
+        this.shellTop.add(helmetHorn);
+        helmetHorn.position.set(0, 0.28, 0);
+        helmetHorn.material = createLowPolyMaterial('tankHelmetHornMat', armorPlateColor);
 
         // Store original scale
         this.originalScale = 1.0;
@@ -395,29 +387,27 @@ export class TankEnemy extends Enemy {
         this._barBand = null; // force the fill-material assignment in updateHealthBar
 
         // Two meshes, shared cached materials (see Enemy.createHealthBar): the
-        // frame-sized near-black background doubles as the outline.
-        this.healthBarBackgroundMesh = MeshBuilder.CreateBox('healthBarBg', {
+        // frame-sized near-black background doubles as the outline. Same cached
+        // keys as the base class; depthTest=false + the base renderOrder band
+        // keep the bar always on top (the Babylon depth-clear group equivalent).
+        this.healthBarBackgroundMesh = createPlane('healthBarBg', {
             width: 1.58,
-            height: 0.14,
-            depth: 0.05
+            height: 0.14
         }, this.scene);
-        this.healthBarBackgroundMesh.position = new Vector3(this.position.x, this.position.y + 1.2, this.position.z);
-        this.healthBarBackgroundMesh.material = getCachedMaterial(this.scene, 'healthBarBgFrameMat', m => {
-            m.diffuseColor  = new Color3(0.05, 0.05, 0.05);
-            m.specularColor = Color3.Black();
+        this.healthBarBackgroundMesh.position.set(this.position.x, this.position.y + 1.2, this.position.z);
+        this.healthBarBackgroundMesh.material = getCachedMaterial('healthBarBgFrameMat', m => {
+            m.color    = new Color(0.05, 0.05, 0.05);
+            m.specular = new Color(0, 0, 0);
+            m.depthTest = false;
+            m.depthWrite = false;
         });
 
         // Health fill — material assigned by updateHealthBar's band swap.
-        this.healthBarMesh = MeshBuilder.CreateBox('healthBar', {
+        this.healthBarMesh = createPlane('healthBar', {
             width: 1.5,
-            height: 0.08,
-            depth: 0.06
+            height: 0.08
         }, this.scene);
-        this.healthBarMesh.position = new Vector3(this.position.x, this.position.y + 1.2, this.position.z);
-
-        // Billboard mode
-        this.healthBarBackgroundMesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
-        this.healthBarMesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
+        this.healthBarMesh.position.set(this.position.x, this.position.y + 1.2, this.position.z);
 
         this.updateHealthBar();
     }
@@ -430,7 +420,7 @@ export class TankEnemy extends Enemy {
 
         const healthPercent = Math.max(0, this.health / this.maxHealth);
 
-        this.healthBarMesh.scaling.x = healthPercent;
+        this.healthBarMesh.scale.x = healthPercent;
 
         const offset = (1 - healthPercent) * 0.75; // Adjusted for wider bar (1.5 width)
         this.healthBarMesh.position.x = this.position.x - offset;
@@ -443,6 +433,8 @@ export class TankEnemy extends Enemy {
 
         this.healthBarMesh.position.y = this.position.y + 1.2;
         this.healthBarMesh.position.z = this.position.z;
+
+        this._billboardHealthBar();
     }
 
     /**
@@ -457,7 +449,7 @@ export class TankEnemy extends Enemy {
         const result = super.update(deltaTime);
 
         // GLB golem skips the procedural scuttle anim — the asset's own clips drive it.
-        // Facing is handled by Enemy.update's seek-rotation; the GLB roots are pre-rotated
+        // Facing is handled by Enemy.update's seek-rotation; the GLB root is pre-rotated
         // 180° in createMeshFromGLB so the model ends up facing the hero.
         if (this.usingGLB) {
             if (this.glbAttackHoldTimer > 0) {
@@ -496,8 +488,7 @@ export class TankEnemy extends Enemy {
                 const dz = targetPoint.z - this.position.z;
 
                 if (dx * dx + dz * dz > 0.0001) {
-                    const angle = Math.atan2(dz, dx);
-                    this.mesh.rotation.y = -angle + Math.PI / 2;
+                    this.mesh.rotation.y = headingToYaw(dx, dz);
                 }
             }
         }
@@ -549,7 +540,7 @@ export class TankEnemy extends Enemy {
 
         // Shell: very subtle breathing
         if (this.shellTop) {
-            this.shellTop.scaling.y = 0.50 + Math.sin(this.stompTime * 1.5) * 0.02;
+            this.shellTop.scale.y = 0.50 + Math.sin(this.stompTime * 1.5) * 0.02;
         }
     }
 

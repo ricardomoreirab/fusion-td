@@ -72,6 +72,10 @@ export function setMeshOpacity(mesh: Mesh, opacity: number): void {
     let mat = mesh.material as MeshPhongMaterial;
     if (!mesh.userData.ownedMaterial) {
         mat = mat.clone();
+        // Material.clone() copies userData - the clone must NOT inherit the
+        // cached flag or disposeMesh would skip it and leak one material per
+        // faded FX mesh (exactly the recurring-freeze class).
+        mat.userData.cached = false;
         mat.transparent = true;
         mesh.material = mat;
         mesh.userData.ownedMaterial = true;

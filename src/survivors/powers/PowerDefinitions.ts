@@ -1,4 +1,8 @@
-import { Scene, Vector3, MeshBuilder, Color3, StandardMaterial, Mesh, VertexData } from '@babylonjs/core';
+import { BufferGeometry, Color, DoubleSide, Float32BufferAttribute, Mesh, MeshPhongMaterial, Vector3 } from 'three';
+import type { SceneHost } from '../../engine/three/SceneHost';
+import { createBox, createCylinder, createPolyhedron, createSphere, createTorus, disposeMesh, isMeshDisposed } from '../../engine/three/primitives';
+import { createLowPolyMaterial, setMeshOpacity } from '../../engine/rendering/LowPolyMaterial';
+import { headingToYaw } from '../../engine/three/math';
 import { Enemy } from '../enemies/Enemy';
 import { StatusEffect } from '../GameTypes';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
@@ -15,7 +19,7 @@ export interface PowerRuntimeState {
 }
 
 export interface PowerContext {
-    scene: Scene;
+    scene: SceneHost;
     heroPosition: Vector3;
     enemies: Enemy[];
     /** Combined damage multiplier from run perks + shop upgrades */
@@ -26,7 +30,7 @@ export interface PowerContext {
 
 /** Called on each basic-attack hit for passive enchantment powers. */
 export interface EnchantmentHitContext {
-    scene: Scene;
+    scene: SceneHost;
     heroPosition: Vector3;
     enemies: Enemy[];
     /** Base damage of the basic attack (before multipliers). */
@@ -94,40 +98,41 @@ export interface PowerDefinition {
  * Uses a low-poly sphere that fades out in `duration` seconds.
  */
 function spawnTrailParticle(
-    scene: Scene,
+    scene: SceneHost,
     position: Vector3,
-    color: Color3,
+    color: Color,
     size: number = 0.15,
     duration: number = 0.3,
 ): void {
-    const part = MeshBuilder.CreateSphere(
+    const part = createSphere(
         `trail_${performance.now()}_${Math.random()}`,
         { diameter: size, segments: 3 },
         scene,
-    ) as Mesh;
-    part.position.copyFrom(position);
+    );
+    part.position.copy(position);
     // Share the trail material across every in-flight trail of the same color.
-    // The previous code allocated a new StandardMaterial per call (~20 Hz per
+    // The previous code allocated a new material per call (~20 Hz per
     // projectile, several projectiles in flight) — that allocation churn was
     // the dominant GC pressure during sustained power use.
     const matKey = `trailMat_${color.r.toFixed(2)}_${color.g.toFixed(2)}_${color.b.toFixed(2)}`;
-    part.material = getCachedMaterial(scene, matKey, m => {
-        m.emissiveColor = color;
-        m.diffuseColor = new Color3(0, 0, 0);
-        m.alpha = 0.7;
+    part.material = getCachedMaterial(matKey, m => {
+        m.emissive.copy(color);
+        m.color.set(0, 0, 0);
+        m.opacity = 0.7;
+        m.transparent = true;
     });
     const startScale = 1;
     let elapsed = 0;
-    const obs = scene.onBeforeRenderObservable.add(() => {
-        const dt = scene.getEngine().getDeltaTime() / 1000;
+    const token = scene.onBeforeRender.add(() => {
+        const dt = scene.deltaSeconds;
         elapsed += dt;
         const t = Math.min(elapsed / duration, 1);
         // Fade via mesh scale only (per-instance) — sharing the material means
-        // we can no longer mutate alpha per particle.
-        part.scaling.setAll(startScale * (1 - t));
+        // we can no longer mutate opacity per particle.
+        part.scale.setScalar(startScale * (1 - t));
         if (t >= 1) {
-            part.dispose();
-            scene.onBeforeRenderObservable.remove(obs);
+            disposeMesh(part);
+            scene.onBeforeRender.remove(token);
         }
     });
 }
@@ -136,64 +141,64 @@ function spawnTrailParticle(
  * Quick expanding flash sphere at an impact point — shared by the mage spells
  * (fireball burst core, frost-shard hits, lightning strike points). Material is
  * cached per color hex (bounded — one per element palette entry); fade is
- * mesh-local (scaling + visibility) so the shared material is never mutated.
+ * mesh-local (scaling + setMeshOpacity) so the shared material is never mutated.
  */
-function spawnImpactFlash(scene: Scene, position: Vector3, color: Color3, scale: number = 1): void {
-    const flash = MeshBuilder.CreateSphere('impactFlash', { diameter: 0.5 * scale, segments: 3 }, scene);
-    flash.position.copyFrom(position);
-    flash.material = getCachedMaterial(scene, `impactFlashMat_${color.toHexString()}`, m => {
-        m.emissiveColor = color;
-        m.diffuseColor = new Color3(0, 0, 0);
-        m.disableLighting = true;
-        m.alpha = 0.85;
+function spawnImpactFlash(scene: SceneHost, position: Vector3, color: Color, scale: number = 1): void {
+    const flash = createSphere('impactFlash', { diameter: 0.5 * scale, segments: 3 }, scene);
+    flash.position.copy(position);
+    flash.material = getCachedMaterial(`impactFlashMat_${color.getHexString()}`, m => {
+        m.emissive.copy(color);
+        m.color.set(0, 0, 0);
+        m.opacity = 0.85;
+        m.transparent = true;
     });
     const duration = 0.18;
     let elapsed = 0;
-    const obs = scene.onBeforeRenderObservable.add(() => {
-        elapsed += scene.getEngine().getDeltaTime() / 1000;
+    const token = scene.onBeforeRender.add(() => {
+        elapsed += scene.deltaSeconds;
         const t = Math.min(elapsed / duration, 1);
-        flash.scaling.setAll(1 + t * 1.6);
-        flash.visibility = 1 - t;
+        flash.scale.setScalar(1 + t * 1.6);
+        setMeshOpacity(flash, 0.85 * (1 - t)); // Babylon visibility × mat.alpha(0.85)
         if (t >= 1) {
-            flash.dispose(); // cached/shared material — keep it
-            scene.onBeforeRenderObservable.remove(obs);
+            disposeMesh(flash); // cached/shared material — kept; owned fade clone freed
+            scene.onBeforeRender.remove(token);
         }
     });
 }
 
 /**
  * Expanding + fading ground ring (Arcane Nova waves, fireball scorch). Cached
- * material per color; fade via mesh.visibility. Optional delay staggers waves.
+ * material per color; fade via setMeshOpacity. Optional delay staggers waves.
  */
 function spawnExpandingRing(
-    scene: Scene,
+    scene: SceneHost,
     center: Vector3,
     radius: number,
-    color: Color3,
+    color: Color,
     opts: { delayMs?: number; thickness?: number; duration?: number } = {},
 ): void {
     const make = () => {
-        const ring = MeshBuilder.CreateTorus('expandRing', {
+        const ring = createTorus('expandRing', {
             diameter: 1.0, thickness: opts.thickness ?? 0.25, tessellation: 32,
         }, scene);
         ring.position.set(center.x, 0.3, center.z);
-        ring.material = getCachedMaterial(scene, `expandRingMat_${color.toHexString()}`, m => {
-            m.emissiveColor = color;
-            m.diffuseColor = new Color3(0, 0, 0);
-            m.disableLighting = true;
-            m.alpha = 0.7;
+        ring.material = getCachedMaterial(`expandRingMat_${color.getHexString()}`, m => {
+            m.emissive.copy(color);
+            m.color.set(0, 0, 0);
+            m.opacity = 0.7;
+            m.transparent = true;
         });
         const duration = opts.duration ?? 0.4;
         let elapsed = 0;
-        const obs = scene.onBeforeRenderObservable.add(() => {
-            elapsed += scene.getEngine().getDeltaTime() / 1000;
+        const token = scene.onBeforeRender.add(() => {
+            elapsed += scene.deltaSeconds;
             const t = Math.min(elapsed / duration, 1);
             const s = radius * 2 * (0.35 + 0.65 * t);
-            ring.scaling.set(s, 1, s); // unit torus — scaling IS the diameter
-            ring.visibility = 1 - t * t;
+            ring.scale.set(s, 1, s); // unit torus — scaling IS the diameter
+            setMeshOpacity(ring, 0.7 * (1 - t * t)); // Babylon visibility × mat.alpha(0.7)
             if (t >= 1) {
-                ring.dispose(); // cached/shared material — keep it
-                scene.onBeforeRenderObservable.remove(obs);
+                disposeMesh(ring); // cached/shared material — kept; owned fade clone freed
+                scene.onBeforeRender.remove(token);
             }
         });
     };
@@ -203,58 +208,62 @@ function spawnExpandingRing(
 
 // =============================================================================
 // BOLT SEGMENT POOL — 30 pre-allocated unit-depth boxes (5 segs × 6 bolts).
-// Boxes are created with depth=1.0; callers set scaling.z = segLen per use.
+// Boxes are created with depth=1.0; callers set scale.z = segLen per use.
+// Each pooled segment OWNS its material (bounded: one per pool slot) so its
+// emissive color + fading opacity can be mutated per use without ever touching
+// a shared cached material.
 // =============================================================================
 
 const BOLT_POOL_SIZE = 30;
 const boltPool: Mesh[] = [];
 let boltPoolInitialized = false;
 
-function acquireBoltSegment(scene: Scene): Mesh {
-    // The pool is module-level so it survives state exits, but Game.cleanupScene()
-    // disposes every scene mesh between states. On the next run the pool would
-    // hold disposed (or other-scene) meshes — re-enabling those renders nothing.
-    // Detect stale entries and rebuild the pool from scratch.
-    if (boltPoolInitialized && boltPool.some(b => b.isDisposed() || b.getScene() !== scene)) {
+function makeBoltSegment(name: string, scene: SceneHost): Mesh {
+    const box = createBox(name, { width: 0.07, height: 0.07, depth: 1.0 }, scene);
+    const mat = createLowPolyMaterial('boltSegMat', new Color(0, 0, 0));
+    mat.transparent = true;
+    box.material = mat;
+    box.userData.ownedMaterial = true; // disposeMesh frees it with the segment
+    return box;
+}
+
+function acquireBoltSegment(scene: SceneHost): Mesh {
+    // The pool is module-level so it survives state exits, but the engine's
+    // scene cleanup disposes every scene mesh between states. On the next run
+    // the pool would hold disposed (or other-scene) meshes — re-enabling those
+    // renders nothing. Detect stale entries and rebuild the pool from scratch.
+    if (boltPoolInitialized && boltPool.some(b => isMeshDisposed(b) || b.parent !== scene.scene)) {
         for (const b of boltPool) {
-            if (!b.isDisposed()) b.dispose(); // cached/shared material — keep it
+            if (!isMeshDisposed(b)) disposeMesh(b); // owned material freed with the segment
         }
         boltPool.length = 0;
         boltPoolInitialized = false;
     }
     if (!boltPoolInitialized) {
         for (let i = 0; i < BOLT_POOL_SIZE; i++) {
-            const box = MeshBuilder.CreateBox(
-                `boltSeg${i}`,
-                { width: 0.07, height: 0.07, depth: 1.0 },
-                scene,
-            ) as Mesh;
-            box.setEnabled(false);
+            const box = makeBoltSegment(`boltSeg${i}`, scene);
+            box.visible = false;
             boltPool.push(box);
         }
         boltPoolInitialized = true;
     }
     for (const b of boltPool) {
-        if (!b.isEnabled()) {
-            b.setEnabled(true);
+        if (!b.visible) {
+            b.visible = true;
             return b;
         }
     }
     // Fallback: pool exhausted — create one that will be disposed normally.
-    return MeshBuilder.CreateBox(
-        `boltSegX${performance.now()}`,
-        { width: 0.07, height: 0.07, depth: 1.0 },
-        scene,
-    ) as Mesh;
+    return makeBoltSegment(`boltSegX${performance.now()}`, scene);
 }
 
 function releaseBoltSegment(mesh: Mesh): void {
     if (boltPool.indexOf(mesh) >= 0) {
-        mesh.setEnabled(false);
-        mesh.scaling.setAll(1);
+        mesh.visible = false;
+        mesh.scale.setScalar(1);
         mesh.rotation.set(0, 0, 0);
     } else {
-        mesh.dispose();
+        disposeMesh(mesh); // owned material freed with the segment
     }
 }
 
@@ -264,49 +273,47 @@ function releaseBoltSegment(mesh: Mesh): void {
  * Segments are drawn from the module-level bolt pool to avoid per-bolt
  * mesh allocation churn.
  */
-function spawnJaggedBolt(scene: Scene, from: Vector3, to: Vector3, color: Color3, duration: number = 0.2): void {
+function spawnJaggedBolt(scene: SceneHost, from: Vector3, to: Vector3, color: Color, duration: number = 0.2): void {
     const segments = 5;
     const meshes: Mesh[] = [];
-    const dir = to.subtract(from);
+    const dir = new Vector3().subVectors(to, from);
     const length = dir.length();
     if (length < 0.1) return;
     const perp = new Vector3(-dir.z, 0, dir.x).normalize();
-    const matKey = `jaggedBoltMat_${color.r.toFixed(1)}_${color.b.toFixed(1)}`;
     for (let i = 0; i < segments; i++) {
         const tStart = i / segments;
         const tEnd = (i + 1) / segments;
-        const startP = from.add(dir.scale(tStart));
-        const endP = from.add(dir.scale(tEnd));
+        const startP = from.clone().addScaledVector(dir, tStart);
+        const endP = from.clone().addScaledVector(dir, tEnd);
         // Offset midpoint perpendicular (except endpoints)
-        if (i > 0) startP.addInPlace(perp.scale((Math.random() - 0.5) * length * 0.15));
-        if (i < segments - 1) endP.addInPlace(perp.scale((Math.random() - 0.5) * length * 0.15));
-        const segMid = Vector3.Center(startP, endP);
-        const segLen = Vector3.Distance(startP, endP);
-        const segDir = endP.subtract(startP);
+        if (i > 0) startP.addScaledVector(perp, (Math.random() - 0.5) * length * 0.15);
+        if (i < segments - 1) endP.addScaledVector(perp, (Math.random() - 0.5) * length * 0.15);
+        const segMid = new Vector3().lerpVectors(startP, endP, 0.5);
+        const segLen = startP.distanceTo(endP);
+        const segDir = new Vector3().subVectors(endP, startP);
         const seg = acquireBoltSegment(scene);
-        seg.scaling.z = segLen;
-        seg.scaling.x = 1;
-        seg.scaling.y = 1;
-        seg.position.copyFrom(segMid);
-        seg.rotation.y = Math.atan2(segDir.x, segDir.z);
-        seg.material = getCachedMaterial(scene, matKey, m => {
-            m.emissiveColor = color;
-            m.alpha = 0.95;
-        });
+        seg.scale.z = segLen;
+        seg.scale.x = 1;
+        seg.scale.y = 1;
+        seg.position.copy(segMid);
+        seg.rotation.y = headingToYaw(segDir.x, segDir.z);
+        const segMat = seg.material as MeshPhongMaterial; // segment-owned — safe to mutate
+        segMat.emissive.copy(color);
+        segMat.opacity = 0.95;
         meshes.push(seg);
     }
     let elapsed = 0;
-    const obs = scene.onBeforeRenderObservable.add(() => {
-        const dt = scene.getEngine().getDeltaTime() / 1000;
+    const token = scene.onBeforeRender.add(() => {
+        const dt = scene.deltaSeconds;
         elapsed += dt;
         const t = Math.min(elapsed / duration, 1);
         for (const m of meshes) {
-            const mMat = m.material as StandardMaterial | null;
-            if (mMat) mMat.alpha = 0.95 * (1 - t);
+            const mMat = m.material as MeshPhongMaterial | null;
+            if (mMat) mMat.opacity = 0.95 * (1 - t);
         }
         if (t >= 1) {
             for (const m of meshes) releaseBoltSegment(m);
-            scene.onBeforeRenderObservable.remove(obs);
+            scene.onBeforeRender.remove(token);
         }
     });
 }
@@ -343,70 +350,71 @@ const mageFireDef: PowerDefinition = {
         if (!best) return;
 
         // Flame-shaped projectile: stretched outer cone + bright inner sphere
-        const outerCone = MeshBuilder.CreateCylinder('fireballOuter', {
+        const outerCone = createCylinder('fireballOuter', {
             height: 0.7, diameterTop: 0, diameterBottom: 0.4, tessellation: 8,
-        }, ctx.scene) as Mesh;
-        outerCone.position.copyFrom(ctx.heroPosition);
+        }, ctx.scene);
+        outerCone.rotation.order = 'YXZ'; // Babylon Euler order: yaw then pitch
+        outerCone.position.copy(ctx.heroPosition);
         outerCone.position.y = 1;
-        outerCone.material = getCachedMaterial(ctx.scene, 'fireball_outer_mat', m => {
-            m.emissiveColor = new Color3(1, 0.45, 0.05);
-            m.diffuseColor = new Color3(0, 0, 0);
+        outerCone.material = getCachedMaterial('fireball_outer_mat', m => {
+            m.emissive.copy(new Color(1, 0.45, 0.05));
+            m.color.set(0, 0, 0);
         });
-        const innerSphere = MeshBuilder.CreateSphere('fireballInner', { diameter: 0.22, segments: 4 }, ctx.scene) as Mesh;
-        innerSphere.material = getCachedMaterial(ctx.scene, 'fireball_inner_mat', m => {
-            m.emissiveColor = new Color3(1, 0.85, 0.4);
-            m.diffuseColor = new Color3(0, 0, 0);
+        const innerSphere = createSphere('fireballInner', { diameter: 0.22, segments: 4 });
+        innerSphere.material = getCachedMaterial('fireball_inner_mat', m => {
+            m.emissive.copy(new Color(1, 0.85, 0.4));
+            m.color.set(0, 0, 0);
         });
-        innerSphere.parent = outerCone;
+        outerCone.add(innerSphere);
 
         // Spinning ember halo around the flame body (perpendicular to flight)
-        const halo = MeshBuilder.CreateTorus('fireballHalo',
-            { diameter: 0.5, thickness: 0.05, tessellation: 10 }, ctx.scene) as Mesh;
-        halo.material = getCachedMaterial(ctx.scene, 'fireball_halo_mat', m => {
-            m.emissiveColor = new Color3(1, 0.6, 0.1);
-            m.diffuseColor = new Color3(0, 0, 0);
-            m.disableLighting = true;
-            m.alpha = 0.6;
+        const halo = createTorus('fireballHalo',
+            { diameter: 0.5, thickness: 0.05, tessellation: 10 });
+        halo.material = getCachedMaterial('fireball_halo_mat', m => {
+            m.emissive.copy(new Color(1, 0.6, 0.1));
+            m.color.set(0, 0, 0);
+            m.opacity = 0.6;
+            m.transparent = true;
         });
-        halo.parent = outerCone;
+        outerCone.add(halo);
 
         const proj = outerCone;
 
         const target = best;
         const damage = mageFireDef.damageFor(state) * ctx.damageMultiplier;
         const speed = 18;
-        const trailColor = new Color3(1, 0.25, 0);
+        const trailColor = new Color(1, 0.25, 0);
         let lastTrailTime = 0;
         let flameTime = 0;
 
         const cleanup = () => {
-            // dispose() recurses into children (innerSphere + halo); cached
+            // disposeMesh recurses into children (innerSphere + halo); cached
             // materials are shared and survive.
-            outerCone.dispose();
+            disposeMesh(outerCone);
         };
 
-        const observer = ctx.scene.onBeforeRenderObservable.add(() => {
+        const observer = ctx.scene.onBeforeRender.add(() => {
             if (!target.isAlive()) {
                 cleanup();
-                ctx.scene.onBeforeRenderObservable.remove(observer);
+                ctx.scene.onBeforeRender.remove(observer);
                 return;
             }
-            const dt = ctx.scene.getEngine().getDeltaTime() / 1000;
+            const dt = ctx.scene.deltaSeconds;
             flameTime += dt;
             lastTrailTime += dt;
 
             const tp = target.getPosition().clone(); tp.y = 1;
-            const dir = tp.subtract(proj.position);
+            const dir = new Vector3().subVectors(tp, proj.position);
             const dist = dir.length();
 
             // Orient cone toward travel direction
             const dirN = dir.normalize();
-            proj.rotation.y = Math.atan2(dirN.x, dirN.z);
+            proj.rotation.y = headingToYaw(dirN.x, dirN.z);
             // Tip of cone points forward; cone is built along Y; rotate so Y aligns with dir
             proj.rotation.x = -Math.PI / 2;
 
             // Flame wobble on scale + halo spin around the flight axis
-            proj.scaling.y = 0.9 + 0.2 * Math.sin(flameTime * 40);
+            proj.scale.y = 0.9 + 0.2 * Math.sin(flameTime * 40);
             halo.rotation.y = flameTime * 9;
 
             // Trail particle
@@ -419,18 +427,18 @@ const mageFireDef: PowerDefinition = {
                 target.takeDamage(damage, ctx.element);
                 target.applyStatusEffect(StatusEffect.BURNING, 3, 3.0);
                 // Impact burst: bright flash core + scorch ring on the ground
-                spawnImpactFlash(ctx.scene, proj.position, new Color3(1, 0.75, 0.3), 1.4);
-                spawnExpandingRing(ctx.scene, proj.position, 1.1, new Color3(1, 0.45, 0.05),
+                spawnImpactFlash(ctx.scene, proj.position, new Color(1, 0.75, 0.3), 1.4);
+                spawnExpandingRing(ctx.scene, proj.position, 1.1, new Color(1, 0.45, 0.05),
                     { thickness: 0.16, duration: 0.3 });
                 cleanup();
-                ctx.scene.onBeforeRenderObservable.remove(observer);
+                ctx.scene.onBeforeRender.remove(observer);
                 return;
             }
-            proj.position.addInPlace(dirN.scale(Math.min(dist, speed * dt)));
+            proj.position.addScaledVector(dirN, Math.min(dist, speed * dt));
         });
         setTimeout(() => {
             cleanup();
-            ctx.scene.onBeforeRenderObservable.remove(observer);
+            ctx.scene.onBeforeRender.remove(observer);
         }, 4000);
     },
 };
@@ -463,50 +471,50 @@ const mageIceDef: PowerDefinition = {
         if (!best) return;
 
         // Ice crystal: octahedron (polyhedron type 1) stretched along Y to look like an ice spear
-        const proj = MeshBuilder.CreatePolyhedron('frostCrystal', { type: 1, size: 0.2 }, ctx.scene) as Mesh;
-        proj.scaling.set(0.4, 1.5, 0.4);
-        proj.position.copyFrom(ctx.heroPosition);
+        const proj = createPolyhedron('frostCrystal', { type: 1, size: 0.2 }, ctx.scene);
+        proj.scale.set(0.4, 1.5, 0.4);
+        proj.position.copy(ctx.heroPosition);
         proj.position.y = 1;
-        proj.material = getCachedMaterial(ctx.scene, 'frost_proj_mat', m => {
-            m.emissiveColor = new Color3(0.4, 0.8, 1.0);
-            m.diffuseColor = new Color3(0, 0, 0);
+        proj.material = getCachedMaterial('frost_proj_mat', m => {
+            m.emissive.copy(new Color(0.4, 0.8, 1.0));
+            m.color.set(0, 0, 0);
         });
 
         // Two smaller flanking shards trailing the main spear — reads as a
         // shard CLUSTER instead of a single lonely crystal. Local offsets are
         // pre-divided by the parent's (0.4, 1.5, 0.4) scaling.
-        const sideMat = getCachedMaterial(ctx.scene, 'frost_proj_side_mat', m => {
-            m.emissiveColor = new Color3(0.65, 0.92, 1.0);
-            m.diffuseColor = new Color3(0, 0, 0);
+        const sideMat = getCachedMaterial('frost_proj_side_mat', m => {
+            m.emissive.copy(new Color(0.65, 0.92, 1.0));
+            m.color.set(0, 0, 0);
         });
         for (let s = -1; s <= 1; s += 2) {
-            const side = MeshBuilder.CreatePolyhedron(`frostCrystalSide${s}`,
-                { type: 1, size: 0.11 }, ctx.scene) as Mesh;
+            const side = createPolyhedron(`frostCrystalSide${s}`,
+                { type: 1, size: 0.11 });
             side.material = sideMat;
             side.position.set(s * 0.6, -0.18, 0);
-            side.scaling.set(1, 0.8, 1);
-            side.parent = proj;
+            side.scale.set(1, 0.8, 1);
+            proj.add(side);
         }
 
         const target = best;
         const damage = mageIceDef.damageFor(state) * ctx.damageMultiplier;
         const speed = 20;
-        const trailColor = new Color3(0.5, 0.85, 1.0);
+        const trailColor = new Color(0.5, 0.85, 1.0);
         let lastTrailTime = 0;
         let spinTime = 0;
 
-        const observer = ctx.scene.onBeforeRenderObservable.add(() => {
+        const observer = ctx.scene.onBeforeRender.add(() => {
             if (!target.isAlive()) {
-                proj.dispose();
-                ctx.scene.onBeforeRenderObservable.remove(observer);
+                disposeMesh(proj);
+                ctx.scene.onBeforeRender.remove(observer);
                 return;
             }
-            const dt = ctx.scene.getEngine().getDeltaTime() / 1000;
+            const dt = ctx.scene.deltaSeconds;
             spinTime += dt;
             lastTrailTime += dt;
 
             const tp = target.getPosition().clone(); tp.y = 1;
-            const dir = tp.subtract(proj.position);
+            const dir = new Vector3().subVectors(tp, proj.position);
             const dist = dir.length();
 
             // Rotate around long axis
@@ -522,18 +530,18 @@ const mageIceDef: PowerDefinition = {
                 target.takeDamage(damage, ctx.element);
                 target.applyStatusEffect(StatusEffect.SLOWED, 2, 0.5);
                 // Icy shatter flash + brief frost ring at the point of impact
-                spawnImpactFlash(ctx.scene, proj.position, new Color3(0.6, 0.9, 1.0), 1.1);
-                spawnExpandingRing(ctx.scene, proj.position, 0.8, new Color3(0.4, 0.8, 1.0),
+                spawnImpactFlash(ctx.scene, proj.position, new Color(0.6, 0.9, 1.0), 1.1);
+                spawnExpandingRing(ctx.scene, proj.position, 0.8, new Color(0.4, 0.8, 1.0),
                     { thickness: 0.12, duration: 0.25 });
-                proj.dispose();
-                ctx.scene.onBeforeRenderObservable.remove(observer);
+                disposeMesh(proj);
+                ctx.scene.onBeforeRender.remove(observer);
                 return;
             }
-            proj.position.addInPlace(dir.normalize().scale(Math.min(dist, speed * dt)));
+            proj.position.addScaledVector(dir.normalize(), Math.min(dist, speed * dt));
         });
         setTimeout(() => {
-            proj.dispose();
-            ctx.scene.onBeforeRenderObservable.remove(observer);
+            disposeMesh(proj);
+            ctx.scene.onBeforeRender.remove(observer);
         }, 4000);
     },
 };
@@ -571,50 +579,50 @@ const mageArcaneDef: PowerDefinition = {
         // Two staggered expanding ring waves (the old single static ring popped
         // in at full size and vanished — these animate outward) + a center pulse.
         const novaCenter = ctx.heroPosition.clone();
-        spawnExpandingRing(ctx.scene, novaCenter, radius, new Color3(0.8, 0.3, 1.0),
+        spawnExpandingRing(ctx.scene, novaCenter, radius, new Color(0.8, 0.3, 1.0),
             { thickness: 0.25, duration: 0.4 });
-        spawnExpandingRing(ctx.scene, novaCenter, radius, new Color3(0.6, 0.25, 0.9),
+        spawnExpandingRing(ctx.scene, novaCenter, radius, new Color(0.6, 0.25, 0.9),
             { thickness: 0.16, duration: 0.4, delayMs: 110 });
         const flashPos = novaCenter.clone(); flashPos.y = 1.2;
-        spawnImpactFlash(ctx.scene, flashPos, new Color3(0.85, 0.5, 1.0), 2.2);
+        spawnImpactFlash(ctx.scene, flashPos, new Color(0.85, 0.5, 1.0), 2.2);
 
         // Swirling purple particles launched outward from ring edge
         const particleCount = 10;
-        const purpleColor = new Color3(0.7, 0.2, 1.0);
+        const purpleColor = new Color(0.7, 0.2, 1.0);
         for (let i = 0; i < particleCount; i++) {
             const angle = (i / particleCount) * Math.PI * 2;
             const startX = ctx.heroPosition.x + Math.cos(angle) * radius;
             const startZ = ctx.heroPosition.z + Math.sin(angle) * radius;
             const startPos = new Vector3(startX, 0.3, startZ);
 
-            const particle = MeshBuilder.CreateSphere(
+            const particle = createSphere(
                 `arcaneNova_part_${i}_${Math.random()}`,
                 { diameter: 0.18, segments: 3 },
                 ctx.scene,
-            ) as Mesh;
-            particle.position.copyFrom(startPos);
-            particle.material = getCachedMaterial(ctx.scene, 'arcaneNova_pMat', m => {
-                m.emissiveColor = purpleColor;
-                m.diffuseColor = new Color3(0, 0, 0);
-                m.disableLighting = true;
-                m.alpha = 0.85;
+            );
+            particle.position.copy(startPos);
+            particle.material = getCachedMaterial('arcaneNova_pMat', m => {
+                m.emissive.copy(purpleColor);
+                m.color.set(0, 0, 0);
+                m.opacity = 0.85;
+                m.transparent = true;
             });
-            particle.visibility = 0.85;
+            setMeshOpacity(particle, 0.85 * 0.85); // Babylon visibility(0.85) × mat.alpha(0.85)
 
             const outDir = new Vector3(Math.cos(angle), 0, Math.sin(angle));
             const duration = 0.35;
             const outSpeed = radius * 1.5;
             let elapsed = 0;
-            const pObs = ctx.scene.onBeforeRenderObservable.add(() => {
-                const dt = ctx.scene.getEngine().getDeltaTime() / 1000;
+            const pObs = ctx.scene.onBeforeRender.add(() => {
+                const dt = ctx.scene.deltaSeconds;
                 elapsed += dt;
                 const t = Math.min(elapsed / duration, 1);
-                particle.position.addInPlace(outDir.scale(outSpeed * dt));
-                particle.visibility = 0.85 * (1 - t);
-                particle.scaling.setAll(1 - t * 0.5);
+                particle.position.addScaledVector(outDir, outSpeed * dt);
+                setMeshOpacity(particle, 0.85 * 0.85 * (1 - t));
+                particle.scale.setScalar(1 - t * 0.5);
                 if (t >= 1) {
-                    particle.dispose(); // keeps the cached/shared material
-                    ctx.scene.onBeforeRenderObservable.remove(pObs);
+                    disposeMesh(particle); // keeps the cached/shared material; frees the fade clone
+                    ctx.scene.onBeforeRender.remove(pObs);
                 }
             });
         }
@@ -644,7 +652,7 @@ const SHURIKEN_SPIN = 16;        // rad/s self-spin (fast, reads as a thrown sta
  * Vertices: a top rim + bottom rim of 2N points (alternating outer tip / inner valley)
  * plus a top & bottom center; triangulated as two fans joined by side walls.
  */
-function createShurikenMesh(name: string, scene: Scene): Mesh {
+function createShurikenMesh(name: string, scene: SceneHost, material: MeshPhongMaterial): Mesh {
     const rim = SHURIKEN_POINTS * 2;
     const positions: number[] = [];
     const indices: number[] = [];
@@ -666,14 +674,13 @@ function createShurikenMesh(name: string, scene: Scene): Mesh {
         indices.push(a, b, rim + b);                  // side wall
         indices.push(a, rim + b, rim + a);
     }
-    const mesh = new Mesh(name, scene);
-    const vd = new VertexData();
-    vd.positions = positions;
-    vd.indices = indices;
-    const normals: number[] = [];
-    VertexData.ComputeNormals(positions, indices, normals);
-    vd.normals = normals;
-    vd.applyToMesh(mesh);
+    const geo = new BufferGeometry();
+    geo.setAttribute('position', new Float32BufferAttribute(positions, 3));
+    geo.setIndex(indices);
+    geo.computeVertexNormals();
+    const mesh = new Mesh(geo, material);
+    mesh.name = name;
+    scene.scene.add(mesh);
     return mesh;
 }
 
@@ -683,27 +690,26 @@ function createShurikenMesh(name: string, scene: Scene): Mesh {
  * so tick() can call it every frame to react to level-ups (which only bump
  * state.level and never re-run init).
  */
-function ensureWhirlingBlades(state: PowerRuntimeState, scene: Scene, desired: number): WhirlingBlade[] {
+function ensureWhirlingBlades(state: PowerRuntimeState, scene: SceneHost, desired: number): WhirlingBlade[] {
     if (!state.data) state.data = {};
     let blades = state.data['blades'] as WhirlingBlade[] | undefined;
     if (!blades) { blades = []; state.data['blades'] = blades; }
     if (blades.length === desired) return blades;
 
-    const bladeMat = getCachedMaterial(scene, 'whirling_blade_mat', m => {
-        m.emissiveColor = new Color3(0.78, 0.80, 0.86); // steel sheen
-        m.diffuseColor = new Color3(0.25, 0.27, 0.32);
+    const bladeMat = getCachedMaterial('whirling_blade_mat', m => {
+        m.emissive.copy(new Color(0.78, 0.80, 0.86)); // steel sheen
+        m.color.set(0.25, 0.27, 0.32);
         // Procedural star: render both faces so a flipped winding can never make a
         // tip vanish as it spins edge-on to the camera.
-        m.backFaceCulling = false;
+        m.side = DoubleSide;
     });
     while (blades.length < desired) {
-        const blade = createShurikenMesh(`wbBlade_${blades.length}`, scene);
-        blade.material = bladeMat;
+        const blade = createShurikenMesh(`wbBlade_${blades.length}`, scene, bladeMat);
         blades.push({ mesh: blade, angle: 0 });
     }
     while (blades.length > desired) {
         const extra = blades.pop();
-        try { extra?.mesh.dispose(); } catch { /* ignore */ }
+        try { if (extra) disposeMesh(extra.mesh); } catch { /* ignore */ }
     }
     // Re-space evenly (only runs when the count changed, i.e. on level-up).
     for (let i = 0; i < blades.length; i++) {
@@ -740,7 +746,7 @@ const magePhysicalDef: PowerDefinition = {
         const orbitRadius = (state.data!['orbitRadius'] as number) ?? magePhysicalDef.baseRange;
         // Mage Whirling Blades spin 3× faster than the base orbit speed.
         const rotateSpeed = 7.5;
-        const sparkleColor = new Color3(0.8, 0.8, 1.0);
+        const sparkleColor = new Color(0.8, 0.8, 1.0);
 
         for (const blade of blades) {
             blade.angle += rotateSpeed * dt;
@@ -785,10 +791,10 @@ const magePhysicalDef: PowerDefinition = {
         state.data!['hitTimer'] = hitTimer;
     },
     dispose: (state) => {
-        const blades = state.data?.['blades'] as { mesh: { dispose: () => void } }[] | undefined;
+        const blades = state.data?.['blades'] as { mesh: Mesh }[] | undefined;
         if (blades) {
             for (const b of blades) {
-                try { b.mesh.dispose(); } catch { /* ignore */ }
+                try { disposeMesh(b.mesh); } catch { /* ignore */ }
             }
         }
     },
@@ -849,13 +855,13 @@ const mageStormDef: PowerDefinition = {
             current = next;
         }
 
-        const boltColor = new Color3(0.7, 0.7, 1.0);
+        const boltColor = new Color(0.7, 0.7, 1.0);
         for (const seg of hitOrder) {
             const from = seg.from.clone(); from.y = 1;
             const to = seg.to.clone(); to.y = 1;
             spawnJaggedBolt(ctx.scene, from, to, boltColor, 0.2);
             // Bright strike flash where each chain lands
-            spawnImpactFlash(ctx.scene, to, new Color3(1.0, 0.95, 0.55), 1.2);
+            spawnImpactFlash(ctx.scene, to, new Color(1.0, 0.95, 0.55), 1.2);
         }
     },
 };
@@ -892,25 +898,25 @@ const rangerFireDef: PowerDefinition = {
         if (!best) return;
 
         // Fire arrow: orange arrow with two small flame cones parented to shaft
-        const arrowColor = new Color3(1, 0.4, 0.05);
+        const arrowColor = new Color(1, 0.4, 0.05);
         const proj = buildArrowMesh(ctx.scene, `fire_arrow_${Math.random()}`, arrowColor);
-        proj.position.copyFrom(ctx.heroPosition);
+        proj.position.copy(ctx.heroPosition);
         proj.position.y = 1;
 
         // Add two small flame cones flanking the tip
-        const flameColor = new Color3(1, 0.6, 0.0);
-        const flameMat = getCachedMaterial(ctx.scene, 'fire_arrow_flame_mat', m => {
-            m.emissiveColor = flameColor;
-            m.diffuseColor = new Color3(0, 0, 0);
+        const flameColor = new Color(1, 0.6, 0.0);
+        const flameMat = getCachedMaterial('fire_arrow_flame_mat', m => {
+            m.emissive.copy(flameColor);
+            m.color.set(0, 0, 0);
         });
         for (let f = 0; f < 2; f++) {
-            const flameC = MeshBuilder.CreateCylinder(`fire_arrow_flame_${f}_${Math.random()}`, {
+            const flameC = createCylinder(`fire_arrow_flame_${f}_${Math.random()}`, {
                 height: 0.25, diameterTop: 0, diameterBottom: 0.1, tessellation: 5,
-            }, ctx.scene) as Mesh;
+            });
             flameC.material = flameMat;
             flameC.position.y = 0.22;
             flameC.position.x = (f === 0 ? 0.07 : -0.07);
-            flameC.parent = proj;
+            proj.add(flameC);
         }
 
         const target = best;
@@ -918,32 +924,30 @@ const rangerFireDef: PowerDefinition = {
         const aoeRadius = 2.5;
         const speed = 22;
         const enemies = ctx.enemies;
-        const trailColor = new Color3(1, 0.3, 0);
+        const trailColor = new Color(1, 0.3, 0);
         let lastTrailTime = 0;
 
         const cleanup = () => {
-            // dispose children first
-            proj.getChildMeshes().forEach(c => c.dispose());
-            proj.dispose();
+            disposeMesh(proj); // recurses into the flame-cone children
         };
 
-        const observer = ctx.scene.onBeforeRenderObservable.add(() => {
-            const dt = ctx.scene.getEngine().getDeltaTime() / 1000;
+        const observer = ctx.scene.onBeforeRender.add(() => {
+            const dt = ctx.scene.deltaSeconds;
             lastTrailTime += dt;
 
             if (!target.isAlive()) {
                 explodeFireArrow(proj.position.clone(), damage, aoeRadius, enemies, ctx.scene);
                 cleanup();
-                ctx.scene.onBeforeRenderObservable.remove(observer);
+                ctx.scene.onBeforeRender.remove(observer);
                 return;
             }
             const tp = target.getPosition().clone(); tp.y = 1;
-            const dir = tp.subtract(proj.position);
+            const dir = new Vector3().subVectors(tp, proj.position);
             const dist = dir.length();
             const dirN = dir.normalize();
 
             // Orient arrow toward travel direction
-            proj.rotation.y = Math.atan2(dirN.x, dirN.z);
+            proj.rotation.y = headingToYaw(dirN.x, dirN.z);
 
             // Trail
             if (lastTrailTime >= 0.05) {
@@ -954,21 +958,21 @@ const rangerFireDef: PowerDefinition = {
             if (dist < 0.5) {
                 explodeFireArrow(proj.position.clone(), damage, aoeRadius, enemies, ctx.scene, ctx.element);
                 cleanup();
-                ctx.scene.onBeforeRenderObservable.remove(observer);
+                ctx.scene.onBeforeRender.remove(observer);
                 return;
             }
-            proj.position.addInPlace(dirN.scale(Math.min(dist, speed * dt)));
+            proj.position.addScaledVector(dirN, Math.min(dist, speed * dt));
         });
         setTimeout(() => {
-            if (proj.isDisposed()) return;
+            if (isMeshDisposed(proj)) return;
             explodeFireArrow(proj.position.clone(), damage, aoeRadius, enemies, ctx.scene, ctx.element);
             cleanup();
-            ctx.scene.onBeforeRenderObservable.remove(observer);
+            ctx.scene.onBeforeRender.remove(observer);
         }, 4000);
     },
 };
 
-function explodeFireArrow(pos: Vector3, damage: number, radius: number, enemies: Enemy[], scene: Scene, element: PowerElement = 'fire'): void {
+function explodeFireArrow(pos: Vector3, damage: number, radius: number, enemies: Enemy[], scene: SceneHost, element: PowerElement = 'fire'): void {
     for (const e of enemies) {
         if (!e.isAlive()) continue;
         const dx = e.getPosition().x - pos.x;
@@ -979,14 +983,15 @@ function explodeFireArrow(pos: Vector3, damage: number, radius: number, enemies:
         }
     }
     // Burst ring visual
-    const ring = MeshBuilder.CreateTorus('fireExplosion', { diameter: radius * 2, thickness: 0.3, tessellation: 16 }, scene);
-    ring.position.copyFrom(pos);
+    const ring = createTorus('fireExplosion', { diameter: radius * 2, thickness: 0.3, tessellation: 16 }, scene);
+    ring.position.copy(pos);
     ring.position.y = 0.3;
-    ring.material = getCachedMaterial(scene, 'fire_explosion_mat', m => {
-        m.emissiveColor = new Color3(1, 0.4, 0);
-        m.alpha = 0.8;
+    ring.material = getCachedMaterial('fire_explosion_mat', m => {
+        m.emissive.copy(new Color(1, 0.4, 0));
+        m.opacity = 0.8;
+        m.transparent = true;
     });
-    setTimeout(() => { if (!ring.isDisposed()) ring.dispose(); }, 250);
+    setTimeout(() => { if (!isMeshDisposed(ring)) disposeMesh(ring); }, 250);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1016,31 +1021,30 @@ const rangerIceDef: PowerDefinition = {
         }
         if (!best) return;
 
-        const direction = best.getPosition().subtract(ctx.heroPosition);
+        const direction = best.getPosition().clone().sub(ctx.heroPosition);
         direction.y = 0;
         direction.normalize();
 
         // Frost arrow: cyan arrow with a small ice crystal parented behind the tip
-        const arrowColor = new Color3(0.4, 0.85, 1.0);
+        const arrowColor = new Color(0.4, 0.85, 1.0);
         const proj = buildArrowMesh(ctx.scene, `frost_arrow_${Math.random()}`, arrowColor);
-        proj.position.copyFrom(ctx.heroPosition);
+        proj.position.copy(ctx.heroPosition);
         proj.position.y = 1;
 
         // Small octahedron crystal attached near the tip
-        const crystal = MeshBuilder.CreatePolyhedron(
+        const crystal = createPolyhedron(
             `frost_arrow_crystal_${Math.random()}`,
             { type: 1, size: 0.07 },
-            ctx.scene,
-        ) as Mesh;
-        crystal.material = getCachedMaterial(ctx.scene, 'frost_arrow_crystal_mat', m => {
-            m.emissiveColor = new Color3(0.6, 0.9, 1.0);
-            m.diffuseColor = new Color3(0, 0, 0);
+        );
+        crystal.material = getCachedMaterial('frost_arrow_crystal_mat', m => {
+            m.emissive.copy(new Color(0.6, 0.9, 1.0));
+            m.color.set(0, 0, 0);
         });
         crystal.position.y = 0.25;
-        crystal.parent = proj;
+        proj.add(crystal);
 
         // Orient arrow toward travel direction from the start
-        proj.rotation.y = Math.atan2(direction.x, direction.z);
+        proj.rotation.y = headingToYaw(direction.x, direction.z);
 
         const damage = rangerIceDef.damageFor(state) * ctx.damageMultiplier;
         const speed = 26;
@@ -1049,19 +1053,18 @@ const rangerIceDef: PowerDefinition = {
         let traveledDist = 0;
         let lastTrailTime = 0;
         const hitEnemies = new Set<Enemy>();
-        const trailColor = new Color3(0.5, 0.9, 1.0);
+        const trailColor = new Color(0.5, 0.9, 1.0);
 
         const cleanup = () => {
-            proj.getChildMeshes().forEach(c => c.dispose());
-            proj.dispose();
+            disposeMesh(proj); // recurses into the crystal child
         };
 
-        const observer = ctx.scene.onBeforeRenderObservable.add(() => {
-            const dt = ctx.scene.getEngine().getDeltaTime() / 1000;
+        const observer = ctx.scene.onBeforeRender.add(() => {
+            const dt = ctx.scene.deltaSeconds;
             const step = speed * dt;
             traveledDist += step;
             lastTrailTime += dt;
-            proj.position.addInPlace(direction.scale(step));
+            proj.position.addScaledVector(direction, step);
 
             // Spin the crystal
             crystal.rotation.y += dt * 6;
@@ -1086,13 +1089,13 @@ const rangerIceDef: PowerDefinition = {
 
             if (traveledDist >= rangerIceDef.baseRange || pierceCount >= maxPierces) {
                 cleanup();
-                ctx.scene.onBeforeRenderObservable.remove(observer);
+                ctx.scene.onBeforeRender.remove(observer);
             }
         });
         setTimeout(() => {
-            if (proj.isDisposed()) return;
+            if (isMeshDisposed(proj)) return;
             cleanup();
-            ctx.scene.onBeforeRenderObservable.remove(observer);
+            ctx.scene.onBeforeRender.remove(observer);
         }, 3500);
     },
 };
@@ -1125,51 +1128,50 @@ const rangerArcaneDef: PowerDefinition = {
         if (!best) return;
 
         // Seeking arrow: purple arrow with a small orbiting purple sphere
-        const arrowColor = new Color3(0.7, 0.3, 1.0);
+        const arrowColor = new Color(0.7, 0.3, 1.0);
         const proj = buildArrowMesh(ctx.scene, `seek_arrow_${Math.random()}`, arrowColor);
-        proj.position.copyFrom(ctx.heroPosition);
+        proj.position.copy(ctx.heroPosition);
         proj.position.y = 1;
 
         // Small orbiting purple sphere attached to shaft
-        const orb = MeshBuilder.CreateSphere(`seek_orb_${Math.random()}`, { diameter: 0.12, segments: 4 }, ctx.scene) as Mesh;
-        orb.material = getCachedMaterial(ctx.scene, 'seek_orb_mat', m => {
-            m.emissiveColor = new Color3(0.9, 0.4, 1.0);
-            m.diffuseColor = new Color3(0, 0, 0);
+        const orb = createSphere(`seek_orb_${Math.random()}`, { diameter: 0.12, segments: 4 });
+        orb.material = getCachedMaterial('seek_orb_mat', m => {
+            m.emissive.copy(new Color(0.9, 0.4, 1.0));
+            m.color.set(0, 0, 0);
         });
-        orb.parent = proj;
+        proj.add(orb);
 
         const target = best;
         const damage = rangerArcaneDef.damageFor(state) * ctx.damageMultiplier;
         const speed = 18;
         const turnSpeed = 4.0;
-        let velDir = target.getPosition().subtract(ctx.heroPosition);
+        const velDir = target.getPosition().clone().sub(ctx.heroPosition);
         velDir.y = 0;
         velDir.normalize();
         let orbAngle = 0;
         let lastTrailTime = 0;
-        const trailColor = new Color3(0.6, 0.2, 1.0);
+        const trailColor = new Color(0.6, 0.2, 1.0);
 
         const cleanup = () => {
-            proj.getChildMeshes().forEach(c => c.dispose());
-            proj.dispose();
+            disposeMesh(proj); // recurses into the orb child
         };
 
-        const observer = ctx.scene.onBeforeRenderObservable.add(() => {
-            const dt = ctx.scene.getEngine().getDeltaTime() / 1000;
+        const observer = ctx.scene.onBeforeRender.add(() => {
+            const dt = ctx.scene.deltaSeconds;
             lastTrailTime += dt;
             orbAngle += dt * 8;
 
             if (!target.isAlive()) {
                 cleanup();
-                ctx.scene.onBeforeRenderObservable.remove(observer);
+                ctx.scene.onBeforeRender.remove(observer);
                 return;
             }
             const tp = target.getPosition().clone(); tp.y = 1;
-            const toTarget = tp.subtract(proj.position);
+            const toTarget = new Vector3().subVectors(tp, proj.position);
             const dist = toTarget.length();
 
             // Orient arrow toward velocity
-            proj.rotation.y = Math.atan2(velDir.x, velDir.z);
+            proj.rotation.y = headingToYaw(velDir.x, velDir.z);
 
             // Orbit the sphere around shaft
             orb.position.x = Math.cos(orbAngle) * 0.22;
@@ -1185,20 +1187,20 @@ const rangerArcaneDef: PowerDefinition = {
             if (dist < 0.5) {
                 target.takeDamage(damage, ctx.element);
                 cleanup();
-                ctx.scene.onBeforeRenderObservable.remove(observer);
+                ctx.scene.onBeforeRender.remove(observer);
                 return;
             }
             const desired = toTarget.normalize();
             // Lerp velocity direction toward target
-            velDir = Vector3.Lerp(velDir, desired, Math.min(1, turnSpeed * dt));
+            velDir.lerp(desired, Math.min(1, turnSpeed * dt));
             velDir.y = 0;
             velDir.normalize();
-            proj.position.addInPlace(velDir.scale(speed * dt));
+            proj.position.addScaledVector(velDir, speed * dt);
         });
         setTimeout(() => {
-            if (proj.isDisposed()) return;
+            if (isMeshDisposed(proj)) return;
             cleanup();
-            ctx.scene.onBeforeRenderObservable.remove(observer);
+            ctx.scene.onBeforeRender.remove(observer);
         }, 4000);
     },
 };
@@ -1230,38 +1232,37 @@ const rangerPhysicalDef: PowerDefinition = {
         }
         if (!best) return;
 
-        const direction = best.getPosition().subtract(ctx.heroPosition);
+        const direction = best.getPosition().clone().sub(ctx.heroPosition);
         direction.y = 0;
         direction.normalize();
 
         // Piercing Shot: large bright white-silver arrow (scale 1.3), clean and fast
-        const arrowColor = new Color3(0.95, 0.95, 0.95);
+        const arrowColor = new Color(0.95, 0.95, 0.95);
         const proj = buildArrowMesh(ctx.scene, `pierce_arrow_${Math.random()}`, arrowColor);
-        proj.scaling.setAll(1.3);
-        proj.position.copyFrom(ctx.heroPosition);
+        proj.scale.setScalar(1.3);
+        proj.position.copy(ctx.heroPosition);
         proj.position.y = 1;
 
         // Orient arrow to face travel direction
-        proj.rotation.y = Math.atan2(direction.x, direction.z);
+        proj.rotation.y = headingToYaw(direction.x, direction.z);
 
         const damage = rangerPhysicalDef.damageFor(state) * ctx.damageMultiplier;
         const speed = 28;
         const hitEnemies = new Set<Enemy>();
         let traveledDist = 0;
         let lastTrailTime = 0;
-        const trailColor = new Color3(0.85, 0.85, 1.0);
+        const trailColor = new Color(0.85, 0.85, 1.0);
 
         const cleanup = () => {
-            proj.getChildMeshes().forEach(c => c.dispose());
-            proj.dispose();
+            disposeMesh(proj); // recurses into the tip/fletch children
         };
 
-        const observer = ctx.scene.onBeforeRenderObservable.add(() => {
-            const dt = ctx.scene.getEngine().getDeltaTime() / 1000;
+        const observer = ctx.scene.onBeforeRender.add(() => {
+            const dt = ctx.scene.deltaSeconds;
             const step = speed * dt;
             traveledDist += step;
             lastTrailTime += dt;
-            proj.position.addInPlace(direction.scale(step));
+            proj.position.addScaledVector(direction, step);
 
             // Subtle silver trail
             if (lastTrailTime >= 0.05) {
@@ -1281,13 +1282,13 @@ const rangerPhysicalDef: PowerDefinition = {
 
             if (traveledDist >= rangerPhysicalDef.baseRange) {
                 cleanup();
-                ctx.scene.onBeforeRenderObservable.remove(observer);
+                ctx.scene.onBeforeRender.remove(observer);
             }
         });
         setTimeout(() => {
-            if (proj.isDisposed()) return;
+            if (isMeshDisposed(proj)) return;
             cleanup();
-            ctx.scene.onBeforeRenderObservable.remove(observer);
+            ctx.scene.onBeforeRender.remove(observer);
         }, 3000);
     },
 };
@@ -1320,57 +1321,56 @@ const rangerStormDef: PowerDefinition = {
         if (!best) return;
 
         // Lightning Arrow: yellow arrow with a small flickering zigzag bolt above the shaft
-        const arrowColor = new Color3(1.0, 0.95, 0.4);
+        const arrowColor = new Color(1.0, 0.95, 0.4);
         const proj = buildArrowMesh(ctx.scene, `lightning_arrow_${Math.random()}`, arrowColor);
-        proj.position.copyFrom(ctx.heroPosition);
+        proj.position.copy(ctx.heroPosition);
         proj.position.y = 1;
 
         // Small decorative zigzag box above the shaft representing stored electricity
-        const staticBolt = MeshBuilder.CreateBox(`lightning_arrow_bolt_${Math.random()}`, {
+        const staticBolt = createBox(`lightning_arrow_bolt_${Math.random()}`, {
             width: 0.06, height: 0.06, depth: 0.35,
-        }, ctx.scene) as Mesh;
-        staticBolt.material = getCachedMaterial(ctx.scene, 'lightning_arrow_bolt_mat', m => {
-            m.emissiveColor = new Color3(0.8, 1.0, 0.4);
-            m.diffuseColor = new Color3(0, 0, 0);
+        });
+        staticBolt.material = getCachedMaterial('lightning_arrow_bolt_mat', m => {
+            m.emissive.copy(new Color(0.8, 1.0, 0.4));
+            m.color.set(0, 0, 0);
         });
         staticBolt.position.y = 0.12;
         staticBolt.position.z = 0;
-        staticBolt.parent = proj;
+        proj.add(staticBolt);
 
         const target = best;
         const damage = rangerStormDef.damageFor(state) * ctx.damageMultiplier;
         const speed = 24;
         const allEnemies = ctx.enemies;
-        const trailColor = new Color3(1.0, 0.9, 0.3);
+        const trailColor = new Color(1.0, 0.9, 0.3);
         let lastTrailTime = 0;
         let boltFlicker = 0;
 
         const cleanup = () => {
-            proj.getChildMeshes().forEach(c => c.dispose());
-            proj.dispose();
+            disposeMesh(proj); // recurses into the static-bolt child
         };
 
-        const observer = ctx.scene.onBeforeRenderObservable.add(() => {
-            const dt = ctx.scene.getEngine().getDeltaTime() / 1000;
+        const observer = ctx.scene.onBeforeRender.add(() => {
+            const dt = ctx.scene.deltaSeconds;
             lastTrailTime += dt;
             boltFlicker += dt;
 
             // Flicker the decorative bolt's scale
-            staticBolt.scaling.x = 0.8 + 0.4 * Math.sin(boltFlicker * 35);
+            staticBolt.scale.x = 0.8 + 0.4 * Math.sin(boltFlicker * 35);
 
             if (!target.isAlive()) {
                 chainLightning(target.getPosition(), damage, allEnemies, target, ctx.scene, ctx.element);
                 cleanup();
-                ctx.scene.onBeforeRenderObservable.remove(observer);
+                ctx.scene.onBeforeRender.remove(observer);
                 return;
             }
             const tp = target.getPosition().clone(); tp.y = 1;
-            const dir = tp.subtract(proj.position);
+            const dir = new Vector3().subVectors(tp, proj.position);
             const dist = dir.length();
             const dirN = dir.normalize();
 
             // Orient arrow toward travel direction
-            proj.rotation.y = Math.atan2(dirN.x, dirN.z);
+            proj.rotation.y = headingToYaw(dirN.x, dirN.z);
 
             // Trail
             if (lastTrailTime >= 0.05) {
@@ -1382,25 +1382,25 @@ const rangerStormDef: PowerDefinition = {
                 target.takeDamage(damage, ctx.element);
                 chainLightning(target.getPosition(), damage, allEnemies, target, ctx.scene, ctx.element);
                 cleanup();
-                ctx.scene.onBeforeRenderObservable.remove(observer);
+                ctx.scene.onBeforeRender.remove(observer);
                 return;
             }
-            proj.position.addInPlace(dirN.scale(Math.min(dist, speed * dt)));
+            proj.position.addScaledVector(dirN, Math.min(dist, speed * dt));
         });
         setTimeout(() => {
-            if (proj.isDisposed()) return;
+            if (isMeshDisposed(proj)) return;
             cleanup();
-            ctx.scene.onBeforeRenderObservable.remove(observer);
+            ctx.scene.onBeforeRender.remove(observer);
         }, 4000);
     },
 };
 
-function chainLightning(fromPos: Vector3, damage: number, enemies: Enemy[], exclude: Enemy, scene: Scene, element: PowerElement = 'storm'): void {
+function chainLightning(fromPos: Vector3, damage: number, enemies: Enemy[], exclude: Enemy, scene: SceneHost, element: PowerElement = 'storm'): void {
     const chainRadius = 4;
     const chainDamage = damage * 0.6;
     let origin = fromPos;
     let excluded = exclude;
-    const chainBoltColor = new Color3(0.6, 0.6, 1.0);
+    const chainBoltColor = new Color(0.6, 0.6, 1.0);
 
     for (let i = 0; i < 2; i++) {
         let nearest: Enemy | null = null;
@@ -1557,7 +1557,7 @@ const barbarianStormDef: PowerDefinition = {
             // Jagged arc visual
             const from = origin.clone(); from.y = 1;
             const to = nearest.getPosition().clone(); to.y = 1;
-            spawnJaggedBolt(ctx.scene, from, to, new Color3(0.9, 0.9, 0.3), 0.15);
+            spawnJaggedBolt(ctx.scene, from, to, new Color(0.9, 0.9, 0.3), 0.15);
             origin = nearest.getPosition();
             excluded = nearest;
         }

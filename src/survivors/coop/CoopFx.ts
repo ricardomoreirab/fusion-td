@@ -1,5 +1,9 @@
-import { Scene, Vector3, MeshBuilder, Color3 } from '@babylonjs/core';
+import { Color, DoubleSide, Mesh, Vector3 } from 'three';
+import { SceneHost } from '../../engine/three/SceneHost';
+import { createDisc, createPlane, createSphere, createTorus, disposeMesh } from '../../engine/three/primitives';
+import { headingToYaw } from '../../engine/three/math';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
+import { setMeshOpacity } from '../../engine/rendering/LowPolyMaterial';
 import {
     spawnHurricaneVisual, spawnWhirlwindRing,
     spawnMultishotAura, spawnCosmeticVolleyArrow,
@@ -39,52 +43,51 @@ export function withFxReplay(fn: () => void): void {
 }
 
 /** Element → emissive colour for cosmetic projectiles/casts. Bounded set → cached mats. */
-const FX_COLOR: Record<string, Color3> = {
-    fire:     new Color3(1.0, 0.45, 0.15),
-    ice:      new Color3(0.5, 0.8, 1.0),
-    arcane:   new Color3(0.7, 0.4, 1.0),
-    physical: new Color3(1.0, 0.9, 0.4),
-    storm:    new Color3(0.6, 0.9, 1.0),
+const FX_COLOR: Record<string, Color> = {
+    fire:     new Color(1.0, 0.45, 0.15),
+    ice:      new Color(0.5, 0.8, 1.0),
+    arcane:   new Color(0.7, 0.4, 1.0),
+    physical: new Color(1.0, 0.9, 0.4),
+    storm:    new Color(0.6, 0.9, 1.0),
 };
 
 /**
  * Replay a teammate's basic-attack projectile: a small emissive orb flying from (fromX,
  * fromZ) to (toX,toZ), then gone. Cosmetic only — never touches an enemy. Leak-safe: the
- * material is cached by a BOUNDED key (shape+element), so the plain mesh.dispose() that
+ * material is cached by a BOUNDED key (shape+element), so the plain disposeMesh() that
  * frees the mesh leaves the shared material alone (cleared on run teardown).
  */
 export function spawnCosmeticProjectile(
-    scene: Scene,
+    host: SceneHost,
     shape: string,
     fromX: number, fromZ: number,
     toX: number, toZ: number,
     element = 'physical',
 ): void {
     const diameter = shape === 'arrow' ? 0.22 : shape === 'mageBolt' ? 0.4 : 0.3;
-    const mesh = MeshBuilder.CreateSphere('coopFxProj', { diameter, segments: 4 }, scene);
+    const mesh = createSphere('coopFxProj', { diameter, segments: 4 }, host);
     mesh.position.set(fromX, 1, fromZ);
     const color = FX_COLOR[element] ?? FX_COLOR.physical;
-    mesh.material = getCachedMaterial(scene, `coopFxProjMat_${element}`, m => {
-        m.emissiveColor = color;
-        m.diffuseColor = new Color3(0, 0, 0);
-        m.disableLighting = true;
+    mesh.material = getCachedMaterial(`coopFxProjMat_${element}`, m => {
+        m.emissive.copy(color);
+        m.color.setRGB(0, 0, 0); // black diffuse + emissive = unlit look
     });
 
     const target = new Vector3(toX, 1, toZ);
     const speed = 22;
     const startMs = performance.now();
     const dir = new Vector3();
-    const observer = scene.onBeforeRenderObservable.add(() => {
-        target.subtractToRef(mesh.position, dir);
+    const token = host.onBeforeRender.add(() => {
+        dir.subVectors(target, mesh.position);
         const dist = dir.length();
         if (dist < 0.4 || performance.now() - startMs > 2000) {
-            mesh.dispose(); // material is cached/shared — keep it
-            scene.onBeforeRenderObservable.remove(observer);
+            disposeMesh(mesh); // material is cached/shared — keep it
+            host.onBeforeRender.remove(token);
             return;
         }
-        const dt = scene.getEngine().getDeltaTime() / 1000;
-        dir.normalize().scaleInPlace(Math.min(dist, speed * dt));
-        mesh.position.addInPlace(dir);
+        const dt = host.deltaSeconds;
+        dir.normalize().multiplyScalar(Math.min(dist, speed * dt));
+        mesh.position.add(dir);
     });
 }
 
@@ -92,36 +95,35 @@ export function spawnCosmeticProjectile(
  * Replay a RedWizard bolt seen by the guest: a magenta/arcane orb travelling from the
  * enemy position to the hero target at the same speed as the host bolt (14 u/s).
  * Cosmetic only — damage is authoritative via snapshot/damageResult.
- * Leak-safe: material cached by bounded key ('arcane'), plain mesh.dispose() leaves it.
+ * Leak-safe: material cached by bounded key ('arcane'), plain disposeMesh() leaves it.
  */
 export function spawnCosmeticEnemyProjectile(
-    scene: Scene,
+    host: SceneHost,
     fromX: number, fromZ: number,
     toX: number, toZ: number,
 ): void {
-    const mesh = MeshBuilder.CreateSphere('coopFxEnemyProj', { diameter: 0.4, segments: 4 }, scene);
+    const mesh = createSphere('coopFxEnemyProj', { diameter: 0.4, segments: 4 }, host);
     mesh.position.set(fromX, 1.4, fromZ); // match fireBolt y-offset (staff-orb height)
-    mesh.material = getCachedMaterial(scene, 'coopFxProjMat_arcane', m => {
-        m.emissiveColor = FX_COLOR.arcane;
-        m.diffuseColor = new Color3(0, 0, 0);
-        m.disableLighting = true;
+    mesh.material = getCachedMaterial('coopFxProjMat_arcane', m => {
+        m.emissive.copy(FX_COLOR.arcane);
+        m.color.setRGB(0, 0, 0);
     });
 
     const target = new Vector3(toX, 1.4, toZ);
     const speed = 14; // matches RedWizard.BOLT_SPEED
     const startMs = performance.now();
     const dir = new Vector3();
-    const observer = scene.onBeforeRenderObservable.add(() => {
-        target.subtractToRef(mesh.position, dir);
+    const token = host.onBeforeRender.add(() => {
+        dir.subVectors(target, mesh.position);
         const dist = dir.length();
         if (dist < 0.4 || performance.now() - startMs > 3000) {
-            mesh.dispose(); // material is cached/shared — keep it
-            scene.onBeforeRenderObservable.remove(observer);
+            disposeMesh(mesh); // material is cached/shared — keep it
+            host.onBeforeRender.remove(token);
             return;
         }
-        const dt = scene.getEngine().getDeltaTime() / 1000;
-        dir.normalize().scaleInPlace(Math.min(dist, speed * dt));
-        mesh.position.addInPlace(dir);
+        const dt = host.deltaSeconds;
+        dir.normalize().multiplyScalar(Math.min(dist, speed * dt));
+        mesh.position.add(dir);
     });
 }
 
@@ -131,57 +133,65 @@ export function spawnCosmeticEnemyProjectile(
  * disc. Fades over TELEGRAPH_DURATION (0.6s) to match the host side.
  *
  * Leak-safe: materials cached by bounded keys ('coopFxTelegraphDash' /
- * 'coopFxTelegraphPull'), plain mesh.dispose() leaves the shared materials alone, fade
- * via mesh.visibility not the material's alpha (per CLAUDE.md FX rules).
+ * 'coopFxTelegraphPull'); setMeshOpacity clones the shared material on first fade
+ * (ownedMaterial), which disposeMesh() then frees with the mesh (per CLAUDE.md FX rules).
  */
 export function spawnCosmeticTelegraph(
-    scene: Scene,
+    host: SceneHost,
     fromX: number, fromZ: number,
     toX: number, toZ: number,
     hint: 'dash' | 'pull',
 ): void {
     const duration = 0.6; // matches TELEGRAPH_DURATION in MilestoneBoss
-    let mesh: ReturnType<typeof MeshBuilder.CreatePlane> | ReturnType<typeof MeshBuilder.CreateDisc>;
+    let mesh: Mesh;
+    let baseAlpha: number;
 
     if (hint === 'pull') {
         // Purple grab-zone disc centered at boss position (matches spawnPullTelegraph).
         const pullRadius = 3.0; // PULL_TELEGRAPH_RADIUS
-        mesh = MeshBuilder.CreateDisc('coopFxPullTele', { radius: pullRadius, tessellation: 24 }, scene);
+        mesh = createDisc('coopFxPullTele', { radius: pullRadius, tessellation: 24 }, host);
         mesh.rotation.x = Math.PI / 2;
         mesh.position.set(fromX, 0.05, fromZ);
-        mesh.material = getCachedMaterial(scene, 'coopFxTelegraphPull', m => {
-            m.emissiveColor = new Color3(0.55, 0.1, 0.9);
-            m.diffuseColor = new Color3(0, 0, 0);
-            m.disableLighting = true;
-            m.alpha = 0.45;
+        baseAlpha = 0.45;
+        mesh.material = getCachedMaterial('coopFxTelegraphPull', m => {
+            m.emissive.setRGB(0.55, 0.1, 0.9);
+            m.color.setRGB(0, 0, 0);
+            m.transparent = true;
+            m.opacity = 0.45;
+            m.side = DoubleSide; // ground-flat plane must be visible from above
         });
     } else {
         // Red lane rectangle pointing from origin toward dash endpoint (matches spawnDashTelegraph).
         const dashDistance = 6.0; // DASH_DISTANCE
         const dx = toX - fromX;
         const dz = toZ - fromZ;
-        const angle = -Math.atan2(dz, dx) + Math.PI / 2;
-        mesh = MeshBuilder.CreatePlane('coopFxDashTele', { width: 1.4, height: dashDistance }, scene);
+        const angle = headingToYaw(dx, dz); // == -atan2(dz,dx)+π/2 routed through the single conversion point
+        mesh = createPlane('coopFxDashTele', { width: 1.4, height: dashDistance }, host);
+        mesh.rotation.order = 'YXZ'; // Babylon's yaw-pitch-roll rotation order
         mesh.rotation.x = Math.PI / 2;
         mesh.rotation.y = angle;
         const len = Math.hypot(dx, dz) || 1;
         mesh.position.x = fromX + (dx / len) * (dashDistance / 2);
         mesh.position.z = fromZ + (dz / len) * (dashDistance / 2);
         mesh.position.y = 0.05;
-        mesh.material = getCachedMaterial(scene, 'coopFxTelegraphDash', m => {
-            m.emissiveColor = new Color3(1, 0.1, 0.1);
-            m.diffuseColor = new Color3(0, 0, 0);
-            m.disableLighting = true;
-            m.alpha = 0.55;
+        baseAlpha = 0.55;
+        mesh.material = getCachedMaterial('coopFxTelegraphDash', m => {
+            m.emissive.setRGB(1, 0.1, 0.1);
+            m.color.setRGB(0, 0, 0);
+            m.transparent = true;
+            m.opacity = 0.55;
+            m.side = DoubleSide;
         });
     }
 
     let t = 0;
-    const observer = scene.onBeforeRenderObservable.add(() => {
-        t += scene.getEngine().getDeltaTime() / 1000;
+    const token = host.onBeforeRender.add(() => {
+        t += host.deltaSeconds;
         const k = Math.min(t / duration, 1);
-        mesh.visibility = 1 - k; // fade via visibility, NOT the shared material's alpha
-        if (k >= 1) { mesh.dispose(); scene.onBeforeRenderObservable.remove(observer); }
+        // Babylon faded via mesh.visibility (multiplies the material alpha);
+        // reproduce alpha × (1-k) on the clone-on-write per-mesh material.
+        setMeshOpacity(mesh, baseAlpha * (1 - k));
+        if (k >= 1) { disposeMesh(mesh); host.onBeforeRender.remove(token); }
     });
 }
 
@@ -197,11 +207,11 @@ export function spawnCosmeticTelegraph(
  *
  * Gameplay-inert: AbilityVisuals builders never touch enemies and never emit fx, so
  * no withFxReplay wrap is needed. Leak-safe: dispose() is idempotent, removes the
- * tick observer on every path, and the visuals' own dispose handles their meshes,
- * observers, and particle systems (cached materials are shared + bounded).
+ * tick callback on every path, and the visuals' own dispose handles their meshes,
+ * callbacks, and particle systems (cached materials are shared + bounded).
  */
 export function startCosmeticUltChannel(
-    scene: Scene,
+    host: SceneHost,
     ability: 'whirlwind' | 'multishot',
     getCenter: () => Vector3 | null,
     getFacing: () => number,
@@ -209,14 +219,14 @@ export function startCosmeticUltChannel(
     radius: number,
 ): { dispose: () => void } {
     const visual = ability === 'whirlwind'
-        ? spawnHurricaneVisual(scene, getCenter, durationS, radius)
-        : spawnMultishotAura(scene, getCenter);
+        ? spawnHurricaneVisual(host, getCenter, durationS, radius)
+        : spawnMultishotAura(host, getCenter);
     const tickInterval = ability === 'whirlwind' ? 0.3 : durationS / 30;
 
     let elapsed = 0;
     let sinceTick = 0;
-    const tickObs = scene.onBeforeRenderObservable.add(() => {
-        const dt = scene.getEngine().getDeltaTime() / 1000;
+    const tickToken = host.onBeforeRender.add(() => {
+        const dt = host.deltaSeconds;
         elapsed += dt;
         sinceTick += dt;
         // Past the channel duration the visual has faded itself out — stop ticking
@@ -226,12 +236,12 @@ export function startCosmeticUltChannel(
         const c = getCenter();
         if (!c) return;
         if (ability === 'whirlwind') {
-            spawnWhirlwindRing(scene, c, radius);
+            spawnWhirlwindRing(host, c, radius);
             // Secondary outer ring — matches the local concentric-tornado read.
-            spawnWhirlwindRing(scene, c, radius * 1.4);
+            spawnWhirlwindRing(host, c, radius * 1.4);
         } else {
             const ang = getFacing() + (Math.random() - 0.5) * 0.9;
-            spawnCosmeticVolleyArrow(scene, c, Math.sin(ang), Math.cos(ang));
+            spawnCosmeticVolleyArrow(host, c, Math.sin(ang), Math.cos(ang));
         }
     });
 
@@ -240,7 +250,7 @@ export function startCosmeticUltChannel(
         dispose: () => {
             if (disposed) return;
             disposed = true;
-            scene.onBeforeRenderObservable.remove(tickObs);
+            host.onBeforeRender.remove(tickToken);
             visual.dispose();
         },
     };
@@ -248,26 +258,27 @@ export function startCosmeticUltChannel(
 
 /**
  * Replay a teammate's melee swing arc: a golden torus that expands + fades over ~0.3s
- * at (x,z) with the given range. Cosmetic. Leak-safe (cached material, plain dispose,
- * fade via mesh.visibility never the shared material's alpha — per CLAUDE.md FX rules).
+ * at (x,z) with the given range. Cosmetic. Leak-safe (cached material by bounded key;
+ * setMeshOpacity clones it per-mesh for the fade and disposeMesh frees that clone —
+ * per CLAUDE.md FX rules).
  */
-export function spawnCosmeticSwingRing(scene: Scene, x: number, z: number, range: number): void {
-    const ring = MeshBuilder.CreateTorus('coopFxSwing', { diameter: range * 2, thickness: 0.4, tessellation: 24 }, scene);
+export function spawnCosmeticSwingRing(host: SceneHost, x: number, z: number, range: number): void {
+    const ring = createTorus('coopFxSwing', { diameter: range * 2, thickness: 0.4, tessellation: 24 }, host);
     ring.position.set(x, 0.25, z);
-    ring.material = getCachedMaterial(scene, 'coopFxSwingMat', m => {
-        m.emissiveColor = new Color3(1, 0.85, 0.4);
-        m.diffuseColor = new Color3(0, 0, 0);
-        m.disableLighting = true;
-        m.alpha = 0.85;
+    ring.material = getCachedMaterial('coopFxSwingMat', m => {
+        m.emissive.setRGB(1, 0.85, 0.4);
+        m.color.setRGB(0, 0, 0);
+        m.transparent = true;
+        m.opacity = 0.85;
     });
-    ring.scaling.setAll(0.7);
+    ring.scale.setScalar(0.7);
     const dur = 0.3;
     let t = 0;
-    const observer = scene.onBeforeRenderObservable.add(() => {
-        t += scene.getEngine().getDeltaTime() / 1000;
+    const token = host.onBeforeRender.add(() => {
+        t += host.deltaSeconds;
         const k = Math.min(t / dur, 1);
-        ring.scaling.setAll(0.7 + 0.3 * k);
-        ring.visibility = 1 - k; // fade via visibility, NOT the cached material's alpha
-        if (k >= 1) { ring.dispose(); scene.onBeforeRenderObservable.remove(observer); }
+        ring.scale.setScalar(0.7 + 0.3 * k);
+        setMeshOpacity(ring, 0.85 * (1 - k)); // Babylon visibility × material alpha
+        if (k >= 1) { disposeMesh(ring); host.onBeforeRender.remove(token); }
     });
 }

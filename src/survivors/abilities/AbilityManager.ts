@@ -1,11 +1,21 @@
-import { Vector3, Color3, Color4, MeshBuilder, ParticleSystem, Animation, Scene, Mesh, StandardMaterial } from '@babylonjs/core';
+import {
+    Color, DoubleSide, Material, Mesh, MeshBasicMaterial, Plane, Raycaster, Vector2, Vector3,
+} from 'three';
 import { Game } from '../../engine/Game';
+import { SceneHost, UpdateToken } from '../../engine/three/SceneHost';
+import { ParticleSystem } from '../../engine/three/particles/ParticleSystem';
+import { RGBA, headingToYaw } from '../../engine/three/math';
+import { tween } from '../../engine/three/tween';
+import {
+    createCylinder, createDisc, createIcoSphere, createPlane, createTorus,
+    disposeMesh, isMeshDisposed,
+} from '../../engine/three/primitives';
 import { Enemy } from '../enemies/Enemy';
 import { EnemyManager } from '../enemies/EnemyManager';
 import { PowerSlotManager } from '../powers/PowerSlotManager';
 import { PlayerStats } from '../PlayerStats';
 import { StatusEffect } from '../GameTypes';
-import { createEmissiveMaterial } from '../../engine/rendering/LowPolyMaterial';
+import { createEmissiveMaterial, setMeshOpacity } from '../../engine/rendering/LowPolyMaterial';
 import { emitCoopFx, isCoopFxActive } from '../coop/CoopFx';
 import { blendElements } from '../ElementColors';
 import { PowerElement } from '../powers/PowerDefinitions';
@@ -55,7 +65,7 @@ interface ActiveEffect {
 
 export class AbilityManager {
     private game: Game;
-    private scene: Scene;
+    private host: SceneHost;
     private enemyManager: EnemyManager;
     private playerStats: PlayerStats | null = null;
     private abilities: Map<string, Ability> = new Map();
@@ -63,6 +73,26 @@ export class AbilityManager {
     // Targeting state
     private isTargeting: boolean = false;
     private targetingAbility: string | null = null;
+
+    // Click-to-target support: raycast canvas clicks against the ground plane
+    // y=0 (replaces Babylon scene.pick). Dormant unless an ability with
+    // needsTargeting is armed via startTargeting().
+    private readonly raycaster = new Raycaster();
+    private static readonly GROUND_PLANE = new Plane(new Vector3(0, 1, 0), 0);
+    private readonly onCanvasClick = (ev: MouseEvent): void => {
+        if (!this.isTargeting || !this.targetingAbility) return;
+        const canvas = this.game.getCanvas();
+        const rect = canvas.getBoundingClientRect();
+        const ndc = new Vector2(
+            ((ev.clientX - rect.left) / rect.width) * 2 - 1,
+            -((ev.clientY - rect.top) / rect.height) * 2 + 1,
+        );
+        this.raycaster.setFromCamera(ndc, this.game.getActiveCamera());
+        const hit = new Vector3();
+        if (this.raycaster.ray.intersectPlane(AbilityManager.GROUND_PLANE, hit)) {
+            this.activate(this.targetingAbility, hit);
+        }
+    };
 
     // Hero reference for class-specific abilities (e.g. Whirlwind spin)
     private hero: any = null;
@@ -99,8 +129,9 @@ export class AbilityManager {
 
     constructor(game: Game, enemyManager: EnemyManager) {
         this.game = game;
-        this.scene = game.getScene();
+        this.host = game.getScene();
         this.enemyManager = enemyManager;
+        this.game.getCanvas().addEventListener('click', this.onCanvasClick);
 
         // Default to mage abilities. Call configureForClass() to switch.
         this.configureForClass('mage');
@@ -460,7 +491,7 @@ export class AbilityManager {
         for (const enemy of enemies) {
             enemy.takeDamage(damage);
         }
-        createMeteorVisual(this.scene, center, radius);
+        createMeteorVisual(this.host, center, radius);
     }
 
     // ========================================================================
@@ -477,7 +508,7 @@ export class AbilityManager {
             }
         }
 
-        createFrostNovaVisual(this.scene);
+        createFrostNovaVisual(this.host);
         // Co-op: the nova visual is arena-wide and parameterless — the ability id alone
         // replays it exactly.
         if (isCoopFxActive()) {
@@ -508,7 +539,7 @@ export class AbilityManager {
 
         // Updraft particles + spinning funnel cloud, following the hero (extracted to
         // AbilityVisuals so the co-op channel replays the identical look on the ghost).
-        const hurricane = spawnHurricaneVisual(this.scene, () => this.getHeroPosition(), duration, radius, tint);
+        const hurricane = spawnHurricaneVisual(this.host, () => this.getHeroPosition(), duration, radius, tint);
 
         // Co-op (M6 C2): a persistent channel — the teammate starts a cosmetic
         // hurricane that follows the ghost, and stops it on 'ultStop' (or a
@@ -536,14 +567,14 @@ export class AbilityManager {
                     const radiusSq = radius * radius;
                     for (const e of this.allEnemies()) {
                         if (!e.isAlive()) continue;
-                        if (Vector3.DistanceSquared(pos, e.getPosition()) <= radiusSq) {
+                        if (pos.distanceToSquared(e.getPosition()) <= radiusSq) {
                             e.takeDamage(18);
                         }
                     }
                 }
-                spawnWhirlwindRing(this.scene, pos, radius, tint);
+                spawnWhirlwindRing(this.host, pos, radius, tint);
                 // Secondary outer ring — 1.4× scale, lighter, layered concentric tornado read.
-                spawnWhirlwindRing(this.scene, pos, radius * 1.4, tint);
+                spawnWhirlwindRing(this.host, pos, radius * 1.4, tint);
                 // Keep champion body spinning
                 if (this.hero && typeof this.hero.triggerSpinAttack === 'function') {
                     this.hero.triggerSpinAttack();
@@ -613,7 +644,7 @@ export class AbilityManager {
 
         // Class-specific source/start VFX (mage gets a blink-out ring at origin).
         if (championType === 'mage') {
-            this.spawnTeleportRing(heroPos.clone(), new Color3(0.7, 0.3, 1.0));
+            this.spawnTeleportRing(heroPos.clone(), new Color(0.7, 0.3, 1.0));
         } else if (championType === 'barbarian') {
             this.spawnDashTrail(heroPos.clone());
         }
@@ -634,7 +665,7 @@ export class AbilityManager {
             }
             // Landing VFX
             if (championType === 'mage') {
-                this.spawnTeleportRing(landingPos, new Color3(0.7, 0.3, 1.0));
+                this.spawnTeleportRing(landingPos, new Color(0.7, 0.3, 1.0));
             } else {
                 this.spawnDashLandingDust(landingPos);
             }
@@ -644,40 +675,34 @@ export class AbilityManager {
     }
 
     /** Purple particle ring that marks both endpoints of a mage teleport. */
-    private spawnTeleportRing(center: Vector3, color: Color3): void {
-        const ring = MeshBuilder.CreateTorus('teleportRing', {
+    private spawnTeleportRing(center: Vector3, color: Color): void {
+        const ring = createTorus('teleportRing', {
             diameter: 1.0, thickness: 0.18, tessellation: 18,
-        }, this.scene);
+        }, this.host);
         ring.position.set(center.x, center.y + 0.4, center.z);
-        const mat = createEmissiveMaterial('teleportRingMat', color, 0.9, this.scene);
-        (mat as StandardMaterial).alpha = 0.85;
+        const mat = createEmissiveMaterial('teleportRingMat', color, 0.9);
+        mat.transparent = true;
+        mat.opacity = 0.85;
         ring.material = mat;
+        ring.userData.ownedMaterial = true;
 
-        const expandAnim = new Animation('teleportExpand', 'scaling', 30,
-            Animation.ANIMATIONTYPE_VECTOR3, Animation.ANIMATIONLOOPMODE_CONSTANT);
-        expandAnim.setKeys([
-            { frame: 0,  value: new Vector3(0.5, 1, 0.5) },
-            { frame: 10, value: new Vector3(3.5, 1, 3.5) },
-        ]);
-        const fadeAnim = new Animation('teleportFade', 'material.alpha', 30,
-            Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT);
-        fadeAnim.setKeys([
-            { frame: 0,  value: 0.85 },
-            { frame: 10, value: 0.0 },
-        ]);
-        ring.animations = [expandAnim, fadeAnim];
-        this.scene.beginAnimation(ring, 0, 10, false, 1, () => ring.dispose(false, true));
+        // Expand 0.5 → 3.5 (XZ) + fade 0.85 → 0 over 10 frames (1/3 s).
+        tween(this.host, 10 / 30, t => {
+            const s = 0.5 + 3.0 * t;
+            ring.scale.set(s, 1, s);
+            setMeshOpacity(ring, 0.85 * (1 - t));
+        }, { onEnd: () => disposeMesh(ring) });
     }
 
     /** Brief dust streak at the dash origin for barbarian. */
     private spawnDashTrail(origin: Vector3): void {
-        const ps = new ParticleSystem('dashTrail', 30, this.scene);
+        const ps = new ParticleSystem('dashTrail', 30, this.host);
         ps.emitter = new Vector3(origin.x, origin.y + 0.1, origin.z);
-        ps.minEmitBox = new Vector3(-0.3, 0, -0.3);
-        ps.maxEmitBox = new Vector3(0.3, 0.1, 0.3);
-        ps.color1 = new Color4(0.65, 0.55, 0.40, 1);
-        ps.color2 = new Color4(0.40, 0.32, 0.22, 1);
-        ps.colorDead = new Color4(0.15, 0.12, 0.08, 0);
+        ps.minEmitBox.set(-0.3, 0, -0.3);
+        ps.maxEmitBox.set(0.3, 0.1, 0.3);
+        ps.color1 = new RGBA(0.65, 0.55, 0.40, 1);
+        ps.color2 = new RGBA(0.40, 0.32, 0.22, 1);
+        ps.colorDead = new RGBA(0.15, 0.12, 0.08, 0);
         ps.minSize = 0.15;
         ps.maxSize = 0.35;
         ps.minLifeTime = 0.20;
@@ -685,11 +710,11 @@ export class AbilityManager {
         ps.emitRate = 0;
         ps.manualEmitCount = 30;
         ps.blendMode = ParticleSystem.BLENDMODE_STANDARD;
-        ps.direction1 = new Vector3(-1, 0.5, -1);
-        ps.direction2 = new Vector3(1, 1.2, 1);
+        ps.direction1.set(-1, 0.5, -1);
+        ps.direction2.set(1, 1.2, 1);
         ps.minEmitPower = 1.5;
         ps.maxEmitPower = 3.0;
-        ps.gravity = new Vector3(0, -2, 0);
+        ps.gravity.set(0, -2, 0);
         ps.start();
         setTimeout(() => {
             try { ps.stop(); } catch { /* ignore */ }
@@ -699,13 +724,13 @@ export class AbilityManager {
 
     /** Landing dust ring for barbarian dash and ranger jump. */
     private spawnDashLandingDust(center: Vector3): void {
-        const ps = new ParticleSystem('dashLandDust', 40, this.scene);
+        const ps = new ParticleSystem('dashLandDust', 40, this.host);
         ps.emitter = new Vector3(center.x, center.y + 0.1, center.z);
-        ps.minEmitBox = new Vector3(-0.5, 0, -0.5);
-        ps.maxEmitBox = new Vector3(0.5, 0.1, 0.5);
-        ps.color1 = new Color4(0.70, 0.60, 0.45, 1);
-        ps.color2 = new Color4(0.45, 0.35, 0.25, 1);
-        ps.colorDead = new Color4(0.15, 0.12, 0.08, 0);
+        ps.minEmitBox.set(-0.5, 0, -0.5);
+        ps.maxEmitBox.set(0.5, 0.1, 0.5);
+        ps.color1 = new RGBA(0.70, 0.60, 0.45, 1);
+        ps.color2 = new RGBA(0.45, 0.35, 0.25, 1);
+        ps.colorDead = new RGBA(0.15, 0.12, 0.08, 0);
         ps.minSize = 0.15;
         ps.maxSize = 0.40;
         ps.minLifeTime = 0.25;
@@ -713,11 +738,11 @@ export class AbilityManager {
         ps.emitRate = 0;
         ps.manualEmitCount = 40;
         ps.blendMode = ParticleSystem.BLENDMODE_STANDARD;
-        ps.direction1 = new Vector3(-2, 0.8, -2);
-        ps.direction2 = new Vector3(2, 1.6, 2);
+        ps.direction1.set(-2, 0.8, -2);
+        ps.direction2.set(2, 1.6, 2);
         ps.minEmitPower = 1.5;
         ps.maxEmitPower = 3.5;
-        ps.gravity = new Vector3(0, -3, 0);
+        ps.gravity.set(0, -3, 0);
         ps.start();
         setTimeout(() => {
             try { ps.stop(); } catch { /* ignore */ }
@@ -753,7 +778,7 @@ export class AbilityManager {
             this.animateEnemyKnockback(e, targetX, targetZ, 0.3);
         }
 
-        spawnSmashShockwave(this.scene, heroPos);
+        spawnSmashShockwave(this.host, heroPos);
         // Co-op: the shockwave is fully described by its center — replay is exact.
         if (isCoopFxActive()) {
             emitCoopFx('ult', heroPos.x, heroPos.z, undefined, undefined,
@@ -777,12 +802,12 @@ export class AbilityManager {
         let elapsed = 0;
         const startX = enemy.getPosition().x;
         const startZ = enemy.getPosition().z;
-        const observer = this.scene.onBeforeRenderObservable.add(() => {
+        const observer = this.host.onBeforeRender.add(() => {
             if (!enemy.isAlive()) {
-                this.scene.onBeforeRenderObservable.remove(observer);
+                this.host.onBeforeRender.remove(observer);
                 return;
             }
-            elapsed += this.scene.getEngine().getDeltaTime() / 1000;
+            elapsed += this.host.deltaSeconds;
             const t = Math.min(1, elapsed / duration);
             // Ease out
             const eased = 1 - (1 - t) * (1 - t);
@@ -790,7 +815,7 @@ export class AbilityManager {
             pos.x = startX + (targetX - startX) * eased;
             pos.z = startZ + (targetZ - startZ) * eased;
             if (t >= 1) {
-                this.scene.onBeforeRenderObservable.remove(observer);
+                this.host.onBeforeRender.remove(observer);
             }
         });
     }
@@ -816,7 +841,7 @@ export class AbilityManager {
         // Brief feedback: green aura ring + sparks at the ranger's feet, following the
         // hero for the burst window (extracted to AbilityVisuals — the co-op channel
         // replays the identical aura on the ghost).
-        const aura = spawnMultishotAura(this.scene, () => this.getHeroPosition());
+        const aura = spawnMultishotAura(this.host, () => this.getHeroPosition());
 
         // Co-op (M6 C2): persistent channel — the teammate shows the aura + periodic
         // cosmetic volley arrows from the ghost until 'ultStop' (or safety timeout).
@@ -840,7 +865,7 @@ export class AbilityManager {
                 let bestSq = Infinity;
                 for (const e of this.allEnemies()) {
                     if (!e.isAlive()) continue;
-                    const d = Vector3.DistanceSquared(pos, e.getPosition());
+                    const d = pos.distanceToSquared(e.getPosition());
                     if (d < bestSq) { bestSq = d; nearest = e; }
                 }
                 if (!nearest) return;
@@ -885,21 +910,21 @@ export class AbilityManager {
     /** Homing arrow used by Multishot's per-tick volley. Spawns at the hero's
      *  shoulder height, tracks the target, deals fixed damage on impact. */
     private spawnVolleyArrow(from: Vector3, target: Enemy, damage: number): void {
-        const arrow = MeshBuilder.CreateCylinder('volleyArrow', {
+        const arrow = createCylinder('volleyArrow', {
             height: 0.6, diameter: 0.08, tessellation: 5,
-        }, this.scene);
+        }, this.host);
         arrow.position.set(from.x, from.y + 1.0, from.z);
-        arrow.material = createEmissiveMaterial('volleyArrowMat', new Color3(0.6, 1.0, 0.4), 0.8, this.scene);
+        arrow.material = createEmissiveMaterial('volleyArrowMat', new Color(0.6, 1.0, 0.4), 0.8);
+        arrow.userData.ownedMaterial = true;
 
         const speed = 22;
-        let observer: any = null;
-        observer = this.scene.onBeforeRenderObservable.add(() => {
-            if (arrow.isDisposed() || !target.isAlive()) {
-                if (!arrow.isDisposed()) arrow.dispose(false, true);
-                this.scene.onBeforeRenderObservable.remove(observer);
+        const observer: UpdateToken = this.host.onBeforeRender.add(() => {
+            if (isMeshDisposed(arrow) || !target.isAlive()) {
+                if (!isMeshDisposed(arrow)) disposeMesh(arrow);
+                this.host.onBeforeRender.remove(observer);
                 return;
             }
-            const dt = this.scene.getEngine().getDeltaTime() / 1000;
+            const dt = this.host.deltaSeconds;
             const tp = target.getPosition();
             const dx = tp.x - arrow.position.x;
             const dy = (tp.y + 1.0) - arrow.position.y;
@@ -907,12 +932,12 @@ export class AbilityManager {
             const dist = Math.hypot(dx, dy, dz);
             if (dist < 0.4) {
                 target.takeDamage(damage);
-                arrow.dispose(false, true);
-                this.scene.onBeforeRenderObservable.remove(observer);
+                disposeMesh(arrow);
+                this.host.onBeforeRender.remove(observer);
                 return;
             }
             // Orient toward travel direction (flat yaw is enough for a thin arrow)
-            arrow.rotation.y = Math.atan2(dx, dz);
+            arrow.rotation.y = headingToYaw(dx, dz);
             arrow.rotation.x = Math.atan2(-dy, Math.hypot(dx, dz));
             const step = Math.min(dist, speed * dt);
             arrow.position.x += (dx / dist) * step;
@@ -921,8 +946,8 @@ export class AbilityManager {
         });
         // Safety: dispose after 3s of flight
         setTimeout(() => {
-            if (!arrow.isDisposed()) arrow.dispose(false, true);
-            this.scene.onBeforeRenderObservable.remove(observer);
+            if (!isMeshDisposed(arrow)) disposeMesh(arrow);
+            this.host.onBeforeRender.remove(observer);
         }, 3000);
     }
 
@@ -948,7 +973,7 @@ export class AbilityManager {
                 let bestDist = Infinity;
                 for (const e of this.allEnemies()) {
                     if (!e.isAlive()) continue;
-                    const d = Vector3.DistanceSquared(pos, e.getPosition());
+                    const d = pos.distanceToSquared(e.getPosition());
                     if (d < bestDist) { bestDist = d; nearest = e; }
                 }
                 if (!nearest) return;
@@ -968,7 +993,7 @@ export class AbilityManager {
             emitCoopFx('ult', from.x, from.z, targetPos.x, targetPos.z,
                 JSON.stringify({ a: 'expArrow', r: aoeRadius }));
         }
-        spawnExplosiveArrowFlight(this.scene, from, targetPos, (impactPos) => {
+        spawnExplosiveArrowFlight(this.host, from, targetPos, (impactPos) => {
             this.triggerExplosion(impactPos, damage, aoeRadius);
         });
     }
@@ -978,13 +1003,13 @@ export class AbilityManager {
         const radiusSq = radius * radius;
         for (const e of this.allEnemies()) {
             if (!e.isAlive()) continue;
-            if (Vector3.DistanceSquared(position, e.getPosition()) <= radiusSq) {
+            if (position.distanceToSquared(e.getPosition()) <= radiusSq) {
                 e.takeDamage(damage);
             }
         }
 
         // Visual: expanding orange ring + ember burst (shared with the co-op replay)
-        spawnExplosionVisual(this.scene, position, radius);
+        spawnExplosionVisual(this.host, position, radius);
     }
 
     // ========================================================================
@@ -1030,7 +1055,7 @@ export class AbilityManager {
     }
 
     private createChainLightningVisual(positions: Vector3[]): void {
-        const lightningColor = new Color3(0.6, 0.6, 1.0);
+        const lightningColor = new Color(0.6, 0.6, 1.0);
 
         for (let i = 0; i < positions.length - 1; i++) {
             const start = positions[i].clone();
@@ -1038,59 +1063,59 @@ export class AbilityManager {
             const end = positions[i + 1].clone();
             end.y += 1.5;
 
-            const distance = Vector3.Distance(start, end);
-            const bolt = MeshBuilder.CreateCylinder(`bolt_${i}`, {
+            const distance = start.distanceTo(end);
+            const bolt = createCylinder(`bolt_${i}`, {
                 height: distance, diameter: 0.15, tessellation: 4
-            }, this.scene);
-            const mid = Vector3.Lerp(start, end, 0.5);
-            bolt.position = mid;
+            }, this.host);
+            bolt.position.lerpVectors(start, end, 0.5);
 
-            const direction = end.subtract(start).normalize();
-            const up = new Vector3(0, 1, 0);
-            const cross = Vector3.Cross(up, direction);
-            const dot = Vector3.Dot(up, direction);
-            const angle = Math.acos(Math.max(-1, Math.min(1, dot)));
+            // Align the Y-axis cylinder along the segment: aim +Z at the end
+            // point, then pitch the length axis onto it. Skip when the segment
+            // is (near-)vertical — the cylinder is already aligned.
+            const direction = end.clone().sub(start).normalize();
+            const cross = new Vector3().crossVectors(new Vector3(0, 1, 0), direction);
             if (cross.length() > 0.001) {
-                bolt.rotationQuaternion = null;
-                const axis = cross.normalize();
-                bolt.rotation.x = axis.x * angle;
-                bolt.rotation.y = axis.y * angle;
-                bolt.rotation.z = axis.z * angle;
                 bolt.lookAt(end);
                 bolt.rotation.x += Math.PI / 2;
             }
 
-            bolt.material = createEmissiveMaterial(`boltMat_${i}`, lightningColor, 0.9, this.scene);
-            (bolt.material as StandardMaterial).alpha = 0.9;
-            setTimeout(() => bolt.dispose(false, true), 300);
+            const boltMat = createEmissiveMaterial(`boltMat_${i}`, lightningColor, 0.9);
+            boltMat.transparent = true;
+            boltMat.opacity = 0.9;
+            bolt.material = boltMat;
+            bolt.userData.ownedMaterial = true;
+            setTimeout(() => disposeMesh(bolt), 300);
         }
 
         for (const pos of positions) {
-            const flash = MeshBuilder.CreateIcoSphere(`lightningFlash`, {
+            const flash = createIcoSphere(`lightningFlash`, {
                 radius: 0.5, subdivisions: 1
-            }, this.scene);
-            flash.position = new Vector3(pos.x, pos.y + 1.5, pos.z);
-            flash.material = createEmissiveMaterial('flashMat', lightningColor, 1.0, this.scene);
-            (flash.material as StandardMaterial).alpha = 0.8;
-            setTimeout(() => flash.dispose(false, true), 200);
+            }, this.host);
+            flash.position.set(pos.x, pos.y + 1.5, pos.z);
+            const flashMat = createEmissiveMaterial('flashMat', lightningColor, 1.0);
+            flashMat.transparent = true;
+            flashMat.opacity = 0.8;
+            flash.material = flashMat;
+            flash.userData.ownedMaterial = true;
+            setTimeout(() => disposeMesh(flash), 200);
         }
 
         if (positions.length > 0) {
-            const ps = new ParticleSystem('lightningBurst', 30, this.scene);
+            const ps = new ParticleSystem('lightningBurst', 30, this.host);
             ps.emitter = new Vector3(positions[0].x, positions[0].y + 1.5, positions[0].z);
-            ps.minEmitBox = new Vector3(-0.3, 0, -0.3);
-            ps.maxEmitBox = new Vector3(0.3, 0, 0.3);
-            ps.color1 = new Color4(0.6, 0.6, 1, 1);
-            ps.color2 = new Color4(0.8, 0.8, 1, 1);
-            ps.colorDead = new Color4(0.3, 0.3, 0.5, 0);
+            ps.minEmitBox.set(-0.3, 0, -0.3);
+            ps.maxEmitBox.set(0.3, 0, 0.3);
+            ps.color1 = new RGBA(0.6, 0.6, 1, 1);
+            ps.color2 = new RGBA(0.8, 0.8, 1, 1);
+            ps.colorDead = new RGBA(0.3, 0.3, 0.5, 0);
             ps.minSize = 0.1;
             ps.maxSize = 0.3;
             ps.minLifeTime = 0.2;
             ps.maxLifeTime = 0.5;
             ps.emitRate = 100;
             ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-            ps.direction1 = new Vector3(-1, 1, -1);
-            ps.direction2 = new Vector3(1, 2, 1);
+            ps.direction1.set(-1, 1, -1);
+            ps.direction2.set(1, 2, 1);
             ps.minEmitPower = 1;
             ps.maxEmitPower = 3;
             ps.start();
@@ -1113,32 +1138,28 @@ export class AbilityManager {
     private createFortifyVisual(): void {
         const center = new Vector3(0, 0.1, 0);
 
-        const ring = MeshBuilder.CreateDisc('fortifyRing', {
+        const ring = createDisc('fortifyRing', {
             radius: 0.5, tessellation: 32
-        }, this.scene);
-        ring.position = center;
+        }, this.host);
+        ring.position.copy(center);
         ring.rotation.x = Math.PI / 2;
-        const ringMat = new StandardMaterial('fortifyRingMat', this.scene);
-        ringMat.diffuseColor = new Color3(1, 0.85, 0.2);
-        ringMat.emissiveColor = new Color3(0.8, 0.65, 0.1);
-        ringMat.alpha = 0.5;
-        ringMat.disableLighting = true;
+        // Babylon disableLighting rendered emissive only → unlit basic material.
+        const ringMat = new MeshBasicMaterial({
+            color: new Color(0.8, 0.65, 0.1),
+            transparent: true,
+            opacity: 0.5,
+            side: DoubleSide,
+        });
+        ringMat.name = 'fortifyRingMat';
         ring.material = ringMat;
+        ring.userData.ownedMaterial = true;
 
-        const expandAnim = new Animation('fortifyExpand', 'scaling', 30,
-            Animation.ANIMATIONTYPE_VECTOR3, Animation.ANIMATIONLOOPMODE_CONSTANT);
-        expandAnim.setKeys([
-            { frame: 0, value: new Vector3(1, 1, 1) },
-            { frame: 30, value: new Vector3(80, 80, 1) }
-        ]);
-        const fadeAnim = new Animation('fortifyFade', 'material.alpha', 30,
-            Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT);
-        fadeAnim.setKeys([
-            { frame: 0, value: 0.5 },
-            { frame: 30, value: 0 }
-        ]);
-        ring.animations = [expandAnim, fadeAnim];
-        this.scene.beginAnimation(ring, 0, 30, false, 1, () => ring.dispose(false, true));
+        // Expand 1 → 80 (disc plane) + fade 0.5 → 0 over 30 frames (1s).
+        tween(this.host, 30 / 30, t => {
+            const s = 1 + 79 * t;
+            ring.scale.set(s, s, 1);
+            setMeshOpacity(ring, 0.5 * (1 - t));
+        }, { onEnd: () => disposeMesh(ring) });
     }
 
     private activateGoldRush(): boolean {
@@ -1163,23 +1184,24 @@ export class AbilityManager {
         for (const enemy of enemies) {
             if (enemy.isAlive()) {
                 const ePos = enemy.getPosition();
-                const ps = new ParticleSystem('goldRainPS', 15, this.scene);
+                const ps = new ParticleSystem('goldRainPS', 15, this.host);
                 ps.emitter = new Vector3(ePos.x, ePos.y + 3, ePos.z);
-                ps.minEmitBox = new Vector3(-0.5, 0, -0.5);
-                ps.maxEmitBox = new Vector3(0.5, 0, 0.5);
-                ps.color1 = new Color4(1, 0.85, 0.1, 1);
-                ps.color2 = new Color4(1, 0.7, 0, 1);
-                ps.colorDead = new Color4(0.6, 0.5, 0, 0);
+                ps.minEmitBox.set(-0.5, 0, -0.5);
+                ps.maxEmitBox.set(0.5, 0, 0.5);
+                ps.color1 = new RGBA(1, 0.85, 0.1, 1);
+                ps.color2 = new RGBA(1, 0.7, 0, 1);
+                ps.colorDead = new RGBA(0.6, 0.5, 0, 0);
                 ps.minSize = 0.15;
                 ps.maxSize = 0.3;
                 ps.minLifeTime = 0.5;
                 ps.maxLifeTime = 1.0;
                 ps.emitRate = 30;
-                ps.direction1 = new Vector3(-0.3, -2, -0.3);
-                ps.direction2 = new Vector3(0.3, -1, 0.3);
+                ps.blendMode = ParticleSystem.BLENDMODE_STANDARD;
+                ps.direction1.set(-0.3, -2, -0.3);
+                ps.direction2.set(0.3, -1, 0.3);
                 ps.minEmitPower = 1;
                 ps.maxEmitPower = 2;
-                ps.gravity = new Vector3(0, -5, 0);
+                ps.gravity.set(0, -5, 0);
                 ps.start();
                 setTimeout(() => {
                     try { ps.stop(); } catch { /* already disposed */ }
@@ -1191,59 +1213,54 @@ export class AbilityManager {
         }
 
         if (totalGold > 0) {
-            const flash = MeshBuilder.CreatePlane('goldFlash', { size: 2 }, this.scene);
-            flash.position = new Vector3(20, 5, 20);
-            flash.billboardMode = Mesh.BILLBOARDMODE_ALL;
-            const flashMat = createEmissiveMaterial('goldFlashMat', new Color3(1, 0.85, 0.2), 0.9, this.scene);
-            flashMat.alpha = 0.6;
+            const flash = createPlane('goldFlash', { size: 2 }, this.host);
+            flash.position.set(20, 5, 20);
+            const flashMat = createEmissiveMaterial('goldFlashMat', new Color(1, 0.85, 0.2), 0.9);
+            flashMat.transparent = true;
+            flashMat.opacity = 0.6;
+            flashMat.side = DoubleSide;
             flash.material = flashMat;
+            flash.userData.ownedMaterial = true;
 
-            const fadeAnim = new Animation('goldFade', 'material.alpha', 30,
-                Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT);
-            fadeAnim.setKeys([
-                { frame: 0, value: 0.6 },
-                { frame: 30, value: 0 }
-            ]);
-            const riseAnim = new Animation('goldRise', 'position.y', 30,
-                Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT);
-            riseAnim.setKeys([
-                { frame: 0, value: 5 },
-                { frame: 30, value: 7 }
-            ]);
-            flash.animations = [fadeAnim, riseAnim];
-            this.scene.beginAnimation(flash, 0, 30, false, 1, () => flash.dispose(false, true));
+            // Fade 0.6 → 0 + rise y 5 → 7 over 30 frames (1s). Billboard
+            // (Babylon BILLBOARDMODE_ALL): face the camera each update.
+            tween(this.host, 30 / 30, t => {
+                flash.position.y = 5 + 2 * t;
+                setMeshOpacity(flash, 0.6 * (1 - t));
+                flash.lookAt(this.game.getActiveCamera().position);
+            }, { onEnd: () => disposeMesh(flash) });
         }
     }
 
     // ========================================================================
     // Shader pre-warm — call once at run start (during loading) so every
-    // ParticleSystem shader variant is compiled before the first ability fires.
+    // particle/FX shader variant is compiled before the first ability fires.
     // ========================================================================
 
     public prewarmAbilityEffects(): void {
-        const scene = this.game.getScene();
+        const host = this.host;
         const farAway = new Vector3(1000, -100, 1000);
         const warmups: ParticleSystem[] = [];
 
         // === BLENDMODE_ONEONE variant — covers meteor, frost, expBurst, lightning ===
         // All four PS share this blend mode; one prewarm pass compiles the shader.
         {
-            const ps = new ParticleSystem('prewarmOneOne', 60, scene);
+            const ps = new ParticleSystem('prewarmOneOne', 60, host);
             ps.emitter = farAway;
             ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-            ps.color1 = new Color4(1, 0.5, 0, 1);
-            ps.color2 = new Color4(1, 0.2, 0, 1);
-            ps.colorDead = new Color4(0.3, 0, 0, 0);
+            ps.color1 = new RGBA(1, 0.5, 0, 1);
+            ps.color2 = new RGBA(1, 0.2, 0, 1);
+            ps.colorDead = new RGBA(0.3, 0, 0, 0);
             ps.minSize = 0.1;
             ps.maxSize = 0.5;
             ps.minLifeTime = 0.1;
             ps.maxLifeTime = 0.5;
             ps.emitRate = 100;
-            ps.direction1 = new Vector3(-2, 2, -2);
-            ps.direction2 = new Vector3(2, 4, 2);
+            ps.direction1.set(-2, 2, -2);
+            ps.direction2.set(2, 4, 2);
             ps.minEmitPower = 1;
             ps.maxEmitPower = 3;
-            ps.gravity = new Vector3(0, -8, 0);
+            ps.gravity.set(0, -8, 0);
             ps.manualEmitCount = 60;
             ps.start();
             warmups.push(ps);
@@ -1251,61 +1268,66 @@ export class AbilityManager {
 
         // === BLENDMODE_STANDARD variant — covers goldRainPS (default blend mode) ===
         {
-            const ps = new ParticleSystem('prewarmStandard', 15, scene);
+            const ps = new ParticleSystem('prewarmStandard', 15, host);
             ps.emitter = farAway;
-            // blendMode intentionally left at default (BLENDMODE_STANDARD)
-            ps.color1 = new Color4(1, 0.85, 0.1, 1);
-            ps.color2 = new Color4(1, 0.7, 0, 1);
-            ps.colorDead = new Color4(0.6, 0.5, 0, 0);
+            ps.blendMode = ParticleSystem.BLENDMODE_STANDARD;
+            ps.color1 = new RGBA(1, 0.85, 0.1, 1);
+            ps.color2 = new RGBA(1, 0.7, 0, 1);
+            ps.colorDead = new RGBA(0.6, 0.5, 0, 0);
             ps.minSize = 0.15;
             ps.maxSize = 0.3;
             ps.minLifeTime = 0.5;
             ps.maxLifeTime = 1.0;
             ps.emitRate = 30;
-            ps.direction1 = new Vector3(-0.3, -2, -0.3);
-            ps.direction2 = new Vector3(0.3, -1, 0.3);
+            ps.direction1.set(-0.3, -2, -0.3);
+            ps.direction2.set(0.3, -1, 0.3);
             ps.minEmitPower = 1;
             ps.maxEmitPower = 2;
-            ps.gravity = new Vector3(0, -5, 0);
+            ps.gravity.set(0, -5, 0);
             ps.manualEmitCount = 15;
             ps.start();
             warmups.push(ps);
         }
 
         // === Mesh-material shader variants ===
-        // Babylon caches compiled Effects by shader DEFINES, not by color — so
-        // compiling one material per define-set here means the first in-combat FX
-        // of each kind finds its program already built, with no synchronous
-        // first-use compile hitch (the ~1.4s first-elemental-swing stall).
-        //   - litFx:     lit emissive, specular-black  → spin arc-ring, weapon element
+        // Three compiles one program per property-combination (Babylon's
+        // define-set caching, same idea) — compiling one material per variant
+        // here means the first in-combat FX of each kind finds its program
+        // already built, with no synchronous first-use compile hitch (the
+        // ~1.4s first-elemental-swing stall).
+        //   - litFx:     lit emissive Phong → spin arc-ring, weapon element
         //                decorations, and every ability ring/flash/arrow (createEmissiveMaterial).
-        //   - elemSwing: disableLighting emissive       → the barbarian elemental swing ring/arc
+        //   - elemSwing: unlit transparent basic → the barbarian elemental swing ring/arc
         //                (every per-tint swingRingMatElem_* / swingArcMatElem_* reuses this program).
         //   - the two gold swing materials are pre-created into the shared cache here
         //     (verbatim keys), so the first non-elemental swing reuses them already compiled.
-        const litFx = createEmissiveMaterial('prewarmLitFx', new Color3(1, 0.5, 0.2), 0.9, scene);
-        const elemSwing = new StandardMaterial('prewarmElemSwing', scene);
-        elemSwing.emissiveColor = new Color3(1, 0.5, 0.5);
-        elemSwing.diffuseColor = new Color3(0, 0, 0);
-        elemSwing.disableLighting = true;
-        elemSwing.alpha = 0.9;
-        const goldRing = getCachedMaterial(scene, 'swingRingMat', m => {
-            m.emissiveColor = new Color3(1, 0.85, 0.4); m.diffuseColor = new Color3(0, 0, 0); m.alpha = 0.9;
+        const litFx = createEmissiveMaterial('prewarmLitFx', new Color(1, 0.5, 0.2), 0.9);
+        const elemSwing = new MeshBasicMaterial({
+            color: new Color(1, 0.5, 0.5),
+            transparent: true,
+            opacity: 0.9,
         });
-        const goldArc = getCachedMaterial(scene, 'swingArcMat', m => {
-            m.emissiveColor = new Color3(1, 0.95, 0.7); m.diffuseColor = new Color3(0, 0, 0); m.alpha = 0.5;
+        elemSwing.name = 'prewarmElemSwing';
+        const goldRing = getCachedMaterial('swingRingMat', m => {
+            m.emissive = new Color(1, 0.85, 0.4); m.color = new Color(0, 0, 0);
+            m.transparent = true; m.opacity = 0.9;
+        });
+        const goldArc = getCachedMaterial('swingArcMat', m => {
+            m.emissive = new Color(1, 0.95, 0.7); m.color = new Color(0, 0, 0);
+            m.transparent = true; m.opacity = 0.5;
         });
         const meshWarmups: Mesh[] = [];
         for (const mat of [litFx, elemSwing, goldRing, goldArc]) {
-            const torus = MeshBuilder.CreateTorus('prewarmFxMesh', { diameter: 1, thickness: 0.2, tessellation: 12 }, scene);
-            torus.position.copyFrom(farAway);
+            const torus = createTorus('prewarmFxMesh', { diameter: 1, thickness: 0.2, tessellation: 12 }, host);
+            torus.position.copy(farAway);
             torus.material = mat;
-            torus.alwaysSelectAsActiveMesh = true; // else frustum-culled → never compiled
+            torus.frustumCulled = false; // else frustum-culled → never compiled
             meshWarmups.push(torus);
         }
 
-        // Force a render so shaders compile now, before any ability is triggered.
-        scene.render();
+        // Compile all pending shader programs now, before any ability is
+        // triggered (Babylon's forced scene.render()).
+        this.game.getRendererHost().renderer.compile(host.scene, this.game.getActiveCamera());
 
         for (const ps of warmups) {
             ps.stop();
@@ -1315,9 +1337,9 @@ export class AbilityManager {
         // are freed with them; the gold swing materials are cached/shared and MUST
         // survive (the first real swing reuses them already compiled).
         for (const m of meshWarmups) {
-            const mat = m.material;
-            m.dispose();
-            if (mat === litFx || mat === elemSwing) mat?.dispose();
+            const mat = m.material as Material;
+            disposeMesh(m);
+            if (mat === litFx || mat === elemSwing) mat.dispose();
         }
     }
 
@@ -1346,10 +1368,11 @@ export class AbilityManager {
                 target = p.clone();
             }
         }
-        return this.activate('meteor', target ?? Vector3.Zero());
+        return this.activate('meteor', target ?? new Vector3());
     }
 
     public dispose(): void {
+        this.game.getCanvas().removeEventListener('click', this.onCanvasClick);
         this.abilities.clear();
         this.activeEffects = [];
         this.isTargeting = false;

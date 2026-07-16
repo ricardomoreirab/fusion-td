@@ -1,6 +1,18 @@
-import { Scene, Mesh, MeshBuilder, ShaderMaterial, Effect, AssetContainer, LoadAssetContainerAsync, Matrix, PBRMaterial, Texture, Color3 } from '@babylonjs/core';
+import {
+    BackSide,
+    Color,
+    DoubleSide,
+    Mesh,
+    MeshBasicMaterial,
+    RepeatWrapping,
+    ShaderMaterial,
+    Texture,
+    Vector3,
+} from 'three';
+import type { SceneHost } from '../../engine/three/SceneHost';
+import { createSphere, disposeMesh } from '../../engine/three/primitives';
+import { loadContainer, ContainerInstance } from '../../engine/three/assets';
 
-const SHADER_KEY = 'ktgGlobeSky';
 const SKY_GLB_URL = 'assets/unreal_engine_4_sky.glb';
 /** Radius the GLB dome is normalised to — far outside the playfield, well
  *  inside the camera's far plane. */
@@ -9,25 +21,23 @@ const SKY_RADIUS = 420;
 const CLOUD_PAN_SPEED = 0.0015;
 /** Dusk tint multiplied into the (unlit) sky texture — the raw UE4 clouds are
  *  a bright midday sky and wash out the game's torch-lit mood. */
-const SKY_TINT = new Color3(0.42, 0.48, 0.74);
+const SKY_TINT = new Color(0.42, 0.48, 0.74);
 
 // Texture-free gradient sky used INSTANTLY while the GLB skydome streams in
 // (and kept forever if it fails to load): warm-blue twilight band at the
 // horizon fading into deep night blue at the zenith, with sparse stars.
+// Three's ShaderMaterial auto-injects the precision header, the position
+// attribute and the projection/modelView matrices — not redeclared here.
 const VERT = `
-precision highp float;
-attribute vec3 position;
-uniform mat4 worldViewProjection;
 varying vec3 vDir;
 
 void main(void) {
     vDir = position; // sphere centred on the hero — local position IS the view direction
-    gl_Position = worldViewProjection * vec4(position, 1.0);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
 `;
 
 const FRAG = `
-precision highp float;
 varying vec3 vDir;
 
 float hash12(vec2 p) {
@@ -72,91 +82,104 @@ void main(void) {
  *  Primary: the unreal_engine_4_sky GLB dome (unlit panning-clouds texture),
  *  loaded async, normalised to SKY_RADIUS, clouds slowly drifting.
  *  Fallback: the procedural gradient+stars dome — shown instantly while the
- *  GLB streams in and kept if the load fails (or on the no-GPU NullEngine
- *  fallback, where GLB texture uploads are unavailable anyway). */
+ *  GLB streams in and kept if the load fails (or on the no-GPU fallback,
+ *  where GLB texture uploads are unavailable anyway). */
 export class GlobeSky {
     private fallbackMesh: Mesh | null;
     private fallbackMaterial: ShaderMaterial | null;
-    private container: AssetContainer | null = null;
+    private instance: ContainerInstance | null = null;
     private skyDome: Mesh | null = null;
+    private skyMaterial: MeshBasicMaterial | null = null;
     private cloudTexture: Texture | null = null;
     private disposed = false;
 
-    constructor(scene: Scene, skipGlb: boolean = false) {
-        if (!Effect.ShadersStore[`${SHADER_KEY}VertexShader`]) {
-            Effect.ShadersStore[`${SHADER_KEY}VertexShader`] = VERT;
-            Effect.ShadersStore[`${SHADER_KEY}FragmentShader`] = FRAG;
-        }
+    constructor(host: SceneHost, skipGlb: boolean = false) {
+        this.fallbackMesh = createSphere('globeSky', { diameter: 900, segments: 16 }, host);
+        this.fallbackMesh.frustumCulled = false; // never frustum-culled
 
-        this.fallbackMesh = MeshBuilder.CreateSphere('globeSky',
-            { diameter: 900, segments: 16, sideOrientation: Mesh.BACKSIDE }, scene);
-        this.fallbackMesh.isPickable = false;
-        this.fallbackMesh.alwaysSelectAsActiveMesh = true; // never frustum-culled
-
-        this.fallbackMaterial = new ShaderMaterial(SHADER_KEY, scene,
-            { vertex: SHADER_KEY, fragment: SHADER_KEY },
-            { attributes: ['position'], uniforms: ['worldViewProjection'] });
-        this.fallbackMaterial.backFaceCulling = false;
-        this.fallbackMaterial.disableDepthWrite = true; // pure background — never occludes
+        this.fallbackMaterial = new ShaderMaterial({
+            name: 'globeSky',
+            vertexShader: VERT,
+            fragmentShader: FRAG,
+            side: BackSide,       // dome reads from the inside
+            depthWrite: false,    // pure background — never occludes
+        });
         this.fallbackMesh.material = this.fallbackMaterial;
 
-        if (!skipGlb) void this.loadGlbDome(scene);
+        if (!skipGlb) void this.loadGlbDome(host);
     }
 
-    private async loadGlbDome(scene: Scene): Promise<void> {
-        let container: AssetContainer;
+    private async loadGlbDome(host: SceneHost): Promise<void> {
+        let instance: ContainerInstance;
         try {
-            container = await LoadAssetContainerAsync(SKY_GLB_URL, scene);
+            const container = await loadContainer(SKY_GLB_URL);
+            instance = container.instantiate(host);
         } catch (err) {
             console.warn('[globe] sky GLB failed to load — keeping the procedural gradient sky:', err);
             return;
         }
-        if (this.disposed) { container.dispose(); return; }
-        this.container = container;
-        container.addAllToScene();
+        if (this.disposed) { instance.dispose(); return; }
+        this.instance = instance;
 
-        const dome = container.meshes.find(
-            (m): m is Mesh => m instanceof Mesh && m.getTotalVertices() > 0) ?? null;
+        instance.root.updateMatrixWorld(true);
+        const candidates: Mesh[] = [];
+        instance.root.traverse(node => {
+            const m = node as Mesh;
+            if (m.isMesh && (m.geometry.getAttribute('position')?.count ?? 0) > 0) candidates.push(m);
+        });
+        const dome = candidates[0] ?? null;
         if (!dome) {
             console.warn('[globe] sky GLB has no mesh — keeping the procedural gradient sky');
-            container.dispose();
-            this.container = null;
+            instance.dispose();
+            this.instance = null;
             return;
         }
 
-        // Bake the Sketchfab wrapper transforms, centre on the origin, and
-        // normalise the dome to SKY_RADIUS so it always encloses the playfield.
-        dome.setParent(null);
-        dome.computeWorldMatrix(true);
-        dome.bakeCurrentTransformIntoVertices();
-        dome.refreshBoundingInfo();
-        const bb = dome.getBoundingInfo().boundingBox;
-        const c = bb.center;
-        dome.bakeTransformIntoVertices(Matrix.Translation(-c.x, -c.y, -c.z));
-        dome.refreshBoundingInfo();
-        const extent = dome.getBoundingInfo().boundingBox.extendSize;
-        const radius = Math.max(extent.x, extent.y, extent.z, 0.001);
-        dome.scaling.setAll(SKY_RADIUS / radius);
+        // Bake the Sketchfab wrapper transforms into a PRIVATE geometry clone
+        // (the source geometry is shared with the module-level container
+        // cache — baking in place would double-apply on the next run), centre
+        // on the origin, and normalise the dome to SKY_RADIUS so it always
+        // encloses the playfield.
+        const geo = dome.geometry.clone();
+        geo.applyMatrix4(dome.matrixWorld);
+        dome.geometry = geo;
+        host.scene.add(dome); // reparent out of the GLB wrapper chain
+        dome.position.set(0, 0, 0);
+        dome.quaternion.identity();
+        dome.scale.set(1, 1, 1);
 
-        dome.isPickable = false;
-        dome.alwaysSelectAsActiveMesh = true;
-        const mat = dome.material;
-        if (mat) {
-            mat.backFaceCulling = false;     // dome must read from the inside
-            mat.disableDepthWrite = true;    // pure background — never occludes
-            if (mat instanceof PBRMaterial) {
-                // Unlit PBR: final colour = albedoColor × texture, so a single
-                // colour write darkens the whole dome toward dusk.
-                mat.albedoColor = SKY_TINT.clone();
-                if (mat.albedoTexture instanceof Texture) {
-                    this.cloudTexture = mat.albedoTexture; // panned in update()
-                }
-            }
+        geo.computeBoundingBox();
+        const centre = geo.boundingBox!.getCenter(new Vector3());
+        geo.translate(-centre.x, -centre.y, -centre.z);
+        geo.computeBoundingBox();
+        const extent = geo.boundingBox!.max;
+        const radius = Math.max(extent.x, extent.y, extent.z, 0.001);
+        dome.scale.setScalar(SKY_RADIUS / radius);
+        dome.frustumCulled = false;
+
+        // Unlit tinted clouds — Babylon relied on the GLB's unlit PBR where
+        // final colour = albedoColor × texture; MeshBasicMaterial(color, map)
+        // is the exact Three equivalent. The source material clone from
+        // instantiate() is retired (instance.dispose() frees it later).
+        const srcMat = Array.isArray(dome.material) ? dome.material[0] : dome.material;
+        const cloudMap = (srcMat as { map?: Texture | null }).map ?? null;
+        const skyMat = new MeshBasicMaterial({
+            color: SKY_TINT.clone(),
+            map: cloudMap,
+            side: DoubleSide,     // dome must read from the inside
+            depthWrite: false,    // pure background — never occludes
+            fog: false,           // horizon fog must not swallow the sky itself
+        });
+        dome.material = skyMat;
+        this.skyMaterial = skyMat;
+        if (cloudMap) {
+            cloudMap.wrapS = RepeatWrapping; // panned in update()
+            this.cloudTexture = cloudMap;
         }
         this.skyDome = dome;
 
         // GLB dome is live — retire the procedural fallback.
-        this.fallbackMesh?.dispose();
+        if (this.fallbackMesh) disposeMesh(this.fallbackMesh);
         this.fallbackMesh = null;
         this.fallbackMaterial?.dispose();
         this.fallbackMaterial = null;
@@ -170,7 +193,7 @@ export class GlobeSky {
             mesh.position.z = heroZ;
         }
         if (this.cloudTexture && deltaTime > 0) {
-            this.cloudTexture.uOffset = (this.cloudTexture.uOffset + CLOUD_PAN_SPEED * deltaTime) % 1;
+            this.cloudTexture.offset.x = (this.cloudTexture.offset.x + CLOUD_PAN_SPEED * deltaTime) % 1;
         }
     }
 
@@ -178,11 +201,14 @@ export class GlobeSky {
         this.disposed = true;
         this.fallbackMaterial?.dispose();
         this.fallbackMaterial = null;
-        this.fallbackMesh?.dispose();
+        if (this.fallbackMesh) disposeMesh(this.fallbackMesh);
         this.fallbackMesh = null;
-        this.skyDome = null;        // owned by the container
-        this.cloudTexture = null;   // owned by the container
-        this.container?.dispose();
-        this.container = null;
+        if (this.skyDome) disposeMesh(this.skyDome); // frees the baked geometry clone
+        this.skyDome = null;
+        this.skyMaterial?.dispose(); // texture stays — owned by the container cache
+        this.skyMaterial = null;
+        this.cloudTexture = null;    // owned by the container cache
+        this.instance?.dispose();
+        this.instance = null;
     }
 }

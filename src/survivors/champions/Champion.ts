@@ -1,14 +1,26 @@
-import { Vector3, MeshBuilder, Mesh, Color3, Color4, ParticleSystem, StandardMaterial, AssetContainer, AnimationGroup, TransformNode, PointLight, Material } from '@babylonjs/core';
+import { Vector3, Mesh, Color, Group, Material, MeshPhongMaterial, Object3D, PointLight, Box3 } from 'three';
 import { Game } from '../../engine/Game';
 import { Enemy, getStatusEffectTexture } from '../enemies/Enemy';
 import { EnemyManager } from '../enemies/EnemyManager';
 import { StatusEffect } from '../GameTypes';
-import { PALETTE } from '../../engine/rendering/StyleConstants';
-import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../engine/rendering/LowPolyMaterial';
+import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded, setMeshOpacity } from '../../engine/rendering/LowPolyMaterial';
 import { buildBarbarianMesh } from './BarbarianBuilder';
 import { ELEMENT_COLOR, blendElements } from '../ElementColors';
 import { PowerElement } from '../powers/PowerDefinitions';
 import { MythicFxConfig } from '../items/ItemTypes';
+import { ParticleSystem } from '../../engine/three/particles/ParticleSystem';
+import { GlbContainer, ContainerInstance } from '../../engine/three/assets';
+import { AnimGroup } from '../../engine/three/AnimGroup';
+import { createBox, createCylinder, createSphere, createTorus, createPolyhedron, disposeMesh, isMeshDisposed } from '../../engine/three/primitives';
+import { headingToYaw } from '../../engine/three/math';
+
+/** Any material carrying an emissive color (Phong for procedural parts,
+ *  Standard for GLB-cloned materials) — the tint/flash code only touches
+ *  `.emissive`, so this structural type covers both. */
+type EmissiveMaterial = Material & { emissive: Color };
+
+// Module-level scratch vector — safe because update() is not reentrant (frames serialize)
+const _scratchDir = new Vector3();
 
 /**
  * Champion — a friendly boss-like unit that walks the path in reverse,
@@ -60,21 +72,21 @@ export class Champion extends Enemy {
 
     // Mage-specific animated parts
     private mageStaffOrb: Mesh | null = null;
-    private mageOrbMat: StandardMaterial | null = null;
+    private mageOrbMat: MeshPhongMaterial | null = null;
 
     // Barbarian axe head — weapon anchor for element decorations
     private barbAxeHead: Mesh | null = null;
 
-    // GLB path: invisible anchor mesh parented to the rig's weapon bone
+    // GLB path: invisible anchor node parented to the rig's weapon bone
     // ('Bip001 Prop1' on Miya/Framis, 'Bip001 R Hand' on Aulus). Element
     // decorations and spin-trail particle emitters attach here — the procedural
     // part refs (barbAxeHead / rangerBow / mageStaffOrb) stay null on this path.
-    private glbWeaponAnchor: Mesh | null = null;
+    private glbWeaponAnchor: Group | null = null;
 
     // GLB path: per-instance cloned materials that belong to the weapon primitive
     // (e.g. Aulus' '*_weapon' material). Element tint drives their emissive
     // directly; baseEmissive restores the resting look when no elements are active.
-    private glbWeaponMats: { mat: StandardMaterial; baseEmissive: Color3 }[] = [];
+    private glbWeaponMats: { mat: EmissiveMaterial; baseEmissive: Color }[] = [];
 
     // Mythic weapon: ONE persistent aura particle system at the weapon bone.
     // Keyed by style+color so it only rebuilds when the equipped mythic changes.
@@ -104,17 +116,17 @@ export class Champion extends Enemy {
     // Elemental axe-trail particle systems created per spin (one per active element).
     private barbSpinElemPs: ParticleSystem[] = [];
 
-    // Cached Color3 instances — reused every frame to avoid per-frame allocation
-    private mageOrbColor: Color3 = new Color3(0, 0, 0);
-    private barbSpinArcColor: Color3 = new Color3(0, 0, 0);
+    // Cached Color instances — reused every frame to avoid per-frame allocation
+    private mageOrbColor: Color = new Color(0, 0, 0);
+    private barbSpinArcColor: Color = new Color(0, 0, 0);
     // Base hue the spin feet-ring fades from (blended element color, or red).
-    private barbSpinArcBaseColor: Color3 = new Color3(0.8, 0.10, 0.05);
+    private barbSpinArcBaseColor: Color = new Color(0.8, 0.10, 0.05);
 
     // Red hit-flash state — used by flashHitRed() to refresh the in-flight
     // flash instead of stacking snapshots that capture the already-red emissive.
     private flashHitRedActive: boolean = false;
     private flashHitRedRestoreTimer: ReturnType<typeof setTimeout> | null = null;
-    private flashHitRedSnapshot: { mat: StandardMaterial; color: Color3 }[] = [];
+    private flashHitRedSnapshot: { mat: EmissiveMaterial; color: Color }[] = [];
 
     // Pooled footstep dust particle system (barbarian only)
     private barbFootDustPs: ParticleSystem | null = null;
@@ -128,31 +140,37 @@ export class Champion extends Enemy {
     private elementAuraPs: Map<string, ParticleSystem> = new Map();
     // Storm-only flickering bolt meshes + their shared (per-champion) material.
     private stormBolts: Mesh[] = [];
-    private stormBoltMat: StandardMaterial | null = null;
+    private stormBoltMat: MeshPhongMaterial | null = null;
     private stormFlickerTimer: number = 0;
-    // Weapon tint — ONE unfrozen emissive material per champion instance,
-    // recolored in place as the active element combo changes. Deliberately NOT a
-    // shared cached material: flashHitRed() mutates mesh materials' emissiveColor.
-    private weaponTintMat: StandardMaterial | null = null;
-    private weaponOrigMat: { mesh: Mesh; mat: Material | null } | null = null;
+    // Weapon tint — ONE emissive material per champion instance, recolored in
+    // place as the active element combo changes. Deliberately NOT a shared
+    // cached material: flashHitRed() mutates mesh materials' emissive.
+    private weaponTintMat: MeshPhongMaterial | null = null;
+    private weaponOrigMat: { mesh: Mesh; mat: Mesh['material'] | null } | null = null;
     private weaponTintKey: string | null = null;
 
-    /** Optional preloaded GLB asset for whichever champion class this is (Miya for ranger,
-     *  Aulus for barbarian, etc.). When present, createMesh instantiates the GLB and
-     *  drives Idle / Walk / Attack / Special from its animation groups. */
-    private championAsset: AssetContainer | null = null;
+    /** Optional preloaded GLB container for whichever champion class this is (Miya for
+     *  ranger, Aulus for barbarian, etc.). When present, createMesh instantiates the GLB
+     *  and drives Idle / Walk / Attack / Special from its animation groups. */
+    private championAsset: GlbContainer | null = null;
+
+    /** The live GLB instance (cloned root + anim groups + mixer). Its dispose()
+     *  frees the per-instance cloned materials AND the cloned skeleton's bone
+     *  texture (glb_clonematerials_texture_leak + skeleton invariants) — called
+     *  from both die() and dispose(). Null on the procedural path. */
+    private containerInstance: ContainerInstance | null = null;
 
     /** Animation groups loaded from the champion GLB, categorized by detected name.
      *  When the asset ships skeletal anims we use these instead of mesh-level bob. */
     private championAnims: {
-        idle: AnimationGroup | null;
-        walk: AnimationGroup | null;
-        attack: AnimationGroup | null;
-        special: AnimationGroup | null;
-        death: AnimationGroup | null;
-        all: AnimationGroup[];
+        idle: AnimGroup | null;
+        walk: AnimGroup | null;
+        attack: AnimGroup | null;
+        special: AnimGroup | null;
+        death: AnimGroup | null;
+        all: AnimGroup[];
     } = { idle: null, walk: null, attack: null, special: null, death: null, all: [] };
-    private championCurrentAnim: AnimationGroup | null = null;
+    private championCurrentAnim: AnimGroup | null = null;
     /** True while the GLB death clip is playing/holding — the per-frame anim selector,
      *  triggerAttack and triggerSpecial all defer to it so the fallen pose isn't overridden.
      *  Cleared by clearDeath() on co-op respawn. */
@@ -179,7 +197,7 @@ export class Champion extends Enemy {
         reversedPath: Vector3[],
         enemyManager: EnemyManager | null = null,
         championType: 'barbarian' | 'ranger' | 'mage' = 'barbarian',
-        championAsset?: AssetContainer,
+        championAsset?: GlbContainer,
     ) {
         // HP 800, Speed 1.5, Damage 0 (doesn't damage player), Reward 0
         const startPos = reversedPath.length > 0 ? reversedPath[0] : new Vector3(0, 0, 0);
@@ -207,13 +225,11 @@ export class Champion extends Enemy {
         this.leftLeg = null;
         this.rightLeg = null;
         this.cape = null;
-        // Dispose the knight body and all parented sub-meshes. Use the default
-        // (false, false) — disposeMaterialAndTextures=true would nuke textures
-        // shared with cached GLB AssetContainers (used by the next
-        // instantiateModelsToScene call inside createChampionMeshFromGLB below),
-        // crashing the new champion's clone in Mesh.refreshBoundingInfo.
+        // Dispose the knight body and all parented sub-meshes. disposeMesh's
+        // default (no materials flag) mirrors Babylon dispose(false, false) —
+        // shared/cached materials survive; a GLB instance never exists here.
         if (this.mesh) {
-            this.mesh.dispose();
+            disposeMesh(this.mesh);
             this.mesh = null;
         }
         // Build the correct class mesh.
@@ -225,7 +241,7 @@ export class Champion extends Enemy {
      * Call this from HeroController each frame.
      */
     public setPlayerVelocity(velocity: Vector3): void {
-        this.playerVelocity.copyFrom(velocity);
+        this.playerVelocity.copy(velocity);
     }
 
     /** Facing yaw (mesh rotation.y), 0 while the mesh is still loading. Public
@@ -266,51 +282,51 @@ export class Champion extends Enemy {
                 if (!c) continue;
                 const ps = new ParticleSystem(`barbSpinElem_${el}`, 64, this.scene);
                 ps.emitter = axeAnchor;
-                ps.minEmitBox = new Vector3(-0.2, -0.2, -0.2);
-                ps.maxEmitBox = new Vector3(0.2, 0.2, 0.2);
-                ps.color1 = new Color4(c.r, c.g, c.b, 1);
-                ps.color2 = new Color4(c.r * 0.6, c.g * 0.6, c.b * 0.6, 1);
-                ps.colorDead = new Color4(c.r * 0.2, c.g * 0.2, c.b * 0.2, 0);
+                ps.minEmitBox.set(-0.2, -0.2, -0.2);
+                ps.maxEmitBox.set(0.2, 0.2, 0.2);
+                ps.color1.set(c.r, c.g, c.b, 1);
+                ps.color2.set(c.r * 0.6, c.g * 0.6, c.b * 0.6, 1);
+                ps.colorDead.set(c.r * 0.2, c.g * 0.2, c.b * 0.2, 0);
                 ps.minSize = 0.10;
                 ps.maxSize = 0.30;
                 ps.minLifeTime = 0.1;
                 ps.maxLifeTime = 0.22;
                 ps.emitRate = 200;
                 ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-                ps.direction1 = new Vector3(-1, 0.2, -1);
-                ps.direction2 = new Vector3(1, 1.2, 1);
+                ps.direction1.set(-1, 0.2, -1);
+                ps.direction2.set(1, 1.2, 1);
                 ps.minEmitPower = 1;
                 ps.maxEmitPower = 3;
-                ps.gravity = new Vector3(0, -3, 0);
+                ps.gravity.set(0, -3, 0);
                 ps.start();
                 this.barbSpinElemPs.push(ps);
             }
         } else if (axeAnchor && elems.length === 0 && !this.barbSpinBloodPs) {
             const ps = new ParticleSystem('barbSpinBlood', 60, this.scene);
             ps.emitter = axeAnchor;
-            ps.minEmitBox = new Vector3(-0.2, -0.2, -0.2);
-            ps.maxEmitBox = new Vector3(0.2, 0.2, 0.2);
-            ps.color1 = new Color4(0.7, 0.10, 0.05, 1);
-            ps.color2 = new Color4(0.45, 0.05, 0.02, 1);
-            ps.colorDead = new Color4(0.10, 0.0, 0.0, 0);
+            ps.minEmitBox.set(-0.2, -0.2, -0.2);
+            ps.maxEmitBox.set(0.2, 0.2, 0.2);
+            ps.color1.set(0.7, 0.10, 0.05, 1);
+            ps.color2.set(0.45, 0.05, 0.02, 1);
+            ps.colorDead.set(0.10, 0.0, 0.0, 0);
             ps.minSize = 0.10;
             ps.maxSize = 0.30;
             ps.minLifeTime = 0.1;
             ps.maxLifeTime = 0.2;
             ps.emitRate = 240;
             ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-            ps.direction1 = new Vector3(-1, 0.2, -1);
-            ps.direction2 = new Vector3(1, 1.2, 1);
+            ps.direction1.set(-1, 0.2, -1);
+            ps.direction2.set(1, 1.2, 1);
             ps.minEmitPower = 1;
             ps.maxEmitPower = 3;
-            ps.gravity = new Vector3(0, -3, 0);
+            ps.gravity.set(0, -3, 0);
             ps.start();
             this.barbSpinBloodPs = ps;
         }
 
         // ===== Arc ring at hero feet — tinted by the blended elements (red when none) =====
         if (!this.barbSpinArcMesh && this.mesh) {
-            const ring = MeshBuilder.CreateTorus('barbSpinArcRing', {
+            const ring = createTorus('barbSpinArcRing', {
                 diameter: 2.5,
                 thickness: 0.15,
                 tessellation: 12,
@@ -318,13 +334,16 @@ export class Champion extends Enemy {
             makeFlatShaded(ring);
             const arcBase = elems.length > 0
                 ? blendElements(elems)
-                : new Color3(0.8, 0.10, 0.05);
-            this.barbSpinArcBaseColor.copyFrom(arcBase);
-            ring.material = createEmissiveMaterial('barbSpinArcRingMat',
-                arcBase, 0.9, this.scene);
-            ring.position = this.position.clone();
+                : new Color(0.8, 0.10, 0.05);
+            this.barbSpinArcBaseColor.copy(arcBase);
+            const ringMat = createEmissiveMaterial('barbSpinArcRingMat', arcBase, 0.9);
+            ringMat.transparent = true; // faded out each frame in tickBarbSpinFx
+            ring.material = ringMat;
+            // Unique per-spin animated material — flag so disposeMesh frees it.
+            ring.userData.ownedMaterial = true;
+            ring.position.copy(this.position);
             ring.position.y = 0.1;
-            ring.scaling = new Vector3(0.3, 1.0, 0.3);
+            ring.scale.set(0.3, 1.0, 0.3);
             this.barbSpinArcMesh = ring;
             this.barbSpinArcTimer = Champion.SPIN_ATTACK_DURATION;
         }
@@ -379,56 +398,57 @@ export class Champion extends Enemy {
      *  Categorizes the GLB's animation groups by name so we can play Idle / Walk /
      *  Shoot from the appropriate clip; falls back to mesh-bob for any slot that
      *  doesn't have a matching clip. */
-    private createChampionMeshFromGLB(asset: AssetContainer): void {
-        const scene = this.scene;
+    private createChampionMeshFromGLB(asset: GlbContainer): void {
+        const host = this.scene;
 
         // Empty transform host that Champion's existing position/rotation pipeline drives.
-        this.mesh = new Mesh('rangerRoot', scene);
-        this.mesh.position = this.position.clone();
+        this.mesh = new Mesh();
+        this.mesh.name = 'rangerRoot';
+        host.scene.add(this.mesh);
+        this.mesh.position.copy(this.position);
 
-        // doNotInstantiate: true does full Mesh.clone() so the geometry is independent
-        // of the source — needed for rigged models so each instance gets its own skeleton.
-        const inst = asset.instantiateModelsToScene(
-            name => `ranger_${name}`,
-            true,
-            { doNotInstantiate: true },
-        );
+        // instantiate() does a full skinned clone (SkeletonUtils) so the geometry +
+        // skeleton are independent of the source, and clones every material per
+        // instance (Babylon's cloneMaterials: true equivalent).
+        const inst = asset.instantiate(host, 'ranger_');
+        this.containerInstance = inst;
         const RANGER_SCALE = 1.5;
-        for (const root of inst.rootNodes) {
-            root.parent = this.mesh;
-            if ('scaling' in root && root.scaling) {
-                (root as TransformNode).scaling.scaleInPlace(RANGER_SCALE);
-            }
-        }
+        inst.root.scale.multiplyScalar(RANGER_SCALE);
+        this.mesh.add(inst.root);
 
         // Shift the GLB so its feet sit on the ground (most rigged humanoids center on
         // torso so half the model lands below y=0 without this).
-        this.mesh.computeWorldMatrix(true);
-        const bbox = this.mesh.getHierarchyBoundingVectors(true);
+        this.mesh.updateMatrixWorld(true);
+        const bbox = new Box3().setFromObject(this.mesh);
         const feetOffset = -bbox.min.y;
-        for (const root of inst.rootNodes) {
-            if ('position' in root && root.position) {
-                (root as TransformNode).position.y += feetOffset;
-            }
-        }
+        inst.root.position.y += feetOffset;
 
         // Weapon anchor: GLB weapons are skinned into the body mesh, driven by a
         // prop bone ('Bip001 Prop1' on Miya/Framis) or the right hand ('Bip001 R
         // Hand' on Aulus, whose axe has no dedicated prop bone). Parent an
-        // invisible anchor mesh to that node so element decorations and the
+        // invisible anchor node to that bone so element decorations and the
         // barbarian spin-trail emitters ride the weapon through every animation.
-        const weaponNode =
-            this.mesh.getDescendants(false).find(n => n.name.includes('Prop1')) ??
-            this.mesh.getDescendants(false).find(n => n.name.includes('R Hand'));
-        if (weaponNode && weaponNode instanceof TransformNode) {
-            const anchor = new Mesh('glbWeaponAnchor', scene);
-            anchor.isVisible = false;
-            anchor.parent = weaponNode;
+        // (Bone names keep their suffixes — instantiate() only prepends 'ranger_'.)
+        let weaponNode: Object3D | null = null;
+        this.mesh.traverse(n => {
+            if (!weaponNode && n.name.includes('Prop1')) weaponNode = n;
+        });
+        if (!weaponNode) {
+            this.mesh.traverse(n => {
+                if (!weaponNode && n.name.includes('R Hand')) weaponNode = n;
+            });
+        }
+        if (weaponNode) {
+            // A Group renders nothing itself (no geometry) — children stay visible,
+            // unlike Three's visible=false which would hide the whole subtree.
+            const anchor = new Group();
+            anchor.name = 'glbWeaponAnchor';
+            (weaponNode as Object3D).add(anchor);
             // Counter-scale so decorations parented here render at world size even
             // though rig nodes carry import scaling.
-            weaponNode.computeWorldMatrix(true);
-            const ws = weaponNode.absoluteScaling;
-            anchor.scaling.set(
+            (weaponNode as Object3D).updateWorldMatrix(true, false);
+            const ws = (weaponNode as Object3D).getWorldScale(new Vector3());
+            anchor.scale.set(
                 ws.x !== 0 ? 1 / ws.x : 1,
                 ws.y !== 0 ? 1 / ws.y : 1,
                 ws.z !== 0 ? 1 / ws.z : 1,
@@ -437,33 +457,33 @@ export class Champion extends Enemy {
         }
 
         // Weapon tint hook: Aulus' axe ships as its own primitive with a dedicated
-        // '*_weapon' material (cloned per instance by instantiateModelsToScene), so
-        // the element tint can drive its emissive directly. Miya/Framis bake body +
+        // '*_weapon' material (cloned per instance by instantiate()), so the
+        // element tint can drive its emissive directly. Miya/Framis bake body +
         // weapon into one material — no entry collected; the particle aura alone
         // carries their element glow.
-        for (const m of this.mesh.getChildMeshes(false)) {
-            const matName = m.material?.name?.toLowerCase() ?? '';
+        this.mesh.traverse(node => {
+            const m = node as Mesh;
+            if (!m.isMesh || !m.material || Array.isArray(m.material)) return;
+            const matName = m.material.name?.toLowerCase() ?? '';
             if (matName.includes('weapon')) {
-                const mat = m.material as StandardMaterial;
+                const mat = m.material as EmissiveMaterial;
                 this.glbWeaponMats.push({
                     mat,
-                    baseEmissive: mat.emissiveColor?.clone() ?? new Color3(0, 0, 0),
+                    baseEmissive: mat.emissive?.clone() ?? new Color(0, 0, 0),
                 });
             }
-        }
+        });
 
         // Categorize the GLB's animation clips by name. Accept aliases per slot since
         // different rigs/export tools use different conventions. "special" matches power-
         // slot attacks (Fire Arrow / Frost Shards / etc.) — usually a longer/more dramatic
         // clip than the basic shoot.
         this.championAnims = { idle: null, walk: null, attack: null, special: null, death: null, all: [...inst.animationGroups] };
-        // Register the cloned GLB anim groups + skeleton on the inherited fields
-        // so the base teardown (dispose() -> _releaseMeshAndAnimations) stops the
-        // hero's animatables and frees its bone-matrix texture. Without this the
-        // hero leaked ~one skeletal-group's worth of animatables + a texture per
-        // run (championAnims.all alone is never disposed).
+        // Register the cloned GLB anim groups on the inherited field so the base
+        // teardown also stops them. The heavy lifting (cloned materials + skeleton
+        // bone texture + mixer hook) is owned by containerInstance.dispose(), called
+        // from die() and dispose() below.
         this.glbAnimationGroups = [...inst.animationGroups];
-        this.glbSkeletons = inst.skeletons;
         console.log(`[${this.championType}] available animation groups (${inst.animationGroups.length}):`);
         for (const ag of inst.animationGroups) {
             console.log(`  - "${ag.name}"`);
@@ -483,7 +503,7 @@ export class Champion extends Enemy {
         }
         // Per-champion explicit clip overrides — when the generic alias matcher
         // picks a clip that doesn't look right, hard-pick the one we want. The
-        // substring is matched against the (prefixed) clip name.
+        // substring is matched against the clip name.
         const PREFERRED: Partial<Record<string, { attack?: string; special?: string; walk?: string; idle?: string }>> = {
             // (Per-champ explicit clip overrides. Barbarian's two ultimate abilities
             //  fire through AbilityManager → Champion.playAbilityClip, not through
@@ -509,16 +529,15 @@ export class Champion extends Enemy {
             if (!aa.attack) aa.attack = aa.all[aa.all.length - 1];
         }
         // Speed up the shoot/special clips and compute their effective durations.
+        // (AnimGroup.duration is the clip length in seconds — Babylon's frames/60.)
         if (aa.attack) {
             aa.attack.speedRatio = Champion.GLB_ATTACK_SPEED;
-            const frames = aa.attack.to - aa.attack.from;
-            const estDur = Math.min(2.5, frames / 60 / Champion.GLB_ATTACK_SPEED);
+            const estDur = Math.min(2.5, aa.attack.duration / Champion.GLB_ATTACK_SPEED);
             (this as any).glbAttackDurationActual = estDur > 0.1 ? estDur : Champion.GLB_ATTACK_DURATION;
         }
         if (aa.special) {
             aa.special.speedRatio = Champion.GLB_SPECIAL_SPEED;
-            const frames = aa.special.to - aa.special.from;
-            const estDur = Math.min(2.5, frames / 60 / Champion.GLB_SPECIAL_SPEED);
+            const estDur = Math.min(2.5, aa.special.duration / Champion.GLB_SPECIAL_SPEED);
             (this as any).glbSpecialDurationActual = estDur > 0.1 ? estDur : Champion.GLB_SPECIAL_DURATION;
         }
         console.log(
@@ -642,7 +661,7 @@ export class Champion extends Enemy {
         if (!death) return; // no clip — body just stays in its last pose; burst played above
         death.speedRatio = 1.0;
         if (this.championCurrentAnim) this.championCurrentAnim.stop();
-        death.start(false); // play once; AnimationGroup holds the final frame when it ends
+        death.start(false); // play once; AnimGroup clamps on the final frame when it ends
         this.championCurrentAnim = death;
     }
 
@@ -683,8 +702,7 @@ export class Champion extends Enemy {
         match.stop();
         match.reset();
         match.speedRatio = speed;
-        const frames = match.to - match.from;
-        const naturalDur = frames / 60 / speed;
+        const naturalDur = match.duration / speed;
         const dur = durationSec ?? Math.min(3.0, naturalDur);
         const loop = durationSec !== undefined && durationSec > naturalDur;
         this.glbSpecialTimer = dur > 0.1 ? dur : Champion.GLB_SPECIAL_DURATION;
@@ -700,274 +718,274 @@ export class Champion extends Enemy {
         const scene = this.scene;
 
         // Earthy palette
-        const leather      = new Color3(0.55, 0.38, 0.20); // warm leather brown
-        const darkLeather  = new Color3(0.35, 0.24, 0.12); // dark leather
-        const forestGreen  = new Color3(0.22, 0.42, 0.18); // deep forest green
-        const midGreen     = new Color3(0.30, 0.55, 0.22); // mid green
-        const bowWood      = new Color3(0.48, 0.32, 0.14); // bow wood
-        const arrowShaft   = new Color3(0.60, 0.45, 0.22); // arrow shaft
-        const arrowHead    = new Color3(0.68, 0.65, 0.58); // metal arrow tip
+        const leather      = new Color(0.55, 0.38, 0.20); // warm leather brown
+        const darkLeather  = new Color(0.35, 0.24, 0.12); // dark leather
+        const forestGreen  = new Color(0.22, 0.42, 0.18); // deep forest green
+        const midGreen     = new Color(0.30, 0.55, 0.22); // mid green
+        const bowWood      = new Color(0.48, 0.32, 0.14); // bow wood
+        const arrowShaft   = new Color(0.60, 0.45, 0.22); // arrow shaft
+        const arrowHead    = new Color(0.68, 0.65, 0.58); // metal arrow tip
 
         // --- Body: slimmer torso than knight ---
-        this.mesh = MeshBuilder.CreateBox('rangerBody', {
+        this.mesh = createBox('rangerBody', {
             width: 0.85,
             height: 1.55,
             depth: 0.60
         }, scene);
         makeFlatShaded(this.mesh);
-        this.mesh.position = this.position.clone();
+        this.mesh.position.copy(this.position);
         this.mesh.position.y += 2.0;
-        this.mesh.material = createLowPolyMaterial('rangerBodyMat', forestGreen, scene);
+        this.mesh.material = createLowPolyMaterial('rangerBodyMat', forestGreen);
 
         // Leather chest vest overlay
-        const vest = MeshBuilder.CreateBox('rangerVest', {
+        const vest = createBox('rangerVest', {
             width: 0.60,
             height: 0.80,
             depth: 0.08
-        }, scene);
+        });
         makeFlatShaded(vest);
-        vest.parent = this.mesh;
-        vest.position = new Vector3(0, 0.15, 0.32);
-        vest.material = createLowPolyMaterial('rangerVestMat', leather, scene);
+        this.mesh.add(vest);
+        vest.position.set(0, 0.15, 0.32);
+        vest.material = createLowPolyMaterial('rangerVestMat', leather);
 
         // Vest buckle strap
-        const strap = MeshBuilder.CreateBox('rangerStrap', {
+        const strap = createBox('rangerStrap', {
             width: 0.52,
             height: 0.06,
             depth: 0.05
-        }, scene);
+        });
         makeFlatShaded(strap);
-        strap.parent = vest;
-        strap.position = new Vector3(0, -0.10, 0.05);
-        strap.material = createLowPolyMaterial('rangerStrapMat', darkLeather, scene);
+        vest.add(strap);
+        strap.position.set(0, -0.10, 0.05);
+        strap.material = createLowPolyMaterial('rangerStrapMat', darkLeather);
 
         // Small shoulder pads (light leather, not full pauldrons)
         for (let side = -1; side <= 1; side += 2) {
-            const pad = MeshBuilder.CreateBox(`rangerShoulder${side}`, {
+            const pad = createBox(`rangerShoulder${side}`, {
                 width: 0.22,
                 height: 0.18,
                 depth: 0.55
-            }, scene);
+            });
             makeFlatShaded(pad);
-            pad.parent = this.mesh;
-            pad.position = new Vector3(side * 0.54, 0.65, 0);
-            pad.material = createLowPolyMaterial(`rangerShoulderMat${side}`, leather, scene);
+            this.mesh.add(pad);
+            pad.position.set(side * 0.54, 0.65, 0);
+            pad.material = createLowPolyMaterial(`rangerShoulderMat${side}`, leather);
         }
 
         // --- Hooded cowl: cone + sphere base ---
-        this.head = MeshBuilder.CreateSphere('rangerHoodBase', {
+        this.head = createSphere('rangerHoodBase', {
             diameter: 0.55,
             segments: 5
-        }, scene);
+        });
         makeFlatShaded(this.head);
-        this.head.parent = this.mesh;
-        this.head.position = new Vector3(0, 1.05, 0.02);
-        this.head.material = createLowPolyMaterial('rangerHoodBaseMat', forestGreen, scene);
+        this.mesh.add(this.head);
+        this.head.position.set(0, 1.05, 0.02);
+        this.head.material = createLowPolyMaterial('rangerHoodBaseMat', forestGreen);
 
         // Hood cone (pointed tip angling back)
-        const hoodCone = MeshBuilder.CreateCylinder('rangerHoodCone', {
+        const hoodCone = createCylinder('rangerHoodCone', {
             height: 0.45,
             diameterTop: 0.0,
             diameterBottom: 0.40,
             tessellation: 5
-        }, scene);
+        });
         makeFlatShaded(hoodCone);
-        hoodCone.parent = this.head;
-        hoodCone.position = new Vector3(0, 0.25, -0.05);
+        this.head.add(hoodCone);
+        hoodCone.position.set(0, 0.25, -0.05);
         hoodCone.rotation.x = 0.18; // slight backward lean
-        hoodCone.material = createLowPolyMaterial('rangerHoodConeMat', darkLeather, scene);
+        hoodCone.material = createLowPolyMaterial('rangerHoodConeMat', darkLeather);
 
         // Hood brim / shadow strip across face
-        const hoodBrim = MeshBuilder.CreateBox('rangerHoodBrim', {
+        const hoodBrim = createBox('rangerHoodBrim', {
             width: 0.48,
             height: 0.10,
             depth: 0.28
-        }, scene);
+        });
         makeFlatShaded(hoodBrim);
-        hoodBrim.parent = this.head;
-        hoodBrim.position = new Vector3(0, 0.05, 0.20);
-        hoodBrim.material = createLowPolyMaterial('rangerHoodBrimMat', darkLeather, scene);
+        this.head.add(hoodBrim);
+        hoodBrim.position.set(0, 0.05, 0.20);
+        hoodBrim.material = createLowPolyMaterial('rangerHoodBrimMat', darkLeather);
 
         // Eyes (small glowing amber slits beneath the hood)
         for (let side = -1; side <= 1; side += 2) {
-            const eye = MeshBuilder.CreateBox(`rangerEye${side}`, {
+            const eye = createBox(`rangerEye${side}`, {
                 width: 0.06,
                 height: 0.03,
                 depth: 0.04
-            }, scene);
+            });
             makeFlatShaded(eye);
-            eye.parent = this.head;
-            eye.position = new Vector3(side * 0.08, 0.0, 0.28);
-            eye.material = createEmissiveMaterial(`rangerEyeMat${side}`, new Color3(0.95, 0.75, 0.15), 0.9, scene);
+            this.head.add(eye);
+            eye.position.set(side * 0.08, 0.0, 0.28);
+            eye.material = createEmissiveMaterial(`rangerEyeMat${side}`, new Color(0.95, 0.75, 0.15), 0.9);
         }
 
         // --- Arms (no gauntlets, leather bracers instead) ---
         // Right arm (bow arm — extends slightly forward)
-        this.swordArm = MeshBuilder.CreateBox('rangerRightArm', {
+        this.swordArm = createBox('rangerRightArm', {
             width: 0.22,
             height: 1.0,
             depth: 0.22
-        }, scene);
+        });
         makeFlatShaded(this.swordArm);
-        this.swordArm.parent = this.mesh;
-        this.swordArm.position = new Vector3(0.55, -0.05, 0.04);
-        this.swordArm.material = createLowPolyMaterial('rangerRArmMat', forestGreen, scene);
+        this.mesh.add(this.swordArm);
+        this.swordArm.position.set(0.55, -0.05, 0.04);
+        this.swordArm.material = createLowPolyMaterial('rangerRArmMat', forestGreen);
 
         // Right bracer (leather cuff)
-        const rBracer = MeshBuilder.CreateBox('rangerRBracer', {
+        const rBracer = createBox('rangerRBracer', {
             width: 0.26,
             height: 0.16,
             depth: 0.26
-        }, scene);
+        });
         makeFlatShaded(rBracer);
-        rBracer.parent = this.swordArm;
-        rBracer.position = new Vector3(0, -0.38, 0);
-        rBracer.material = createLowPolyMaterial('rangerRBracerMat', leather, scene);
+        this.swordArm.add(rBracer);
+        rBracer.position.set(0, -0.38, 0);
+        rBracer.material = createLowPolyMaterial('rangerRBracerMat', leather);
 
         // Left arm (draw arm — angled back slightly)
-        this.shieldArm = MeshBuilder.CreateBox('rangerLeftArm', {
+        this.shieldArm = createBox('rangerLeftArm', {
             width: 0.22,
             height: 1.0,
             depth: 0.22
-        }, scene);
+        });
         makeFlatShaded(this.shieldArm);
-        this.shieldArm.parent = this.mesh;
-        this.shieldArm.position = new Vector3(-0.55, -0.05, 0.04);
-        this.shieldArm.material = createLowPolyMaterial('rangerLArmMat', forestGreen, scene);
+        this.mesh.add(this.shieldArm);
+        this.shieldArm.position.set(-0.55, -0.05, 0.04);
+        this.shieldArm.material = createLowPolyMaterial('rangerLArmMat', forestGreen);
 
         // Left bracer
-        const lBracer = MeshBuilder.CreateBox('rangerLBracer', {
+        const lBracer = createBox('rangerLBracer', {
             width: 0.26,
             height: 0.16,
             depth: 0.26
-        }, scene);
+        });
         makeFlatShaded(lBracer);
-        lBracer.parent = this.shieldArm;
-        lBracer.position = new Vector3(0, -0.38, 0);
-        lBracer.material = createLowPolyMaterial('rangerLBracerMat', leather, scene);
+        this.shieldArm.add(lBracer);
+        lBracer.position.set(0, -0.38, 0);
+        lBracer.material = createLowPolyMaterial('rangerLBracerMat', leather);
 
         // --- Bow: diagonal staff across the body ---
-        this.rangerBow = MeshBuilder.CreateCylinder('rangerBowStave', {
+        this.rangerBow = createCylinder('rangerBowStave', {
             height: 1.40,
             diameterTop: 0.04,
             diameterBottom: 0.04,
             tessellation: 5
-        }, scene);
+        });
         makeFlatShaded(this.rangerBow);
-        this.rangerBow.parent = this.mesh;
+        this.mesh.add(this.rangerBow);
         // Position bow on the right side, angled diagonally
-        this.rangerBow.position = new Vector3(0.30, 0.05, 0.30);
+        this.rangerBow.position.set(0.30, 0.05, 0.30);
         this.rangerBow.rotation.z = 0.35;  // slight tilt
         this.rangerBow.rotation.x = -0.15;
-        this.rangerBow.material = createLowPolyMaterial('rangerBowMat', bowWood, scene);
+        this.rangerBow.material = createLowPolyMaterial('rangerBowMat', bowWood);
 
         // Bow tips (curved ends — small tapered pieces)
         for (let side = -1; side <= 1; side += 2) {
-            const bowTip = MeshBuilder.CreateCylinder(`rangerBowTip${side}`, {
+            const bowTip = createCylinder(`rangerBowTip${side}`, {
                 height: 0.14,
                 diameterTop: 0.01,
                 diameterBottom: 0.04,
                 tessellation: 4
-            }, scene);
+            });
             makeFlatShaded(bowTip);
-            bowTip.parent = this.rangerBow;
-            bowTip.position = new Vector3(0, side * 0.75, 0);
+            this.rangerBow.add(bowTip);
+            bowTip.position.set(0, side * 0.75, 0);
             bowTip.rotation.z = side * 0.3;
-            bowTip.material = createLowPolyMaterial(`rangerBowTipMat${side}`, darkLeather, scene);
+            bowTip.material = createLowPolyMaterial(`rangerBowTipMat${side}`, darkLeather);
         }
 
         // Bowstring (thin line — very thin cylinder)
-        const bowstring = MeshBuilder.CreateCylinder('rangerBowstring', {
+        const bowstring = createCylinder('rangerBowstring', {
             height: 1.30,
             diameterTop: 0.012,
             diameterBottom: 0.012,
             tessellation: 3
-        }, scene);
+        });
         makeFlatShaded(bowstring);
-        bowstring.parent = this.rangerBow;
-        bowstring.position = new Vector3(0, 0, 0.06);
-        bowstring.material = createLowPolyMaterial('rangerBowstringMat', new Color3(0.80, 0.78, 0.68), scene);
+        this.rangerBow.add(bowstring);
+        bowstring.position.set(0, 0, 0.06);
+        bowstring.material = createLowPolyMaterial('rangerBowstringMat', new Color(0.80, 0.78, 0.68));
 
         // --- Quiver on the back ---
-        this.rangerQuiver = MeshBuilder.CreateBox('rangerQuiver', {
+        this.rangerQuiver = createBox('rangerQuiver', {
             width: 0.20,
             height: 0.45,
             depth: 0.20
-        }, scene);
+        });
         makeFlatShaded(this.rangerQuiver);
-        this.rangerQuiver.parent = this.mesh;
-        this.rangerQuiver.position = new Vector3(-0.28, 0.20, -0.38);
+        this.mesh.add(this.rangerQuiver);
+        this.rangerQuiver.position.set(-0.28, 0.20, -0.38);
         this.rangerQuiver.rotation.z = 0.15;
-        this.rangerQuiver.material = createLowPolyMaterial('rangerQuiverMat', leather, scene);
+        this.rangerQuiver.material = createLowPolyMaterial('rangerQuiverMat', leather);
 
         // Arrow stubs poking out of the quiver (3 arrows)
         const arrowOffsets = [-0.05, 0.0, 0.05];
         for (let i = 0; i < arrowOffsets.length; i++) {
-            const arrow = MeshBuilder.CreateCylinder(`rangerArrow${i}`, {
+            const arrow = createCylinder(`rangerArrow${i}`, {
                 height: 0.38,
                 diameterTop: 0.015,
                 diameterBottom: 0.015,
                 tessellation: 4
-            }, scene);
+            });
             makeFlatShaded(arrow);
-            arrow.parent = this.rangerQuiver;
-            arrow.position = new Vector3(arrowOffsets[i], 0.38, 0);
-            arrow.material = createLowPolyMaterial(`rangerArrowMat${i}`, arrowShaft, scene);
+            this.rangerQuiver.add(arrow);
+            arrow.position.set(arrowOffsets[i], 0.38, 0);
+            arrow.material = createLowPolyMaterial(`rangerArrowMat${i}`, arrowShaft);
 
             // Arrow tip
-            const tip = MeshBuilder.CreateCylinder(`rangerArrowTip${i}`, {
+            const tip = createCylinder(`rangerArrowTip${i}`, {
                 height: 0.06,
                 diameterTop: 0.0,
                 diameterBottom: 0.04,
                 tessellation: 3
-            }, scene);
+            });
             makeFlatShaded(tip);
-            tip.parent = arrow;
-            tip.position = new Vector3(0, 0.22, 0);
-            tip.material = createLowPolyMaterial(`rangerArrowTipMat${i}`, arrowHead, scene);
+            arrow.add(tip);
+            tip.position.set(0, 0.22, 0);
+            tip.material = createLowPolyMaterial(`rangerArrowTipMat${i}`, arrowHead);
         }
 
         // --- Legs: slender, leather-booted ---
-        this.rangerLeftLeg = MeshBuilder.CreateBox('rangerLeftLeg', {
+        this.rangerLeftLeg = createBox('rangerLeftLeg', {
             width: 0.26,
             height: 0.95,
             depth: 0.26
-        }, scene);
+        });
         makeFlatShaded(this.rangerLeftLeg);
-        this.rangerLeftLeg.parent = this.mesh;
-        this.rangerLeftLeg.position = new Vector3(-0.20, -1.10, 0);
-        this.rangerLeftLeg.material = createLowPolyMaterial('rangerLeftLegMat', midGreen, scene);
+        this.mesh.add(this.rangerLeftLeg);
+        this.rangerLeftLeg.position.set(-0.20, -1.10, 0);
+        this.rangerLeftLeg.material = createLowPolyMaterial('rangerLeftLegMat', midGreen);
 
-        this.rangerRightLeg = MeshBuilder.CreateBox('rangerRightLeg', {
+        this.rangerRightLeg = createBox('rangerRightLeg', {
             width: 0.26,
             height: 0.95,
             depth: 0.26
-        }, scene);
+        });
         makeFlatShaded(this.rangerRightLeg);
-        this.rangerRightLeg.parent = this.mesh;
-        this.rangerRightLeg.position = new Vector3(0.20, -1.10, 0);
-        this.rangerRightLeg.material = createLowPolyMaterial('rangerRightLegMat', midGreen, scene);
+        this.mesh.add(this.rangerRightLeg);
+        this.rangerRightLeg.position.set(0.20, -1.10, 0);
+        this.rangerRightLeg.material = createLowPolyMaterial('rangerRightLegMat', midGreen);
 
         // Boots (sleek leather, not armored sabatons)
-        const bootL = MeshBuilder.CreateBox('rangerBootL', {
+        const bootL = createBox('rangerBootL', {
             width: 0.28,
             height: 0.18,
             depth: 0.42
-        }, scene);
+        });
         makeFlatShaded(bootL);
-        bootL.parent = this.rangerLeftLeg;
-        bootL.position = new Vector3(0, -0.52, 0.06);
-        bootL.material = createLowPolyMaterial('rangerBootLMat', darkLeather, scene);
+        this.rangerLeftLeg.add(bootL);
+        bootL.position.set(0, -0.52, 0.06);
+        bootL.material = createLowPolyMaterial('rangerBootLMat', darkLeather);
 
-        const bootR = MeshBuilder.CreateBox('rangerBootR', {
+        const bootR = createBox('rangerBootR', {
             width: 0.28,
             height: 0.18,
             depth: 0.42
-        }, scene);
+        });
         makeFlatShaded(bootR);
-        bootR.parent = this.rangerRightLeg;
-        bootR.position = new Vector3(0, -0.52, 0.06);
-        bootR.material = createLowPolyMaterial('rangerBootRMat', darkLeather, scene);
+        this.rangerRightLeg.add(bootR);
+        bootR.position.set(0, -0.52, 0.06);
+        bootR.material = createLowPolyMaterial('rangerBootRMat', darkLeather);
 
         // Alias the leg refs so the generic update() method can animate them
         this.leftLeg  = this.rangerLeftLeg;
@@ -983,260 +1001,263 @@ export class Champion extends Enemy {
         const scene = this.scene;
 
         // Mage palette
-        const robeDark   = new Color3(0.12, 0.10, 0.30); // deep indigo robe
-        const robeMid    = new Color3(0.18, 0.15, 0.45); // mid indigo
-        const robeTrim   = new Color3(0.70, 0.58, 0.20); // gold trim
-        const staffBrown = new Color3(0.40, 0.28, 0.12); // dark oak staff
-        const orbColor   = new Color3(0.35, 0.80, 1.0);  // bright cyan orb
-        const hatColor   = new Color3(0.10, 0.08, 0.28); // very dark hat
-        const skinTone   = new Color3(0.85, 0.72, 0.58); // mage face
+        const robeDark   = new Color(0.12, 0.10, 0.30); // deep indigo robe
+        const robeMid    = new Color(0.18, 0.15, 0.45); // mid indigo
+        const robeTrim   = new Color(0.70, 0.58, 0.20); // gold trim
+        const staffBrown = new Color(0.40, 0.28, 0.12); // dark oak staff
+        const orbColor   = new Color(0.35, 0.80, 1.0);  // bright cyan orb
+        const hatColor   = new Color(0.10, 0.08, 0.28); // very dark hat
+        const skinTone   = new Color(0.85, 0.72, 0.58); // mage face
 
         // --- Robe body: tall cone tapering downward (covers legs fully) ---
         // We use a wide box for the upper robe + cone skirt for the lower
-        this.mesh = MeshBuilder.CreateBox('mageBody', {
+        this.mesh = createBox('mageBody', {
             width: 1.0,
             height: 1.70,
             depth: 0.75
         }, scene);
         makeFlatShaded(this.mesh);
-        this.mesh.position = this.position.clone();
+        this.mesh.position.copy(this.position);
         this.mesh.position.y += 2.0;
-        this.mesh.material = createLowPolyMaterial('mageBodyMat', robeMid, scene);
+        this.mesh.material = createLowPolyMaterial('mageBodyMat', robeMid);
 
         // Robe lower skirt (cone narrows to ground)
-        const robeSkirt = MeshBuilder.CreateCylinder('mageRobeSkirt', {
+        const robeSkirt = createCylinder('mageRobeSkirt', {
             height: 1.0,
             diameterTop: 0.90,
             diameterBottom: 0.30,
             tessellation: 6
-        }, scene);
+        });
         makeFlatShaded(robeSkirt);
-        robeSkirt.parent = this.mesh;
-        robeSkirt.position = new Vector3(0, -1.28, 0);
-        robeSkirt.material = createLowPolyMaterial('mageSkirtMat', robeDark, scene);
+        this.mesh.add(robeSkirt);
+        robeSkirt.position.set(0, -1.28, 0);
+        robeSkirt.material = createLowPolyMaterial('mageSkirtMat', robeDark);
 
         // Gold trim at robe collar
-        const collar = MeshBuilder.CreateTorus('mageCollar', {
+        const collar = createTorus('mageCollar', {
             diameter: 0.70,
             thickness: 0.06,
             tessellation: 8
-        }, scene);
+        });
         makeFlatShaded(collar);
-        collar.parent = this.mesh;
-        collar.position = new Vector3(0, 0.78, 0);
-        collar.material = createEmissiveMaterial('mageCollarMat', robeTrim, 0.4, scene);
+        this.mesh.add(collar);
+        collar.position.set(0, 0.78, 0);
+        collar.material = createEmissiveMaterial('mageCollarMat', robeTrim, 0.4);
 
         // Gold trim at robe hem (bottom of upper robe)
-        const hemTrim = MeshBuilder.CreateBox('mageHemTrim', {
+        const hemTrim = createBox('mageHemTrim', {
             width: 1.05,
             height: 0.07,
             depth: 0.80
-        }, scene);
+        });
         makeFlatShaded(hemTrim);
-        hemTrim.parent = this.mesh;
-        hemTrim.position = new Vector3(0, -0.88, 0);
-        hemTrim.material = createEmissiveMaterial('mageHemTrimMat', robeTrim, 0.35, scene);
+        this.mesh.add(hemTrim);
+        hemTrim.position.set(0, -0.88, 0);
+        hemTrim.material = createEmissiveMaterial('mageHemTrimMat', robeTrim, 0.35);
 
         // Rune symbols on robe front (3 small glowing boxes)
         const runeYPositions = [0.35, 0.0, -0.35];
         for (let i = 0; i < runeYPositions.length; i++) {
-            const rune = MeshBuilder.CreateBox(`mageRune${i}`, {
+            const rune = createBox(`mageRune${i}`, {
                 width: 0.08,
                 height: 0.06,
                 depth: 0.04
-            }, scene);
+            });
             makeFlatShaded(rune);
-            rune.parent = this.mesh;
-            rune.position = new Vector3(0, runeYPositions[i], 0.40);
-            rune.material = createEmissiveMaterial(`mageRuneMat${i}`, orbColor, 0.7, scene);
+            this.mesh.add(rune);
+            rune.position.set(0, runeYPositions[i], 0.40);
+            rune.material = createEmissiveMaterial(`mageRuneMat${i}`, orbColor, 0.7);
         }
 
         // --- Head: face sphere + pointed wizard hat ---
-        this.head = MeshBuilder.CreateSphere('mageHead', {
+        this.head = createSphere('mageHead', {
             diameter: 0.52,
             segments: 5
-        }, scene);
+        });
         makeFlatShaded(this.head);
-        this.head.parent = this.mesh;
-        this.head.position = new Vector3(0, 1.05, 0.04);
-        this.head.material = createLowPolyMaterial('mageHeadMat', skinTone, scene);
+        this.mesh.add(this.head);
+        this.head.position.set(0, 1.05, 0.04);
+        this.head.material = createLowPolyMaterial('mageHeadMat', skinTone);
 
         // Glowing eyes
         for (let side = -1; side <= 1; side += 2) {
-            const eye = MeshBuilder.CreateBox(`mageEye${side}`, {
+            const eye = createBox(`mageEye${side}`, {
                 width: 0.07,
                 height: 0.05,
                 depth: 0.04
-            }, scene);
+            });
             makeFlatShaded(eye);
-            eye.parent = this.head;
-            eye.position = new Vector3(side * 0.10, 0.05, 0.26);
-            eye.material = createEmissiveMaterial(`mageEyeMat${side}`, orbColor, 1.0, scene);
+            this.head.add(eye);
+            eye.position.set(side * 0.10, 0.05, 0.26);
+            eye.material = createEmissiveMaterial(`mageEyeMat${side}`, orbColor, 1.0);
         }
 
         // Wizard hat brim (flat torus/disc)
-        const hatBrim = MeshBuilder.CreateCylinder('mageHatBrim', {
+        const hatBrim = createCylinder('mageHatBrim', {
             height: 0.06,
             diameterTop: 0.80,
             diameterBottom: 0.80,
             tessellation: 8
-        }, scene);
+        });
         makeFlatShaded(hatBrim);
-        hatBrim.parent = this.head;
-        hatBrim.position = new Vector3(0, 0.16, 0);
-        hatBrim.material = createLowPolyMaterial('mageHatBrimMat', hatColor, scene);
+        this.head.add(hatBrim);
+        hatBrim.position.set(0, 0.16, 0);
+        hatBrim.material = createLowPolyMaterial('mageHatBrimMat', hatColor);
 
         // Brim gold trim
-        const brimTrim = MeshBuilder.CreateTorus('mageHatBrimTrim', {
+        const brimTrim = createTorus('mageHatBrimTrim', {
             diameter: 0.68,
             thickness: 0.04,
             tessellation: 8
-        }, scene);
+        });
         makeFlatShaded(brimTrim);
-        brimTrim.parent = hatBrim;
-        brimTrim.position = new Vector3(0, 0, 0);
-        brimTrim.material = createEmissiveMaterial('mageHatBrimTrimMat', robeTrim, 0.5, scene);
+        hatBrim.add(brimTrim);
+        brimTrim.position.set(0, 0, 0);
+        brimTrim.material = createEmissiveMaterial('mageHatBrimTrimMat', robeTrim, 0.5);
 
         // Wizard hat cone (tall pointed top)
-        const hatCone = MeshBuilder.CreateCylinder('mageHatCone', {
+        const hatCone = createCylinder('mageHatCone', {
             height: 0.75,
             diameterTop: 0.02,
             diameterBottom: 0.48,
             tessellation: 6
-        }, scene);
+        });
         makeFlatShaded(hatCone);
-        hatCone.parent = this.head;
-        hatCone.position = new Vector3(0, 0.55, -0.03);
+        this.head.add(hatCone);
+        hatCone.position.set(0, 0.55, -0.03);
         hatCone.rotation.x = 0.12; // slight backward tilt
-        hatCone.material = createLowPolyMaterial('mageHatConeMat', hatColor, scene);
+        hatCone.material = createLowPolyMaterial('mageHatConeMat', hatColor);
 
         // Hat star ornament near tip
-        const hatStar = MeshBuilder.CreatePolyhedron('mageHatStar', {
+        const hatStar = createPolyhedron('mageHatStar', {
             type: 1, // octahedron
             size: 0.055
-        }, scene);
+        });
         makeFlatShaded(hatStar);
-        hatStar.parent = hatCone;
-        hatStar.position = new Vector3(0, 0.30, 0);
-        hatStar.material = createEmissiveMaterial('mageHatStarMat', orbColor, 0.8, scene);
+        hatCone.add(hatStar);
+        hatStar.position.set(0, 0.30, 0);
+        hatStar.material = createEmissiveMaterial('mageHatStarMat', orbColor, 0.8);
 
         // --- Arms / sleeves (wide robe sleeves) ---
-        this.swordArm = MeshBuilder.CreateBox('mageRightSleeve', {
+        this.swordArm = createBox('mageRightSleeve', {
             width: 0.28,
             height: 1.10,
             depth: 0.28
-        }, scene);
+        });
         makeFlatShaded(this.swordArm);
-        this.swordArm.parent = this.mesh;
-        this.swordArm.position = new Vector3(0.65, 0.0, 0.0);
-        this.swordArm.material = createLowPolyMaterial('mageRSleevedMat', robeMid, scene);
+        this.mesh.add(this.swordArm);
+        this.swordArm.position.set(0.65, 0.0, 0.0);
+        this.swordArm.material = createLowPolyMaterial('mageRSleevedMat', robeMid);
 
         // Sleeve trim (gold cuff)
-        const rCuff = MeshBuilder.CreateBox('mageRCuff', {
+        const rCuff = createBox('mageRCuff', {
             width: 0.34,
             height: 0.10,
             depth: 0.34
-        }, scene);
+        });
         makeFlatShaded(rCuff);
-        rCuff.parent = this.swordArm;
-        rCuff.position = new Vector3(0, -0.52, 0);
-        rCuff.material = createEmissiveMaterial('mageRCuffMat', robeTrim, 0.4, scene);
+        this.swordArm.add(rCuff);
+        rCuff.position.set(0, -0.52, 0);
+        rCuff.material = createEmissiveMaterial('mageRCuffMat', robeTrim, 0.4);
 
-        this.shieldArm = MeshBuilder.CreateBox('mageLeftSleeve', {
+        this.shieldArm = createBox('mageLeftSleeve', {
             width: 0.28,
             height: 1.10,
             depth: 0.28
-        }, scene);
+        });
         makeFlatShaded(this.shieldArm);
-        this.shieldArm.parent = this.mesh;
-        this.shieldArm.position = new Vector3(-0.65, 0.0, 0.0);
-        this.shieldArm.material = createLowPolyMaterial('mageLSleevedMat', robeMid, scene);
+        this.mesh.add(this.shieldArm);
+        this.shieldArm.position.set(-0.65, 0.0, 0.0);
+        this.shieldArm.material = createLowPolyMaterial('mageLSleevedMat', robeMid);
 
         // Left sleeve trim
-        const lCuff = MeshBuilder.CreateBox('mageLCuff', {
+        const lCuff = createBox('mageLCuff', {
             width: 0.34,
             height: 0.10,
             depth: 0.34
-        }, scene);
+        });
         makeFlatShaded(lCuff);
-        lCuff.parent = this.shieldArm;
-        lCuff.position = new Vector3(0, -0.52, 0);
-        lCuff.material = createEmissiveMaterial('mageLCuffMat', robeTrim, 0.4, scene);
+        this.shieldArm.add(lCuff);
+        lCuff.position.set(0, -0.52, 0);
+        lCuff.material = createEmissiveMaterial('mageLCuffMat', robeTrim, 0.4);
 
         // --- Staff held in right hand ---
-        const staff = MeshBuilder.CreateCylinder('mageStaff', {
+        const staff = createCylinder('mageStaff', {
             height: 2.20,
             diameterTop: 0.055,
             diameterBottom: 0.07,
             tessellation: 6
-        }, scene);
+        });
         makeFlatShaded(staff);
-        staff.parent = this.swordArm;
-        staff.position = new Vector3(0.12, -0.45, 0.18);
+        this.swordArm.add(staff);
+        staff.position.set(0.12, -0.45, 0.18);
         staff.rotation.z = 0.08;
-        staff.material = createLowPolyMaterial('mageStaffMat', staffBrown, scene);
+        staff.material = createLowPolyMaterial('mageStaffMat', staffBrown);
 
         // Staff binding rings (decorative)
         const ringYPositions = [0.3, -0.3];
         for (let i = 0; i < ringYPositions.length; i++) {
-            const ring = MeshBuilder.CreateTorus(`mageStaffRing${i}`, {
+            const ring = createTorus(`mageStaffRing${i}`, {
                 diameter: 0.11,
                 thickness: 0.025,
                 tessellation: 6
-            }, scene);
+            });
             makeFlatShaded(ring);
-            ring.parent = staff;
-            ring.position = new Vector3(0, ringYPositions[i], 0);
-            ring.material = createEmissiveMaterial(`mageStaffRingMat${i}`, robeTrim, 0.5, scene);
+            staff.add(ring);
+            ring.position.set(0, ringYPositions[i], 0);
+            ring.material = createEmissiveMaterial(`mageStaffRingMat${i}`, robeTrim, 0.5);
         }
 
         // Staff orb cradle (4 curved prongs holding the orb)
         for (let i = 0; i < 4; i++) {
             const angle = (i / 4) * Math.PI * 2;
-            const prong = MeshBuilder.CreateCylinder(`mageStaffProng${i}`, {
+            const prong = createCylinder(`mageStaffProng${i}`, {
                 height: 0.20,
                 diameterTop: 0.02,
                 diameterBottom: 0.04,
                 tessellation: 3
-            }, scene);
+            });
             makeFlatShaded(prong);
-            prong.parent = staff;
-            prong.position = new Vector3(
+            staff.add(prong);
+            prong.position.set(
                 Math.cos(angle) * 0.065,
                 1.05,
                 Math.sin(angle) * 0.065
             );
             prong.rotation.z = Math.cos(angle) * 0.5;
             prong.rotation.x = Math.sin(angle) * 0.5;
-            prong.material = createEmissiveMaterial(`mageStaffProngMat${i}`, robeTrim, 0.5, scene);
+            prong.material = createEmissiveMaterial(`mageStaffProngMat${i}`, robeTrim, 0.5);
         }
 
         // Glowing orb at staff tip (emissive — this is the animated piece)
-        this.mageStaffOrb = MeshBuilder.CreateSphere('mageStaffOrb', {
+        this.mageStaffOrb = createSphere('mageStaffOrb', {
             diameter: 0.22,
             segments: 5
-        }, scene);
+        });
         makeFlatShaded(this.mageStaffOrb);
-        this.mageStaffOrb.parent = staff;
-        this.mageStaffOrb.position = new Vector3(0, 1.14, 0);
+        staff.add(this.mageStaffOrb);
+        this.mageStaffOrb.position.set(0, 1.14, 0);
 
-        // Create a mutable material we can animate
-        this.mageOrbMat = new StandardMaterial('mageOrbMat', scene);
-        this.mageOrbMat.emissiveColor = orbColor.clone();
-        this.mageOrbMat.diffuseColor = orbColor.scale(0.3);
-        this.mageOrbMat.specularColor = new Color3(1, 1, 1);
+        // Create a mutable material we can animate (unique to this instance —
+        // flagged ownedMaterial so disposeMesh frees it with the orb)
+        this.mageOrbMat = new MeshPhongMaterial();
+        this.mageOrbMat.name = 'mageOrbMat';
+        this.mageOrbMat.emissive = orbColor.clone();
+        this.mageOrbMat.color = orbColor.clone().multiplyScalar(0.3);
+        this.mageOrbMat.specular = new Color(1, 1, 1);
         this.mageStaffOrb.material = this.mageOrbMat;
+        this.mageStaffOrb.userData.ownedMaterial = true;
 
         // Outer orb glow ring
-        const orbGlowRing = MeshBuilder.CreateTorus('mageOrbGlow', {
+        const orbGlowRing = createTorus('mageOrbGlow', {
             diameter: 0.32,
             thickness: 0.04,
             tessellation: 8
-        }, scene);
+        });
         makeFlatShaded(orbGlowRing);
-        orbGlowRing.parent = this.mageStaffOrb;
-        orbGlowRing.position = new Vector3(0, 0, 0);
-        orbGlowRing.material = createEmissiveMaterial('mageOrbGlowMat', orbColor, 0.6, scene);
+        this.mageStaffOrb.add(orbGlowRing);
+        orbGlowRing.position.set(0, 0, 0);
+        orbGlowRing.material = createEmissiveMaterial('mageOrbGlowMat', orbColor, 0.6);
 
         // No visible legs (covered by robe skirt)
         // leftLeg / rightLeg stay null — the update() will skip them
@@ -1246,7 +1267,7 @@ export class Champion extends Enemy {
         this.originalScale = 1.0;
     }
 
-    // Champion HP is shown via the HUD pill (HeroHud), never a floating in-world bar.
+    // Champion HP is shown via the HUD pill, never a floating in-world bar.
     // Override both to no-ops so no mesh is ever created.
     protected createHealthBar(): void { /* intentionally empty — player HP lives in the HUD */ }
     protected updateHealthBar(): void { /* intentionally empty — player HP lives in the HUD */ }
@@ -1260,15 +1281,15 @@ export class Champion extends Enemy {
 
         // Player-controlled mode: bypass all AI, apply velocity directly
         if (this.controlMode === 'player') {
-            this.position.addInPlace(this.playerVelocity.scale(deltaTime));
+            this.position.addScaledVector(this.playerVelocity, deltaTime);
             // Self-heal a non-finite position (NaN/Infinity velocity or overflow) before
             // it propagates into the camera follow and blanks the canvas to black. Only
             // fires on already-broken state, so single-player behaviour is unchanged.
             if (!Number.isFinite(this.position.x) || !Number.isFinite(this.position.y) || !Number.isFinite(this.position.z)) {
-                this.position.copyFrom(this._lastFiniteHeroPos);
+                this.position.copy(this._lastFiniteHeroPos);
                 this.playerVelocity.set(0, 0, 0);
             } else {
-                this._lastFiniteHeroPos.copyFrom(this.position);
+                this._lastFiniteHeroPos.copy(this.position);
             }
             this.mesh.position.x = this.position.x;
             this.mesh.position.z = this.position.z;
@@ -1285,7 +1306,7 @@ export class Champion extends Enemy {
             }
 
             // Walking animation — advance walkTime while moving, animate limbs
-            const isMoving = this.playerVelocity.lengthSquared() > 0.001;
+            const isMoving = this.playerVelocity.lengthSq() > 0.001;
             if (isMoving) {
                 this.walkTime += deltaTime * 5; // stride pace for player-controlled
             }
@@ -1352,14 +1373,14 @@ export class Champion extends Enemy {
                 const dx = this.glbAttackFacingTarget.x - this.position.x;
                 const dz = this.glbAttackFacingTarget.z - this.position.z;
                 if (dx * dx + dz * dz > 0.0001) {
-                    this.mesh.rotation.y = Math.atan2(dx, dz);
+                    this.mesh.rotation.y = headingToYaw(dx, dz);
                 }
             } else if (this.spinAttackTimer > 0 && !usingChampionGLB) {
                 // Procedural spin: full 360° rotation over SPIN_ATTACK_DURATION.
                 const progress = 1 - this.spinAttackTimer / Champion.SPIN_ATTACK_DURATION;
                 this.mesh.rotation.y = progress * Math.PI * 2;
             } else if (isMoving) {
-                this.mesh.rotation.y = Math.atan2(this.playerVelocity.x, this.playerVelocity.z);
+                this.mesh.rotation.y = headingToYaw(this.playerVelocity.x, this.playerVelocity.z);
             }
 
             // Mage orb pulse regardless of movement state
@@ -1403,10 +1424,11 @@ export class Champion extends Enemy {
             // Face direction of movement (shared by all types)
             if (this.currentPathIndex < this.path.length) {
                 const targetPoint = this.path[this.currentPathIndex];
-                const direction = targetPoint.subtract(this.position);
+                const direction = _scratchDir.subVectors(targetPoint, this.position);
                 if (direction.length() > 0.01) {
-                    const angle = Math.atan2(direction.z, direction.x);
-                    this.mesh.rotation.y = -angle + Math.PI / 2;
+                    // Same heading as the Babylon `-atan2(z, x) + PI/2` form,
+                    // routed through the single handedness conversion point.
+                    this.mesh.rotation.y = headingToYaw(direction.x, direction.z);
                 }
             }
         }
@@ -1526,7 +1548,7 @@ export class Champion extends Enemy {
 
         // 1. Breath pulse — always on, even during spin/attack
         if (this.barbChestPulseGroup) {
-            this.barbChestPulseGroup.scaling.y = 1 + Math.sin(this.walkTime * 0.4) * 0.04;
+            this.barbChestPulseGroup.scale.y = 1 + Math.sin(this.walkTime * 0.4) * 0.04;
         }
 
         // 2. Hunched stride lean — don't fight existing pose during spin/attack
@@ -1570,7 +1592,7 @@ export class Champion extends Enemy {
             // Use the leg whose phase matches the new sign as the foot position.
             const foot = stepSign > 0 ? this.rightLeg : this.leftLeg;
             if (foot && this.mesh) {
-                const footWorld = foot.getAbsolutePosition().clone();
+                const footWorld = foot.getWorldPosition(new Vector3());
                 footWorld.y = 0.05;
                 this.spawnFootstepDust(footWorld);
             }
@@ -1581,11 +1603,11 @@ export class Champion extends Enemy {
     /** Barbarian-only: allocate the single pooled footstep dust ParticleSystem. */
     private createPooledFootstepDust(): ParticleSystem {
         const ps = new ParticleSystem('barbFootDust', 8, this.scene);
-        ps.minEmitBox = new Vector3(-0.10, 0, -0.10);
-        ps.maxEmitBox = new Vector3(0.10, 0, 0.10);
-        ps.color1 = new Color4(0.50, 0.35, 0.20, 1);
-        ps.color2 = new Color4(0.35, 0.25, 0.15, 1);
-        ps.colorDead = new Color4(0.25, 0.20, 0.15, 0);
+        ps.minEmitBox.set(-0.10, 0, -0.10);
+        ps.maxEmitBox.set(0.10, 0, 0.10);
+        ps.color1.set(0.50, 0.35, 0.20, 1);
+        ps.color2.set(0.35, 0.25, 0.15, 1);
+        ps.colorDead.set(0.25, 0.20, 0.15, 0);
         ps.minSize = 0.08;
         ps.maxSize = 0.18;
         ps.minLifeTime = 0.2;
@@ -1593,11 +1615,11 @@ export class Champion extends Enemy {
         ps.emitRate = 80;
         ps.manualEmitCount = 8;
         ps.blendMode = ParticleSystem.BLENDMODE_STANDARD;
-        ps.direction1 = new Vector3(-0.5, 0.4, -0.5);
-        ps.direction2 = new Vector3(0.5, 0.8, 0.5);
+        ps.direction1.set(-0.5, 0.4, -0.5);
+        ps.direction2.set(0.5, 0.8, 0.5);
         ps.minEmitPower = 0.4;
         ps.maxEmitPower = 1.2;
-        ps.gravity = new Vector3(0, -0.5, 0);
+        ps.gravity.set(0, -0.5, 0);
         // emitter will be repositioned per-footstep
         return ps;
     }
@@ -1621,11 +1643,11 @@ export class Champion extends Enemy {
         splatPos.y += 0.8;
         const ps = new ParticleSystem('barbBloodSplatter', 10, this.scene);
         ps.emitter = splatPos;
-        ps.minEmitBox = new Vector3(-0.10, 0, -0.10);
-        ps.maxEmitBox = new Vector3(0.10, 0, 0.10);
-        ps.color1 = new Color4(0.70, 0.10, 0.05, 1);
-        ps.color2 = new Color4(0.45, 0.05, 0.02, 1);
-        ps.colorDead = new Color4(0.10, 0, 0, 0);
+        ps.minEmitBox.set(-0.10, 0, -0.10);
+        ps.maxEmitBox.set(0.10, 0, 0.10);
+        ps.color1.set(0.70, 0.10, 0.05, 1);
+        ps.color2.set(0.45, 0.05, 0.02, 1);
+        ps.colorDead.set(0.10, 0, 0, 0);
         ps.minSize = 0.08;
         ps.maxSize = 0.16;
         ps.minLifeTime = 0.25;
@@ -1633,11 +1655,11 @@ export class Champion extends Enemy {
         ps.emitRate = 40;
         ps.manualEmitCount = 10; // one-shot
         ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-        ps.direction1 = new Vector3(-1, 0.3, -1);
-        ps.direction2 = new Vector3(1, 1, 1);
+        ps.direction1.set(-1, 0.3, -1);
+        ps.direction2.set(1, 1, 1);
         ps.minEmitPower = 1;
         ps.maxEmitPower = 2.5;
-        ps.gravity = new Vector3(0, -4, 0);
+        ps.gravity.set(0, -4, 0);
         ps.start();
         setTimeout(() => { ps.stop(); setTimeout(() => ps.dispose(), 500); }, 100);
     }
@@ -1649,31 +1671,33 @@ export class Champion extends Enemy {
             this.barbSpinArcTimer -= deltaTime;
             const t = 1 - Math.max(0, this.barbSpinArcTimer) / Champion.SPIN_ATTACK_DURATION;
             const scaleXZ = 0.3 + t * 1.2; // 0.3 -> 1.5
-            this.barbSpinArcMesh.scaling.x = scaleXZ;
-            this.barbSpinArcMesh.scaling.z = scaleXZ;
+            this.barbSpinArcMesh.scale.x = scaleXZ;
+            this.barbSpinArcMesh.scale.z = scaleXZ;
             // Keep the ring under the hero's current world position
             this.barbSpinArcMesh.position.x = this.position.x;
             this.barbSpinArcMesh.position.z = this.position.z;
             // Fade toward black in whatever base hue the ring was seeded with
             // (blended element color, or red when no elements). barbSpinArcColor
             // is reused (set, not allocated) to keep this per-frame path alloc-free.
-            const mat = this.barbSpinArcMesh.material as StandardMaterial | null;
+            // The material is UNIQUE to this ring (ownedMaterial) — mutating it in
+            // place is safe.
+            const mat = this.barbSpinArcMesh.material as MeshPhongMaterial | null;
             if (mat) {
                 const k = 1 - t;
-                this.barbSpinArcColor.set(
+                this.barbSpinArcColor.setRGB(
                     this.barbSpinArcBaseColor.r * k,
                     this.barbSpinArcBaseColor.g * k,
                     this.barbSpinArcBaseColor.b * k,
                 );
-                mat.emissiveColor = this.barbSpinArcColor;
-                mat.alpha = 1 - t;
+                mat.emissive.copy(this.barbSpinArcColor);
+                mat.opacity = 1 - t;
             }
             if (this.barbSpinArcTimer <= 0) {
-                // dispose(false, true): this arc-ring owns a UNIQUE per-spin
-                // emissive material (animated each frame above), so it cannot be
-                // cached — free the material + textures with the mesh, else one
-                // StandardMaterial is orphaned into scene.materials every spin.
-                this.barbSpinArcMesh.dispose(false, true);
+                // materials: true — this arc-ring owns a UNIQUE per-spin emissive
+                // material (animated each frame above), so it cannot be cached —
+                // free the material with the mesh, else one material is orphaned
+                // into the scene every spin.
+                disposeMesh(this.barbSpinArcMesh, { materials: true });
                 this.barbSpinArcMesh = null;
             }
         }
@@ -1699,8 +1723,8 @@ export class Champion extends Enemy {
     private pulseMageOrb(_deltaTime: number): void {
         if (!this.mageOrbMat) return;
         const pulse = 0.7 + Math.sin(this.walkTime * 2.5) * 0.3;
-        this.mageOrbColor.set(0.35 * pulse, 0.80 * pulse, 1.0 * pulse);
-        this.mageOrbMat.emissiveColor = this.mageOrbColor;
+        this.mageOrbColor.setRGB(0.35 * pulse, 0.80 * pulse, 1.0 * pulse);
+        this.mageOrbMat.emissive.copy(this.mageOrbColor);
     }
 
     /**
@@ -1744,22 +1768,22 @@ export class Champion extends Enemy {
      */
     private createAttackEffect(targetPos: Vector3): void {
         const ps = new ParticleSystem('championSlash', 15, this.scene);
-        const midpoint = Vector3.Lerp(this.position, targetPos, 0.5);
+        const midpoint = new Vector3().lerpVectors(this.position, targetPos, 0.5);
         midpoint.y += 1.0;
         ps.emitter = midpoint;
-        ps.minEmitBox = new Vector3(-0.3, 0, -0.3);
-        ps.maxEmitBox = new Vector3(0.3, 0, 0.3);
-        ps.color1 = new Color4(1, 0.85, 0.3, 1);
-        ps.color2 = new Color4(1, 0.7, 0.1, 1);
-        ps.colorDead = new Color4(0.5, 0.3, 0, 0);
+        ps.minEmitBox.set(-0.3, 0, -0.3);
+        ps.maxEmitBox.set(0.3, 0, 0.3);
+        ps.color1.set(1, 0.85, 0.3, 1);
+        ps.color2.set(1, 0.7, 0.1, 1);
+        ps.colorDead.set(0.5, 0.3, 0, 0);
         ps.minSize = 0.15;
         ps.maxSize = 0.4;
         ps.minLifeTime = 0.1;
         ps.maxLifeTime = 0.3;
         ps.emitRate = 80;
         ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-        ps.direction1 = new Vector3(-1, 0.5, -1);
-        ps.direction2 = new Vector3(1, 1.5, 1);
+        ps.direction1.set(-1, 0.5, -1);
+        ps.direction2.set(1, 1.5, 1);
         ps.minEmitPower = 1;
         ps.maxEmitPower = 3;
         ps.start();
@@ -1773,22 +1797,25 @@ export class Champion extends Enemy {
      * capture the already-red emissive and "restore" to red).
      */
     public flashHitRed(): void {
-        if (!this.mesh || this.mesh.isDisposed()) return;
+        if (!this.mesh || isMeshDisposed(this.mesh)) return;
 
-        const RED = new Color3(1, 0.15, 0.15);
+        const RED = new Color(1, 0.15, 0.15);
         const DURATION_MS = 150;
 
         if (!this.flashHitRedActive) {
-            // Fresh flash — snapshot original emissive colors.
-            const meshes = [this.mesh, ...this.mesh.getChildMeshes(false)];
+            // Fresh flash — snapshot original emissive colors. The materials are all
+            // instance-owned (procedural parts get fresh mats; GLB mats are cloned per
+            // instance), so mutating emissive in place never bleeds across heroes.
             this.flashHitRedSnapshot = [];
-            for (const m of meshes) {
-                const mat = m.material as StandardMaterial;
-                if (mat && mat.emissiveColor !== undefined) {
-                    this.flashHitRedSnapshot.push({ mat, color: mat.emissiveColor.clone() });
-                    mat.emissiveColor = RED;
+            this.mesh.traverse(node => {
+                const m = node as Mesh;
+                if (!m.isMesh || !m.material || Array.isArray(m.material)) return;
+                const mat = m.material as EmissiveMaterial;
+                if (mat.emissive !== undefined) {
+                    this.flashHitRedSnapshot.push({ mat, color: mat.emissive.clone() });
+                    mat.emissive.copy(RED);
                 }
-            }
+            });
             this.flashHitRedActive = true;
         }
         // Reset / extend the restore timer either way.
@@ -1797,7 +1824,7 @@ export class Champion extends Enemy {
         }
         this.flashHitRedRestoreTimer = setTimeout(() => {
             for (const entry of this.flashHitRedSnapshot) {
-                try { entry.mat.emissiveColor = entry.color; } catch (_) { /* mat disposed */ }
+                try { entry.mat.emissive.copy(entry.color); } catch (_) { /* mat disposed */ }
             }
             this.flashHitRedSnapshot = [];
             this.flashHitRedActive = false;
@@ -1813,14 +1840,14 @@ export class Champion extends Enemy {
     public enableTorch(): void {
         if (this.torchLight || !this.mesh) return;
 
-        // Reuse the pre-registered torch from Game.setupScene. Creating it
-        // here AFTER materials compiled would never reach them (the dirty
-        // mechanism is blocked for perf — see Game.ts setupScene). Pre-
-        // registration is what makes the torch actually light meshes.
+        // Reuse the torch owned by Game (created once in Game.setupScene). Three
+        // materials pick up lights dynamically, so unlike the Babylon build the
+        // pre-registration is about single ownership, not shader slots — but the
+        // contract is the same: never create a new light here, reparent Game's.
         const torch = this.game.getHeroTorch();
         torch.position.set(0, 1.4, 0);
-        torch.parent     = this.mesh;
-        torch.intensity  = 5.0;
+        this.mesh.add(torch);
+        torch.intensity = 5.0;
 
         this.torchLight          = torch;
         this.torchBaseIntensity  = torch.intensity;
@@ -1838,10 +1865,11 @@ export class Champion extends Enemy {
 
     private _disposeTorch(): void {
         if (this.torchLight) {
-            // Don't dispose — the torch lives on Game and is reused across
-            // runs. Just unparent it and put it back to dormant.
-            this.torchLight.parent     = null;
-            this.torchLight.intensity  = 0;
+            // Don't dispose — the torch lives on Game and is reused across runs.
+            // Reparent it back to the scene root (out of the soon-to-be-disposed
+            // hero subtree) and put it back to dormant.
+            this.scene.scene.add(this.torchLight);
+            this.torchLight.intensity = 0;
             this.torchLight = null;
         }
     }
@@ -1854,6 +1882,11 @@ export class Champion extends Enemy {
         // and spin-arc mesh — which only die() used to free — leaked one set per run
         // onto the never-disposed shared scene and kept ticking forever.
         this._releaseChampionFx();
+        // GLB container instance: frees the per-instance cloned materials, the
+        // cloned skeleton's bone-matrix texture, and the mixer's update hook
+        // (glb_clonematerials_texture_leak invariant). No-op on the procedural path.
+        this.containerInstance?.dispose();
+        this.containerInstance = null;
         super.dispose();
     }
 
@@ -1872,7 +1905,7 @@ export class Champion extends Enemy {
         }
         this.barbSpinElemPs = [];
         if (this.barbSpinArcMesh) {
-            this.barbSpinArcMesh.dispose(false, true);
+            disposeMesh(this.barbSpinArcMesh, { materials: true });
             this.barbSpinArcMesh = null;
         }
         if (this.barbFootDustPs) {
@@ -1880,31 +1913,32 @@ export class Champion extends Enemy {
             this.barbFootDustPs.dispose();
             this.barbFootDustPs = null;
         }
-        // Free the per-element aura particle systems. dispose(false): the
-        // particleTexture is the SHARED status-effect texture singleton.
+        // Free the per-element aura particle systems. The engine ParticleSystem
+        // never disposes its texture (the SHARED status-effect singleton survives).
         for (const ps of this.elementAuraPs.values()) {
             ps.stop();
-            ps.dispose(false);
+            ps.dispose();
         }
         this.elementAuraPs.clear();
-        // Mythic weapon aura: ONE persistent PS — dispose(false) keeps the shared texture.
+        // Mythic weapon aura: ONE persistent PS — texture is the shared singleton.
         if (this.mythicAuraPs) {
             this.mythicAuraPs.stop();
-            this.mythicAuraPs.dispose(false);
+            this.mythicAuraPs.dispose();
             this.mythicAuraPs = null;
         }
         this.mythicAuraKey = null;
         // GLB weapon tint: restore the resting emissive (the cloned material
-        // itself is freed by the GLB teardown).
+        // itself is freed by the container-instance teardown).
         for (const w of this.glbWeaponMats) {
-            try { w.mat.emissiveColor.copyFrom(w.baseEmissive); } catch (_) { /* disposed */ }
+            try { w.mat.emissive.copy(w.baseEmissive); } catch (_) { /* disposed */ }
         }
         this.glbWeaponMats = [];
         // Storm bolts share ONE per-champion material — dispose meshes, then the
-        // material once. (Default mesh.dispose() does NOT free materials; without
-        // this the material leaks onto the never-disposed shared scene.)
+        // material once. (disposeMesh without the materials flag does NOT free
+        // shared materials; bolts that were faded own a clone flagged
+        // ownedMaterial, which disposeMesh frees per bolt.)
         for (const b of this.stormBolts) {
-            try { if (!b.isDisposed()) b.dispose(); } catch (_) { /* already disposed */ }
+            try { if (!isMeshDisposed(b)) disposeMesh(b); } catch (_) { /* already disposed */ }
         }
         this.stormBolts = [];
         if (this.stormBoltMat) {
@@ -1912,8 +1946,8 @@ export class Champion extends Enemy {
             this.stormBoltMat = null;
         }
         // Weapon tint: restore the original material, then free the unique tint mat.
-        if (this.weaponOrigMat && !this.weaponOrigMat.mesh.isDisposed()) {
-            this.weaponOrigMat.mesh.material = this.weaponOrigMat.mat;
+        if (this.weaponOrigMat && !isMeshDisposed(this.weaponOrigMat.mesh)) {
+            this.weaponOrigMat.mesh.material = this.weaponOrigMat.mat as Mesh['material'];
         }
         this.weaponOrigMat = null;
         if (this.weaponTintMat) {
@@ -1940,52 +1974,32 @@ export class Champion extends Enemy {
 
         this._disposeTorch();
 
-        // Stop + dispose the cloned GLB animation groups so their animatables
-        // stop ticking once the mesh is gone (empty no-op on the procedural
-        // barbarian path). Mirrors Enemy._releaseMeshAndAnimations but WITHOUT
-        // disposing child-mesh materials — the procedural hero uses shared/cached
-        // materials that must survive.
-        for (const ag of this.glbAnimationGroups) {
-            try { ag.stop(); } catch (_) { /* already stopped */ }
-            try { ag.dispose(); } catch (_) { /* already disposed */ }
-        }
+        // Tear down the GLB container instance: stops + disposes the cloned anim
+        // groups (their animatables stop ticking once the mesh is gone), frees the
+        // per-instance cloned materials AND the cloned skeleton's bone-matrix
+        // texture — instantiate() clones materials per instance, so each run's hero
+        // would otherwise leak them. Empty no-op on the procedural barbarian path,
+        // whose shared/cached materials must survive.
+        this.containerInstance?.dispose();
+        this.containerInstance = null;
         this.glbAnimationGroups.length = 0;
 
-        // Dispose mesh and health bars. For the GLB hero, also free the per-instance
-        // cloned material textures — instantiateModelsToScene(cloneMaterials=true)
-        // clones the material's textures too, so each run's hero otherwise leaks its
-        // base-color texture. Skip for the procedural hero, which shares cached
-        // colour-only materials that must survive into the next run.
+        // Dispose mesh and health bars. Shared/cached materials survive (disposeMesh
+        // only frees materials flagged ownedMaterial, e.g. the mage orb).
         if (this.mesh) {
-            if (this.championAsset) {
-                for (const m of [this.mesh, ...this.mesh.getChildMeshes(false)]) {
-                    const mat = m.material;
-                    if (mat) {
-                        m.material = null;
-                        try { mat.dispose(false, true); } catch (_) { /* already disposed */ }
-                    }
-                }
-            }
-            this.mesh.dispose();
+            disposeMesh(this.mesh);
             this.mesh = null;
         }
-
-        // Dispose the cloned skeleton AFTER the mesh to free its bone-matrix
-        // texture (empty no-op on the procedural path).
-        for (const sk of this.glbSkeletons) {
-            try { sk.dispose(); } catch (_) { /* already disposed */ }
-        }
-        this.glbSkeletons.length = 0;
         if (this.healthBarMesh) {
-            this.healthBarMesh.dispose();
+            disposeMesh(this.healthBarMesh);
             this.healthBarMesh = null;
         }
         if (this.healthBarBackgroundMesh) {
-            this.healthBarBackgroundMesh.dispose();
+            disposeMesh(this.healthBarBackgroundMesh);
             this.healthBarBackgroundMesh = null;
         }
         if (this.healthBarOutlineMesh) {
-            this.healthBarOutlineMesh.dispose();
+            disposeMesh(this.healthBarOutlineMesh);
             this.healthBarOutlineMesh = null;
         }
         this.statusEffectParticles.forEach(ps => {
@@ -2007,22 +2021,22 @@ export class Champion extends Enemy {
 
         const ps = new ParticleSystem('championDeath', 40, this.scene);
         ps.emitter = deathPos;
-        ps.minEmitBox = new Vector3(-0.3, 0, -0.3);
-        ps.maxEmitBox = new Vector3(0.3, 0, 0.3);
-        ps.color1 = new Color4(1, 0.85, 0.3, 1);
-        ps.color2 = new Color4(0.2, 0.5, 1.0, 1);
-        ps.colorDead = new Color4(0.1, 0.2, 0.5, 0);
+        ps.minEmitBox.set(-0.3, 0, -0.3);
+        ps.maxEmitBox.set(0.3, 0, 0.3);
+        ps.color1.set(1, 0.85, 0.3, 1);
+        ps.color2.set(0.2, 0.5, 1.0, 1);
+        ps.colorDead.set(0.1, 0.2, 0.5, 0);
         ps.minSize = 0.15;
         ps.maxSize = 0.45;
         ps.minLifeTime = 0.3;
         ps.maxLifeTime = 0.8;
         ps.emitRate = 120;
         ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-        ps.direction1 = new Vector3(-1.5, 1, -1.5);
-        ps.direction2 = new Vector3(1.5, 3, 1.5);
+        ps.direction1.set(-1.5, 1, -1.5);
+        ps.direction2.set(1.5, 3, 1.5);
         ps.minEmitPower = 1;
         ps.maxEmitPower = 4;
-        ps.gravity = new Vector3(0, -5, 0);
+        ps.gravity.set(0, -5, 0);
         ps.start();
         setTimeout(() => { ps.stop(); setTimeout(() => ps.dispose(), 800); }, 200);
     }
@@ -2064,53 +2078,53 @@ export class Champion extends Enemy {
             this.createStormBolts(anchor);
         }
         if (this.stormBolts.length > 0) {
-            for (const b of this.stormBolts) b.setEnabled(stormActive);
+            for (const b of this.stormBolts) b.visible = stormActive;
             if (stormActive) this.flickerStormBolts(this.lastDeltaTime);
         }
     }
 
     /** Persistent mythic weapon aura at the weapon bone. Idempotent: rebuilds
      *  only when the config changes; null tears it down. ONE particle system;
-     *  dispose(false) keeps the shared status-effect texture singleton. */
+     *  the shared status-effect texture singleton is never disposed with it. */
     public setMythicAura(cfg: MythicFxConfig | null): void {
         const key = cfg ? `${cfg.style}_${cfg.auraColor}` : null;
         if (key === this.mythicAuraKey) return;
         this.mythicAuraKey = key;
-        if (this.mythicAuraPs) { this.mythicAuraPs.stop(); this.mythicAuraPs.dispose(false); this.mythicAuraPs = null; }
+        if (this.mythicAuraPs) { this.mythicAuraPs.stop(); this.mythicAuraPs.dispose(); this.mythicAuraPs = null; }
         if (!cfg) return;
         const anchor = this.getWeaponAnchor();
         if (!anchor) return;
-        const c = Color3.FromHexString(cfg.auraColor);
+        const c = new Color(cfg.auraColor);
         const ps = new ParticleSystem('mythicAura', 64, this.scene);
         ps.emitter = anchor;
         ps.particleTexture = getStatusEffectTexture(this.scene);
         ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-        ps.color1 = new Color4(c.r, c.g, c.b, 1);
-        ps.color2 = new Color4(c.r * 0.7, c.g * 0.7, c.b * 0.7, 1);
-        ps.colorDead = new Color4(c.r * 0.15, c.g * 0.15, c.b * 0.15, 0);
-        ps.minEmitBox = new Vector3(-0.3, -0.05, -0.3);
-        ps.maxEmitBox = new Vector3(0.3, 0.5, 0.3);
-        ps.gravity = Vector3.Zero();
+        ps.color1.set(c.r, c.g, c.b, 1);
+        ps.color2.set(c.r * 0.7, c.g * 0.7, c.b * 0.7, 1);
+        ps.colorDead.set(c.r * 0.15, c.g * 0.15, c.b * 0.15, 0);
+        ps.minEmitBox.set(-0.3, -0.05, -0.3);
+        ps.maxEmitBox.set(0.3, 0.5, 0.3);
+        ps.gravity.set(0, 0, 0);
         switch (cfg.style) {
             case 'embers':
                 ps.minSize = 0.18; ps.maxSize = 0.42; ps.minLifeTime = 0.4; ps.maxLifeTime = 0.9; ps.emitRate = 50;
-                ps.direction1 = new Vector3(-0.3, 0.7, -0.3); ps.direction2 = new Vector3(0.3, 1.4, 0.3);
+                ps.direction1.set(-0.3, 0.7, -0.3); ps.direction2.set(0.3, 1.4, 0.3);
                 ps.minEmitPower = 0.5; ps.maxEmitPower = 1.2; break;
             case 'ribbon':
                 ps.minSize = 0.10; ps.maxSize = 0.24; ps.minLifeTime = 0.15; ps.maxLifeTime = 0.4; ps.emitRate = 70;
-                ps.direction1 = new Vector3(-1, -0.4, -1); ps.direction2 = new Vector3(1, 1, 1);
+                ps.direction1.set(-1, -0.4, -1); ps.direction2.set(1, 1, 1);
                 ps.minEmitPower = 1.2; ps.maxEmitPower = 2.4; break;
             case 'motes':
                 ps.minSize = 0.16; ps.maxSize = 0.34; ps.minLifeTime = 0.8; ps.maxLifeTime = 1.5; ps.emitRate = 28;
-                ps.direction1 = new Vector3(-0.4, 0.1, -0.4); ps.direction2 = new Vector3(0.4, 0.5, 0.4);
+                ps.direction1.set(-0.4, 0.1, -0.4); ps.direction2.set(0.4, 0.5, 0.4);
                 ps.minEmitPower = 0.15; ps.maxEmitPower = 0.5; break;
         }
         ps.start();
         this.mythicAuraPs = ps;
     }
 
-    private getWeaponAnchor(): Mesh | null {
-        if (this.glbWeaponAnchor && !this.glbWeaponAnchor.isDisposed()) {
+    private getWeaponAnchor(): Object3D | null {
+        if (this.glbWeaponAnchor && !isMeshDisposed(this.glbWeaponAnchor)) {
             return this.glbWeaponAnchor;
         }
         switch (this.championType) {
@@ -2133,18 +2147,18 @@ export class Champion extends Enemy {
         if (key === this.weaponTintKey) return;
         this.weaponTintKey = key;
 
-        // GLB path — emissive write on the weapon's cloned material (renders even
-        // though the scene blocks material-dirty: color uniforms need no recompile).
+        // GLB path — emissive write on the weapon's per-instance cloned material
+        // (instance-owned, so mutating it in place never bleeds across heroes).
         if (this.glbWeaponMats.length > 0) {
             if (key === '') {
-                for (const w of this.glbWeaponMats) w.mat.emissiveColor.copyFrom(w.baseEmissive);
+                for (const w of this.glbWeaponMats) w.mat.emissive.copy(w.baseEmissive);
             } else {
                 // Kept subtle (0.35): emissive ADDS over the albedo, so a strong
                 // tint flattens the axe texture — this strength colors the weapon
                 // while its painted detail still reads through.
                 const blend = blendElements(this.activeElementSnapshot as PowerElement[]);
                 for (const w of this.glbWeaponMats) {
-                    w.mat.emissiveColor.copyFrom(blend).scaleInPlace(0.35);
+                    w.mat.emissive.copy(blend).multiplyScalar(0.35);
                 }
             }
             return;
@@ -2157,23 +2171,23 @@ export class Champion extends Enemy {
             case 'ranger':    weapon = this.rangerBow; break;
             case 'mage':      weapon = this.mageStaffOrb; break;
         }
-        if (!weapon || weapon.isDisposed()) return;
+        if (!weapon || isMeshDisposed(weapon)) return;
 
         if (key === '') {
             if (this.weaponOrigMat && this.weaponOrigMat.mesh === weapon) {
-                weapon.material = this.weaponOrigMat.mat;
+                weapon.material = this.weaponOrigMat.mat as Mesh['material'];
             }
             return;
         }
 
         const blend = blendElements(this.activeElementSnapshot as PowerElement[]);
         if (!this.weaponTintMat) {
-            this.weaponTintMat = new StandardMaterial(
-                `heroWeaponTint_${this.championType}`, this.scene);
-            this.weaponTintMat.specularColor = Color3.Black();
+            this.weaponTintMat = new MeshPhongMaterial();
+            this.weaponTintMat.name = `heroWeaponTint_${this.championType}`;
+            this.weaponTintMat.specular = new Color(0, 0, 0);
         }
-        this.weaponTintMat.emissiveColor.copyFrom(blend).scaleInPlace(0.85);
-        this.weaponTintMat.diffuseColor.copyFrom(blend).scaleInPlace(0.35);
+        this.weaponTintMat.emissive.copy(blend).multiplyScalar(0.85);
+        this.weaponTintMat.color.copy(blend).multiplyScalar(0.35);
         if (weapon.material !== this.weaponTintMat) {
             if (!this.weaponOrigMat) {
                 this.weaponOrigMat = { mesh: weapon, mat: weapon.material };
@@ -2184,60 +2198,60 @@ export class Champion extends Enemy {
 
     /** One persistent additive particle aura per element, anchored at the
      *  weapon. Uses the shared soft-dot status texture so particles read as a
-     *  glow, not hard squares — auras must dispose with ps.dispose(false) so
-     *  the shared texture survives. */
-    private createElementAura(element: PowerElement, anchor: Mesh): ParticleSystem {
+     *  glow, not hard squares — the engine ParticleSystem never disposes its
+     *  texture, so the shared singleton survives every aura teardown. */
+    private createElementAura(element: PowerElement, anchor: Object3D): ParticleSystem {
         const c = ELEMENT_COLOR[element];
         const ps = new ParticleSystem(`heroAura_${element}`, 48, this.scene);
         ps.emitter = anchor;
         ps.particleTexture = getStatusEffectTexture(this.scene);
         ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-        ps.color1 = new Color4(c.r, c.g, c.b, 1);
-        ps.color2 = new Color4(c.r * 0.7, c.g * 0.7, c.b * 0.7, 1);
-        ps.colorDead = new Color4(c.r * 0.15, c.g * 0.15, c.b * 0.15, 0);
-        ps.minEmitBox = new Vector3(-0.28, -0.05, -0.28);
-        ps.maxEmitBox = new Vector3(0.28, 0.45, 0.28);
-        ps.gravity = Vector3.Zero();
+        ps.color1.set(c.r, c.g, c.b, 1);
+        ps.color2.set(c.r * 0.7, c.g * 0.7, c.b * 0.7, 1);
+        ps.colorDead.set(c.r * 0.15, c.g * 0.15, c.b * 0.15, 0);
+        ps.minEmitBox.set(-0.28, -0.05, -0.28);
+        ps.maxEmitBox.set(0.28, 0.45, 0.28);
+        ps.gravity.set(0, 0, 0);
         switch (element) {
             case 'fire': // rising embers
                 ps.minSize = 0.16; ps.maxSize = 0.38;
                 ps.minLifeTime = 0.35; ps.maxLifeTime = 0.8;
                 ps.emitRate = 42;
-                ps.direction1 = new Vector3(-0.25, 0.6, -0.25);
-                ps.direction2 = new Vector3(0.25, 1.3, 0.25);
+                ps.direction1.set(-0.25, 0.6, -0.25);
+                ps.direction2.set(0.25, 1.3, 0.25);
                 ps.minEmitPower = 0.4; ps.maxEmitPower = 1.0;
                 break;
             case 'ice': // slow falling frost mist
                 ps.minSize = 0.20; ps.maxSize = 0.42;
                 ps.minLifeTime = 0.6; ps.maxLifeTime = 1.2;
                 ps.emitRate = 24;
-                ps.direction1 = new Vector3(-0.2, -0.05, -0.2);
-                ps.direction2 = new Vector3(0.2, 0.25, 0.2);
+                ps.direction1.set(-0.2, -0.05, -0.2);
+                ps.direction2.set(0.2, 0.25, 0.2);
                 ps.minEmitPower = 0.1; ps.maxEmitPower = 0.4;
-                ps.gravity = new Vector3(0, -0.7, 0);
+                ps.gravity.set(0, -0.7, 0);
                 break;
             case 'storm': // fast crackling sparks
                 ps.minSize = 0.09; ps.maxSize = 0.20;
                 ps.minLifeTime = 0.1; ps.maxLifeTime = 0.25;
                 ps.emitRate = 64;
-                ps.direction1 = new Vector3(-1, -0.5, -1);
-                ps.direction2 = new Vector3(1, 1, 1);
+                ps.direction1.set(-1, -0.5, -1);
+                ps.direction2.set(1, 1, 1);
                 ps.minEmitPower = 1.2; ps.maxEmitPower = 2.6;
                 break;
             case 'arcane': // slow swirling motes
                 ps.minSize = 0.15; ps.maxSize = 0.32;
                 ps.minLifeTime = 0.8; ps.maxLifeTime = 1.5;
                 ps.emitRate = 20;
-                ps.direction1 = new Vector3(-0.4, 0.1, -0.4);
-                ps.direction2 = new Vector3(0.4, 0.5, 0.4);
+                ps.direction1.set(-0.4, 0.1, -0.4);
+                ps.direction2.set(0.4, 0.5, 0.4);
                 ps.minEmitPower = 0.15; ps.maxEmitPower = 0.5;
                 break;
             case 'physical': // sparse white glints
                 ps.minSize = 0.10; ps.maxSize = 0.22;
                 ps.minLifeTime = 0.25; ps.maxLifeTime = 0.6;
                 ps.emitRate = 14;
-                ps.direction1 = new Vector3(-0.5, 0.2, -0.5);
-                ps.direction2 = new Vector3(0.5, 0.9, 0.5);
+                ps.direction1.set(-0.5, 0.2, -0.5);
+                ps.direction2.set(0.5, 0.9, 0.5);
                 ps.minEmitPower = 0.3; ps.maxEmitPower = 0.9;
                 break;
         }
@@ -2248,32 +2262,32 @@ export class Champion extends Enemy {
     /** Three thin emissive bolts around the weapon that flicker while storm is
      *  active. One unique material per champion instance (NOT cached/shared —
      *  flashHitRed mutates emissive in place), freed in _releaseChampionFx. */
-    private createStormBolts(anchor: Mesh): void {
+    private createStormBolts(anchor: Object3D): void {
         this.stormBoltMat = createEmissiveMaterial(
             `heroStormBoltMat_${this.championType}`,
-            new Color3(1.0, 0.95, 0.4), 0.95, this.scene);
+            new Color(1.0, 0.95, 0.4), 0.95);
         for (let i = 0; i < 3; i++) {
-            const bolt = MeshBuilder.CreateBox(`heroStormBolt_${i}`, {
+            const bolt = createBox(`heroStormBolt_${i}`, {
                 width: 0.05, height: 0.5, depth: 0.05,
-            }, this.scene);
+            });
             bolt.material = this.stormBoltMat;
-            bolt.parent = anchor;
+            anchor.add(bolt);
             const angle = (i / 3) * Math.PI * 2;
-            bolt.position = new Vector3(Math.cos(angle) * 0.26, 0.18, Math.sin(angle) * 0.26);
+            bolt.position.set(Math.cos(angle) * 0.26, 0.18, Math.sin(angle) * 0.26);
             bolt.rotation.z = 0.4;
             this.stormBolts.push(bolt);
         }
     }
 
     /** Re-randomize bolt visibility/placement a few times per second — fades go
-     *  through mesh.visibility, never through the material (frozen + shared by
-     *  the 3 bolts). */
+     *  through setMeshOpacity (clone-on-write per bolt), never by mutating the
+     *  shared per-champion bolt material. */
     private flickerStormBolts(dt: number): void {
         this.stormFlickerTimer -= dt;
         if (this.stormFlickerTimer > 0) return;
         this.stormFlickerTimer = 0.05 + Math.random() * 0.12;
         for (const bolt of this.stormBolts) {
-            bolt.visibility = Math.random() < 0.65 ? 0.6 + Math.random() * 0.4 : 0;
+            setMeshOpacity(bolt, Math.random() < 0.65 ? 0.6 + Math.random() * 0.4 : 0);
             const angle = Math.random() * Math.PI * 2;
             const r = 0.18 + Math.random() * 0.14;
             bolt.position.x = Math.cos(angle) * r;

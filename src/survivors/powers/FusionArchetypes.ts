@@ -1,8 +1,8 @@
-// Babylon-aware fusion archetype implementations. Each authored archetype gives a
+// Engine-aware fusion archetype implementations. Each authored archetype gives a
 // fused power EMERGENT behavior (not just its two parents combined). Registers into
-// the Babylon-free FusionArchetypeRegistry at module load; a side-effect import in
+// the engine-free FusionArchetypeRegistry at module load; a side-effect import in
 // SurvivorsGameplayState ensures registration runs before any fusion is cast.
-import { Vector3 } from '@babylonjs/core';
+import { Vector3 } from 'three';
 import { StatusEffect } from '../GameTypes';
 import { dealElementalHit, aoeBurst, chainHit, gatherVortex, persistentZone, omniVolley, deliverAutocast } from './PowerEffects';
 import { registerAutocastArchetype, registerPassiveArchetype, archetypeKey } from './FusionArchetypeRegistry';

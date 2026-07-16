@@ -1,7 +1,7 @@
 import { Camera, Color, HemisphereLight, OrthographicCamera, PointLight, Vector3 } from 'three';
 import { GameState } from './GameState';
 import { MenuState } from '../menu/MenuState';
-import { SurvivorsStubState } from './SurvivorsStubState';
+import { SurvivorsGameplayState } from '../survivors/SurvivorsGameplayState';
 import { GameOverState } from '../game-over/GameOverState';
 import { AssetManager } from './AssetManager';
 import { StateManager } from './StateManager';
@@ -117,7 +117,7 @@ export class Game {
 
         // Register game states (their constructors don't touch the scene yet - only enter() does)
         this.stateManager.registerState('menu', new MenuState(this));
-        this.stateManager.registerState('survivors', new SurvivorsStubState(this));
+        this.stateManager.registerState('survivors', new SurvivorsGameplayState(this));
         this.stateManager.registerState('gameOver', new GameOverState(this));
 
         // Initialize pause screen

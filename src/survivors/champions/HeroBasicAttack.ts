@@ -1,4 +1,4 @@
-import { Scene, Vector3, MeshBuilder, Mesh, Color3, Observer } from '@babylonjs/core';
+import { Vector3, Mesh, Color, CircleGeometry, DoubleSide, MeshBasicMaterial, MeshPhongMaterial } from 'three';
 import { Champion } from './Champion';
 import { PowerSlotManager } from '../powers/PowerSlotManager';
 import { EnchantmentHitContext, PowerElement } from '../powers/PowerDefinitions';
@@ -7,8 +7,13 @@ import { rollCrit } from '../enemies/critRoll';
 import { PlayerStats } from '../PlayerStats';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
 import { acquireProjectile, releaseProjectile } from '../../engine/rendering/ProjectilePool';
+import { setMeshOpacity } from '../../engine/rendering/LowPolyMaterial';
 import { blendElements } from '../ElementColors';
 import { emitCoopFx } from '../coop/CoopFx';
+import { buildArrowMesh } from '../powers/ArrowMesh';
+import { createSphere, createTorus, disposeMesh } from '../../engine/three/primitives';
+import { headingToYaw } from '../../engine/three/math';
+import type { SceneHost, UpdateToken } from '../../engine/three/SceneHost';
 
 // Module-level scratch vectors — safe because update() is not reentrant (frames serialize)
 const _scratchA = new Vector3();
@@ -38,7 +43,7 @@ interface ProjectileFlight {
     poolKey: string;
     target: BasicAttackTarget;
     shape: ProjectileShape;
-    trailColor: Color3;
+    trailColor: Color;
     trailTimer: number;
     capturedDamage: number;
     heroPos: Vector3;
@@ -51,9 +56,12 @@ interface ProjectileFlight {
 interface StreakPuff { mesh: Mesh; elapsed: number; }
 const STREAK_LIFETIME_S = 0.22;
 const STREAK_POOL_MAX = 48;
+/** Base alpha of a streak puff (the fade multiplies this, matching the old
+ *  material.alpha(0.7) × mesh.visibility(1 - t) product). */
+const STREAK_BASE_ALPHA = 0.7;
 
 export class HeroBasicAttack {
-    private scene: Scene;
+    private scene: SceneHost;
     private hero: Champion;
     private cooldown: number = 0;
     private baseFireInterval: number;
@@ -85,7 +93,7 @@ export class HeroBasicAttack {
     private liveProjectiles: ProjectileFlight[] = [];
     private liveStreaks: StreakPuff[] = [];
     private streakPool: Mesh[] = [];
-    private flightObserver: Observer<Scene> | null = null;
+    private flightToken: UpdateToken | null = null;
 
     /**
      * When set (co-op guest), a hit reports to the host instead of mutating enemy HP.
@@ -94,7 +102,7 @@ export class HeroBasicAttack {
     public damageRouter: ((enemy: Enemy, amount: number, element: PowerElement, isCrit: boolean) => void) | null = null;
 
     constructor(
-        scene: Scene,
+        scene: SceneHost,
         hero: Champion,
         opts: {
             mode: BasicAttackMode;
@@ -182,7 +190,7 @@ export class HeroBasicAttack {
             (typeof hero.isSpecialActive === 'function' && hero.isSpecialActive()) ||
             (typeof hero.isAttackActive  === 'function' && hero.isAttackActive());
         const t = this.targetProvider();
-        const dist = t ? Vector3.Distance(this.getHeroPosition(), t.position) : -1;
+        const dist = t ? this.getHeroPosition().distanceTo(t.position) : -1;
         return {
             busy,
             hasTarget: !!t && (t.isAlive?.() ?? true),
@@ -240,7 +248,7 @@ export class HeroBasicAttack {
             if (!target || !target.isAlive()) return;
 
             const heroPos = this.getHeroPosition();
-            const dist = Vector3.Distance(heroPos, target.position);
+            const dist = heroPos.distanceTo(target.position);
             if (dist > this.effectiveRange) return;
 
             const extras = this.playerStats?.extraAttacks ?? 0;
@@ -404,82 +412,94 @@ export class HeroBasicAttack {
         const tint = active.length > 0 ? blendElements(active) : null;
 
         // Thick golden torus on the ground — the main slash arc readout
-        const ring = MeshBuilder.CreateTorus(
+        const ring = createTorus(
             'swingRing',
             { diameter: range * 2, thickness: 0.45, tessellation: 32 },
             this.scene,
         );
-        ring.position.copyFrom(center);
+        ring.position.copy(center);
         ring.position.y = 0.25;
         // Cache the material by its tint hue. There are only finitely many element
         // blends, so each variant is compiled once and reused forever — no per-swing
-        // allocation, nothing to orphan into scene.materials. The per-frame fade is
-        // driven by mesh.visibility below (effective alpha = material.alpha *
-        // mesh.visibility), so this shared frozen material is NEVER mutated in place.
+        // allocation, nothing to orphan into the scene. The per-frame fade goes
+        // through setMeshOpacity (clone-on-write), so this shared cached material is
+        // NEVER mutated in place.
         const ringMat = tint
-            ? getCachedMaterial(this.scene, 'swingRingMatElem_' + tint.toHexString(), m => {
-                m.emissiveColor = tint.scale(1.1);
-                m.diffuseColor = new Color3(0, 0, 0);
-                m.disableLighting = true;
-                m.alpha = 0.9;
+            ? getCachedMaterial('swingRingMatElem_' + tint.getHexString(), m => {
+                m.emissive.copy(tint).multiplyScalar(1.1);
+                m.color.set(0, 0, 0); // was disableLighting — emissive-only look
+                m.transparent = true;
+                m.opacity = 0.9;
+                m.depthWrite = false;
             })
-            : getCachedMaterial(this.scene, 'swingRingMat', m => {
-                m.emissiveColor = new Color3(1, 0.85, 0.4);
-                m.diffuseColor = new Color3(0, 0, 0);
-                m.alpha = 0.9;
+            : getCachedMaterial('swingRingMat', m => {
+                m.emissive.set(1, 0.85, 0.4);
+                m.color.set(0, 0, 0);
+                m.transparent = true;
+                m.opacity = 0.9;
+                m.depthWrite = false;
             });
         ring.material = ringMat;
-        ring.scaling.set(0.7, 0.7, 0.7); // starts a bit smaller
+        ring.scale.set(0.7, 0.7, 0.7); // starts a bit smaller
 
-        // Sweeping blade trail — a flat half-disc that rotates around the hero matching the spin
-        const arc = MeshBuilder.CreateDisc(
-            'swingArc',
-            { radius: range, tessellation: 32, arc: 0.5 },
-            this.scene,
-        );
-        arc.position.copyFrom(center);
+        // Sweeping blade trail — a flat half-disc that rotates around the hero matching
+        // the spin. (Direct CircleGeometry: primitives.createDisc has no half-arc option.)
+        const arc = new Mesh(new CircleGeometry(range, 32, 0, Math.PI));
+        arc.name = 'swingArc';
+        this.scene.scene.add(arc);
+        arc.position.copy(center);
         arc.position.y = 0.35;
+        arc.rotation.order = 'YXZ'; // Babylon Euler order: yaw (swept per-frame) then this pitch
         arc.rotation.x = Math.PI / 2;
         const arcMat = tint
-            ? getCachedMaterial(this.scene, 'swingArcMatElem_' + tint.toHexString(), m => {
-                m.emissiveColor = tint.scale(1.25);
-                m.diffuseColor = new Color3(0, 0, 0);
-                m.disableLighting = true;
-                m.alpha = 0.5;
+            ? getCachedMaterial('swingArcMatElem_' + tint.getHexString(), m => {
+                m.emissive.copy(tint).multiplyScalar(1.25);
+                m.color.set(0, 0, 0);
+                m.transparent = true;
+                m.opacity = 0.5;
+                m.depthWrite = false;
+                m.side = DoubleSide; // flat disc must read from above regardless of winding
             })
-            : getCachedMaterial(this.scene, 'swingArcMat', m => {
-                m.emissiveColor = new Color3(1, 0.95, 0.7);
-                m.diffuseColor = new Color3(0, 0, 0);
-                m.alpha = 0.5;
+            : getCachedMaterial('swingArcMat', m => {
+                m.emissive.set(1, 0.95, 0.7);
+                m.color.set(0, 0, 0);
+                m.transparent = true;
+                m.opacity = 0.5;
+                m.depthWrite = false;
+                m.side = DoubleSide;
             });
         arc.material = arcMat;
 
         const duration = 0.35; // seconds — matches Champion spin duration roughly
         let elapsed = 0;
 
-        const observer = this.scene.onBeforeRenderObservable.add(() => {
-            const dt = this.scene.getEngine().getDeltaTime() / 1000;
+        let token: UpdateToken | null = null;
+        token = this.scene.onBeforeRender.add(() => {
+            const dt = this.scene.deltaSeconds;
             elapsed += dt;
             const t = Math.min(elapsed / duration, 1);
 
             // Ring: expand from 0.7 to 1.0× and fade out. Fade is per-mesh via
-            // visibility (effective alpha = material.alpha * mesh.visibility) so the
-            // shared cached material is never mutated and concurrent swings can't fight.
+            // setMeshOpacity (first call clones the cached material into a mesh-owned
+            // copy), so the shared cached material is never mutated and concurrent
+            // swings can't fight. Effective alpha = base alpha × (1 - t), matching
+            // the old material.alpha × mesh.visibility product.
             const ringScale = 0.7 + 0.3 * t;
-            ring.scaling.set(ringScale, ringScale, ringScale);
-            ring.visibility = 1 - t;
+            ring.scale.set(ringScale, ringScale, ringScale);
+            setMeshOpacity(ring, 0.9 * (1 - t));
 
             // Arc: sweep a full 360° (the half-disc rotates twice to look like a continuous sweep).
             // Negative sign = clockwise (viewed from above), matching the Aulus whirlwind spin.
             arc.rotation.y = -t * Math.PI * 2;
-            arc.visibility = 1 - t;
+            setMeshOpacity(arc, 0.5 * (1 - t));
 
             if (t >= 1) {
-                // Dispose only the meshes — the materials are cached/shared and must
-                // never be disposed (clearMaterialCache() frees them on run teardown).
-                ring.dispose();
-                arc.dispose();
-                this.scene.onBeforeRenderObservable.remove(observer);
+                // disposeMesh frees the meshes + their setMeshOpacity clones (flagged
+                // ownedMaterial); the cached shared materials are skipped —
+                // clearMaterialCache() frees them on run teardown.
+                disposeMesh(ring);
+                disposeMesh(arc);
+                this.scene.onBeforeRender.remove(token);
             }
         });
     }
@@ -490,50 +510,41 @@ export class HeroBasicAttack {
 
     /** Build the projectile mesh for this attack's configured shape.
      *
-     *  IMPORTANT: every shape is merged into a SINGLE mesh with its facing baked
-     *  into the vertices (forward = +Z). The projectile pool resets rotation on
-     *  reuse (acquireProjectile), so orientation must NOT live in the transform —
-     *  the old per-part `rotation.x = PI/2` was wiped on the first pool reuse and
-     *  arrows flew as unrotated vertical sticks. A single mesh also means the
-     *  cached material covers the whole arrow (tip + fletching used to render
-     *  with the default gray material). */
+     *  IMPORTANT: the projectile pool resets the ROOT transform on reuse
+     *  (acquireProjectile), so any baked orientation (the arrow's +Z pitch) is
+     *  re-applied per spawn in spawnProjectile — never rely on rotation set here
+     *  surviving a pool round-trip. Sub-parts (arrow tip/fletch, bolt halo) live
+     *  as children whose LOCAL transforms the pool never touches. Materials are
+     *  applied per spawn to the whole subtree (applyProjectileMaterial). */
     private createProjectileMesh(): Mesh {
         const scene = this.scene;
         switch (this.projectileShape) {
-            case 'arrow': {
-                // Shaft + cone tip + two crossed fletching fins, built along +Y
-                const shaft = MeshBuilder.CreateCylinder('arrowShaft',
-                    { height: 0.62, diameterTop: 0.04, diameterBottom: 0.04, tessellation: 6 }, scene);
-                const tip = MeshBuilder.CreateCylinder('arrowTip',
-                    { height: 0.18, diameterTop: 0, diameterBottom: 0.11, tessellation: 6 }, scene);
-                tip.position.y = 0.39; // tip at the front end of the shaft
-                const fletchA = MeshBuilder.CreateBox('arrowFletchA',
-                    { width: 0.13, height: 0.12, depth: 0.025 }, scene);
-                fletchA.position.y = -0.28;
-                const fletchB = MeshBuilder.CreateBox('arrowFletchB',
-                    { width: 0.025, height: 0.12, depth: 0.13 }, scene);
-                fletchB.position.y = -0.28;
-                const merged = Mesh.MergeMeshes([shaft, tip, fletchA, fletchB], true, false)!;
-                merged.name = 'basicArrow';
-                merged.rotation.x = Math.PI / 2; // point the shaft along +Z…
-                merged.bakeCurrentTransformIntoVertices(); // …and bake it so pool resets can't undo it
-                return merged;
-            }
+            case 'arrow':
+                // Shaft + cone tip + fletching, forward = +Z (rotation.order 'YXZ' +
+                // pitch, re-asserted per spawn). Shared with the power arrows.
+                return buildArrowMesh(scene, 'basicArrow', new Color(0.7, 0.5, 0.3));
             case 'mageBolt': {
                 // Glowing orb with a halo ring perpendicular to the flight axis
-                const orb = MeshBuilder.CreateSphere('mageBolt',
+                const orb = createSphere('mageBolt',
                     { diameter: 0.4, segments: 4 }, scene);
-                const halo = MeshBuilder.CreateTorus('mageBoltHalo',
-                    { diameter: 0.55, thickness: 0.05, tessellation: 12 }, scene);
+                const halo = createTorus('mageBoltHalo',
+                    { diameter: 0.55, thickness: 0.05, tessellation: 12 });
                 halo.rotation.x = Math.PI / 2;
-                const merged = Mesh.MergeMeshes([orb, halo], true, false)!;
-                merged.name = 'mageBoltMerged';
-                return merged;
+                orb.add(halo);
+                return orb;
             }
             case 'sphere':
             default:
-                return MeshBuilder.CreateSphere('basicProj', { diameter: 0.3, segments: 4 }, scene);
+                return createSphere('basicProj', { diameter: 0.3, segments: 4 }, scene);
         }
+    }
+
+    /** Assign one material to the projectile root and every sub-part. */
+    private applyProjectileMaterial(proj: Mesh, mat: MeshPhongMaterial): void {
+        proj.traverse(node => {
+            const m = node as Mesh;
+            if (m.isMesh) m.material = mat;
+        });
     }
 
     /**
@@ -623,13 +634,12 @@ export class HeroBasicAttack {
     }
 
     private spawnProjectile(from: Vector3, target: BasicAttackTarget): void {
-        const scene = this.scene;
         // Co-op: broadcast this projectile so the teammate sees the shot (cosmetic only —
         // damage is already routed authoritatively). No-op in single-player.
         emitCoopFx('proj', from.x, from.z, target.position.x, target.position.z, this.projectileShape);
         const poolKey = `basic_attack_proj_${this.projectileShape}`;
-        const proj = acquireProjectile(scene, poolKey, () => this.createProjectileMesh());
-        proj.position.copyFrom(from);
+        const proj = acquireProjectile(poolKey, () => this.createProjectileMesh());
+        proj.position.copy(from);
         proj.position.y = 1;
 
         // Element-matched tint: blend the colors of every equipped power element
@@ -640,38 +650,41 @@ export class HeroBasicAttack {
             : [];
         const tint = activeElements.length > 0 ? blendElements(activeElements) : null;
         const matKey = tint
-            ? `basic_attack_proj_mat_${this.projectileShape}_${tint.toHexString()}`
+            ? `basic_attack_proj_mat_${this.projectileShape}_${tint.getHexString()}`
             : `basic_attack_proj_mat_${this.projectileShape}`;
-        proj.material = getCachedMaterial(scene, matKey, m => {
+        const mat = getCachedMaterial(matKey, m => {
             if (tint) {
-                m.emissiveColor = tint.scale(1.1);
-                m.diffuseColor  = tint.scale(0.3);
-                m.disableLighting = true;
+                m.emissive.copy(tint).multiplyScalar(1.1);
+                m.color.set(0, 0, 0); // was disableLighting — emissive-only look
                 return;
             }
             switch (this.projectileShape) {
                 case 'arrow':
-                    m.emissiveColor = new Color3(0.7, 0.5, 0.3);
-                    m.diffuseColor  = new Color3(0.7, 0.5, 0.3);
+                    m.emissive.set(0.7, 0.5, 0.3);
+                    m.color.set(0.7, 0.5, 0.3);
                     break;
                 case 'mageBolt':
-                    m.emissiveColor = new Color3(0.6, 0.4, 1.0);
-                    m.diffuseColor  = new Color3(0.2, 0.1, 0.4);
+                    m.emissive.set(0.6, 0.4, 1.0);
+                    m.color.set(0.2, 0.1, 0.4);
                     break;
                 case 'sphere':
                 default:
-                    m.emissiveColor = new Color3(1, 0.9, 0.4);
+                    m.emissive.set(1, 0.9, 0.4);
                     break;
             }
         });
+        this.applyProjectileMaterial(proj, mat);
 
-        // Face the target immediately — the per-frame orient below only runs from
-        // the next render, which left one frame of stale (pool-reset) facing.
+        // Re-assert the arrow's baked forward orientation (the pool reset zeroes the
+        // root rotation) and face the target immediately — the per-frame orient below
+        // only runs from the next render, which left one frame of stale facing.
         if (this.projectileShape === 'arrow') {
-            proj.rotation.y = Math.atan2(target.position.x - from.x, target.position.z - from.z);
+            proj.rotation.order = 'YXZ'; // yaw applied around world Y, then the +Z pitch
+            proj.rotation.x = Math.PI / 2;
+            proj.rotation.y = headingToYaw(target.position.x - from.x, target.position.z - from.z);
         }
 
-        // Hand the flight to the single shared observer (see updateFlights).
+        // Hand the flight to the single shared observer (see ensureFlightObserver).
         this.liveProjectiles.push({
             proj,
             poolKey,
@@ -679,7 +692,7 @@ export class HeroBasicAttack {
             shape: this.projectileShape,
             // Element-colored streak behind the arrow while it flies (gold when
             // no elements are equipped yet).
-            trailColor: tint ?? new Color3(1, 0.85, 0.5),
+            trailColor: tint ?? new Color(1, 0.85, 0.5),
             trailTimer: 0,
             // Snapshot damage at fire time — projectile carries that value;
             // upgrades mid-flight don't retroactively buff already-fired arrows.
@@ -695,9 +708,9 @@ export class HeroBasicAttack {
      *  trail puff. Replaces the old observer-per-projectile/per-puff pattern,
      *  whose observer count scaled with attack speed. */
     private ensureFlightObserver(): void {
-        if (this.flightObserver) return;
-        this.flightObserver = this.scene.onBeforeRenderObservable.add(() => {
-            const dt = this.scene.getEngine().getDeltaTime() / 1000;
+        if (this.flightToken) return;
+        this.flightToken = this.scene.onBeforeRender.add(() => {
+            const dt = this.scene.deltaSeconds;
 
             // Backwards with swap-remove so releases don't shift the array.
             for (let i = this.liveProjectiles.length - 1; i >= 0; i--) {
@@ -711,8 +724,10 @@ export class HeroBasicAttack {
                 const s = this.liveStreaks[i];
                 s.elapsed += dt;
                 const t = Math.min(s.elapsed / STREAK_LIFETIME_S, 1);
-                s.mesh.scaling.setAll(1 - t);
-                s.mesh.visibility = 1 - t;
+                s.mesh.scale.setScalar(1 - t);
+                // Puff materials are per-mesh owned (see spawnFlightStreak) — safe
+                // to mutate. Matches the old material.alpha × visibility product.
+                (s.mesh.material as MeshBasicMaterial).opacity = STREAK_BASE_ALPHA * (1 - t);
                 if (t >= 1) {
                     this.releaseStreak(s.mesh);
                     this.liveStreaks[i] = this.liveStreaks[this.liveStreaks.length - 1];
@@ -730,14 +745,14 @@ export class HeroBasicAttack {
             releaseProjectile(f.poolKey, proj);
             return false;
         }
-        _scratchA.copyFrom(target.position);
+        _scratchA.copy(target.position);
         _scratchA.y = 1;
-        _scratchA.subtractToRef(proj.position, _scratchB);
+        _scratchB.subVectors(_scratchA, proj.position);
         const dist = _scratchB.length();
 
         // Orient arrow to face travel direction
         if (f.shape === 'arrow' && dist > 0.01) {
-            proj.rotation.y = Math.atan2(_scratchB.x, _scratchB.z);
+            proj.rotation.y = headingToYaw(_scratchB.x, _scratchB.z);
         }
 
         if (dist < 0.4) {
@@ -791,8 +806,8 @@ export class HeroBasicAttack {
         const speed = 22;
         const step = Math.min(dist, speed * dt);
         _scratchB.normalize();
-        _scratchB.scaleInPlace(step);
-        proj.position.addInPlace(_scratchB);
+        _scratchB.multiplyScalar(step);
+        proj.position.add(_scratchB);
 
         if (f.shape === 'arrow' || f.shape === 'mageBolt') {
             f.trailTimer += dt;
@@ -840,50 +855,48 @@ export class HeroBasicAttack {
 
     /** Small fading puff behind an in-flight projectile. Meshes come from a
      *  pool (was: a fresh sphere + observer every 0.06s per arrow); the fade is
-     *  driven by the shared flight observer. Material is cached by color hex
-     *  (one per element blend — bounded) and never mutated. */
-    private spawnFlightStreak(position: Vector3, color: Color3): void {
+     *  driven by the shared flight observer. Each pooled puff owns ONE mutable
+     *  unlit material (pool-capped, so bounded) that is recolored per spawn —
+     *  never a shared cached material, since the fade mutates opacity per frame. */
+    private spawnFlightStreak(position: Vector3, color: Color): void {
         const scene = this.scene;
         let puff = this.streakPool.pop();
         if (!puff) {
-            puff = MeshBuilder.CreateSphere('basicAttackStreak', { diameter: 0.14, segments: 3 }, scene);
-            puff.isPickable = false;
+            puff = createSphere('basicAttackStreak', { diameter: 0.14, segments: 3 }, scene);
+            puff.material = new MeshBasicMaterial({ transparent: true, depthWrite: false });
+            puff.userData.ownedMaterial = true; // disposeMesh frees it with the puff
         }
-        puff.setEnabled(true);
-        puff.scaling.setAll(1);
-        puff.visibility = 1;
-        puff.position.copyFrom(position);
-        puff.material = getCachedMaterial(scene, `basicAttackStreakMat_${color.toHexString()}`, m => {
-            m.emissiveColor = color;
-            m.diffuseColor = new Color3(0, 0, 0);
-            m.disableLighting = true;
-            m.alpha = 0.7;
-        });
+        puff.visible = true;
+        puff.scale.setScalar(1);
+        const mat = puff.material as MeshBasicMaterial;
+        mat.color.copy(color);
+        mat.opacity = STREAK_BASE_ALPHA;
+        puff.position.copy(position);
         this.liveStreaks.push({ mesh: puff, elapsed: 0 });
     }
 
     /** Return a faded puff to the pool (or dispose past the cap). */
     private releaseStreak(mesh: Mesh): void {
         if (this.streakPool.length < STREAK_POOL_MAX) {
-            mesh.setEnabled(false);
+            mesh.visible = false;
             this.streakPool.push(mesh);
         } else {
-            mesh.dispose(); // cached/shared material — keep it
+            disposeMesh(mesh); // ownedMaterial flag frees its material too
         }
     }
 
     /** Tear down the shared flight observer, live projectiles, and the streak
      *  pool. Called from HeroController.dispose() on run exit. */
     public dispose(): void {
-        if (this.flightObserver) {
-            this.scene.onBeforeRenderObservable.remove(this.flightObserver);
-            this.flightObserver = null;
+        if (this.flightToken) {
+            this.scene.onBeforeRender.remove(this.flightToken);
+            this.flightToken = null;
         }
         for (const f of this.liveProjectiles) releaseProjectile(f.poolKey, f.proj);
         this.liveProjectiles.length = 0;
-        for (const s of this.liveStreaks) s.mesh.dispose();
+        for (const s of this.liveStreaks) disposeMesh(s.mesh);
         this.liveStreaks.length = 0;
-        for (const m of this.streakPool) m.dispose();
+        for (const m of this.streakPool) disposeMesh(m);
         this.streakPool.length = 0;
     }
 

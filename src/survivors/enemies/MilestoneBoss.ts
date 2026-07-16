@@ -1,8 +1,12 @@
-import { Vector3, MeshBuilder, StandardMaterial, Color3, Mesh, AssetContainer, AnimationGroup, TransformNode, Quaternion } from '@babylonjs/core';
+import { Box3, Color, Mesh, MeshPhongMaterial, Vector3 } from 'three';
 import { Game } from '../../engine/Game';
 import { BossEnemy } from './BossEnemy';
 import { DifficultyTuning } from '../DifficultyTuning';
 import { emitCoopFx } from '../coop/CoopFx';
+import { AnimGroup } from '../../engine/three/AnimGroup';
+import type { GlbContainer } from '../../engine/three/assets';
+import { headingToYaw } from '../../engine/three/math';
+import { createDisc, createPlane, disposeMesh, isMeshDisposed } from '../../engine/three/primitives';
 
 /**
  * Special-move state machine. The boss alternates between free movement
@@ -101,7 +105,7 @@ const NOVA_DAMAGE_FACTOR = 1.3; // × the boss's melee hit damage
 export class MilestoneBoss extends BossEnemy {
     /** Static slot used by EnemyManager.spawnSurvivorsEnemy to stage a preloaded GLB
      *  asset (per-tier boss model) before constructing. createMesh consumes + clears. */
-    public static pendingAsset: AssetContainer | null = null;
+    public static pendingAsset: GlbContainer | null = null;
 
     /** Public so EnemyManager can check it on death without instanceof. */
     public readonly isMilestone: boolean = true;
@@ -150,10 +154,10 @@ export class MilestoneBoss extends BossEnemy {
 
     // GLB animation state (mirrors the minion pattern).
     private usingGLB: boolean = false;
-    private glbWalkAnim: AnimationGroup | null = null;
-    private glbAttackAnim: AnimationGroup | null = null;
-    private glbIdleAnim: AnimationGroup | null = null;
-    private glbCurrentAnim: AnimationGroup | null = null;
+    private glbWalkAnim: AnimGroup | null = null;
+    private glbAttackAnim: AnimGroup | null = null;
+    private glbIdleAnim: AnimGroup | null = null;
+    private glbCurrentAnim: AnimGroup | null = null;
     /** Slightly larger than the inherited melee swing range so the GLB attack
      *  animation eases in just before the windup begins. */
     private static readonly GLB_ATTACK_RANGE = 3.2;
@@ -221,45 +225,32 @@ export class MilestoneBoss extends BossEnemy {
         super.createMesh();
     }
 
-    private createMeshFromGLB(asset: AssetContainer): void {
+    private createMeshFromGLB(asset: GlbContainer): void {
         this.usingGLB = true;
-        this.mesh = new Mesh('milestoneBossGlbRoot', this.scene);
-        this.mesh.position.copyFrom(this.position);
+        this.mesh = new Mesh(); // empty transform host (renders nothing)
+        this.mesh.name = 'milestoneBossGlbRoot';
+        this.scene.scene.add(this.mesh);
+        this.mesh.position.copy(this.position);
 
-        const inst = asset.instantiateModelsToScene(
-            name => `boss_${name}`,
-            true,
-            { doNotInstantiate: true },
-        );
+        const inst = asset.instantiate(this.scene, 'boss_');
+        this.glbInstance = inst; // base field - dispose() frees cloned materials + skeletons + mixer hook
+        const root = inst.root;
+        this.mesh.add(root);
         // Tier 5 (Elemental Lord) dwarfs every other boss.
         const BOSS_SCALE = 2.2 * (this.waveTier >= 5 ? 1.4 : 1);
-        for (const root of inst.rootNodes) {
-            root.parent = this.mesh;
-            if ('scaling' in root && root.scaling) {
-                (root as TransformNode).scaling.scaleInPlace(BOSS_SCALE);
-            }
-            const tn = root as TransformNode;
-            const flip = Quaternion.RotationYawPitchRoll(Math.PI, 0, 0);
-            if (tn.rotationQuaternion) {
-                tn.rotationQuaternion = flip.multiply(tn.rotationQuaternion);
-            } else if (tn.rotation) {
-                tn.rotation.y += Math.PI;
-            }
-        }
+        root.scale.multiplyScalar(BOSS_SCALE);
+        // Keep the Babylon-era 180-degree Y pre-rotation so facing math stays aligned
+        // (Phase D handedness audit may remove it):
+        root.rotation.y += Math.PI;
 
         // Feet-on-ground offset.
-        this.mesh.computeWorldMatrix(true);
-        const bbox = this.mesh.getHierarchyBoundingVectors(true);
+        this.mesh.updateMatrixWorld(true);
+        const bbox = new Box3().setFromObject(this.mesh);
         const feetOffset = -bbox.min.y;
-        for (const root of inst.rootNodes) {
-            if ('position' in root && root.position) {
-                (root as TransformNode).position.y += feetOffset;
-            }
-        }
+        root.position.y += feetOffset;
 
         // Register groups for base-class dispose cleanup (prevents animatable leak).
         this.glbAnimationGroups = inst.animationGroups;
-        this.glbSkeletons = inst.skeletons;
 
         for (const ag of inst.animationGroups) ag.stop();
         for (const ag of inst.animationGroups) {
@@ -283,7 +274,7 @@ export class MilestoneBoss extends BossEnemy {
         }
     }
 
-    private playGlbAnim(slot: AnimationGroup | null, loop: boolean): void {
+    private playGlbAnim(slot: AnimGroup | null, loop: boolean): void {
         if (!slot) return;
         if (this.glbCurrentAnim === slot) return;
         if (this.glbCurrentAnim) this.glbCurrentAnim.stop();
@@ -523,10 +514,10 @@ export class MilestoneBoss extends BossEnemy {
             }
         }
 
-        if (this.mesh && !this.mesh.isDisposed()) {
-            this.mesh.position.copyFrom(this.position);
+        if (this.mesh && !isMeshDisposed(this.mesh)) {
+            this.mesh.position.copy(this.position);
             this.mesh.position.y = this.position.y + 1.2;
-            this.mesh.rotation.y = -Math.atan2(this.dashDirZ, this.dashDirX) + Math.PI / 2;
+            this.mesh.rotation.y = headingToYaw(this.dashDirX, this.dashDirZ);
         }
     }
 
@@ -566,8 +557,8 @@ export class MilestoneBoss extends BossEnemy {
         }
 
         // Visual tell: the boss visibly swells.
-        if (this.mesh && !this.mesh.isDisposed()) {
-            this.mesh.scaling.scaleInPlace(1.2);
+        if (this.mesh && !isMeshDisposed(this.mesh)) {
+            this.mesh.scale.multiplyScalar(1.2);
         }
         this.updateHealthBar();
     }
@@ -582,19 +573,26 @@ export class MilestoneBoss extends BossEnemy {
         this.disposeTelegraphRing();
 
         const length = DASH_DISTANCE;
-        const ring = MeshBuilder.CreatePlane('mbossTelegraph', { width: 1.4, height: length }, this.scene);
-        ring.rotation.x = Math.PI / 2;
-        ring.rotation.y = -Math.atan2(this.dashDirZ, this.dashDirX) + Math.PI / 2;
+        const ring = createPlane('mbossTelegraph', { width: 1.4, height: length }, this.scene);
+        // Babylon laid the plane flat with rotation.x = +PI/2 under its default YXZ
+        // rotation order; Three planes face +Z, so -PI/2 faces up. Keep YXZ order so
+        // the yaw still applies in the ground plane like Babylon.
+        ring.rotation.order = 'YXZ';
+        ring.rotation.x = -Math.PI / 2;
+        ring.rotation.y = headingToYaw(this.dashDirX, this.dashDirZ);
         ring.position.x = this.position.x + this.dashDirX * (length / 2);
         ring.position.z = this.position.z + this.dashDirZ * (length / 2);
         ring.position.y = 0.05;
 
-        const mat = new StandardMaterial('mbossTelegraphMat', this.scene);
-        mat.emissiveColor = new Color3(1, 0.1, 0.1);
-        mat.diffuseColor  = new Color3(0, 0, 0);
-        mat.specularColor = Color3.Black();
-        mat.alpha = 0.55;
+        const mat = new MeshPhongMaterial();
+        mat.name = 'mbossTelegraphMat';
+        mat.emissive = new Color(1, 0.1, 0.1);
+        mat.color    = new Color(0, 0, 0);
+        mat.specular = new Color(0, 0, 0);
+        mat.opacity = 0.55;
+        mat.transparent = true;
         ring.material = mat;
+        ring.userData.ownedMaterial = true;
 
         this.telegraphRing = ring;
     }
@@ -603,24 +601,28 @@ export class MilestoneBoss extends BossEnemy {
     private spawnPullTelegraph(): void {
         this.disposeTelegraphRing();
 
-        const ring = MeshBuilder.CreateDisc('mbossPullTele', { radius: PULL_TELEGRAPH_RADIUS, tessellation: 24 }, this.scene);
-        ring.rotation.x = Math.PI / 2;
+        const ring = createDisc('mbossPullTele', { radius: PULL_TELEGRAPH_RADIUS, tessellation: 24 }, this.scene);
+        // Three discs face +Z, so -PI/2 (not Babylon's +PI/2) lays it flat facing up.
+        ring.rotation.x = -Math.PI / 2;
         ring.position.set(this.position.x, 0.05, this.position.z);
 
-        const mat = new StandardMaterial('mbossPullTeleMat', this.scene);
-        mat.emissiveColor = new Color3(0.55, 0.1, 0.9);
-        mat.diffuseColor  = new Color3(0, 0, 0);
-        mat.specularColor = Color3.Black();
-        mat.alpha = 0.45;
+        const mat = new MeshPhongMaterial();
+        mat.name = 'mbossPullTeleMat';
+        mat.emissive = new Color(0.55, 0.1, 0.9);
+        mat.color    = new Color(0, 0, 0);
+        mat.specular = new Color(0, 0, 0);
+        mat.opacity = 0.45;
+        mat.transparent = true;
         ring.material = mat;
+        ring.userData.ownedMaterial = true;
 
         this.telegraphRing = ring;
     }
 
     private disposeTelegraphRing(): void {
-        if (this.telegraphRing && !this.telegraphRing.isDisposed()) {
-            // Pass disposeMaterialAndTextures=true so the per-special StandardMaterial doesn't leak.
-            this.telegraphRing.dispose(false, true);
+        if (this.telegraphRing && !isMeshDisposed(this.telegraphRing)) {
+            // Pass materials: true so the per-special material doesn't leak.
+            disposeMesh(this.telegraphRing, { materials: true });
         }
         this.telegraphRing = null;
     }
@@ -677,24 +679,28 @@ export class MilestoneBoss extends BossEnemy {
     }
 
     /** Orange ground disc telegraphing the nova radius. Same leak-safe pattern as the
-     *  pull telegraph: fresh StandardMaterial, freed with dispose(false, true). */
+     *  pull telegraph: fresh owned material, freed with disposeMesh(materials: true). */
     private spawnNovaTelegraph(): void {
         this.disposeNovaRing();
-        const ring = MeshBuilder.CreateDisc('mbossNovaTele', { radius: NOVA_RADIUS, tessellation: 32 }, this.scene);
-        ring.rotation.x = Math.PI / 2;
+        const ring = createDisc('mbossNovaTele', { radius: NOVA_RADIUS, tessellation: 32 }, this.scene);
+        // Three discs face +Z, so -PI/2 (not Babylon's +PI/2) lays it flat facing up.
+        ring.rotation.x = -Math.PI / 2;
         ring.position.set(this.position.x, 0.05, this.position.z);
-        const mat = new StandardMaterial('mbossNovaTeleMat', this.scene);
-        mat.emissiveColor = new Color3(1.0, 0.35, 0.08);
-        mat.diffuseColor  = new Color3(0, 0, 0);
-        mat.specularColor = Color3.Black();
-        mat.alpha = 0.4;
+        const mat = new MeshPhongMaterial();
+        mat.name = 'mbossNovaTeleMat';
+        mat.emissive = new Color(1.0, 0.35, 0.08);
+        mat.color    = new Color(0, 0, 0);
+        mat.specular = new Color(0, 0, 0);
+        mat.opacity = 0.4;
+        mat.transparent = true;
         ring.material = mat;
+        ring.userData.ownedMaterial = true;
         this.novaRing = ring;
     }
 
     private disposeNovaRing(): void {
-        if (this.novaRing && !this.novaRing.isDisposed()) {
-            this.novaRing.dispose(false, true); // free the per-nova material too
+        if (this.novaRing && !isMeshDisposed(this.novaRing)) {
+            disposeMesh(this.novaRing, { materials: true }); // free the per-nova material too
         }
         this.novaRing = null;
     }

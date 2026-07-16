@@ -1,4 +1,4 @@
-import { Vector3 } from '@babylonjs/core';
+import { Vector3 } from 'three';
 import { Game } from '../../engine/Game';
 import { TankEnemy } from './TankEnemy';
 

@@ -1,4 +1,4 @@
-import { Vector3, Scene, ShadowGenerator } from '@babylonjs/core';
+import { Vector3, type Light, type Mesh } from 'three';
 import { Game } from '../../engine/Game';
 import { Enemy, resetDeathBurstBudget } from './Enemy';
 import { type TargetProvider, pickNearestAlive } from './nearestTarget';
@@ -7,7 +7,7 @@ import { FastEnemy } from './FastEnemy';
 import { TankEnemy } from './TankEnemy';
 import { BossEnemy } from './BossEnemy';
 import { MilestoneBoss } from './MilestoneBoss';
-import { AssetContainer } from '@babylonjs/core';
+import type { GlbContainer } from '../../engine/three/assets';
 import { SplittingEnemy } from './SplittingEnemy';
 import type { WaveManager } from '../WaveManager';
 import { HealerEnemy } from './HealerEnemy';
@@ -58,18 +58,17 @@ export class EnemyManager {
     private onEliteDeathCallback: (position: Vector3, element: string) => void = () => {};
     private onMilestoneBossDeathCallback: (position: Vector3, waveTier: number) => void = () => {};
     private waveManager: WaveManager | null = null;
-    /** Optional: when set, every spawned enemy is registered as a shadow
-     *  caster at spawn so the directional key light projects them onto the
-     *  arena floor. Master enable lives in scene.shadowsEnabled (toggled by
-     *  the settings UI) — when false, Babylon skips the shadow render pass
-     *  entirely, so registering casters here is cheap. Multiple generators
-     *  are supported so an enemy can cast into both the directional AND the
-     *  hero-torch shadow passes from a single registration call. */
-    private shadowGenerators: ShadowGenerator[] = [];
-    /** Preloaded GLB asset containers per enemy type. Passed in by SurvivorsGameplayState
+    /** When true, every spawned enemy's meshes get castShadow = true at spawn
+     *  so the shadow-mapped lights project them onto the arena floor. Which
+     *  light renders which caster (directional vs hero torch) is a LIGHT-side
+     *  setup owned by SurvivorsGameplayState (light.shadow config + layers);
+     *  this manager only flags the mesh trees. Enabled by setShadowGenerators
+     *  receiving at least one non-null light. */
+    private shadowsEnabled = false;
+    /** Preloaded GLB containers per enemy type. Passed in by SurvivorsGameplayState
      *  after load completes. spawnSurvivorsEnemy stages the asset on the matching enemy
      *  class's static pendingAsset slot before constructing the instance. */
-    private enemyAssets: Record<string, AssetContainer> = {};
+    private enemyAssets: Record<string, GlbContainer> = {};
 
     /** Monotonically-increasing counter assigned to each new enemy as its stable
      *  per-run `Enemy.id`. Reset to 0 in configureSurvivorsMode (once per run).
@@ -117,7 +116,7 @@ export class EnemyManager {
             const { position, path, count } = detail;
             for (let i = 0; i < count; i++) {
                 const offset = new Vector3((Math.random() - 0.5) * 1.5, 0, (Math.random() - 0.5) * 1.5);
-                const spawnPos = position.add(offset);
+                const spawnPos = (position as Vector3).clone().add(offset);
                 MiniEnemy.pendingAsset = this.enemyAssets['mini'] ?? null;
                 const mini = new MiniEnemy(this.game, spawnPos, [...path]);
                 this._applyOrbHpBonus(mini);
@@ -133,7 +132,7 @@ export class EnemyManager {
             const { position, radius, healAmount } = detail;
             for (const enemy of this.enemies) {
                 if (!enemy.isAlive()) continue;
-                const dist = Vector3.Distance(position, enemy.getPosition());
+                const dist = (position as Vector3).distanceTo(enemy.getPosition());
                 if (dist <= radius) {
                     enemy.heal(healAmount);
                 }
@@ -184,7 +183,7 @@ export class EnemyManager {
             const { position, path, count } = detail;
             for (let i = 0; i < count; i++) {
                 const offset = new Vector3((Math.random() - 0.5) * 1.5, 0, (Math.random() - 0.5) * 1.5);
-                const spawnPos = position.add(offset);
+                const spawnPos = (position as Vector3).clone().add(offset);
                 MiniEnemy.pendingAsset = this.enemyAssets['mini'] ?? null;
                 const mini = new MiniEnemy(this.game, spawnPos, this.heroProvider ? [] : [...path]);
                 if (this.heroProvider) {
@@ -353,32 +352,32 @@ export class EnemyManager {
 
     /** Register a preloaded GLB asset for the given enemy type. spawnSurvivorsEnemy
      *  stages it on the matching enemy class's static pendingAsset slot. */
-    public setEnemyAsset(type: string, container: AssetContainer): void {
+    public setEnemyAsset(type: string, container: GlbContainer): void {
         this.enemyAssets[type] = container;
     }
 
     /** Optional: route shadow caster registration through us — bosses + elites
      *  spawned via spawnSurvivorsEnemy will be added automatically. */
-    /** Replace the shadow-generator set. Pass an empty array (or omit) to
-     *  disable. Non-null entries register casters; nulls are filtered out so
-     *  callers can pass `[directional, torch]` even before both are ready. */
-    public setShadowGenerators(generators: (ShadowGenerator | null)[]): void {
-        this.shadowGenerators = generators.filter((g): g is ShadowGenerator => g !== null);
+    /** Enable/disable shadow casting for future spawns. Kept the Babylon-era
+     *  name + array shape so the call site stays `setShadowGenerators([dir,
+     *  torch])` / `setShadowGenerators([])` — but with Three the entries are
+     *  the shadow-casting LIGHTS and only their presence matters: casting is a
+     *  per-mesh flag (castShadow), not a per-generator render list, and Three
+     *  drops a mesh from the shadow pass automatically when it leaves the
+     *  scene (no renderList pruning needed on enemy disposal). */
+    public setShadowGenerators(lights: (Light | null)[]): void {
+        this.shadowsEnabled = lights.some(l => l !== null);
     }
 
-    /** Internal helper — registers the enemy's root mesh (and children) as
-     *  shadow casters for every wired generator. No-op when none are wired. */
+    /** Internal helper — flags the enemy's whole mesh tree as shadow casters.
+     *  No-op when shadow casting is disabled. */
     private _registerAsShadowCaster(enemy: Enemy): void {
-        if (this.shadowGenerators.length === 0) return;
-        const mesh = (enemy as unknown as { mesh: { name: string } | null }).mesh;
+        if (!this.shadowsEnabled) return;
+        const mesh = (enemy as unknown as { mesh: Mesh | null }).mesh;
         if (!mesh) return;
-        for (const g of this.shadowGenerators) {
-            g.addShadowCaster(mesh as never, true);
-        }
-        // Record the generators on the enemy so it removes its mesh from their
-        // renderLists when it is disposed — otherwise disposed enemy meshes
-        // accumulate forever in both per-frame shadow passes (the in-run freeze).
-        enemy.setShadowGenerators(this.shadowGenerators);
+        mesh.traverse(node => {
+            if ((node as Mesh).isMesh) node.castShadow = true;
+        });
     }
 
     /**
@@ -412,7 +411,7 @@ export class EnemyManager {
         // hits a 1–2s GPU stall the first time each variant (base + elite + each
         // boss tier) actually appears in a wave. We mirror the spawn-side staging
         // pattern: set pendingAsset on the class, then construct.
-        type EnemyClass = { pendingAsset: AssetContainer | null };
+        type EnemyClass = { pendingAsset: GlbContainer | null };
         const glbVariants: Array<{ cls: EnemyClass; key: string; build: () => Enemy }> = [
             { cls: BasicEnemy,     key: 'basic',        build: () => new BasicEnemy(this.game, farAway, []) },
             { cls: BasicEnemy,     key: 'basic_elite',  build: () => new BasicEnemy(this.game, farAway, []) },
@@ -462,96 +461,41 @@ export class EnemyManager {
             warmup.push(e);
         }
 
-        // 3) Force frustum inclusion. Babylon culls anything outside the camera
-        // before drawing — the far-away warmup meshes would normally be skipped,
-        // so the shader compile (the whole point of the prewarm) never happens.
+        // 3) Force frustum inclusion. The renderer culls anything outside the
+        // camera before drawing — the far-away warmup meshes would normally be
+        // skipped, so the shader compile (the whole point of the prewarm) never
+        // happens.
         for (const e of warmup) {
-            const root = (e as unknown as { mesh: { alwaysSelectAsActiveMesh: boolean; getChildMeshes: (deep: boolean) => { alwaysSelectAsActiveMesh: boolean }[] } | null }).mesh;
+            const root = (e as unknown as { mesh: Mesh | null }).mesh;
             if (!root) continue;
-            root.alwaysSelectAsActiveMesh = true;
-            for (const child of root.getChildMeshes(false)) {
-                child.alwaysSelectAsActiveMesh = true;
-            }
-        }
-
-        // Register every warmup mesh as a shadow caster so the generators' DEPTH
-        // shader gets compiled below. A ShadowGenerator renders casters through its
-        // OWN skinned depth effect — a SEPARATE program from the material's main
-        // shader (compiled in step 4). Without this, the first shadow-map render of
-        // each new shadow-casting type (tanks/bosses/healers/shields/splitters/minis
-        // + every elite; basics skip shadows) compiles the bone-skinning depth shader
-        // on the main thread — the freeze "when a new enemy type / elite appears".
-        // Milestone bosses register into BOTH generators (directional + torch), so
-        // they otherwise stall twice. _registerAsShadowCaster also records the
-        // generators on each enemy, so the e.dispose() below removes the warmup mesh
-        // from every renderList (no stale disposed-mesh refs left behind).
-        for (const e of warmup) this._registerAsShadowCaster(e);
-
-        this.game.getScene().render();
-
-        // 4) Force shader compilation to COMPLETE before we dispose. The render()
-        // above only kicks off compilation; under KHR_parallel_shader_compile the
-        // actual GLSL→GPU compile runs on a driver worker thread. Without this
-        // await, the first in-gameplay use of each shader stalls the main thread
-        // waiting for the still-in-flight compile (the actual freeze cause).
-        const compilePromises: Promise<void>[] = [];
-        type MeshLike = {
-            material: { forceCompilationAsync: (mesh: object) => Promise<void> } | null;
-            getChildMeshes: (deep: boolean) => MeshLike[];
-        };
-        const seen = new Set<object>();
-        for (const e of warmup) {
-            const root = (e as unknown as { mesh: MeshLike | null }).mesh;
-            if (!root) continue;
-            const meshes: MeshLike[] = [root, ...root.getChildMeshes(false)];
-            for (const m of meshes) {
-                const mat = m.material;
-                if (!mat || seen.has(mat)) continue;
-                seen.add(mat);
-                compilePromises.push(
-                    mat.forceCompilationAsync(m as unknown as object).catch((err) => {
-                        console.warn('[prewarm] material compile failed:', err);
-                    }),
-                );
-            }
-        }
-        await Promise.all(compilePromises);
-
-        // 5) Compile each shadow generator's DEPTH effect for every caster variant now.
-        // forceCompilationAsync iterates the generator's renderList (populated above) and
-        // compiles the skinned depth shader for each mesh — frustum-independent, so the
-        // far-away warmup meshes are fine. Awaited like the material compiles so the
-        // GLSL→GPU compile finishes behind the loading screen, not on first combat.
-        //
-        // CRITICAL: Babylon's forceCompilation (shadowGenerator.js) does an UNGUARDED
-        // `subMeshes.push(...mesh.subMeshes)` over the whole renderList. addShadowCaster(_, true)
-        // registers the GLB enemy ROOT nodes too, and those are geometry-less
-        // (subMeshes === undefined), so the spread throws "subMeshes is not iterable" — which
-        // aborts the depth-shader prewarm. The compile then happens COLD on the first in-combat
-        // shadow render of a skinned enemy → a multi-second main-thread freeze (worst on a cold
-        // GPU shader cache, e.g. a freshly deployed origin). The per-frame render path IS guarded,
-        // so this only ever bit the prewarm. Drop the geometry-less entries (they cast no shadow)
-        // so the spread is safe and the real skinned depth shaders actually compile here.
-        let shadowCompiles = 0;
-        for (const g of this.shadowGenerators) {
-            const sm = g.getShadowMap();
-            if (sm?.renderList) {
-                sm.renderList = sm.renderList.filter(
-                    (m) => Array.isArray(m.subMeshes) && m.subMeshes.length > 0,
-                );
-            }
-            shadowCompiles++;
-            await g.forceCompilationAsync().catch((err) => {
-                console.warn('[prewarm] shadow depth compile failed:', err);
+            root.traverse(node => {
+                (node as Mesh).frustumCulled = false;
             });
         }
+
+        // Flag every warmup mesh as a shadow caster so the shadow pass's depth
+        // material variants (including the skinned ones) get compiled in the
+        // render below. Without this, the first shadow-map render of each new
+        // shadow-casting type (tanks/bosses/healers/shields/splitters/minis +
+        // every elite; basics skip shadows) compiles the bone-skinning depth
+        // program on the main thread — the freeze "when a new enemy type /
+        // elite appears".
+        for (const e of warmup) this._registerAsShadowCaster(e);
+
+        // 4) Render one frame. Three compiles every needed GPU program
+        // synchronously inside this call (material shaders for the un-culled
+        // warmup meshes AND the shadow depth variants for the flagged casters),
+        // so the stall happens here — behind the loading screen — instead of on
+        // the first in-combat appearance of each variant. Replaces the Babylon
+        // forceCompilationAsync ladder (no per-material compile handles in the
+        // Three renderer API).
+        this.game.getRendererHost().render(0);
 
         for (const e of warmup) e.dispose();
         const variantCount = warmup.length;
         const glbKeysAvailable = Object.keys(this.enemyAssets);
         console.info(
-            `[prewarm] ${variantCount} variants + ${compilePromises.length} material shaders + ` +
-            `${shadowCompiles} shadow-depth passes compiled in ` +
+            `[prewarm] ${variantCount} variants (materials + shadow depth) compiled in ` +
             `${Math.round(performance.now() - t0)}ms ` +
             `(GLB assets: ${glbKeysAvailable.length === 0 ? 'NONE — only procedural fallbacks' : glbKeysAvailable.join(', ')})`,
         );

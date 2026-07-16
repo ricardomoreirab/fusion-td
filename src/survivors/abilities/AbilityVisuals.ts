@@ -1,5 +1,13 @@
-import { Vector3, Color3, Color4, MeshBuilder, ParticleSystem, Animation, Scene, Mesh, StandardMaterial } from '@babylonjs/core';
-import { createEmissiveMaterial } from '../../engine/rendering/LowPolyMaterial';
+import { Color, DoubleSide, Mesh, MeshBasicMaterial, MeshPhongMaterial, Vector3 } from 'three';
+import { SceneHost } from '../../engine/three/SceneHost';
+import { ParticleSystem } from '../../engine/three/particles/ParticleSystem';
+import { RGBA, headingToYaw } from '../../engine/three/math';
+import { tween } from '../../engine/three/tween';
+import {
+    createCylinder, createDisc, createIcoSphere, createTorus,
+    disposeMesh, isMeshDisposed,
+} from '../../engine/three/primitives';
+import { createEmissiveMaterial, setMeshOpacity } from '../../engine/rendering/LowPolyMaterial';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
 
 /**
@@ -14,9 +22,10 @@ import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
  * directly without an echo loop (no withFxReplay needed).
  *
  * Leak rules (CLAUDE.md): cached materials use BOUNDED keys ('whirlwindRingMat',
- * 'hurricaneFunnelMat', 'coopVolleyArrowMat'); meshes that own a unique animated
- * material free it with dispose(false, true); cached/shared materials survive a
- * plain dispose() and are freed by clearMaterialCache() on run teardown.
+ * 'coopVolleyArrowMat'); meshes that own a unique animated material are flagged
+ * userData.ownedMaterial and freed via disposeMesh(); cached/shared materials
+ * survive a plain disposeMesh() and are freed by clearMaterialCache() on run
+ * teardown.
  */
 
 // =============================================================================
@@ -29,89 +38,91 @@ const WHIRLWIND_POOL_SIZE = 8;
 const whirlwindPool: Mesh[] = [];
 let whirlwindPoolInit = false;
 
-function acquireWhirlwindRing(scene: Scene): Mesh {
+function acquireWhirlwindRing(host: SceneHost): Mesh {
     // The pool is module-level so it survives state exits, but Game.cleanupScene()
     // disposes every scene mesh between states. On the next run the pool would
     // hold disposed (or other-scene) meshes — re-enabling those renders nothing.
     // Detect stale entries and rebuild the pool from scratch.
-    if (whirlwindPoolInit && whirlwindPool.some(r => r.isDisposed() || r.getScene() !== scene)) {
+    if (whirlwindPoolInit && whirlwindPool.some(r => isMeshDisposed(r) || r.parent !== host.scene)) {
         for (const r of whirlwindPool) {
-            if (!r.isDisposed()) r.dispose(); // cached/shared material — keep it
+            if (!isMeshDisposed(r)) disposeMesh(r); // cached/shared material — keep it
         }
         whirlwindPool.length = 0;
         whirlwindPoolInit = false;
     }
     if (!whirlwindPoolInit) {
         for (let i = 0; i < WHIRLWIND_POOL_SIZE; i++) {
-            const t = MeshBuilder.CreateTorus(
+            const t = createTorus(
                 `whirlwindRing${i}`,
                 { diameter: 1.0, thickness: 0.08, tessellation: 16 },
-                scene,
-            ) as Mesh;
-            t.setEnabled(false);
-            t.material = getCachedMaterial(scene, 'whirlwindRingMat', m => {
-                m.emissiveColor = new Color3(0.5, 0.8, 1.0);
-                m.diffuseColor = new Color3(0, 0, 0);
-                m.alpha = 0.85;
+                host,
+            );
+            t.visible = false;
+            t.material = getCachedMaterial('whirlwindRingMat', m => {
+                m.emissive = new Color(0.5, 0.8, 1.0);
+                m.color = new Color(0, 0, 0);
+                m.transparent = true;
+                m.opacity = 0.85;
             });
             whirlwindPool.push(t);
         }
         whirlwindPoolInit = true;
     }
     for (const r of whirlwindPool) {
-        if (!r.isEnabled()) {
-            r.setEnabled(true);
+        if (!r.visible) {
+            r.visible = true;
             return r;
         }
     }
     // Fallback: pool exhausted — allocate fresh, will be disposed on completion.
-    return MeshBuilder.CreateTorus(
+    return createTorus(
         `whirlwindRingX${performance.now()}`,
         { diameter: 1.0, thickness: 0.08, tessellation: 16 },
-        scene,
-    ) as Mesh;
+        host,
+    );
 }
 
 /** One expanding whirlwind ground ring at `center` (pooled; scale-only fade).
  *  `tint` recolors the ring to the caster's blended power elements — cached per
  *  blend hex (bounded: element subsets are finite). */
-export function spawnWhirlwindRing(scene: Scene, center: Vector3, radius: number, tint?: Color3): void {
-    const ring = acquireWhirlwindRing(scene);
+export function spawnWhirlwindRing(host: SceneHost, center: Vector3, radius: number, tint?: Color): void {
+    const ring = acquireWhirlwindRing(host);
     const isPooled = whirlwindPool.indexOf(ring) >= 0;
 
     ring.material = tint
-        ? getCachedMaterial(scene, `whirlwindRingMat_${tint.toHexString()}`, m => {
-            m.emissiveColor = tint.scale(1.15);
-            m.diffuseColor = new Color3(0, 0, 0);
-            m.alpha = 0.85;
+        ? getCachedMaterial(`whirlwindRingMat_${tint.getHexString()}`, m => {
+            m.emissive = tint.clone().multiplyScalar(1.15);
+            m.color = new Color(0, 0, 0);
+            m.transparent = true;
+            m.opacity = 0.85;
         })
-        : getCachedMaterial(scene, 'whirlwindRingMat', m => {
-            m.emissiveColor = new Color3(0.5, 0.8, 1.0);
-            m.diffuseColor = new Color3(0, 0, 0);
-            m.alpha = 0.85;
+        : getCachedMaterial('whirlwindRingMat', m => {
+            m.emissive = new Color(0.5, 0.8, 1.0);
+            m.color = new Color(0, 0, 0);
+            m.transparent = true;
+            m.opacity = 0.85;
         });
 
     // Diameter stored as scaling; pool torus has diameter=1.0, so scale by target.
     const targetScale = radius * 0.6;
     ring.position.set(center.x, center.y + 0.3, center.z);
     // Start small, expand to targetScale over the duration (scale-only fade).
-    ring.scaling.set(targetScale * 0.3, 1, targetScale * 0.3);
+    ring.scale.set(targetScale * 0.3, 1, targetScale * 0.3);
 
     const duration = 0.4; // seconds (~12 frames at 30 fps, matching original)
     let elapsed = 0;
-    const obs = scene.onBeforeRenderObservable.add(() => {
-        const dt = scene.getEngine().getDeltaTime() / 1000;
-        elapsed += dt;
+    const obs = host.onBeforeRender.add(() => {
+        elapsed += host.deltaSeconds;
         const t = Math.min(elapsed / duration, 1);
         const s = targetScale * (0.3 + 0.7 * t);
-        ring.scaling.set(s, 1 - t, s); // shrink vertically to "vanish"
+        ring.scale.set(s, 1 - t, s); // shrink vertically to "vanish"
         if (t >= 1) {
-            scene.onBeforeRenderObservable.remove(obs);
+            host.onBeforeRender.remove(obs);
             if (isPooled) {
-                ring.setEnabled(false);
-                ring.scaling.setAll(1);
+                ring.visible = false;
+                ring.scale.set(1, 1, 1);
             } else {
-                ring.dispose();
+                disposeMesh(ring);
             }
         }
     });
@@ -129,11 +140,11 @@ export function spawnWhirlwindRing(scene: Scene, center: Vector3, radius: number
  * channel teardown) MUST call it; it is idempotent and removes both observers.
  */
 export function spawnHurricaneVisual(
-    scene: Scene,
+    host: SceneHost,
     getCenter: () => Vector3 | null,
     durationS: number,
     radius: number,
-    tint?: Color3,
+    tint?: Color,
 ): { dispose: () => void } {
     const start = getCenter() ?? new Vector3(0, 0, 0);
 
@@ -142,20 +153,20 @@ export function spawnHurricaneVisual(
     // airborne body of the hurricane. Emitter is a Vector3 we move each frame
     // so the PS tracks the hero.
     const vortexEmitter = start.clone();
-    const vortexPs = new ParticleSystem('whirlwindVortex', 240, scene);
+    const vortexPs = new ParticleSystem('whirlwindVortex', 240, host);
     vortexPs.emitter = vortexEmitter;
-    vortexPs.minEmitBox = new Vector3(-radius * 0.5, 0, -radius * 0.5);
-    vortexPs.maxEmitBox = new Vector3(radius * 0.5, 0.3, radius * 0.5);
+    vortexPs.minEmitBox.set(-radius * 0.5, 0, -radius * 0.5);
+    vortexPs.maxEmitBox.set(radius * 0.5, 0.3, radius * 0.5);
     if (tint) {
         // Element-charged whirlwind: debris glows in the blended power color.
-        vortexPs.color1 = new Color4(
+        vortexPs.color1 = new RGBA(
             Math.min(1, tint.r * 1.2 + 0.15), Math.min(1, tint.g * 1.2 + 0.15), Math.min(1, tint.b * 1.2 + 0.15), 0.9);
-        vortexPs.color2 = new Color4(tint.r * 0.7, tint.g * 0.7, tint.b * 0.7, 0.8);
-        vortexPs.colorDead = new Color4(tint.r * 0.25, tint.g * 0.25, tint.b * 0.25, 0);
+        vortexPs.color2 = new RGBA(tint.r * 0.7, tint.g * 0.7, tint.b * 0.7, 0.8);
+        vortexPs.colorDead = new RGBA(tint.r * 0.25, tint.g * 0.25, tint.b * 0.25, 0);
     } else {
-        vortexPs.color1 = new Color4(0.85, 0.90, 0.97, 0.9); // pale storm white
-        vortexPs.color2 = new Color4(0.55, 0.62, 0.72, 0.8); // grey-blue
-        vortexPs.colorDead = new Color4(0.30, 0.34, 0.40, 0);
+        vortexPs.color1 = new RGBA(0.85, 0.90, 0.97, 0.9); // pale storm white
+        vortexPs.color2 = new RGBA(0.55, 0.62, 0.72, 0.8); // grey-blue
+        vortexPs.colorDead = new RGBA(0.30, 0.34, 0.40, 0);
     }
     vortexPs.minSize = 0.08;
     vortexPs.maxSize = 0.30;
@@ -165,17 +176,17 @@ export function spawnHurricaneVisual(
     vortexPs.blendMode = ParticleSystem.BLENDMODE_STANDARD;
     // Wide tangential spread + strong updraft so the swarm reads as a tall,
     // churning funnel rather than a flat ground swirl.
-    vortexPs.direction1 = new Vector3(-5, 3.0, -5);
-    vortexPs.direction2 = new Vector3(5, 6.0, 5);
+    vortexPs.direction1.set(-5, 3.0, -5);
+    vortexPs.direction2.set(5, 6.0, 5);
     vortexPs.minEmitPower = 3;
     vortexPs.maxEmitPower = 6;
-    vortexPs.gravity = new Vector3(0, 3.0, 0); // strong updraft → tall column
+    vortexPs.gravity.set(0, 3.0, 0); // strong updraft → tall column
     vortexPs.start();
 
-    const emitterObs = scene.onBeforeRenderObservable.add(() => {
+    const emitterObs = host.onBeforeRender.add(() => {
         const pos = getCenter();
         if (!pos) return;
-        vortexEmitter.copyFrom(pos);
+        vortexEmitter.copy(pos);
         vortexEmitter.y += 0.2;
     });
 
@@ -183,43 +194,42 @@ export function spawnHurricaneVisual(
     // A vertical stack of rings that flares wide at the top and narrows at the
     // base, spinning fast and swaying on a helix so it reads as a hurricane
     // funnel from the top-down camera. Dedicated meshes (NOT the pooled ground
-    // rings) sharing ONE cached material; the meshes are disposed in dispose()
-    // and the shared material is preserved (clearMaterialCache frees it on teardown).
+    // rings), each owning its OWN material copy so the per-ring opacity fade
+    // never touches a shared/cached material; disposeMesh in dispose() frees
+    // mesh + owned material together (userData.ownedMaterial).
     const FUNNEL_RINGS = 7;
     const FUNNEL_HEIGHT = 4.5;
     const funnelLife = durationS;
-    const funnelMat = tint
-        ? getCachedMaterial(scene, `hurricaneFunnelMat_${tint.toHexString()}`, m => {
-            m.emissiveColor = tint.scale(1.1);
-            m.diffuseColor = new Color3(0, 0, 0);
-            m.alpha = 0.5;
-            m.backFaceCulling = false;
-        })
-        : getCachedMaterial(scene, 'hurricaneFunnelMat', m => {
-            m.emissiveColor = new Color3(0.7, 0.85, 1.0); // pale storm-blue
-            m.diffuseColor = new Color3(0, 0, 0);
-            m.alpha = 0.5;
-            m.backFaceCulling = false;
-        });
+    const makeFunnelMat = (): MeshPhongMaterial => {
+        const m = new MeshPhongMaterial();
+        m.name = 'hurricaneFunnelMat';
+        m.color = new Color(0, 0, 0);
+        m.emissive = tint
+            ? tint.clone().multiplyScalar(1.1)
+            : new Color(0.7, 0.85, 1.0); // pale storm-blue
+        m.transparent = true;
+        m.opacity = 0.5;
+        m.side = DoubleSide;
+        return m;
+    };
     const funnelRings: Mesh[] = [];
     for (let i = 0; i < FUNNEL_RINGS; i++) {
-        const ring = MeshBuilder.CreateTorus(
+        const ring = createTorus(
             `hurricaneRing${i}`,
             { diameter: 1.0, thickness: 0.06, tessellation: 20 },
-            scene,
-        ) as Mesh;
-        ring.material = funnelMat;
-        ring.isPickable = false;
-        ring.visibility = 0;
+            host,
+        );
+        ring.material = makeFunnelMat();
+        ring.userData.ownedMaterial = true;
+        setMeshOpacity(ring, 0);
         funnelRings.push(ring);
     }
 
     let funnelT = 0;
-    const funnelObs = scene.onBeforeRenderObservable.add(() => {
+    const funnelObs = host.onBeforeRender.add(() => {
         const pos = getCenter();
         if (!pos) return;
-        const dt = scene.getEngine().getDeltaTime() / 1000;
-        funnelT += dt;
+        funnelT += host.deltaSeconds;
         const spin = funnelT * 7.0; // fast rotation (rad/s)
         // Envelope: spin up over 0.4s, taper out over the last 0.6s.
         const fadeIn = Math.min(funnelT / 0.4, 1);
@@ -240,13 +250,13 @@ export function spawnHurricaneVisual(
                 pos.y + 0.2 + f * FUNNEL_HEIGHT,
                 pos.z + Math.sin(driftAngle) * drift,
             );
-            ring.scaling.set(ringScale, 1, ringScale);
+            ring.scale.set(ringScale, 1, ringScale);
             ring.rotation.y = spin + i * 0.4;
             ring.rotation.x = 0.12 * Math.sin(funnelT * 4 + i);
             ring.rotation.z = 0.12 * Math.cos(funnelT * 4 + i);
-            // Wispier toward the top; fade with the global envelope. visibility
-            // is per-mesh so the shared cached material is never mutated.
-            ring.visibility = envelope * (0.7 - 0.4 * f);
+            // Wispier toward the top; fade with the global envelope. Each ring
+            // owns its material, so the fade never mutates a shared one.
+            setMeshOpacity(ring, envelope * (0.7 - 0.4 * f));
         }
     });
 
@@ -255,12 +265,12 @@ export function spawnHurricaneVisual(
         dispose: () => {
             if (disposed) return;
             disposed = true;
-            scene.onBeforeRenderObservable.remove(emitterObs);
-            scene.onBeforeRenderObservable.remove(funnelObs);
-            // Dispose the funnel meshes; the cached material is shared and
-            // preserved (freed by clearMaterialCache on run teardown).
+            host.onBeforeRender.remove(emitterObs);
+            host.onBeforeRender.remove(funnelObs);
+            // Dispose the funnel meshes; each owns its material (ownedMaterial),
+            // so disposeMesh frees both.
             for (const r of funnelRings) {
-                try { r.dispose(); } catch { /* ignore */ }
+                try { disposeMesh(r); } catch { /* ignore */ }
             }
             try { vortexPs.stop(); } catch { /* ignore */ }
             setTimeout(() => {
@@ -310,71 +320,66 @@ export function scheduleMeteorBarrage(position: Vector3, strike: (target: Vector
 }
 
 /** One falling meteor + impact ring + spark burst at `position`. */
-export function createMeteorVisual(scene: Scene, position: Vector3, radius: number): void {
-    const fireball = MeshBuilder.CreateIcoSphere('meteorBall', {
+export function createMeteorVisual(host: SceneHost, position: Vector3, radius: number): void {
+    const fireball = createIcoSphere('meteorBall', {
         radius: 0.8, subdivisions: 1
-    }, scene);
-    fireball.position = new Vector3(position.x, position.y + 15, position.z);
-    fireball.material = createEmissiveMaterial('meteorMat', new Color3(1, 0.3, 0), 0.9, scene);
+    }, host);
+    fireball.position.set(position.x, position.y + 15, position.z);
+    fireball.material = createEmissiveMaterial('meteorMat', new Color(1, 0.3, 0), 0.9);
+    fireball.userData.ownedMaterial = true;
 
-    const descentAnim = new Animation('meteorDescent', 'position.y', 30,
-        Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT);
-    descentAnim.setKeys([
-        { frame: 0, value: position.y + 15 },
-        { frame: 12, value: position.y + 0.5 }
-    ]);
-    fireball.animations = [descentAnim];
+    // Descent: y from position.y+15 to position.y+0.5 over 12 frames (0.4s).
+    const yFrom = position.y + 15;
+    const yTo = position.y + 0.5;
+    tween(host, 12 / 30, t => {
+        fireball.position.y = yFrom + (yTo - yFrom) * t;
+    }, {
+        onEnd: () => {
+            disposeMesh(fireball);
 
-    scene.beginAnimation(fireball, 0, 12, false, 1, () => {
-        fireball.dispose(false, true);
+            const ring = createTorus('meteorRing', {
+                diameter: 0.5, thickness: 0.3, tessellation: 16
+            }, host);
+            ring.position.set(position.x, position.y + 0.1, position.z);
+            const ringMat = createEmissiveMaterial('meteorRingMat', new Color(1, 0.5, 0), 0.8);
+            ringMat.transparent = true;
+            ringMat.opacity = 0.8;
+            ring.material = ringMat;
+            ring.userData.ownedMaterial = true;
 
-        const ring = MeshBuilder.CreateTorus('meteorRing', {
-            diameter: 0.5, thickness: 0.3, tessellation: 16
-        }, scene);
-        ring.position = new Vector3(position.x, position.y + 0.1, position.z);
-        ring.material = createEmissiveMaterial('meteorRingMat', new Color3(1, 0.5, 0), 0.8, scene);
-        (ring.material as StandardMaterial).alpha = 0.8;
+            // Expand 1 → radius*2 (XZ) + fade 0.8 → 0 over 20 frames (0.667s).
+            tween(host, 20 / 30, t => {
+                const s = 1 + (radius * 2 - 1) * t;
+                ring.scale.set(s, 1, s);
+                setMeshOpacity(ring, 0.8 * (1 - t));
+            }, { onEnd: () => disposeMesh(ring) });
 
-        const expandAnim = new Animation('ringExpand', 'scaling', 30,
-            Animation.ANIMATIONTYPE_VECTOR3, Animation.ANIMATIONLOOPMODE_CONSTANT);
-        expandAnim.setKeys([
-            { frame: 0, value: new Vector3(1, 1, 1) },
-            { frame: 20, value: new Vector3(radius * 2, 1, radius * 2) }
-        ]);
-        const fadeAnim = new Animation('ringFade', 'material.alpha', 30,
-            Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT);
-        fadeAnim.setKeys([
-            { frame: 0, value: 0.8 },
-            { frame: 20, value: 0 }
-        ]);
-        ring.animations = [expandAnim, fadeAnim];
-        scene.beginAnimation(ring, 0, 20, false, 1, () => ring.dispose(false, true));
-
-        const ps = new ParticleSystem('meteorImpact', 60, scene);
-        ps.emitter = new Vector3(position.x, position.y + 0.5, position.z);
-        ps.minEmitBox = new Vector3(-0.5, 0, -0.5);
-        ps.maxEmitBox = new Vector3(0.5, 0, 0.5);
-        ps.color1 = new Color4(1, 0.5, 0, 1);
-        ps.color2 = new Color4(1, 0.2, 0, 1);
-        ps.colorDead = new Color4(0.3, 0, 0, 0);
-        ps.minSize = 0.3;
-        ps.maxSize = 0.8;
-        ps.minLifeTime = 0.3;
-        ps.maxLifeTime = 0.8;
-        ps.emitRate = 200;
-        ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-        ps.direction1 = new Vector3(-2, 2, -2);
-        ps.direction2 = new Vector3(2, 4, 2);
-        ps.minEmitPower = 2;
-        ps.maxEmitPower = 5;
-        ps.gravity = new Vector3(0, -8, 0);
-        ps.start();
-        setTimeout(() => {
-            try { ps.stop(); } catch { /* already disposed */ }
+            const ps = new ParticleSystem('meteorImpact', 60, host);
+            ps.emitter = new Vector3(position.x, position.y + 0.5, position.z);
+            ps.minEmitBox.set(-0.5, 0, -0.5);
+            ps.maxEmitBox.set(0.5, 0, 0.5);
+            ps.color1 = new RGBA(1, 0.5, 0, 1);
+            ps.color2 = new RGBA(1, 0.2, 0, 1);
+            ps.colorDead = new RGBA(0.3, 0, 0, 0);
+            ps.minSize = 0.3;
+            ps.maxSize = 0.8;
+            ps.minLifeTime = 0.3;
+            ps.maxLifeTime = 0.8;
+            ps.emitRate = 200;
+            ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
+            ps.direction1.set(-2, 2, -2);
+            ps.direction2.set(2, 4, 2);
+            ps.minEmitPower = 2;
+            ps.maxEmitPower = 5;
+            ps.gravity.set(0, -8, 0);
+            ps.start();
             setTimeout(() => {
-                try { ps.dispose(); } catch { /* already disposed */ }
-            }, 800);
-        }, 200);
+                try { ps.stop(); } catch { /* already disposed */ }
+                setTimeout(() => {
+                    try { ps.dispose(); } catch { /* already disposed */ }
+                }, 800);
+            }, 200);
+        },
     });
 }
 
@@ -383,51 +388,47 @@ export function createMeteorVisual(scene: Scene, position: Vector3, radius: numb
 // =============================================================================
 
 /** Arena-wide expanding frost disc + rising ice particles. */
-export function createFrostNovaVisual(scene: Scene): void {
+export function createFrostNovaVisual(host: SceneHost): void {
     const center = new Vector3(20, 0.1, 20);
 
-    const ring = MeshBuilder.CreateDisc('frostRing', {
+    const ring = createDisc('frostRing', {
         radius: 0.5, tessellation: 32
-    }, scene);
-    ring.position = center;
+    }, host);
+    ring.position.copy(center);
     ring.rotation.x = Math.PI / 2;
-    const ringMat = new StandardMaterial('frostRingMat', scene);
-    ringMat.diffuseColor = new Color3(0.5, 0.8, 1);
-    ringMat.emissiveColor = new Color3(0.3, 0.5, 0.8);
-    ringMat.alpha = 0.5;
-    ringMat.disableLighting = true;
+    // Babylon disableLighting rendered emissive only → unlit basic material.
+    const ringMat = new MeshBasicMaterial({
+        color: new Color(0.3, 0.5, 0.8),
+        transparent: true,
+        opacity: 0.5,
+        side: DoubleSide,
+    });
+    ringMat.name = 'frostRingMat';
     ring.material = ringMat;
+    ring.userData.ownedMaterial = true;
 
-    const expandAnim = new Animation('frostExpand', 'scaling', 30,
-        Animation.ANIMATIONTYPE_VECTOR3, Animation.ANIMATIONLOOPMODE_CONSTANT);
-    expandAnim.setKeys([
-        { frame: 0, value: new Vector3(1, 1, 1) },
-        { frame: 30, value: new Vector3(80, 80, 1) }
-    ]);
-    const fadeAnim = new Animation('frostFade', 'material.alpha', 30,
-        Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT);
-    fadeAnim.setKeys([
-        { frame: 0, value: 0.5 },
-        { frame: 30, value: 0 }
-    ]);
-    ring.animations = [expandAnim, fadeAnim];
-    scene.beginAnimation(ring, 0, 30, false, 1, () => ring.dispose(false, true));
+    // Expand 1 → 80 (disc plane) + fade 0.5 → 0 over 30 frames (1s).
+    tween(host, 30 / 30, t => {
+        const s = 1 + 79 * t;
+        ring.scale.set(s, s, 1);
+        setMeshOpacity(ring, 0.5 * (1 - t));
+    }, { onEnd: () => disposeMesh(ring) });
 
-    const ps = new ParticleSystem('frostParticles', 100, scene);
+    const ps = new ParticleSystem('frostParticles', 100, host);
     ps.emitter = center;
-    ps.minEmitBox = new Vector3(-20, 0, -20);
-    ps.maxEmitBox = new Vector3(20, 0.5, 20);
-    ps.color1 = new Color4(0.7, 0.9, 1, 1);
-    ps.color2 = new Color4(0.4, 0.6, 1, 1);
-    ps.colorDead = new Color4(0.2, 0.3, 0.5, 0);
+    ps.minEmitBox.set(-20, 0, -20);
+    ps.maxEmitBox.set(20, 0.5, 20);
+    ps.color1 = new RGBA(0.7, 0.9, 1, 1);
+    ps.color2 = new RGBA(0.4, 0.6, 1, 1);
+    ps.colorDead = new RGBA(0.2, 0.3, 0.5, 0);
     ps.minSize = 0.1;
     ps.maxSize = 0.3;
     ps.minLifeTime = 0.5;
     ps.maxLifeTime = 1.5;
     ps.emitRate = 200;
     ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-    ps.direction1 = new Vector3(-0.5, 1, -0.5);
-    ps.direction2 = new Vector3(0.5, 2, 0.5);
+    ps.direction1.set(-0.5, 1, -0.5);
+    ps.direction2.set(0.5, 2, 0.5);
     ps.minEmitPower = 0.5;
     ps.maxEmitPower = 1.5;
     ps.start();
@@ -444,29 +445,23 @@ export function createFrostNovaVisual(scene: Scene): void {
 // =============================================================================
 
 /** Expanding orange shockwave ring at `center`. */
-export function spawnSmashShockwave(scene: Scene, center: Vector3): void {
-    const ring = MeshBuilder.CreateTorus('smashRing', {
+export function spawnSmashShockwave(host: SceneHost, center: Vector3): void {
+    const ring = createTorus('smashRing', {
         diameter: 2, thickness: 0.5, tessellation: 24,
-    }, scene);
-    ring.position = new Vector3(center.x, center.y + 0.2, center.z);
-    const mat = createEmissiveMaterial('smashMat', new Color3(1.0, 0.65, 0.1), 0.9, scene);
-    (mat as StandardMaterial).alpha = 0.85;
+    }, host);
+    ring.position.set(center.x, center.y + 0.2, center.z);
+    const mat = createEmissiveMaterial('smashMat', new Color(1.0, 0.65, 0.1), 0.9);
+    mat.transparent = true;
+    mat.opacity = 0.85;
     ring.material = mat;
+    ring.userData.ownedMaterial = true;
 
-    const expandAnim = new Animation('smashExpand', 'scaling', 30,
-        Animation.ANIMATIONTYPE_VECTOR3, Animation.ANIMATIONLOOPMODE_CONSTANT);
-    expandAnim.setKeys([
-        { frame: 0,  value: new Vector3(1, 1, 1) },
-        { frame: 15, value: new Vector3(12, 1, 12) },
-    ]);
-    const fadeAnim = new Animation('smashFade', 'material.alpha', 30,
-        Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT);
-    fadeAnim.setKeys([
-        { frame: 0,  value: 0.85 },
-        { frame: 15, value: 0.0 },
-    ]);
-    ring.animations = [expandAnim, fadeAnim];
-    scene.beginAnimation(ring, 0, 15, false, 1, () => ring.dispose(false, true));
+    // Expand 1 → 12 (XZ) + fade 0.85 → 0 over 15 frames (0.5s).
+    tween(host, 15 / 30, t => {
+        const s = 1 + 11 * t;
+        ring.scale.set(s, 1, s);
+        setMeshOpacity(ring, 0.85 * (1 - t));
+    }, { onEnd: () => disposeMesh(ring) });
 }
 
 // =============================================================================
@@ -479,42 +474,44 @@ export function spawnSmashShockwave(scene: Scene, center: Vector3): void {
  * the follow observer, fades the ring out, and tears down the particles —
  * exactly what the local onEnd used to do inline.
  */
-export function spawnMultishotAura(scene: Scene, getCenter: () => Vector3 | null): { dispose: () => void } {
+export function spawnMultishotAura(host: SceneHost, getCenter: () => Vector3 | null): { dispose: () => void } {
     const start = getCenter() ?? new Vector3(0, 0, 0);
-    const ring = MeshBuilder.CreateTorus('multishotAuraRing', {
+    const ring = createTorus('multishotAuraRing', {
         diameter: 2.4, thickness: 0.18, tessellation: 24,
-    }, scene);
+    }, host);
     ring.position.set(start.x, start.y + 0.2, start.z);
-    const mat = createEmissiveMaterial('multishotAuraMat', new Color3(0.5, 1.0, 0.4), 0.9, scene);
-    (mat as StandardMaterial).alpha = 0.7;
+    const mat = createEmissiveMaterial('multishotAuraMat', new Color(0.5, 1.0, 0.4), 0.9);
+    mat.transparent = true;
+    mat.opacity = 0.7;
     ring.material = mat;
+    ring.userData.ownedMaterial = true;
 
     const auraEmitter = start.clone();
-    const followObs = scene.onBeforeRenderObservable.add(() => {
+    const followObs = host.onBeforeRender.add(() => {
         const p = getCenter();
         if (!p) return;
         ring.position.set(p.x, p.y + 0.2, p.z);
-        auraEmitter.copyFrom(p);
+        auraEmitter.copy(p);
     });
 
-    const ps = new ParticleSystem('multishotAuraPs', 40, scene);
+    const ps = new ParticleSystem('multishotAuraPs', 40, host);
     ps.emitter = auraEmitter;
-    ps.minEmitBox = new Vector3(-0.8, 0, -0.8);
-    ps.maxEmitBox = new Vector3(0.8, 0.1, 0.8);
-    ps.color1 = new Color4(0.5, 1.0, 0.4, 1);
-    ps.color2 = new Color4(0.8, 1.0, 0.6, 1);
-    ps.colorDead = new Color4(0.2, 0.4, 0.1, 0);
+    ps.minEmitBox.set(-0.8, 0, -0.8);
+    ps.maxEmitBox.set(0.8, 0.1, 0.8);
+    ps.color1 = new RGBA(0.5, 1.0, 0.4, 1);
+    ps.color2 = new RGBA(0.8, 1.0, 0.6, 1);
+    ps.colorDead = new RGBA(0.2, 0.4, 0.1, 0);
     ps.minSize = 0.06;
     ps.maxSize = 0.16;
     ps.minLifeTime = 0.3;
     ps.maxLifeTime = 0.6;
     ps.emitRate = 60;
     ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-    ps.direction1 = new Vector3(-0.5, 1.5, -0.5);
-    ps.direction2 = new Vector3(0.5, 2.5, 0.5);
+    ps.direction1.set(-0.5, 1.5, -0.5);
+    ps.direction2.set(0.5, 2.5, 0.5);
     ps.minEmitPower = 0.5;
     ps.maxEmitPower = 1.2;
-    ps.gravity = new Vector3(0, -1.5, 0);
+    ps.gravity.set(0, -1.5, 0);
     ps.start();
 
     let disposed = false;
@@ -522,14 +519,13 @@ export function spawnMultishotAura(scene: Scene, getCenter: () => Vector3 | null
         dispose: () => {
             if (disposed) return;
             disposed = true;
-            scene.onBeforeRenderObservable.remove(followObs);
+            host.onBeforeRender.remove(followObs);
             try { ps.stop(); } catch { /* ignore */ }
-            if (!ring.isDisposed()) {
-                const fade = new Animation('multishotAuraFade', 'material.alpha', 30,
-                    Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT);
-                fade.setKeys([{ frame: 0, value: 0.7 }, { frame: 12, value: 0 }]);
-                ring.animations = [fade];
-                scene.beginAnimation(ring, 0, 12, false, 1, () => ring.dispose(false, true));
+            if (!isMeshDisposed(ring)) {
+                // Fade 0.7 → 0 over 12 frames (0.4s), then free mesh + owned material.
+                tween(host, 12 / 30, t => {
+                    setMeshOpacity(ring, 0.7 * (1 - t));
+                }, { onEnd: () => disposeMesh(ring) });
             }
             setTimeout(() => { try { ps.dispose(); } catch { /* ignore */ } }, 700);
         },
@@ -539,33 +535,32 @@ export function spawnMultishotAura(scene: Scene, getCenter: () => Vector3 | null
 /**
  * Cosmetic-only volley arrow for the co-op Multishot channel: the same green
  * arrow look as the local volley but flying a fixed direction (no homing, no
- * damage). Leak-safe: material cached by a BOUNDED key, plain dispose() leaves it.
+ * damage). Leak-safe: material cached by a BOUNDED key, plain disposeMesh() leaves it.
  */
-export function spawnCosmeticVolleyArrow(scene: Scene, from: Vector3, dirX: number, dirZ: number): void {
-    const arrow = MeshBuilder.CreateCylinder('coopVolleyArrow', {
+export function spawnCosmeticVolleyArrow(host: SceneHost, from: Vector3, dirX: number, dirZ: number): void {
+    const arrow = createCylinder('coopVolleyArrow', {
         height: 0.6, diameter: 0.08, tessellation: 5,
-    }, scene);
+    }, host);
     arrow.position.set(from.x, from.y + 1.0, from.z);
-    arrow.material = getCachedMaterial(scene, 'coopVolleyArrowMat', m => {
-        m.emissiveColor = new Color3(0.6, 1.0, 0.4);
-        m.diffuseColor = new Color3(0, 0, 0);
-        m.disableLighting = true;
+    // Emissive with black diffuse reads unlit (Babylon disableLighting parity).
+    arrow.material = getCachedMaterial('coopVolleyArrowMat', m => {
+        m.emissive = new Color(0.6, 1.0, 0.4);
+        m.color = new Color(0, 0, 0);
     });
-    arrow.rotation.y = Math.atan2(dirX, dirZ);
+    arrow.rotation.y = headingToYaw(dirX, dirZ);
     arrow.rotation.x = Math.PI / 2; // lay the cylinder flat along its flight line
 
     const speed = 22;   // matches the local volley arrow
     const maxDist = 14; // a touch past the typical homing kill distance
     let traveled = 0;
-    const observer = scene.onBeforeRenderObservable.add(() => {
-        const dt = scene.getEngine().getDeltaTime() / 1000;
-        const step = speed * dt;
+    const observer = host.onBeforeRender.add(() => {
+        const step = speed * host.deltaSeconds;
         traveled += step;
         arrow.position.x += dirX * step;
         arrow.position.z += dirZ * step;
         if (traveled >= maxDist) {
-            arrow.dispose(); // cached/shared material — keep it
-            scene.onBeforeRenderObservable.remove(observer);
+            disposeMesh(arrow); // cached/shared material — keep it
+            host.onBeforeRender.remove(observer);
         }
     });
 }
@@ -581,89 +576,85 @@ export function spawnCosmeticVolleyArrow(scene: Scene, from: Vector3, dirX: numb
  * impact position: damage + visual locally, visual-only on the replay side.
  */
 export function spawnExplosiveArrowFlight(
-    scene: Scene,
+    host: SceneHost,
     from: Vector3,
     targetPos: Vector3,
     onImpact: (impactPos: Vector3) => void,
 ): void {
-    const arrow = MeshBuilder.CreateCylinder('expArrow', {
+    const arrow = createCylinder('expArrow', {
         height: 0.8, diameter: 0.12, tessellation: 5,
-    }, scene);
-    arrow.position = new Vector3(from.x, from.y + 1.0, from.z);
+    }, host);
+    arrow.position.set(from.x, from.y + 1.0, from.z);
 
-    const mat = createEmissiveMaterial('expArrowMat', new Color3(1.0, 0.55, 0.1), 0.9, scene);
-    (mat as StandardMaterial).alpha = 0.95;
+    const mat = createEmissiveMaterial('expArrowMat', new Color(1.0, 0.55, 0.1), 0.9);
+    mat.transparent = true;
+    mat.opacity = 0.95;
     arrow.material = mat;
+    arrow.userData.ownedMaterial = true;
 
     arrow.lookAt(targetPos);
     arrow.rotation.x += Math.PI / 2;
 
     const speed = 14;
-    let observer: any = null;
-    observer = scene.onBeforeRenderObservable.add(() => {
-        if (arrow.isDisposed()) {
-            scene.onBeforeRenderObservable.remove(observer);
+    const toTarget = new Vector3();
+    const observer = host.onBeforeRender.add(() => {
+        if (isMeshDisposed(arrow)) {
+            host.onBeforeRender.remove(observer);
             return;
         }
-        const dt = scene.getEngine().getDeltaTime() / 1000;
-        const toTarget = targetPos.subtract(arrow.position);
+        const dt = host.deltaSeconds;
+        toTarget.subVectors(targetPos, arrow.position);
         const dist = toTarget.length();
         if (dist < 0.5) {
             const impactPos = arrow.position.clone();
-            arrow.dispose(false, true);
-            scene.onBeforeRenderObservable.remove(observer);
+            disposeMesh(arrow);
+            host.onBeforeRender.remove(observer);
             onImpact(impactPos);
             return;
         }
-        arrow.position.addInPlace(toTarget.normalize().scale(speed * dt));
+        arrow.position.addScaledVector(toTarget.normalize(), speed * dt);
     });
 }
 
 /** The explosive-arrow blast: expanding orange ring + ember burst at `position`. */
-export function spawnExplosionVisual(scene: Scene, position: Vector3, radius: number): void {
-    const ring = MeshBuilder.CreateTorus('expRing', {
+export function spawnExplosionVisual(host: SceneHost, position: Vector3, radius: number): void {
+    const ring = createTorus('expRing', {
         diameter: 1.0, thickness: 0.4, tessellation: 20,
-    }, scene);
-    ring.position = new Vector3(position.x, position.y, position.z);
-    const mat = createEmissiveMaterial('expRingMat', new Color3(1.0, 0.4, 0.0), 0.9, scene);
-    (mat as StandardMaterial).alpha = 0.85;
+    }, host);
+    ring.position.set(position.x, position.y, position.z);
+    const mat = createEmissiveMaterial('expRingMat', new Color(1.0, 0.4, 0.0), 0.9);
+    mat.transparent = true;
+    mat.opacity = 0.85;
     ring.material = mat;
+    ring.userData.ownedMaterial = true;
 
     const targetScale = radius * 2;
-    const expandAnim = new Animation('expExpand', 'scaling', 30,
-        Animation.ANIMATIONTYPE_VECTOR3, Animation.ANIMATIONLOOPMODE_CONSTANT);
-    expandAnim.setKeys([
-        { frame: 0,  value: new Vector3(0.5, 1, 0.5) },
-        { frame: 12, value: new Vector3(targetScale, 1, targetScale) },
-    ]);
-    const fadeAnim = new Animation('expFade', 'material.alpha', 30,
-        Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT);
-    fadeAnim.setKeys([
-        { frame: 0,  value: 0.85 },
-        { frame: 12, value: 0.0 },
-    ]);
-    ring.animations = [expandAnim, fadeAnim];
-    scene.beginAnimation(ring, 0, 12, false, 1, () => ring.dispose(false, true));
+    // Expand 0.5 → targetScale (XZ) + fade 0.85 → 0 over 12 frames (0.4s).
+    tween(host, 12 / 30, t => {
+        const s = 0.5 + (targetScale - 0.5) * t;
+        ring.scale.set(s, 1, s);
+        setMeshOpacity(ring, 0.85 * (1 - t));
+    }, { onEnd: () => disposeMesh(ring) });
 
     // Particle burst
-    const ps = new ParticleSystem('expBurst', 40, scene);
+    const ps = new ParticleSystem('expBurst', 40, host);
     ps.emitter = new Vector3(position.x, position.y + 0.5, position.z);
-    ps.minEmitBox = new Vector3(-0.3, 0, -0.3);
-    ps.maxEmitBox = new Vector3(0.3, 0, 0.3);
-    ps.color1 = new Color4(1, 0.6, 0.1, 1);
-    ps.color2 = new Color4(1, 0.3, 0, 1);
-    ps.colorDead = new Color4(0.4, 0.1, 0, 0);
+    ps.minEmitBox.set(-0.3, 0, -0.3);
+    ps.maxEmitBox.set(0.3, 0, 0.3);
+    ps.color1 = new RGBA(1, 0.6, 0.1, 1);
+    ps.color2 = new RGBA(1, 0.3, 0, 1);
+    ps.colorDead = new RGBA(0.4, 0.1, 0, 0);
     ps.minSize = 0.2;
     ps.maxSize = 0.6;
     ps.minLifeTime = 0.2;
     ps.maxLifeTime = 0.6;
     ps.emitRate = 150;
     ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-    ps.direction1 = new Vector3(-2, 2, -2);
-    ps.direction2 = new Vector3(2, 4, 2);
+    ps.direction1.set(-2, 2, -2);
+    ps.direction2.set(2, 4, 2);
     ps.minEmitPower = 2;
     ps.maxEmitPower = 5;
-    ps.gravity = new Vector3(0, -6, 0);
+    ps.gravity.set(0, -6, 0);
     ps.start();
     setTimeout(() => {
         try { ps.stop(); } catch { /* already disposed */ }

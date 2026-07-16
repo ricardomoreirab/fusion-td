@@ -1,4 +1,5 @@
-import { Vector3, AssetContainer } from '@babylonjs/core';
+import { Vector3 } from 'three';
+import { GlbContainer } from '../../engine/three/assets';
 import { Game } from '../../engine/Game';
 import { Enemy } from '../enemies/Enemy';
 import { createEnemyOfType } from '../enemies/createEnemyOfType';
@@ -6,8 +7,8 @@ import { makeElite } from '../enemies/EliteSpawner';
 import { PoseBuffer } from '../../net/Interpolation';
 import type { SnapshotEnemy, SpawnMsg } from '../../net/Protocol';
 
-/** Resolve the preloaded GLB AssetContainer for an enemy type, or null. */
-export type EnemyAssetResolver = (type: string) => AssetContainer | null;
+/** Resolve the preloaded GLB container for an enemy type, or null. */
+export type EnemyAssetResolver = (type: string) => GlbContainer | null;
 
 /**
  * Guest-side registry of render-only enemies keyed by stable network id.

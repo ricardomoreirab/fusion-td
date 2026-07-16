@@ -1,18 +1,20 @@
 import {
-    Scene,
-    Mesh,
-    VertexData,
+    BufferGeometry,
+    Color,
+    DirectionalLight,
+    DoubleSide,
+    Float32BufferAttribute,
+    Fog,
+    InstancedMesh,
+    Matrix4,
+    Quaternion,
     ShaderMaterial,
-    Effect,
-    Matrix,
     Vector2,
     Vector3,
-    Quaternion,
-    Color3,
-    Observer,
-    DirectionalLight,
-    ShadowGenerator,
-} from '@babylonjs/core';
+} from 'three';
+import type { SceneHost, UpdateToken } from '../three/SceneHost';
+import { disposeMesh } from '../three/primitives';
+import { V3_UP } from '../three/math';
 
 /**
  * Procedural grass — N hardware-instanced multi-segment curved blades with a
@@ -22,11 +24,9 @@ import {
  *
  * Blade geometry technique ported from spacejack's "Terra" demo (MIT).
  *
- * No textures, no samplers, no shader defines — keeps the pipeline trivial
- * and identical across WebGL and WebGPU. One draw call.
+ * No textures (beyond the optional shadow map), no shader defines beyond the
+ * two feature toggles — keeps the pipeline trivial. One draw call.
  */
-
-const SHADER_KEY = 'ktgGrass';
 
 // Default blade curve segments. 4 segments → 5 height levels per side, 2 edges,
 // 2 faces (front + back). 5 × 2 × 2 = 20 verts, 16 triangles per blade.
@@ -36,34 +36,25 @@ const BLADE_SEGS = 4;
  *  Mirrors the const MAX_INFLUENCERS in the vertex shader. */
 const MAX_INFLUENCERS = 8;
 
+/** Depth-compare bias for the manual shadow sample (replaces the Babylon
+ *  ShadowGenerator's ESM depth-scale tolerance). */
+const SHADOW_BIAS = 0.0015;
+
 // ──────────────────────────────────────────────────────────────────────────────
-// Shaders — kept deliberately texture-free and define-free so the pipeline
-// state is the same on WebGL and WebGPU.
+// Shaders. Three's ShaderMaterial auto-injects the precision header, the
+// position/uv attribute declarations, the projectionMatrix/viewMatrix/
+// cameraPosition uniforms and (because the mesh is an InstancedMesh) the
+// per-instance `instanceMatrix` mat4 attribute — none are redeclared here.
 // ──────────────────────────────────────────────────────────────────────────────
 
-// Per-instance world matrix attributes (world0..world3) are referenced by the
-// shader source but NOT listed in the material's `attributes` array — Babylon
-// parses the source and auto-assigns locations. Listing them explicitly
-// causes pipeline-rebuild collisions on WebGPU post-process passes.
 const VERT = `
-precision highp float;
-
-attribute vec3 position;     // x in [-0.5, 0.5], y in [0, 1], z = face sign (+1/-1)
-attribute vec2 uv;           // x = edge (0/1), y = hpct (0..1)
-attribute vec4 world0;
-attribute vec4 world1;
-attribute vec4 world2;
-attribute vec4 world3;
-
-uniform mat4 viewProjection;
 uniform float uTime;
 uniform float uWindStrength;
 
 // Character displacement: up to 8 "influencer" world-XZ positions (Y unused).
 // Unused slots are set to a far-away point so the distance-based falloff
 // naturally zeros them out without branching. Array size hardcoded to 8
-// (matches MAX_INFLUENCERS const on the JS side) — WGSL's array-size
-// constexpr handling differs from GLSL, hardcoding is safest.
+// (matches MAX_INFLUENCERS const on the JS side).
 uniform vec3 uInfluencers[8];
 uniform float uInfluencerRadius;
 uniform float uInfluencerStrength;
@@ -79,6 +70,8 @@ uniform float uFadeStart;
 uniform float uFadeEnd;
 
 #ifdef RECEIVE_SHADOWS
+// directionalLight.shadow.matrix — already includes the 0.5-bias transform,
+// so vShadowCoord.xyz/w is directly in [0,1] shadow-map UV + depth space.
 uniform mat4 uShadowVP;
 #endif
 
@@ -99,7 +92,10 @@ vec2 rotYZ(vec2 yz, float c, float s) {
 }
 
 void main(void) {
-    mat4 finalWorld = mat4(world0, world1, world2, world3);
+    // position: x in [-0.5, 0.5], y in [0, 1], z = face sign (+1/-1)
+    // uv: x = edge (0/1), y = hpct (0..1)
+    mat4 finalWorld = instanceMatrix;
+    vec4 world3 = instanceMatrix[3];
 
     float hpct = uv.y;
     float aSide = sign(position.z);
@@ -181,7 +177,7 @@ void main(void) {
     float ambientSway = sin(uTime * 0.9 + phase) * uWindStrength * 0.15 * hpct * hpct;
     worldPos.x += ambientSway;
 
-    gl_Position = viewProjection * vec4(worldPos, 1.0);
+    gl_Position = projectionMatrix * viewMatrix * vec4(worldPos, 1.0);
 
     vWorldPos = worldPos;
     vWorldNormal = worldNorm;
@@ -195,8 +191,6 @@ void main(void) {
 `;
 
 const FRAG = `
-precision highp float;
-
 varying vec3 vWorldPos;
 varying vec3 vWorldNormal;
 varying float vHPct;
@@ -221,37 +215,45 @@ uniform float uTorchIntensity;
 uniform float uTorchRange;
 
 // Horizon distance fog — mirrors the scene's linear fog so the custom-shader
-// grass hazes into the same band as the StandardMaterial ground/props (Babylon
-// does not auto-inject fog into a ShaderMaterial). uFogEnabled = 0 disables it.
-// Radial camera distance (close enough to Babylon's view-space depth here; the
-// far blades are near-zero height through the band anyway).
+// grass hazes into the same band as the MeshPhongMaterial ground/props (Three
+// does not auto-inject fog into a bare ShaderMaterial). uFogEnabled = 0
+// disables it. Radial camera distance (close enough to Three's view-space
+// depth here; the far blades are near-zero height through the band anyway).
 uniform float uFogEnabled;
 uniform vec3  uFogColor;
 uniform float uFogStart;
 uniform float uFogEnd;
-uniform vec3  uCameraPos;
 
 #ifdef RECEIVE_SHADOWS
-// ESM shadow map: stores exp(depthScale * normalisedDepth) in the red channel.
+// Three PCF-path shadow map: RGBA-packed depth (see <packing>). Sampled
+// manually with a 4-tap PCF for softness (replaces the Babylon ESM compare).
+#include <packing>
 uniform sampler2D uShadowMap;
 uniform float uShadowDarkness;
-uniform float uShadowDepthScale;
-uniform vec2  uShadowDepthValues;
+uniform vec2  uShadowMapSize;
+
+float shadowDepthAt(vec2 uvs) {
+    return unpackRGBAToDepth(texture2D(uShadowMap, uvs));
+}
 
 float sampleShadow() {
-    // Sample unconditionally — WGSL requires texture sampling in uniform
-    // control flow. Mix away the result for out-of-frustum coords.
-    vec3 ndc = vShadowCoord.xyz / vShadowCoord.w;
-    vec2 uvs = ndc.xy * 0.5 + 0.5;
-    // WebGPU render-target Y is flipped relative to texture sampling Y.
-    vec2 sampleUv = clamp(vec2(uvs.x, 1.0 - uvs.y), vec2(0.001), vec2(0.999));
-    float storedExp = texture2D(uShadowMap, sampleUv).r;
-    float depth = (ndc.z + uShadowDepthValues.x) / uShadowDepthValues.y;
-    float visibility = clamp(storedExp * exp(-uShadowDepthScale * depth), 0.0, 1.0);
+    // uShadowVP (light.shadow.matrix) already maps to [0,1] UV + depth — no
+    // ndc*0.5+0.5 remap needed. Sample unconditionally and mix away the
+    // result for out-of-frustum coords.
+    vec3 coord = vShadowCoord.xyz / vShadowCoord.w;
+    float ref = coord.z - ${SHADOW_BIAS.toFixed(5)};
+    vec2 texel = 1.0 / uShadowMapSize;
+    float lit = 0.0;
+    lit += step(ref, shadowDepthAt(coord.xy + texel * vec2(-0.5, -0.5)));
+    lit += step(ref, shadowDepthAt(coord.xy + texel * vec2( 0.5, -0.5)));
+    lit += step(ref, shadowDepthAt(coord.xy + texel * vec2(-0.5,  0.5)));
+    lit += step(ref, shadowDepthAt(coord.xy + texel * vec2( 0.5,  0.5)));
+    float visibility = lit * 0.25;
     float shadowFactor = mix(uShadowDarkness, 1.0, visibility);
 
-    float inFrustum = step(0.001, uvs.x) * step(uvs.x, 0.999)
-                    * step(0.001, uvs.y) * step(uvs.y, 0.999);
+    float inFrustum = step(0.001, coord.x) * step(coord.x, 0.999)
+                    * step(0.001, coord.y) * step(coord.y, 0.999)
+                    * step(coord.z, 1.0);
     return mix(1.0, shadowFactor, inFrustum);
 }
 #endif
@@ -290,8 +292,9 @@ void main(void) {
     }
 
     // Horizon fog: linear blend toward the sky band by camera distance.
+    // cameraPosition is Three's auto-injected fragment uniform.
     if (uFogEnabled > 0.5) {
-        float fogDist = distance(vWorldPos, uCameraPos);
+        float fogDist = distance(vWorldPos, cameraPosition);
         float fogVis = clamp((uFogEnd - fogDist) / (uFogEnd - uFogStart), 0.0, 1.0);
         lit = mix(uFogColor, lit, fogVis);
     }
@@ -301,12 +304,12 @@ void main(void) {
 `;
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Blade mesh — 5 height levels × 2 edges × 2 faces = 20 vertices, 16 triangles.
-// Face sign (+1 front / -1 back) is encoded in position.z so we don't need
-// any custom vertex attributes.
+// Blade geometry — 5 height levels × 2 edges × 2 faces = 20 vertices, 16
+// triangles. Face sign (+1 front / -1 back) is encoded in position.z so we
+// don't need any custom vertex attributes.
 // ──────────────────────────────────────────────────────────────────────────────
 
-function buildBladeMesh(scene: Scene, width: number, height: number, segs: number = BLADE_SEGS): Mesh {
+function buildBladeGeometry(width: number, height: number, segs: number = BLADE_SEGS): BufferGeometry {
     const divs = segs + 1;
     const vertsPerSide = divs * 2;
     const positions: number[] = [];
@@ -337,13 +340,11 @@ function buildBladeMesh(scene: Scene, width: number, height: number, segs: numbe
         vc += 2;
     }
 
-    const blade = new Mesh('proceduralGrassBlade', scene);
-    const vd = new VertexData();
-    vd.positions = positions;
-    vd.uvs = uvs;
-    vd.indices = indices;
-    vd.applyToMesh(blade);
-    return blade;
+    const geo = new BufferGeometry();
+    geo.setAttribute('position', new Float32BufferAttribute(positions, 3));
+    geo.setAttribute('uv', new Float32BufferAttribute(uvs, 2));
+    geo.setIndex(indices);
+    return geo;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -362,18 +363,20 @@ export interface ProceduralGrassOptions {
     bladeWidth?: number;
     bladeHeight?: number;
     windStrength?: number;
-    colorRoot?: Color3;
-    colorTip?: Color3;
-    colorDry?: Color3;
+    colorRoot?: Color;
+    colorTip?: Color;
+    colorDry?: Color;
     /** Directional light used for diffuse lighting. If omitted, a default
      *  sun direction + colour are used. */
     directionalLight?: DirectionalLight;
     lightDirection?: Vector3;
-    ambientColor?: Color3;
-    /** Optional ShadowGenerator (MUST be in ExponentialShadowMap mode — we
-     *  sample the map manually as sampler2D). If omitted, the shader is
-     *  compiled without shadow receive code at all. */
-    shadowGenerator?: ShadowGenerator;
+    ambientColor?: Color;
+    /** Optional shadow-casting DirectionalLight whose PCF shadow map the
+     *  fragment shader samples manually (RGBA-packed depth). If omitted, the
+     *  shader is compiled without shadow receive code at all. */
+    shadowLight?: DirectionalLight;
+    /** Shadowed-area light factor floor (Babylon ShadowGenerator.darkness). */
+    shadowDarkness?: number;
     /** Radius (world units) around each character within which blades bend. */
     influencerRadius?: number;
     /** Max tip displacement (world units) at the centre of an influencer. */
@@ -393,8 +396,8 @@ export interface ProceduralGrassOptions {
 }
 
 export interface ProceduralGrass {
-    mesh: Mesh;
-    setTorch: (params: { position: Vector3; color: Color3; intensity: number; range: number } | null) => void;
+    mesh: InstancedMesh;
+    setTorch: (params: { position: Vector3; color: Color; intensity: number; range: number } | null) => void;
     /** Set the world-XZ positions of characters that should bend the grass
      *  as they pass through. Up to 8 positions; extras are dropped. Call
      *  every frame with current positions of hero + visible enemies. */
@@ -405,21 +408,82 @@ export interface ProceduralGrass {
     dispose: () => void;
 }
 
-export function createProceduralGrass(scene: Scene, opts: ProceduralGrassOptions): ProceduralGrass {
-    if (!Effect.ShadersStore[`${SHADER_KEY}VertexShader`]) {
-        Effect.ShadersStore[`${SHADER_KEY}VertexShader`] = VERT;
-        Effect.ShadersStore[`${SHADER_KEY}FragmentShader`] = FRAG;
-    }
-
+export function createProceduralGrass(host: SceneHost, opts: ProceduralGrassOptions): ProceduralGrass {
     const width = opts.bladeWidth ?? 0.10;
     const height = opts.bladeHeight ?? 0.55;
     const rootY = opts.rootY ?? 0.003;
-    const blade = buildBladeMesh(scene, width, height, opts.bladeSegments ?? BLADE_SEGS);
+    const geo = buildBladeGeometry(width, height, opts.bladeSegments ?? BLADE_SEGS);
 
-    // Per-instance world matrices — position + Y-rotation + non-uniform scale.
-    const matrices = new Float32Array(opts.bladeCount * 16);
-    const tmp = Matrix.Identity();
+    const usingShadows = !!opts.shadowLight;
+    const usingInfluencers = opts.influencers !== false;
+
+    // Initialise influencer slots to a far-away point so they contribute 0.
+    // The Float32Array IS the uniform value — setInfluencers mutates it in
+    // place and Three re-uploads on change.
+    const INFLUENCER_FAR = 1e6;
+    const influencerBuf = new Float32Array(MAX_INFLUENCERS * 3);
+    for (let i = 0; i < MAX_INFLUENCERS; i++) {
+        influencerBuf[i * 3 + 0] = INFLUENCER_FAR;
+        influencerBuf[i * 3 + 1] = 0;
+        influencerBuf[i * 3 + 2] = INFLUENCER_FAR;
+    }
+
+    const initialDir = (opts.lightDirection ?? new Vector3(-0.4, -1, -0.6)).clone().normalize();
+    const shadowDarkness = opts.shadowDarkness ?? 0.4;
+
+    const defines: Record<string, string> = {};
+    if (usingShadows) defines.RECEIVE_SHADOWS = '';
+    if (usingInfluencers) defines.INFLUENCERS = '';
+
+    const mat = new ShaderMaterial({
+        name: 'proceduralGrassMat',
+        vertexShader: VERT,
+        fragmentShader: FRAG,
+        defines,
+        side: DoubleSide,
+        uniforms: {
+            uTime: { value: 0 },
+            uWindStrength: { value: opts.windStrength ?? 0.18 },
+            uHeroPos: { value: new Vector3() },
+            uTileSize: { value: opts.tileSize },
+            uCurveRadius: { value: opts.curveRadius },
+            // No fade unless requested — defaults far beyond any tile.
+            uFadeStart: { value: opts.fadeStart ?? 1e6 },
+            uFadeEnd: { value: opts.fadeEnd ?? (1e6 + 1) },
+            uColorRoot: { value: (opts.colorRoot ?? new Color(0.10, 0.14, 0.05)).clone() },
+            uColorTip: { value: (opts.colorTip ?? new Color(0.45, 0.65, 0.22)).clone() },
+            uColorDry: { value: (opts.colorDry ?? new Color(0.62, 0.55, 0.22)).clone() },
+            uAmbient: { value: (opts.ambientColor ?? new Color(0.25, 0.27, 0.22)).clone() },
+            uLightDir: { value: initialDir },
+            uLightColor: { value: opts.directionalLight?.color.clone() ?? new Color(1.0, 0.98, 0.90) },
+            uTorchPos: { value: new Vector3() },
+            uTorchColor: { value: new Color(1.0, 0.62, 0.28) },
+            uTorchIntensity: { value: 0 },
+            uTorchRange: { value: 11 },
+            // Fog disabled until the per-frame observer mirrors a live scene fog.
+            uFogEnabled: { value: 0 },
+            uFogColor: { value: new Color(0.52, 0.58, 0.86) },
+            uFogStart: { value: 1e6 },
+            uFogEnd: { value: 1e6 + 1 },
+            uInfluencers: { value: influencerBuf },
+            uInfluencerRadius: { value: opts.influencerRadius ?? 1.6 },
+            uInfluencerStrength: { value: opts.influencerStrength ?? 0.7 },
+            // Shadow uniforms are harmless when RECEIVE_SHADOWS is off —
+            // Three simply never uploads unused entries.
+            uShadowVP: { value: opts.shadowLight?.shadow.matrix ?? new Matrix4() },
+            uShadowMap: { value: null },
+            // Neutral (1 = no darkening) until the light's shadow map exists.
+            uShadowDarkness: { value: 1 },
+            uShadowMapSize: { value: new Vector2(1, 1) },
+        },
+    });
+
+    // ── Per-instance world matrices — position + Y-rotation + non-uniform scale.
+    const blade = new InstancedMesh(geo, mat, opts.bladeCount);
+    blade.name = 'proceduralGrassBlade';
+    const tmp = new Matrix4();
     const tmpPos = new Vector3();
+    const tmpQuat = new Quaternion();
     const tmpScale = new Vector3(1, 1, 1);
     for (let i = 0; i < opts.bladeCount; i++) {
         const yRot = Math.random() * Math.PI * 2;
@@ -434,174 +498,78 @@ export function createProceduralGrass(scene: Scene, opts: ProceduralGrassOptions
             rootY,
             (Math.random() - 0.5) * opts.tileSize,
         );
-        Matrix.ComposeToRef(tmpScale, Quaternion.RotationAxis(Vector3.UpReadOnly, yRot), tmpPos, tmp);
-        tmp.copyToArray(matrices, i * 16);
+        tmpQuat.setFromAxisAngle(V3_UP as Vector3, yRot);
+        tmp.compose(tmpPos, tmpQuat, tmpScale);
+        blade.setMatrixAt(i, tmp);
     }
-    blade.thinInstanceSetBuffer('matrix', matrices, 16, true);
+    blade.instanceMatrix.needsUpdate = true;
+    blade.frustumCulled = false; // treadmill-wrapped in the vertex shader — never cull
+    blade.castShadow = false;
+    blade.receiveShadow = false;
+    host.scene.add(blade);
 
-    // ── Material ──────────────────────────────────────────────────────────────
-    // Note: world0..world3 are referenced by the shader source but NOT listed
-    // in `attributes`. Babylon analyses the source and auto-assigns locations
-    // for per-instance attributes — listing them explicitly causes location
-    // collisions in WebGPU post-process / shadow re-render pipelines.
-    const usingShadows = !!opts.shadowGenerator;
-    const uniformsList = [
-        'viewProjection',
-        'uTime', 'uWindStrength',
-        'uColorRoot', 'uColorTip', 'uColorDry',
-        'uLightDir', 'uLightColor', 'uAmbient',
-        'uTorchPos', 'uTorchColor', 'uTorchIntensity', 'uTorchRange',
-        'uInfluencers', 'uInfluencerRadius', 'uInfluencerStrength',
-        'uHeroPos', 'uTileSize', 'uCurveRadius',
-        'uFadeStart', 'uFadeEnd',
-        'uFogEnabled', 'uFogColor', 'uFogStart', 'uFogEnd', 'uCameraPos',
-    ];
-    const samplersList: string[] = [];
-    const defines: string[] = [];
-    if (usingShadows) {
-        uniformsList.push('uShadowVP', 'uShadowDarkness', 'uShadowDepthScale', 'uShadowDepthValues');
-        samplersList.push('uShadowMap');
-        defines.push('#define RECEIVE_SHADOWS');
-    }
-    const usingInfluencers = opts.influencers !== false;
-    if (usingInfluencers) defines.push('#define INFLUENCERS');
-
-    const mat = new ShaderMaterial(
-        'proceduralGrassMat',
-        scene,
-        { vertex: SHADER_KEY, fragment: SHADER_KEY },
-        {
-            attributes: ['position', 'uv'],
-            uniforms: uniformsList,
-            samplers: samplersList,
-            defines,
-        },
-    );
-    mat.backFaceCulling = false;
-
-    mat.setFloat('uWindStrength', opts.windStrength ?? 0.18);
-    mat.setVector3('uHeroPos', Vector3.Zero());
-    mat.setFloat('uTileSize', opts.tileSize);
-    mat.setFloat('uCurveRadius', opts.curveRadius);
-    // No fade unless requested — defaults far beyond any tile.
-    mat.setFloat('uFadeStart', opts.fadeStart ?? 1e6);
-    mat.setFloat('uFadeEnd', opts.fadeEnd ?? (1e6 + 1));
-    mat.setColor3('uColorRoot', opts.colorRoot ?? new Color3(0.10, 0.14, 0.05));
-    mat.setColor3('uColorTip', opts.colorTip ?? new Color3(0.45, 0.65, 0.22));
-    mat.setColor3('uColorDry', opts.colorDry ?? new Color3(0.62, 0.55, 0.22));
-    mat.setColor3('uAmbient', opts.ambientColor ?? new Color3(0.25, 0.27, 0.22));
-
-    const dir = (opts.lightDirection ?? opts.directionalLight?.direction ?? new Vector3(-0.4, -1, -0.6)).clone().normalize();
-    const sunColor = opts.directionalLight?.diffuse?.clone() ?? new Color3(1.0, 0.98, 0.90);
-    mat.setVector3('uLightDir', dir);
-    mat.setColor3('uLightColor', sunColor);
-
-    mat.setVector3('uTorchPos', Vector3.Zero());
-    mat.setColor3('uTorchColor', new Color3(1.0, 0.62, 0.28));
-    mat.setFloat('uTorchIntensity', 0);
-    mat.setFloat('uTorchRange', 11);
-
-    // Fog disabled until the per-frame observer mirrors a live scene fog.
-    mat.setFloat('uFogEnabled', 0);
-    mat.setColor3('uFogColor', new Color3(0.52, 0.58, 0.86));
-    mat.setFloat('uFogStart', 1e6);
-    mat.setFloat('uFogEnd', 1e6 + 1);
-    mat.setVector3('uCameraPos', Vector3.Zero());
-
-    // Initialise influencer slots to a far-away point so they contribute 0.
-    // Updated per frame from outside via the returned setInfluencers() helper.
-    const INFLUENCER_FAR = 1e6;
-    const initialInfluencers = new Float32Array(MAX_INFLUENCERS * 3);
-    for (let i = 0; i < MAX_INFLUENCERS; i++) {
-        initialInfluencers[i * 3 + 0] = INFLUENCER_FAR;
-        initialInfluencers[i * 3 + 1] = 0;
-        initialInfluencers[i * 3 + 2] = INFLUENCER_FAR;
-    }
-    mat.setArray3('uInfluencers', Array.from(initialInfluencers));
-    mat.setFloat('uInfluencerRadius', opts.influencerRadius ?? 1.6);
-    mat.setFloat('uInfluencerStrength', opts.influencerStrength ?? 0.7);
-
-    if (usingShadows && opts.shadowGenerator) {
-        const gen = opts.shadowGenerator;
-        const shadowMap = gen.getShadowMap();
-        if (shadowMap) mat.setTexture('uShadowMap', shadowMap);
-        mat.setFloat('uShadowDarkness', gen.darkness);
-        mat.setFloat('uShadowDepthScale', (gen as unknown as { depthScale: number }).depthScale ?? 50);
-        mat.setVector2('uShadowDepthValues', new Vector2(1, 2));
-        mat.setMatrix('uShadowVP', Matrix.Identity());
-    }
-
-    blade.material = mat;
-    blade.alwaysSelectAsActiveMesh = true;
-
-    // Scratch instances reused by the per-frame observer below so the sun/shadow
-    // uniform sync doesn't churn a fresh Vector3 + Color3 + Vector2 every frame
-    // (60/s). ShaderMaterial re-reads these by reference at bind time, so mutating
-    // the same instance in place each frame is correct.
-    const lightDirScratch = new Vector3();
-    const lightColorScratch = new Color3();
-    const shadowDepthScratch = new Vector2();
+    // Scratch instances reused by the per-frame observer below so the sun
+    // uniform sync doesn't churn fresh Vector3s every frame (60/s). The
+    // uniform .value objects are mutated in place — Three re-reads them at
+    // upload time, so this is correct.
+    const lightPosScratch = new Vector3();
+    const lightTargetScratch = new Vector3();
 
     let elapsed = 0;
-    const tickObserver: Observer<Scene> | null = scene.onBeforeRenderObservable.add(() => {
-        elapsed += scene.getEngine().getDeltaTime() / 1000;
-        mat.setFloat('uTime', elapsed);
+    const tickToken: UpdateToken = host.onBeforeRender.add(() => {
+        elapsed += host.deltaSeconds;
+        mat.uniforms.uTime.value = elapsed;
 
         // Keep the sun uniforms in sync with the live light each frame —
         // cheap and means we react to runtime intensity/colour tweaks.
-        if (opts.directionalLight) {
-            lightDirScratch.copyFrom(opts.directionalLight.direction).normalize();
-            mat.setVector3('uLightDir', lightDirScratch);
-            opts.directionalLight.diffuse.scaleToRef(opts.directionalLight.intensity, lightColorScratch);
-            mat.setColor3('uLightColor', lightColorScratch);
+        const light = opts.directionalLight;
+        if (light) {
+            light.getWorldPosition(lightPosScratch);
+            light.target.getWorldPosition(lightTargetScratch);
+            (mat.uniforms.uLightDir.value as Vector3)
+                .subVectors(lightTargetScratch, lightPosScratch).normalize();
+            (mat.uniforms.uLightColor.value as Color)
+                .copy(light.color).multiplyScalar(light.intensity);
         }
 
-        // Per-frame shadow VP + depth values. The depth values depend on the
-        // backend (WebGL non-reverse: (1, 2); WebGPU: (0, 1)) — read from the
-        // light so we don't hardcode.
-        if (usingShadows && opts.shadowGenerator && opts.directionalLight) {
-            const vp = opts.shadowGenerator.getTransformMatrix();
-            if (vp) mat.setMatrix('uShadowVP', vp);
-            const cam = scene.activeCamera;
-            if (cam) {
-                const minZ = opts.directionalLight.getDepthMinZ(cam);
-                const maxZ = opts.directionalLight.getDepthMaxZ(cam);
-                shadowDepthScratch.copyFromFloats(minZ, minZ + maxZ);
-                mat.setVector2('uShadowDepthValues', shadowDepthScratch);
-            }
+        // Per-frame shadow map + matrix. light.shadow.matrix is updated in
+        // place by the renderer's shadow pass, so the reference set at
+        // construction stays live; the map texture only exists after the
+        // first shadow render — until then keep uShadowDarkness neutral.
+        if (usingShadows && opts.shadowLight) {
+            const shadow = opts.shadowLight.shadow;
+            const map = shadow.map;
+            mat.uniforms.uShadowMap.value = map ? map.texture : null;
+            mat.uniforms.uShadowDarkness.value = map ? shadowDarkness : 1;
+            (mat.uniforms.uShadowMapSize.value as Vector2).copy(shadow.mapSize);
         }
 
         // Mirror the scene's distance fog so the grass hazes into the same
-        // horizon band as the StandardMaterial ground/props. Driven entirely by
-        // scene state (the gameplay layer owns enable + the zoom band-shift), so
-        // both grass layers stay automatically consistent with everything else.
-        if (scene.fogEnabled) {
-            mat.setFloat('uFogEnabled', 1);
-            mat.setColor3('uFogColor', scene.fogColor);
-            mat.setFloat('uFogStart', scene.fogStart);
-            mat.setFloat('uFogEnd', scene.fogEnd);
-            const fogCam = scene.activeCamera;
-            if (fogCam) mat.setVector3('uCameraPos', fogCam.position);
+        // horizon band as the MeshPhongMaterial ground/props. Driven entirely
+        // by scene state (the gameplay layer owns enable + the zoom
+        // band-shift), so both grass layers stay automatically consistent.
+        const fog = host.scene.fog as Fog | null;
+        if (fog && fog.isFog) {
+            mat.uniforms.uFogEnabled.value = 1;
+            (mat.uniforms.uFogColor.value as Color).copy(fog.color);
+            mat.uniforms.uFogStart.value = fog.near;
+            mat.uniforms.uFogEnd.value = fog.far;
         } else {
-            mat.setFloat('uFogEnabled', 0);
+            mat.uniforms.uFogEnabled.value = 0;
         }
     });
-
-    // Re-used scratch buffer for per-frame influencer uploads.
-    const influencerBuf = new Float32Array(MAX_INFLUENCERS * 3);
-    const influencerArr = new Array<number>(MAX_INFLUENCERS * 3);
 
     return {
         mesh: blade,
         setTorch: (params) => {
             if (!params || params.intensity <= 0) {
-                mat.setFloat('uTorchIntensity', 0);
+                mat.uniforms.uTorchIntensity.value = 0;
                 return;
             }
-            mat.setVector3('uTorchPos', params.position);
-            mat.setColor3('uTorchColor', params.color);
-            mat.setFloat('uTorchIntensity', params.intensity);
-            mat.setFloat('uTorchRange', params.range);
+            (mat.uniforms.uTorchPos.value as Vector3).copy(params.position);
+            (mat.uniforms.uTorchColor.value as Color).copy(params.color);
+            mat.uniforms.uTorchIntensity.value = params.intensity;
+            mat.uniforms.uTorchRange.value = params.range;
         },
         setInfluencers: (positions: Vector3[]) => {
             if (!usingInfluencers) return; // loop compiled out — uniforms unused
@@ -613,22 +581,21 @@ export function createProceduralGrass(scene: Scene, opts: ProceduralGrassOptions
                 influencerBuf[i * 3 + 2] = p.z;
             }
             for (let i = n; i < MAX_INFLUENCERS; i++) {
-                influencerBuf[i * 3 + 0] = 1e6;
+                influencerBuf[i * 3 + 0] = INFLUENCER_FAR;
                 influencerBuf[i * 3 + 1] = 0;
-                influencerBuf[i * 3 + 2] = 1e6;
+                influencerBuf[i * 3 + 2] = INFLUENCER_FAR;
             }
-            // ShaderMaterial.setArray3 takes a plain number[] — copy via for
-            // loop instead of Array.from for less per-frame GC pressure.
-            for (let i = 0; i < influencerBuf.length; i++) influencerArr[i] = influencerBuf[i];
-            mat.setArray3('uInfluencers', influencerArr);
         },
         setHeroPos: (position: Vector3) => {
-            mat.setVector3('uHeroPos', position);
+            (mat.uniforms.uHeroPos.value as Vector3).copy(position);
         },
         dispose: () => {
-            if (tickObserver) scene.onBeforeRenderObservable.remove(tickObserver);
-            mat.dispose();
-            blade.dispose();
+            host.onBeforeRender.remove(tickToken);
+            // Drop the shadow-map reference before disposal so disposeMesh's
+            // material pass can never be blamed for a light-owned texture.
+            mat.uniforms.uShadowMap.value = null;
+            blade.dispose(); // frees the GPU-side instanceMatrix attribute
+            disposeMesh(blade, { materials: true });
         },
     };
 }

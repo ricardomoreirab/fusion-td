@@ -1,4 +1,5 @@
-import { Scene, Vector3, FreeCamera, KeyboardEventTypes, ParticleSystem, Color4 } from '@babylonjs/core';
+import { Vector3, PerspectiveCamera } from 'three';
+import { Game } from '../engine/Game';
 import { Champion } from './champions/Champion';
 import { HeroBasicAttack, BasicAttackTarget, BasicAttackMode, ProjectileShape } from './champions/HeroBasicAttack';
 import { PowerSlotManager } from './powers/PowerSlotManager';
@@ -7,6 +8,8 @@ import { PlayerStats } from './PlayerStats';
 import { DashMode } from './abilities/AbilityManager';
 import { capInputLen, arenaClampScale } from './integrateMove';
 import { stepZoom, lerpZoom, parsePersistedZoom, setCameraSlantPosition } from './cameraZoom';
+import { ParticleSystem } from '../engine/three/particles/ParticleSystem';
+import type { SceneHost } from '../engine/three/SceneHost';
 
 /** Hero damage-feedback tuning — adjust here, not deep in the update loop. */
 const HIT_REACTION_COOLDOWN_S = 0.5;
@@ -17,13 +20,14 @@ const CAMERA_SHAKE_DURATION_S = 0.10;
 
 /** Isometric (Diablo 4 / BG3-style) follow camera over the globe map.
  *  PITCH is the look-down angle from horizontal; FOV narrows the lens
- *  (telephoto flattens perspective toward an isometric read — Babylon default
- *  is 0.8); DISTANCE is the slant range from the focus point. Camera height
- *  and Z-offset derive from pitch + distance, so tune these three only.
- *  Pitch is capped so a slim band of curved horizon + sky still clears the
- *  top of the frame — that band is what sells the infinite-globe illusion. */
+ *  (telephoto flattens perspective toward an isometric read — the Babylon
+ *  default was 0.8 rad); DISTANCE is the slant range from the focus point.
+ *  Camera height and Z-offset derive from pitch + distance, so tune these
+ *  three only. Pitch is capped so a slim band of curved horizon + sky still
+ *  clears the top of the frame — that band is what sells the infinite-globe
+ *  illusion. */
 const CAMERA_PITCH_DEG       = 42;
-const CAMERA_FOV             = 0.55;  // rad
+const CAMERA_FOV             = 0.55;  // rad (vertical) — Three wants degrees, converted below
 const CAMERA_DISTANCE        = 26;    // desktop slant distance
 const CAMERA_DISTANCE_MOBILE = 23;    // narrow screens pull in slightly
 
@@ -53,9 +57,10 @@ const CLASS_ATTACK_CONFIG: Record<string, { mode: BasicAttackMode; fireRate: num
 };
 
 export class HeroController {
-    private scene: Scene;
+    private game: Game;
+    private scene: SceneHost;
     private hero: Champion;
-    private camera: FreeCamera;
+    private camera: PerspectiveCamera;
     private arenaRadius: number;
     private keys: { [k: string]: boolean } = {};
     private moveSpeed: number;
@@ -157,16 +162,21 @@ export class HeroController {
     private zoomTarget: number = 1;
     private readonly canvas: HTMLCanvasElement | null;
     private readonly onWheel: (e: WheelEvent) => void;
+    // Window keyboard listeners (replaces the Babylon scene keyboard observable) —
+    // stored so dispose() removes them.
+    private readonly onKeyDown: (e: KeyboardEvent) => void;
+    private readonly onKeyUp: (e: KeyboardEvent) => void;
 
     constructor(
-        scene: Scene,
+        game: Game,
         hero: Champion,
         arenaRadius: number,
         moveSpeed: number = 7,
         maxHealth: number = 100,
         championType: string = 'barbarian',
     ) {
-        this.scene = scene;
+        this.game = game;
+        this.scene = game.getScene();
         this.hero = hero;
         this.arenaRadius = arenaRadius;
         this.moveSpeed = moveSpeed;
@@ -176,7 +186,9 @@ export class HeroController {
         // Isometric globe-map camera: height + Z-offset derive from the pitch
         // and slant distance so the tuning knobs stay independent. On narrow
         // mobile screens (< 700px) pull the camera in slightly closer.
-        const viewportWidth = scene.getEngine().getRenderWidth();
+        const canvas = game.getCanvas();
+        const viewportWidth = canvas.clientWidth || window.innerWidth;
+        const viewportHeight = Math.max(1, canvas.clientHeight || window.innerHeight);
         const pitchRad = CAMERA_PITCH_DEG * Math.PI / 180;
         const camDist = viewportWidth < 700 ? CAMERA_DISTANCE_MOBILE : CAMERA_DISTANCE;
         this.cameraHeight = camDist * Math.sin(pitchRad);
@@ -185,18 +197,21 @@ export class HeroController {
         // Isometric follow camera: steep look-down + narrow (telephoto) FOV.
         // Aim slightly AHEAD of the hero so the hero sits just below centre
         // and the top of the frame keeps the curved horizon + sky band.
-        this.camera = new FreeCamera('heroCam', new Vector3(0, this.cameraHeight, this.cameraOffsetZ), scene);
-        this.camera.fov = CAMERA_FOV;
-        this.camera.setTarget(new Vector3(0, 0, CAMERA_AIM_AHEAD));
-        // Snapshot the look-down rotation once. We never call setTarget() again — only
-        // position is lerped per frame. Calling setTarget() each frame recomputes rotation
-        // from the lerped position, producing a tiny drift each frame that reads as the
-        // map slowly rotating.
-        this.camera.rotation = this.camera.rotation.clone();
-        scene.activeCamera = this.camera;
-
-        // No user camera manipulation
-        this.camera.inputs.clear();
+        // CAMERA_FOV is the Babylon vertical fov in RADIANS; Three takes degrees.
+        // Near/far mirror the Babylon FreeCamera defaults (minZ 1, maxZ 10000).
+        this.camera = new PerspectiveCamera(
+            CAMERA_FOV * 180 / Math.PI,
+            viewportWidth / viewportHeight,
+            1,
+            10000,
+        );
+        this.camera.name = 'heroCam';
+        this.camera.position.set(0, this.cameraHeight, this.cameraOffsetZ);
+        // Snapshot the look-down rotation once via lookAt. It is never recomputed —
+        // only position moves per frame (Three never re-aims a camera on its own),
+        // so there is no per-frame rotation drift that reads as the map rotating.
+        this.camera.lookAt(new Vector3(0, 0, CAMERA_AIM_AHEAD));
+        game.setActiveCamera(this.camera);
 
         // Mouse-wheel zoom. The rotation was just locked from the BASE (unzoomed)
         // geometry above, so it is identical regardless of the saved zoom — the
@@ -210,7 +225,7 @@ export class HeroController {
             this.cameraOffsetZ * this.zoomMultiplier,
         );
 
-        this.canvas = scene.getEngine().getRenderingCanvas();
+        this.canvas = canvas;
         this.onWheel = (e: WheelEvent) => {
             e.preventDefault(); // stop page scroll / browser pinch-zoom over the canvas
             this.zoomTarget = stepZoom(this.zoomTarget, e.deltaY);
@@ -219,20 +234,19 @@ export class HeroController {
         // passive:false is required so preventDefault() actually takes effect.
         this.canvas?.addEventListener('wheel', this.onWheel, { passive: false });
 
-        // Keyboard input
-        scene.onKeyboardObservable.add((kbInfo) => {
-            const key = kbInfo.event.key.toLowerCase();
-            if (kbInfo.type === KeyboardEventTypes.KEYDOWN) {
-                this.keys[key] = true;
-            }
-            if (kbInfo.type === KeyboardEventTypes.KEYUP) {
-                this.keys[key] = false;
-            }
-        });
+        // Keyboard input (window listeners; removed in dispose())
+        this.onKeyDown = (e: KeyboardEvent) => {
+            this.keys[e.key.toLowerCase()] = true;
+        };
+        this.onKeyUp = (e: KeyboardEvent) => {
+            this.keys[e.key.toLowerCase()] = false;
+        };
+        window.addEventListener('keydown', this.onKeyDown);
+        window.addEventListener('keyup', this.onKeyUp);
 
         // Build basic attack based on champion class
         const cfg = CLASS_ATTACK_CONFIG[championType] ?? CLASS_ATTACK_CONFIG['barbarian'];
-        this.basicAttack = new HeroBasicAttack(scene, hero, {
+        this.basicAttack = new HeroBasicAttack(this.scene, hero, {
             mode:             cfg.mode,
             fireRate:         cfg.fireRate,
             damage:           cfg.damage,
@@ -347,11 +361,11 @@ export class HeroController {
 
         const ps = new ParticleSystem('heroBloodBurst', BLOOD_BURST_COUNT, this.scene);
         ps.emitter = burstPos;
-        ps.minEmitBox = new Vector3(-0.10, 0, -0.10);
-        ps.maxEmitBox = new Vector3(0.10, 0, 0.10);
-        ps.color1 = new Color4(0.80, 0.05, 0.05, 1);
-        ps.color2 = new Color4(0.50, 0.02, 0.02, 1);
-        ps.colorDead = new Color4(0.10, 0, 0, 0);
+        ps.minEmitBox.set(-0.10, 0, -0.10);
+        ps.maxEmitBox.set(0.10, 0, 0.10);
+        ps.color1.set(0.80, 0.05, 0.05, 1);
+        ps.color2.set(0.50, 0.02, 0.02, 1);
+        ps.colorDead.set(0.10, 0, 0, 0);
         ps.minSize = 0.10;
         ps.maxSize = 0.20;
         ps.minLifeTime = 0.25;
@@ -359,11 +373,11 @@ export class HeroController {
         ps.emitRate = 80;
         ps.manualEmitCount = BLOOD_BURST_COUNT; // one-shot
         ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-        ps.direction1 = new Vector3(-1, 0.4, -1);
-        ps.direction2 = new Vector3(1, 1.2, 1);
+        ps.direction1.set(-1, 0.4, -1);
+        ps.direction2.set(1, 1.2, 1);
         ps.minEmitPower = 1.5;
         ps.maxEmitPower = 3.0;
-        ps.gravity = new Vector3(0, -15, 0);
+        ps.gravity.set(0, -15, 0);
         ps.start();
         // Stop emission shortly after, then dispose once particles finish their lifetime.
         setTimeout(() => { ps.stop(); setTimeout(() => ps.dispose(), 500); }, 80);
@@ -587,8 +601,8 @@ export class HeroController {
             target = new Vector3(target.x * k, target.y, target.z * k);
         }
 
-        this.dashStartPos.copyFrom(this.hero.getPosition());
-        this.dashTargetPos.copyFrom(target);
+        this.dashStartPos.copy(this.hero.getPosition());
+        this.dashTargetPos.copy(target);
         this.dashDuration = Math.max(0.01, duration);
         this.dashElapsed = 0;
         this.dashMode = mode;
@@ -627,6 +641,18 @@ export class HeroController {
 
     public update(deltaTime: number): void {
         this.elapsedTime += deltaTime;
+
+        // ── Camera aspect tracking ─────────────────────────────────────────
+        // Game.resize() updates the ACTIVE camera on window resizes; this cheap
+        // per-frame check is the belt-and-braces for a canvas that changed size
+        // without a resize event (and for the first frames after construction).
+        const cw = this.canvas?.clientWidth || window.innerWidth;
+        const ch = Math.max(1, this.canvas?.clientHeight || window.innerHeight);
+        const aspect = cw / ch;
+        if (Number.isFinite(aspect) && aspect > 0 && aspect !== this.camera.aspect) {
+            this.camera.aspect = aspect;
+            this.camera.updateProjectionMatrix();
+        }
 
         // ── Post-revive invulnerability shield ─────────────────────────────
         if (this.shieldTimer > 0) {
@@ -765,7 +791,7 @@ export class HeroController {
             ? this.cameraFocusProvider()
             : { x: pos.x, z: pos.z, distanceScale: 1 };
         // Only lerp from a FINITE focus + delta. A NaN/Infinity here would poison
-        // camera.position permanently (LerpToRef of NaN stays NaN forever), making
+        // camera.position permanently (a lerp of NaN stays NaN forever), making
         // the view matrix NaN → every mesh clips out → the canvas blanks to the
         // near-black clear color: a sticky black screen that never recovers. We keep
         // _scratchCamTarget at its last finite value so recovery has somewhere to go.
@@ -786,11 +812,11 @@ export class HeroController {
                 this.cameraOffsetZ,
                 scale,
             );
-            Vector3.LerpToRef(
-                this.camera.position,
+            // In-place lerp toward the follow target (Babylon Vector3.LerpToRef
+            // writing back into camera.position).
+            this.camera.position.lerp(
                 this._scratchCamTarget,
                 Math.min(1, deltaTime * 6),
-                this.camera.position,
             );
         }
         // If the position was already poisoned (or focus was non-finite this frame),
@@ -798,7 +824,7 @@ export class HeroController {
         const cp = this.camera.position;
         if (!ft(cp.x) || !ft(cp.y) || !ft(cp.z)) {
             console.error('[camera] non-finite hero-follow position — recovered to last finite target');
-            cp.copyFrom(this._scratchCamTarget);
+            cp.copy(this._scratchCamTarget);
         }
 
         // Shake is applied *after* the lerp — otherwise the lerp's smoothing
@@ -816,7 +842,7 @@ export class HeroController {
         if (this.basicAttack && !this.isDead && !this.spectating) this.basicAttack.update(deltaTime);
     }
 
-    public getCamera(): FreeCamera {
+    public getCamera(): PerspectiveCamera {
         return this.camera;
     }
 
@@ -837,6 +863,10 @@ export class HeroController {
     public dispose(): void {
         this.basicAttack?.dispose(); // shared flight observer + streak pool
         this.canvas?.removeEventListener('wheel', this.onWheel);
-        this.camera.dispose();
+        window.removeEventListener('keydown', this.onKeyDown);
+        window.removeEventListener('keyup', this.onKeyUp);
+        // Three cameras own no GPU resources; hand rendering back to the boot
+        // camera (Game.cleanupScene would also do this on state teardown).
+        this.game.restoreDefaultCamera();
     }
 }

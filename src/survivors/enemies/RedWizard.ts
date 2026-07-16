@@ -1,8 +1,9 @@
-import { Vector3, MeshBuilder, Color3 } from '@babylonjs/core';
+import { Color, Vector3 } from 'three';
 import { Game } from '../../engine/Game';
 import { HealerEnemy } from './HealerEnemy';
 import { acquireProjectile, releaseProjectile } from '../../engine/rendering/ProjectilePool';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
+import { createSphere, isMeshDisposed } from '../../engine/three/primitives';
 import { emitCoopFx } from '../coop/CoopFx';
 
 /**
@@ -63,7 +64,7 @@ export class RedWizard extends HealerEnemy {
 
     /**
      * Spawn a straight-flying bolt aimed at the hero's position AT LAUNCH (non-homing,
-     * so the player can dodge). Moved each frame via an onBeforeRenderObservable closure;
+     * so the player can dodge). Moved each frame via an onBeforeRender closure;
      * the observer is removed on hit, timeout, or if the wizard/hero is gone.
      */
     private fireBolt(heroPos: Vector3): void {
@@ -76,39 +77,38 @@ export class RedWizard extends HealerEnemy {
         const vx = (dirX / len) * RedWizard.BOLT_SPEED;
         const vz = (dirZ / len) * RedWizard.BOLT_SPEED;
 
-        const bolt = acquireProjectile(this.scene, RedWizard.POOL_KEY, () => {
-            const m = MeshBuilder.CreateSphere('redWizardBolt', { diameter: 0.4, segments: 6 }, this.scene);
+        const bolt = acquireProjectile(RedWizard.POOL_KEY, () => {
+            const m = createSphere('redWizardBolt', { diameter: 0.4, segments: 6 }, this.scene);
             // Bounded cache key (one material total) — never per-instance/random (CLAUDE.md).
-            m.material = getCachedMaterial(this.scene, RedWizard.POOL_KEY, mat => {
-                mat.emissiveColor = new Color3(0.95, 0.18, 0.12);
-                mat.diffuseColor = new Color3(0.95, 0.18, 0.12);
-                mat.disableLighting = true;
+            m.material = getCachedMaterial(RedWizard.POOL_KEY, mat => {
+                mat.emissive = new Color(0.95, 0.18, 0.12);
+                mat.color = new Color(0.95, 0.18, 0.12);
             });
             return m;
         });
-        bolt.position.copyFrom(origin);
-        bolt.setEnabled(true);
+        bolt.position.copy(origin);
+        bolt.visible = true;
 
         // Track the same live hero the bolt was aimed at; the in-flight isAlive guard
         // below still cancels it if that hero goes down before impact.
         const seekTarget = this.resolveSeekTarget();
         const startTime = performance.now();
 
-        const observer = this.scene.onBeforeRenderObservable.add(() => {
+        const observer = this.scene.onBeforeRender.add(host => {
             const cleanup = () => {
-                this.scene.onBeforeRenderObservable.remove(observer);
+                this.scene.onBeforeRender.remove(observer);
                 releaseProjectile(RedWizard.POOL_KEY, bolt);
             };
 
             // Bail if the bolt/wizard/hero is gone, or the bolt has flown too long.
-            if (bolt.isDisposed() || !this.alive || !seekTarget
+            if (isMeshDisposed(bolt) || !this.alive || !seekTarget
                 || seekTarget.isAlive?.() === false
                 || performance.now() - startTime > RedWizard.BOLT_TIMEOUT_MS) {
                 cleanup();
                 return;
             }
 
-            const dt = this.scene.getEngine().getDeltaTime() / 1000;
+            const dt = host.deltaSeconds;
             bolt.position.x += vx * dt;
             bolt.position.z += vz * dt;
 

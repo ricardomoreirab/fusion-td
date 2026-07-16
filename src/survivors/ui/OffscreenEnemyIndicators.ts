@@ -1,5 +1,4 @@
-import { AdvancedDynamicTexture, Rectangle } from '@babylonjs/gui';
-import { Scene, Vector3, Matrix, Camera, Viewport } from '@babylonjs/core';
+import { Camera, Vector3 } from 'three';
 import { Enemy } from '../enemies/Enemy';
 import { BossEnemy } from '../enemies/BossEnemy';
 
@@ -11,66 +10,76 @@ const ELEMENT_HEX: Record<string, string> = {
     storm:    '#bbbbff',
 };
 
+/**
+ * Screen-edge dots for off-screen enemies (DOM port of the old Babylon-GUI
+ * version). One absolutely-positioned circular div per off-screen enemy,
+ * pooled per enemy in `active` exactly like the old Rectangle pool.
+ *
+ * The camera is threaded as a direct reference (same as the Babylon version,
+ * which received heroController.getCamera()). Render size comes from
+ * canvas.clientWidth/Height.
+ */
 export class OffscreenEnemyIndicators {
-    private ui: AdvancedDynamicTexture;
-    private scene: Scene;
+    private canvas: HTMLCanvasElement;
     private camera: Camera;
     private getEnemies: () => Enemy[];
+    /** Layer the dots mount into — pointer-events: none, viewport-covering. */
+    private layer: HTMLElement;
     /** Map from enemy → its screen-edge indicator dot */
-    private active: Map<Enemy, Rectangle> = new Map();
+    private active: Map<Enemy, HTMLDivElement> = new Map();
     /** Reused per-frame set to avoid allocating a new Set every update */
     private _seen: Set<Enemy> = new Set<Enemy>();
-    /** Scratch buffers reused per call to Vector3.ProjectToRef so the projection
-     *  doesn't allocate a fresh Vector3 + Viewport per enemy per frame. */
+    /** Scratch vector reused per enemy per frame so the projection allocates nothing. */
     private _scratchProject: Vector3 = new Vector3();
-    private _scratchViewport: Viewport = new Viewport(0, 0, 1, 1);
-    private _identityMat: Matrix = Matrix.Identity();
 
     constructor(
-        ui: AdvancedDynamicTexture,
-        scene: Scene,
+        canvas: HTMLCanvasElement,
         camera: Camera,
         getEnemies: () => Enemy[],
+        parent?: HTMLElement,
     ) {
-        this.ui = ui;
-        this.scene = scene;
+        this.canvas = canvas;
         this.camera = camera;
         this.getEnemies = getEnemies;
+        this.layer = parent ?? document.getElementById('ui-root') ?? document.body;
     }
 
     public update(): void {
         const enemies = this.getEnemies();
-        const engine  = this.scene.getEngine();
-        const sw      = engine.getRenderWidth();
-        const sh      = engine.getRenderHeight();
+        const sw = this.canvas.clientWidth;
+        const sh = this.canvas.clientHeight;
+        if (sw === 0 || sh === 0) return;
         this._seen.clear();
-        const seen    = this._seen;
+        const seen = this._seen;
 
-        const transformMat = this.scene.getTransformMatrix();
-        // Compute the screen-space viewport once into the scratch instance
-        // (toGlobalToRef avoids the per-call Viewport allocation that
-        // viewport.toGlobal returns).
-        const vp = this._scratchViewport;
-        this.camera.viewport.toGlobalToRef(sw, sh, vp);
+        // Camera.updateMatrixWorld also refreshes matrixWorldInverse, so the
+        // projection below is correct even before the first rendered frame.
+        this.camera.updateMatrixWorld();
         const sp = this._scratchProject;
 
         for (const e of enemies) {
             if (!e.isAlive()) continue;
             seen.add(e);
 
-            // Project world → screen into the shared scratch Vector3.
-            Vector3.ProjectToRef(e.getPosition(), this._identityMat, transformMat, vp, sp);
+            // Project world → screen via the shared scratch Vector3. View space
+            // first: the camera looks down -Z, so viewZ > 0 means behind it
+            // (Babylon's sp.z < 0 case).
+            sp.copy(e.getPosition()).applyMatrix4(this.camera.matrixWorldInverse);
+            const inFront = sp.z < 0;
+            sp.applyMatrix4(this.camera.projectionMatrix); // NDC (perspective divide)
+            const sx = (sp.x * 0.5 + 0.5) * sw;
+            const sy = (-sp.y * 0.5 + 0.5) * sh;
 
-            // sp.z < 0 means the point is behind the camera
             const onScreen =
-                sp.z > 0 &&
-                sp.x >= 0 && sp.x <= sw &&
-                sp.y >= 0 && sp.y <= sh;
+                inFront &&
+                sx >= 0 && sx <= sw &&
+                sy >= 0 && sy <= sh;
 
             if (onScreen) {
                 // Remove the indicator if the enemy came back on screen
-                if (this.active.has(e)) {
-                    this.active.get(e)!.dispose();
+                const dot = this.active.get(e);
+                if (dot) {
+                    dot.remove();
                     this.active.delete(e);
                 }
                 continue;
@@ -89,12 +98,13 @@ export class OffscreenEnemyIndicators {
                     : '#aaaaaa';
             const margin = size / 2 + 4;
 
-            // Compute the clamped screen-edge position
-            // ADT uses center-origin; convert from top-left screen space.
+            // Compute the clamped screen-edge position (top-left screen space;
+            // the behind-camera perspective divide flips signs, so mirror the
+            // direction through the centre exactly like the Babylon version).
             const cx = sw / 2;
             const cy = sh / 2;
-            const dx = sp.z > 0 ? sp.x - cx : cx - sp.x;  // flip when behind camera
-            const dy = sp.z > 0 ? sp.y - cy : cy - sp.y;
+            const dx = inFront ? sx - cx : cx - sx;  // flip when behind camera
+            const dy = inFront ? sy - cy : cy - sy;
             const ang = Math.atan2(dy, dx);
             const ex = cx + Math.cos(ang) * (cx - margin);
             const ey = cy + Math.sin(ang) * (cy - margin);
@@ -102,48 +112,47 @@ export class OffscreenEnemyIndicators {
             const styleKey = `${size}|${border}|${bg}`;
             let dot = this.active.get(e);
             if (!dot) {
-                dot = new Rectangle(`offscreenEnemyDot_${e.id}`);
-                // Size/background MUST be set before addControl. A Rectangle
-                // added at its default 100%/transparent state never recovers
-                // visibility when those props are set later in the same frame.
-                dot.color        = '#ffffff';
-                dot.metadata     = styleKey;
-                dot.width        = `${size}px`;
-                dot.height       = `${size}px`;
-                dot.thickness    = border;
-                dot.background   = bg;
-                dot.cornerRadius = size / 2;
-                this.ui.addControl(dot);
+                dot = document.createElement('div');
+                dot.style.position = 'absolute';
+                dot.style.pointerEvents = 'none';
+                // Centre the dot on its (left, top) point, like the old
+                // centre-aligned ADT control.
+                dot.style.transform = 'translate(-50%, -50%)';
+                this.applyStyle(dot, size, border, bg, styleKey);
+                this.layer.appendChild(dot);
                 this.active.set(e, dot);
-            } else if (dot.metadata !== styleKey) {
+            } else if (dot.dataset.styleKey !== styleKey) {
                 // Re-style only when the tier styling actually changed (e.g.
                 // EliteSpawner promoting a regular spawn to elite) — not every
-                // frame. The style key is stashed on the control's metadata.
-                dot.metadata     = styleKey;
-                dot.width        = `${size}px`;
-                dot.height       = `${size}px`;
-                dot.thickness    = border;
-                dot.background   = bg;
-                dot.cornerRadius = size / 2;
+                // frame. The style key is stashed on the element's dataset.
+                this.applyStyle(dot, size, border, bg, styleKey);
             }
-            // Position in ADT space (center-origin) as percentages — px values
-            // get scaled by idealWidth and land off-screen at non-800 viewports.
-            dot.left = `${((ex - cx) / sw) * 100}%`;
-            dot.top  = `${((ey - cy) / sh) * 100}%`;
+            dot.style.left = `${ex}px`;
+            dot.style.top  = `${ey}px`;
         }
 
         // Clean up stale entries (dead enemies)
         for (const [e, dot] of this.active) {
             if (!seen.has(e)) {
-                dot.dispose();
+                dot.remove();
                 this.active.delete(e);
             }
         }
     }
 
+    private applyStyle(dot: HTMLDivElement, size: number, border: number, bg: string, styleKey: string): void {
+        dot.dataset.styleKey = styleKey;
+        dot.style.width        = `${size}px`;
+        dot.style.height       = `${size}px`;
+        dot.style.boxSizing    = 'border-box';
+        dot.style.border       = border > 0 ? `${border}px solid #ffffff` : 'none';
+        dot.style.background   = bg;
+        dot.style.borderRadius = '50%';
+    }
+
     public dispose(): void {
         for (const dot of this.active.values()) {
-            dot.dispose();
+            dot.remove();
         }
         this.active.clear();
     }

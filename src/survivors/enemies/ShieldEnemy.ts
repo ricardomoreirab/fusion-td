@@ -1,13 +1,18 @@
-import { Vector3, MeshBuilder, StandardMaterial, Color3, Color4, ParticleSystem, Mesh, AssetContainer, AnimationGroup, TransformNode, Quaternion } from '@babylonjs/core';
+import { Box3, Color, Mesh, MeshPhongMaterial, Vector3 } from 'three';
 import { Game } from '../../engine/Game';
 import { Enemy, getStatusEffectTexture, tryAcquireDeathBurst, scheduleDeathBurstTeardown } from './Enemy';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../engine/rendering/LowPolyMaterial';
 import { PALETTE } from '../../engine/rendering/StyleConstants';
+import { AnimGroup } from '../../engine/three/AnimGroup';
+import type { GlbContainer } from '../../engine/three/assets';
+import { headingToYaw, rgba } from '../../engine/three/math';
+import { ParticleSystem } from '../../engine/three/particles/ParticleSystem';
+import { createBox, createCylinder, createSphere, disposeMesh } from '../../engine/three/primitives';
 
 export class ShieldEnemy extends Enemy {
     /** Static slot used by EnemyManager.spawnSurvivorsEnemy to stage a preloaded GLB
      *  asset before constructing a ShieldEnemy. createMesh() consumes + clears it. */
-    public static pendingAsset: AssetContainer | null = null;
+    public static pendingAsset: GlbContainer | null = null;
 
     private walkTime: number = 0;
     private head: Mesh | null = null;
@@ -18,10 +23,10 @@ export class ShieldEnemy extends Enemy {
 
     /** True when this instance renders via the red-super-melee-minion GLB. */
     private usingGLB: boolean = false;
-    private glbWalkAnim: AnimationGroup | null = null;
-    private glbAttackAnim: AnimationGroup | null = null;
-    private glbIdleAnim: AnimationGroup | null = null;
-    private glbCurrentAnim: AnimationGroup | null = null;
+    private glbWalkAnim: AnimGroup | null = null;
+    private glbAttackAnim: AnimGroup | null = null;
+    private glbIdleAnim: AnimGroup | null = null;
+    private glbCurrentAnim: AnimGroup | null = null;
     private glbAttackHoldTimer: number = 0;
     private static readonly GLB_ATTACK_RANGE = 3.5;
     private static readonly GLB_ATTACK_HOLD  = 0.6;
@@ -80,43 +85,33 @@ export class ShieldEnemy extends Enemy {
         this.createMeshProcedural();
     }
 
-    private createMeshFromGLB(asset: AssetContainer): void {
+    private createMeshFromGLB(asset: GlbContainer): void {
         this.usingGLB = true;
-        this.mesh = new Mesh('shieldEnemyGlbRoot', this.scene);
-        this.mesh.position.copyFrom(this.position);
+        this.mesh = new Mesh(); // empty transform host (renders nothing)
+        this.mesh.name = 'shieldEnemyGlbRoot';
+        this.scene.scene.add(this.mesh);
+        this.mesh.position.copy(this.position);
 
-        const inst = asset.instantiateModelsToScene(
-            name => `shield_${name}`,
-            true,
-            { doNotInstantiate: true },
-        );
-        for (const root of inst.rootNodes) {
-            root.parent = this.mesh;
-            if ('scaling' in root && root.scaling) {
-                (root as TransformNode).scaling.scaleInPlace(ShieldEnemy.GLB_SCALE);
-            }
-            // 180° Y flip — same pattern as BasicEnemy GLB so the model faces the hero.
-            const tn = root as TransformNode;
-            const flip = Quaternion.RotationYawPitchRoll(Math.PI, 0, 0);
-            if (tn.rotationQuaternion) {
-                tn.rotationQuaternion = flip.multiply(tn.rotationQuaternion);
-            } else if (tn.rotation) {
-                tn.rotation.y += Math.PI;
-            }
-        }
+        const inst = asset.instantiate(this.scene, 'shield_');
+        // Base Enemy field; its dispose() frees cloned materials + skeletons + mixer hook.
+        this.glbInstance = inst;
+        const root = inst.root;
+        this.mesh.add(root);
+        root.scale.multiplyScalar(ShieldEnemy.GLB_SCALE);
+        // Keep the Babylon-era 180-degree Y pre-rotation so facing math stays
+        // aligned (Phase D handedness audit may remove it) — same pattern as
+        // BasicEnemy GLB so the model faces the hero.
+        root.rotation.y += Math.PI;
 
         // Feet-on-ground offset.
-        this.mesh.computeWorldMatrix(true);
-        const bbox = this.mesh.getHierarchyBoundingVectors(true);
+        this.mesh.updateMatrixWorld(true);
+        const bbox = new Box3().setFromObject(this.mesh);
         const feetOffset = -bbox.min.y;
-        for (const root of inst.rootNodes) {
-            if ('position' in root && root.position) {
-                (root as TransformNode).position.y += feetOffset;
-            }
-        }
+        root.position.y += feetOffset;
 
+        // Register groups on the base class so the release path can stop them
+        // (glbInstance.dispose() owns their actual disposal).
         this.glbAnimationGroups = inst.animationGroups;
-        this.glbSkeletons = inst.skeletons;
         for (const ag of inst.animationGroups) ag.stop();
         for (const ag of inst.animationGroups) {
             const n = ag.name.toLowerCase();
@@ -137,7 +132,7 @@ export class ShieldEnemy extends Enemy {
         }
     }
 
-    private playGlbAnim(slot: AnimationGroup | null, loop: boolean): void {
+    private playGlbAnim(slot: AnimGroup | null, loop: boolean): void {
         if (!slot) return;
         if (this.glbCurrentAnim === slot) return;
         if (this.glbCurrentAnim) this.glbCurrentAnim.stop();
@@ -152,292 +147,294 @@ export class ShieldEnemy extends Enemy {
      */
     private createMeshProcedural(): void {
         // --- Torso: wide bulky box (heavy armor) ---
-        this.mesh = MeshBuilder.CreateBox('shieldEnemyBody', {
+        this.mesh = createBox('shieldEnemyBody', {
             width: 0.85,
             height: 0.70,
             depth: 0.55
         }, this.scene);
         makeFlatShaded(this.mesh);
-        this.mesh.position = this.position.clone();
+        this.mesh.position.copy(this.position);
         this.mesh.position.y += 0.70;
-        this.mesh.material = createLowPolyMaterial('shieldBodyMat', PALETTE.ENEMY_SHIELD, this.scene);
+        this.mesh.material = createLowPolyMaterial('shieldBodyMat', PALETTE.ENEMY_SHIELD);
 
         // --- Chest plate: front armor plate ---
-        const chestPlate = MeshBuilder.CreateBox('shieldChestPlate', {
+        const chestPlate = createBox('shieldChestPlate', {
             width: 0.72,
             height: 0.55,
             depth: 0.08
         }, this.scene);
         makeFlatShaded(chestPlate);
-        chestPlate.parent = this.mesh;
-        chestPlate.position = new Vector3(0, 0.0, 0.30);
-        chestPlate.material = createLowPolyMaterial('shieldChestPlateMat', PALETTE.ENEMY_SHIELD_PLATE, this.scene);
+        this.mesh.add(chestPlate);
+        chestPlate.position.set(0, 0.0, 0.30);
+        chestPlate.material = createLowPolyMaterial('shieldChestPlateMat', PALETTE.ENEMY_SHIELD_PLATE);
 
         // --- Gold chest emblem: small box on chest plate ---
-        const emblem = MeshBuilder.CreateBox('shieldEmblem', {
+        const emblem = createBox('shieldEmblem', {
             width: 0.15,
             height: 0.15,
             depth: 0.04
         }, this.scene);
         makeFlatShaded(emblem);
-        emblem.parent = chestPlate;
-        emblem.position = new Vector3(0, 0.10, 0.05);
+        chestPlate.add(emblem);
+        emblem.position.set(0, 0.10, 0.05);
         emblem.rotation.z = Math.PI / 4; // Diamond shape
-        emblem.material = createLowPolyMaterial('shieldEmblemMat', PALETTE.ENEMY_SHIELD_GOLD, this.scene);
+        emblem.material = createLowPolyMaterial('shieldEmblemMat', PALETTE.ENEMY_SHIELD_GOLD);
 
         // --- Back plate: rear armor ---
-        const backPlate = MeshBuilder.CreateBox('shieldBackPlate', {
+        const backPlate = createBox('shieldBackPlate', {
             width: 0.68,
             height: 0.50,
             depth: 0.06
         }, this.scene);
         makeFlatShaded(backPlate);
-        backPlate.parent = this.mesh;
-        backPlate.position = new Vector3(0, 0.0, -0.30);
-        backPlate.material = createLowPolyMaterial('shieldBackPlateMat', PALETTE.ENEMY_SHIELD_PLATE, this.scene);
+        this.mesh.add(backPlate);
+        backPlate.position.set(0, 0.0, -0.30);
+        backPlate.material = createLowPolyMaterial('shieldBackPlateMat', PALETTE.ENEMY_SHIELD_PLATE);
 
         // --- Pauldrons (shoulder guards): two boxes ---
-        const leftPauldron = MeshBuilder.CreateBox('shieldLeftPauldron', {
+        const leftPauldron = createBox('shieldLeftPauldron', {
             width: 0.28,
             height: 0.15,
             depth: 0.30
         }, this.scene);
         makeFlatShaded(leftPauldron);
-        leftPauldron.parent = this.mesh;
-        leftPauldron.position = new Vector3(-0.48, 0.30, 0);
+        this.mesh.add(leftPauldron);
+        leftPauldron.position.set(-0.48, 0.30, 0);
         leftPauldron.rotation.z = -0.2;
-        leftPauldron.material = createLowPolyMaterial('shieldLeftPauldronMat', PALETTE.ENEMY_SHIELD_PLATE, this.scene);
+        leftPauldron.material = createLowPolyMaterial('shieldLeftPauldronMat', PALETTE.ENEMY_SHIELD_PLATE);
 
-        const rightPauldron = MeshBuilder.CreateBox('shieldRightPauldron', {
+        const rightPauldron = createBox('shieldRightPauldron', {
             width: 0.28,
             height: 0.15,
             depth: 0.30
         }, this.scene);
         makeFlatShaded(rightPauldron);
-        rightPauldron.parent = this.mesh;
-        rightPauldron.position = new Vector3(0.48, 0.30, 0);
+        this.mesh.add(rightPauldron);
+        rightPauldron.position.set(0.48, 0.30, 0);
         rightPauldron.rotation.z = 0.2;
-        rightPauldron.material = createLowPolyMaterial('shieldRightPauldronMat', PALETTE.ENEMY_SHIELD_PLATE, this.scene);
+        rightPauldron.material = createLowPolyMaterial('shieldRightPauldronMat', PALETTE.ENEMY_SHIELD_PLATE);
 
         // --- Belt: horizontal armored strip ---
-        const belt = MeshBuilder.CreateBox('shieldBelt', {
+        const belt = createBox('shieldBelt', {
             width: 0.88,
             height: 0.10,
             depth: 0.58
         }, this.scene);
         makeFlatShaded(belt);
-        belt.parent = this.mesh;
-        belt.position = new Vector3(0, -0.32, 0);
-        belt.material = createLowPolyMaterial('shieldBeltMat', PALETTE.ENEMY_SHIELD_GOLD, this.scene);
+        this.mesh.add(belt);
+        belt.position.set(0, -0.32, 0);
+        belt.material = createLowPolyMaterial('shieldBeltMat', PALETTE.ENEMY_SHIELD_GOLD);
 
         // --- Head / Helmet: box-shaped great helm ---
-        this.head = MeshBuilder.CreateBox('shieldHead', {
+        this.head = createBox('shieldHead', {
             width: 0.50,
             height: 0.52,
             depth: 0.48
         }, this.scene);
         makeFlatShaded(this.head);
-        this.head.parent = this.mesh;
-        this.head.position = new Vector3(0, 0.60, 0.02);
-        this.head.material = createLowPolyMaterial('shieldHeadMat', PALETTE.ENEMY_SHIELD, this.scene);
+        this.mesh.add(this.head);
+        this.head.position.set(0, 0.60, 0.02);
+        this.head.material = createLowPolyMaterial('shieldHeadMat', PALETTE.ENEMY_SHIELD);
 
         // --- Helmet crest: small ridge on top ---
-        const crest = MeshBuilder.CreateBox('shieldCrest', {
+        const crest = createBox('shieldCrest', {
             width: 0.08,
             height: 0.12,
             depth: 0.38
         }, this.scene);
         makeFlatShaded(crest);
-        crest.parent = this.head;
-        crest.position = new Vector3(0, 0.30, -0.02);
-        crest.material = createLowPolyMaterial('shieldCrestMat', PALETTE.ENEMY_SHIELD_GOLD, this.scene);
+        this.head.add(crest);
+        crest.position.set(0, 0.30, -0.02);
+        crest.material = createLowPolyMaterial('shieldCrestMat', PALETTE.ENEMY_SHIELD_GOLD);
 
         // --- Visor slit: emissive golden eyes ---
-        const visor = MeshBuilder.CreateBox('shieldVisor', {
+        const visor = createBox('shieldVisor', {
             width: 0.36,
             height: 0.06,
             depth: 0.06
         }, this.scene);
         makeFlatShaded(visor);
-        visor.parent = this.head;
-        visor.position = new Vector3(0, 0.04, 0.24);
-        visor.material = createEmissiveMaterial('shieldVisorMat', PALETTE.ENEMY_SHIELD_EYE, 0.9, this.scene);
+        this.head.add(visor);
+        visor.position.set(0, 0.04, 0.24);
+        visor.material = createEmissiveMaterial('shieldVisorMat', PALETTE.ENEMY_SHIELD_EYE, 0.9);
 
         // --- Left Arm (shield arm): armored box arm ---
-        this.leftArm = MeshBuilder.CreateBox('shieldLeftArm', {
+        this.leftArm = createBox('shieldLeftArm', {
             width: 0.20,
             height: 0.58,
             depth: 0.20
         }, this.scene);
         makeFlatShaded(this.leftArm);
-        this.leftArm.parent = this.mesh;
-        this.leftArm.position = new Vector3(-0.55, -0.02, 0);
-        this.leftArm.material = createLowPolyMaterial('shieldLeftArmMat', PALETTE.ENEMY_SHIELD, this.scene);
+        this.mesh.add(this.leftArm);
+        this.leftArm.position.set(-0.55, -0.02, 0);
+        this.leftArm.material = createLowPolyMaterial('shieldLeftArmMat', PALETTE.ENEMY_SHIELD);
 
         // --- Tower Shield on left arm: large flat box ---
-        this.shieldMesh = MeshBuilder.CreateBox('shieldTowerShield', {
+        this.shieldMesh = createBox('shieldTowerShield', {
             width: 0.08,
             height: 0.70,
             depth: 0.45
         }, this.scene);
         makeFlatShaded(this.shieldMesh);
-        this.shieldMesh.parent = this.leftArm;
-        this.shieldMesh.position = new Vector3(-0.14, -0.05, 0.10);
+        this.leftArm.add(this.shieldMesh);
+        this.shieldMesh.position.set(-0.14, -0.05, 0.10);
         this.shieldMesh.material = this.createShieldMaterial();
+        // Uniquely-owned animated material — disposeMesh frees it with the mesh.
+        this.shieldMesh.userData.ownedMaterial = true;
 
         // --- Shield boss (center knob): small box ---
-        const shieldBoss = MeshBuilder.CreateBox('shieldBoss', {
+        const shieldBoss = createBox('shieldBoss', {
             width: 0.06,
             height: 0.14,
             depth: 0.14
         }, this.scene);
         makeFlatShaded(shieldBoss);
-        shieldBoss.parent = this.shieldMesh;
-        shieldBoss.position = new Vector3(-0.05, 0, 0);
-        shieldBoss.material = createLowPolyMaterial('shieldBossMat', PALETTE.ENEMY_SHIELD_GOLD, this.scene);
+        this.shieldMesh.add(shieldBoss);
+        shieldBoss.position.set(-0.05, 0, 0);
+        shieldBoss.material = createLowPolyMaterial('shieldBossMat', PALETTE.ENEMY_SHIELD_GOLD);
 
         // --- Shield gold trim: top and bottom strips ---
-        const shieldTrimTop = MeshBuilder.CreateBox('shieldTrimTop', {
+        const shieldTrimTop = createBox('shieldTrimTop', {
             width: 0.09,
             height: 0.05,
             depth: 0.42
         }, this.scene);
         makeFlatShaded(shieldTrimTop);
-        shieldTrimTop.parent = this.shieldMesh;
-        shieldTrimTop.position = new Vector3(-0.01, 0.32, 0);
-        shieldTrimTop.material = createLowPolyMaterial('shieldTrimTopMat', PALETTE.ENEMY_SHIELD_GOLD, this.scene);
+        this.shieldMesh.add(shieldTrimTop);
+        shieldTrimTop.position.set(-0.01, 0.32, 0);
+        shieldTrimTop.material = createLowPolyMaterial('shieldTrimTopMat', PALETTE.ENEMY_SHIELD_GOLD);
 
-        const shieldTrimBottom = MeshBuilder.CreateBox('shieldTrimBottom', {
+        const shieldTrimBottom = createBox('shieldTrimBottom', {
             width: 0.09,
             height: 0.05,
             depth: 0.42
         }, this.scene);
         makeFlatShaded(shieldTrimBottom);
-        shieldTrimBottom.parent = this.shieldMesh;
-        shieldTrimBottom.position = new Vector3(-0.01, -0.32, 0);
-        shieldTrimBottom.material = createLowPolyMaterial('shieldTrimBottomMat', PALETTE.ENEMY_SHIELD_GOLD, this.scene);
+        this.shieldMesh.add(shieldTrimBottom);
+        shieldTrimBottom.position.set(-0.01, -0.32, 0);
+        shieldTrimBottom.material = createLowPolyMaterial('shieldTrimBottomMat', PALETTE.ENEMY_SHIELD_GOLD);
 
         // --- Right Arm (sword arm): armored box arm ---
-        this.rightArm = MeshBuilder.CreateBox('shieldRightArm', {
+        this.rightArm = createBox('shieldRightArm', {
             width: 0.20,
             height: 0.58,
             depth: 0.20
         }, this.scene);
         makeFlatShaded(this.rightArm);
-        this.rightArm.parent = this.mesh;
-        this.rightArm.position = new Vector3(0.55, -0.02, 0);
-        this.rightArm.material = createLowPolyMaterial('shieldRightArmMat', PALETTE.ENEMY_SHIELD, this.scene);
+        this.mesh.add(this.rightArm);
+        this.rightArm.position.set(0.55, -0.02, 0);
+        this.rightArm.material = createLowPolyMaterial('shieldRightArmMat', PALETTE.ENEMY_SHIELD);
 
         // --- Gauntlet on right arm: slightly wider box at hand ---
-        const gauntlet = MeshBuilder.CreateBox('shieldGauntlet', {
+        const gauntlet = createBox('shieldGauntlet', {
             width: 0.22,
             height: 0.14,
             depth: 0.22
         }, this.scene);
         makeFlatShaded(gauntlet);
-        gauntlet.parent = this.rightArm;
-        gauntlet.position = new Vector3(0, -0.28, 0);
-        gauntlet.material = createLowPolyMaterial('shieldGauntletMat', PALETTE.ENEMY_SHIELD_PLATE, this.scene);
+        this.rightArm.add(gauntlet);
+        gauntlet.position.set(0, -0.28, 0);
+        gauntlet.material = createLowPolyMaterial('shieldGauntletMat', PALETTE.ENEMY_SHIELD_PLATE);
 
         // --- Short Sword: blade + handle ---
-        const swordBlade = MeshBuilder.CreateBox('shieldSwordBlade', {
+        const swordBlade = createBox('shieldSwordBlade', {
             width: 0.06,
             height: 0.45,
             depth: 0.10
         }, this.scene);
         makeFlatShaded(swordBlade);
-        swordBlade.parent = this.rightArm;
-        swordBlade.position = new Vector3(0.08, -0.45, 0);
-        swordBlade.material = createLowPolyMaterial('shieldSwordBladeMat', PALETTE.ENEMY_SHIELD, this.scene);
+        this.rightArm.add(swordBlade);
+        swordBlade.position.set(0.08, -0.45, 0);
+        swordBlade.material = createLowPolyMaterial('shieldSwordBladeMat', PALETTE.ENEMY_SHIELD);
 
         // --- Sword crossguard: small horizontal box ---
-        const crossguard = MeshBuilder.CreateBox('shieldCrossguard', {
+        const crossguard = createBox('shieldCrossguard', {
             width: 0.04,
             height: 0.04,
             depth: 0.18
         }, this.scene);
         makeFlatShaded(crossguard);
-        crossguard.parent = swordBlade;
-        crossguard.position = new Vector3(0, 0.22, 0);
-        crossguard.material = createLowPolyMaterial('shieldCrossguardMat', PALETTE.ENEMY_SHIELD_GOLD, this.scene);
+        swordBlade.add(crossguard);
+        crossguard.position.set(0, 0.22, 0);
+        crossguard.material = createLowPolyMaterial('shieldCrossguardMat', PALETTE.ENEMY_SHIELD_GOLD);
 
         // --- Sword tip: small cone ---
-        const swordTip = MeshBuilder.CreateCylinder('shieldSwordTip', {
+        const swordTip = createCylinder('shieldSwordTip', {
             height: 0.12,
             diameterTop: 0.0,
             diameterBottom: 0.10,
             tessellation: 3
         }, this.scene);
         makeFlatShaded(swordTip);
-        swordTip.parent = swordBlade;
-        swordTip.position = new Vector3(0, -0.28, 0);
-        swordTip.material = createLowPolyMaterial('shieldSwordTipMat', PALETTE.ENEMY_SHIELD, this.scene);
+        swordBlade.add(swordTip);
+        swordTip.position.set(0, -0.28, 0);
+        swordTip.material = createLowPolyMaterial('shieldSwordTipMat', PALETTE.ENEMY_SHIELD);
 
         // --- Left Leg: armored ---
-        this.leftLeg = MeshBuilder.CreateBox('shieldLeftLeg', {
+        this.leftLeg = createBox('shieldLeftLeg', {
             width: 0.22,
             height: 0.55,
             depth: 0.22
         }, this.scene);
         makeFlatShaded(this.leftLeg);
-        this.leftLeg.parent = this.mesh;
-        this.leftLeg.position = new Vector3(-0.22, -0.60, 0);
-        this.leftLeg.material = createLowPolyMaterial('shieldLeftLegMat', PALETTE.ENEMY_SHIELD_PLATE, this.scene);
+        this.mesh.add(this.leftLeg);
+        this.leftLeg.position.set(-0.22, -0.60, 0);
+        this.leftLeg.material = createLowPolyMaterial('shieldLeftLegMat', PALETTE.ENEMY_SHIELD_PLATE);
 
         // --- Left Greave (shin guard): box on front of leg ---
-        const leftGreave = MeshBuilder.CreateBox('shieldLeftGreave', {
+        const leftGreave = createBox('shieldLeftGreave', {
             width: 0.18,
             height: 0.30,
             depth: 0.06
         }, this.scene);
         makeFlatShaded(leftGreave);
-        leftGreave.parent = this.leftLeg;
-        leftGreave.position = new Vector3(0, -0.05, 0.13);
-        leftGreave.material = createLowPolyMaterial('shieldLeftGreaveMat', PALETTE.ENEMY_SHIELD, this.scene);
+        this.leftLeg.add(leftGreave);
+        leftGreave.position.set(0, -0.05, 0.13);
+        leftGreave.material = createLowPolyMaterial('shieldLeftGreaveMat', PALETTE.ENEMY_SHIELD);
 
         // --- Left Boot: wider box at bottom of leg ---
-        const leftBoot = MeshBuilder.CreateBox('shieldLeftBoot', {
+        const leftBoot = createBox('shieldLeftBoot', {
             width: 0.24,
             height: 0.10,
             depth: 0.30
         }, this.scene);
         makeFlatShaded(leftBoot);
-        leftBoot.parent = this.leftLeg;
-        leftBoot.position = new Vector3(0, -0.30, 0.04);
-        leftBoot.material = createLowPolyMaterial('shieldLeftBootMat', PALETTE.ENEMY_SHIELD_PLATE, this.scene);
+        this.leftLeg.add(leftBoot);
+        leftBoot.position.set(0, -0.30, 0.04);
+        leftBoot.material = createLowPolyMaterial('shieldLeftBootMat', PALETTE.ENEMY_SHIELD_PLATE);
 
         // --- Right Leg: armored ---
-        this.rightLeg = MeshBuilder.CreateBox('shieldRightLeg', {
+        this.rightLeg = createBox('shieldRightLeg', {
             width: 0.22,
             height: 0.55,
             depth: 0.22
         }, this.scene);
         makeFlatShaded(this.rightLeg);
-        this.rightLeg.parent = this.mesh;
-        this.rightLeg.position = new Vector3(0.22, -0.60, 0);
-        this.rightLeg.material = createLowPolyMaterial('shieldRightLegMat', PALETTE.ENEMY_SHIELD_PLATE, this.scene);
+        this.mesh.add(this.rightLeg);
+        this.rightLeg.position.set(0.22, -0.60, 0);
+        this.rightLeg.material = createLowPolyMaterial('shieldRightLegMat', PALETTE.ENEMY_SHIELD_PLATE);
 
         // --- Right Greave ---
-        const rightGreave = MeshBuilder.CreateBox('shieldRightGreave', {
+        const rightGreave = createBox('shieldRightGreave', {
             width: 0.18,
             height: 0.30,
             depth: 0.06
         }, this.scene);
         makeFlatShaded(rightGreave);
-        rightGreave.parent = this.rightLeg;
-        rightGreave.position = new Vector3(0, -0.05, 0.13);
-        rightGreave.material = createLowPolyMaterial('shieldRightGreaveMat', PALETTE.ENEMY_SHIELD, this.scene);
+        this.rightLeg.add(rightGreave);
+        rightGreave.position.set(0, -0.05, 0.13);
+        rightGreave.material = createLowPolyMaterial('shieldRightGreaveMat', PALETTE.ENEMY_SHIELD);
 
         // --- Right Boot ---
-        const rightBoot = MeshBuilder.CreateBox('shieldRightBoot', {
+        const rightBoot = createBox('shieldRightBoot', {
             width: 0.24,
             height: 0.10,
             depth: 0.30
         }, this.scene);
         makeFlatShaded(rightBoot);
-        rightBoot.parent = this.rightLeg;
-        rightBoot.position = new Vector3(0, -0.30, 0.04);
-        rightBoot.material = createLowPolyMaterial('shieldRightBootMat', PALETTE.ENEMY_SHIELD_PLATE, this.scene);
+        this.rightLeg.add(rightBoot);
+        rightBoot.position.set(0, -0.30, 0.04);
+        rightBoot.material = createLowPolyMaterial('shieldRightBootMat', PALETTE.ENEMY_SHIELD_PLATE);
 
         // Store original scale (dome is built once in the constructor for both
         // GLB and procedural pipelines via _buildShieldDome).
@@ -451,27 +448,34 @@ export class ShieldEnemy extends Enemy {
      */
     private _buildShieldDome(): void {
         if (!this.mesh || this.shieldDome) return;
-        this.shieldDome = MeshBuilder.CreateSphere('shieldDome', { diameter: 1.80, segments: 6 }, this.scene);
-        this.shieldDome.parent = this.mesh;
-        this.shieldDome.position = new Vector3(0, 0.95, 0);
-        const domeMat = new StandardMaterial('shieldDomeMat', this.scene);
-        domeMat.diffuseColor  = new Color3(0.40, 0.60, 1.0);
-        domeMat.emissiveColor = new Color3(0.15, 0.30, 0.60);
-        domeMat.specularColor = Color3.Black();
-        domeMat.alpha = 0.35; // full shield = 0.35
+        this.shieldDome = createSphere('shieldDome', { diameter: 1.80, segments: 6 }, this.scene);
+        this.mesh.add(this.shieldDome);
+        this.shieldDome.position.set(0, 0.95, 0);
+        // Per-instance material: its opacity is animated (updateShieldVisual /
+        // flashShieldRegen), so it must never be shared or cached.
+        const domeMat = new MeshPhongMaterial();
+        domeMat.name = 'shieldDomeMat';
+        domeMat.color    = new Color(0.40, 0.60, 1.0);
+        domeMat.emissive = new Color(0.15, 0.30, 0.60);
+        domeMat.specular = new Color(0, 0, 0);
+        domeMat.transparent = true;
+        domeMat.opacity = 0.35; // full shield = 0.35
         this.shieldDome.material = domeMat;
+        this.shieldDome.userData.ownedMaterial = true;
     }
 
     /**
      * Create the shield material - semi-transparent blue-tinted when shield is active,
      * darker plate color when depleted
      */
-    private createShieldMaterial(): StandardMaterial {
-        const mat = new StandardMaterial('shieldActiveMat', this.scene);
-        mat.diffuseColor = new Color3(0.35, 0.50, 0.80);
-        mat.emissiveColor = new Color3(0.10, 0.18, 0.35);
-        mat.specularColor = Color3.Black();
-        mat.alpha = 0.85;
+    private createShieldMaterial(): MeshPhongMaterial {
+        const mat = new MeshPhongMaterial();
+        mat.name = 'shieldActiveMat';
+        mat.color    = new Color(0.35, 0.50, 0.80);
+        mat.emissive = new Color(0.10, 0.18, 0.35);
+        mat.specular = new Color(0, 0, 0);
+        mat.transparent = true;
+        mat.opacity = 0.85;
         return mat;
     }
 
@@ -485,31 +489,31 @@ export class ShieldEnemy extends Enemy {
 
         if (this.shield > 0) {
             // Shield active: semi-transparent blue tint with emissive glow
-            this.shieldMesh.setEnabled(true);
-            const mat = this.shieldMesh.material as StandardMaterial;
+            this.shieldMesh.visible = true;
+            const mat = this.shieldMesh.material as MeshPhongMaterial;
             if (mat) {
-                mat.diffuseColor = new Color3(0.35, 0.50, 0.80);
-                mat.emissiveColor = new Color3(0.10, 0.18, 0.35);
-                mat.alpha = 0.85;
+                mat.color = new Color(0.35, 0.50, 0.80);
+                mat.emissive = new Color(0.10, 0.18, 0.35);
+                mat.opacity = 0.85;
             }
         } else {
             // Shield depleted: show as darker, non-emissive plate
-            this.shieldMesh.setEnabled(true);
-            const mat = this.shieldMesh.material as StandardMaterial;
+            this.shieldMesh.visible = true;
+            const mat = this.shieldMesh.material as MeshPhongMaterial;
             if (mat) {
-                mat.diffuseColor = PALETTE.ENEMY_SHIELD_PLATE;
-                mat.emissiveColor = Color3.Black();
-                mat.alpha = 1.0;
+                mat.color = PALETTE.ENEMY_SHIELD_PLATE;
+                mat.emissive = new Color(0, 0, 0);
+                mat.opacity = 1.0;
             }
         }
 
-        // Update dome visibility: alpha = shieldFraction × 0.35
+        // Update dome visibility: opacity = shieldFraction × 0.35
         if (this.shieldDome) {
-            const domeMat = this.shieldDome.material as StandardMaterial;
+            const domeMat = this.shieldDome.material as MeshPhongMaterial;
             if (domeMat) {
-                domeMat.alpha = shieldFraction * 0.35;
+                domeMat.opacity = shieldFraction * 0.35;
             }
-            this.shieldDome.setEnabled(shieldFraction > 0);
+            this.shieldDome.visible = shieldFraction > 0;
         }
     }
 
@@ -518,17 +522,17 @@ export class ShieldEnemy extends Enemy {
      */
     private flashShieldRegen(): void {
         if (!this.shieldDome) return;
-        const domeMat = this.shieldDome.material as StandardMaterial;
+        const domeMat = this.shieldDome.material as MeshPhongMaterial;
         if (!domeMat) return;
 
-        domeMat.alpha = 0.55;
+        domeMat.opacity = 0.55;
         const startTime = performance.now();
-        const observer = this.scene.onBeforeRenderObservable.add(() => {
+        const observer = this.scene.onBeforeRender.add(() => {
             const elapsed = performance.now() - startTime;
             const t = Math.min(elapsed / 300, 1.0);
-            domeMat.alpha = 0.55 - (0.55 - 0.35) * t;
+            domeMat.opacity = 0.55 - (0.55 - 0.35) * t;
             if (t >= 1.0) {
-                this.scene.onBeforeRenderObservable.remove(observer);
+                this.scene.onBeforeRender.remove(observer);
             }
         });
     }
@@ -631,8 +635,7 @@ export class ShieldEnemy extends Enemy {
                 const dz = targetPoint.z - this.position.z;
 
                 if (dx * dx + dz * dz > 0.0001) {
-                    const angle = Math.atan2(dz, dx);
-                    this.mesh.rotation.y = -angle + Math.PI / 2;
+                    this.mesh.rotation.y = headingToYaw(dx, dz);
                 }
             }
         }
@@ -700,18 +703,18 @@ export class ShieldEnemy extends Enemy {
         const particleSystem = new ParticleSystem('deathParticles', 50, this.scene);
 
         // Set particle texture
-        particleSystem.particleTexture = getStatusEffectTexture(this.scene);
+        particleSystem.particleTexture = getStatusEffectTexture();
 
         // Set emission properties
         particleSystem.emitter = this.position.clone();
         (particleSystem.emitter as Vector3).y += 0.7;
-        particleSystem.minEmitBox = new Vector3(-0.2, 0, -0.2);
-        particleSystem.maxEmitBox = new Vector3(0.2, 0, 0.2);
+        particleSystem.minEmitBox.set(-0.2, 0, -0.2);
+        particleSystem.maxEmitBox.set(0.2, 0, 0.2);
 
         // Set particle properties - silver/gold metallic burst
-        particleSystem.color1 = new Color4(0.75, 0.72, 0.80, 1.0);
-        particleSystem.color2 = new Color4(0.85, 0.70, 0.25, 1.0);
-        particleSystem.colorDead = new Color4(0.3, 0.3, 0.2, 0.0);
+        particleSystem.color1 = rgba(0.75, 0.72, 0.80, 1.0);
+        particleSystem.color2 = rgba(0.85, 0.70, 0.25, 1.0);
+        particleSystem.colorDead = rgba(0.3, 0.3, 0.2, 0.0);
 
         particleSystem.minSize = 0.1;
         particleSystem.maxSize = 0.5;
@@ -723,10 +726,10 @@ export class ShieldEnemy extends Enemy {
 
         particleSystem.blendMode = ParticleSystem.BLENDMODE_ONEONE;
 
-        particleSystem.gravity = new Vector3(0, 8, 0);
+        particleSystem.gravity.set(0, 8, 0);
 
-        particleSystem.direction1 = new Vector3(-1, 8, -1);
-        particleSystem.direction2 = new Vector3(1, 8, 1);
+        particleSystem.direction1.set(-1, 8, -1);
+        particleSystem.direction2.set(1, 8, 1);
 
         particleSystem.minAngularSpeed = 0;
         particleSystem.maxAngularSpeed = Math.PI;
@@ -742,11 +745,11 @@ export class ShieldEnemy extends Enemy {
         this.game.getAssetManager().playSound('enemyDeath');
 
         // Emit 1s, dispose when the last particle expires (render-loop driven —
-        // see scheduleDeathBurstTeardown). disposeTexture=false preserves the
-        // SHARED status-effect texture (getStatusEffectTexture) — disposing it
-        // would destroy the singleton out from under other enemies' live status
-        // particles, forcing a sync re-create.
-        scheduleDeathBurstTeardown(this.scene, particleSystem, 1.0, false);
+        // see scheduleDeathBurstTeardown). The engine ParticleSystem never
+        // disposes its texture, so the SHARED status-effect singleton
+        // (getStatusEffectTexture) stays alive for other enemies' live status
+        // particles.
+        scheduleDeathBurstTeardown(this.scene, particleSystem, 1.0);
     }
 
     /**
@@ -777,7 +780,9 @@ export class ShieldEnemy extends Enemy {
      */
     public dispose(): void {
         if (this.shieldMesh) {
-            this.shieldMesh.dispose();
+            // Free the shield subtree WITH its per-instance materials — once it
+            // detaches here, the base tree release can no longer reach them.
+            disposeMesh(this.shieldMesh, { materials: true });
             this.shieldMesh = null;
         }
 

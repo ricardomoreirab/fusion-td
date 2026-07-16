@@ -1,19 +1,20 @@
-import { AdvancedDynamicTexture, Ellipse, Control } from '@babylonjs/gui';
-
 /**
- * Floating-anywhere virtual joystick.
+ * Floating-anywhere virtual joystick (DOM).
  *
  * Listens to canvas DOM pointer events (reliable on touch, multi-touch
  * via real pointerId). First touch anywhere on the canvas becomes the
  * ring origin, except inside the bottom-right "reserved" corner where
- * the ultimate buttons live — touches there pass through to the GUI.
+ * the ultimate buttons live — touches there pass through to the HUD.
+ *
+ * Visuals are two absolutely-positioned divs (ring + thumb) mounted into
+ * #ui-root (the DOM HUD root; falls back to document.body). They are
+ * pointer-events: none — all input capture happens on the canvas itself.
  */
 export class SurvivorsJoystick {
-    private ui: AdvancedDynamicTexture;
-    private ring: Ellipse;
-    private thumb: Ellipse;
+    private ring: HTMLDivElement;
+    private thumb: HTMLDivElement;
 
-    private readonly baseRadius: number = 52;   // ring radius in GUI px
+    private readonly baseRadius: number = 52;   // ring radius in CSS px
     private readonly thumbRadius: number = 12;
 
     // Bottom-right reserved zone (canvas pixels). Ult row is ~130×70 css px
@@ -35,47 +36,52 @@ export class SurvivorsJoystick {
     private onPointerMove!: (e: PointerEvent) => void;
     private onPointerUp!:   (e: PointerEvent) => void;
 
-    constructor(ui: AdvancedDynamicTexture) {
-        this.ui = ui;
+    constructor(canvas: HTMLCanvasElement) {
+        const mountParent = document.getElementById('ui-root') ?? document.body;
 
         // ── Ring (visual) ─────────────────────────────────────────────────
-        this.ring = new Ellipse('joystickRing');
-        this.ring.width = `${this.baseRadius * 2}px`;
-        this.ring.height = `${this.baseRadius * 2}px`;
-        this.ring.thickness = 1.5;
-        this.ring.color = 'rgba(255, 255, 255, 0.40)';
-        this.ring.background = 'rgba(255, 255, 255, 0.06)';
-        this.ring.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        this.ring.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        this.ring.isVisible = false;
-        this.ring.isPointerBlocker = false;
-        this.ring.zIndex = -5;
-        this.ui.addControl(this.ring);
+        this.ring = document.createElement('div');
+        const rs = this.ring.style;
+        rs.position = 'absolute';
+        rs.width = `${this.baseRadius * 2}px`;
+        rs.height = `${this.baseRadius * 2}px`;
+        rs.border = '1.5px solid rgba(255, 255, 255, 0.40)';
+        rs.background = 'rgba(255, 255, 255, 0.06)';
+        rs.borderRadius = '50%';
+        rs.boxSizing = 'border-box';
+        rs.pointerEvents = 'none';
+        rs.zIndex = '0'; // under the HUD layers (old GUI zIndex -5)
+        rs.display = 'none';
+        mountParent.appendChild(this.ring);
 
         // ── Thumb (child of ring) ─────────────────────────────────────────
-        this.thumb = new Ellipse('joystickThumb');
-        this.thumb.width = `${this.thumbRadius * 2}px`;
-        this.thumb.height = `${this.thumbRadius * 2}px`;
-        this.thumb.thickness = 0;
-        this.thumb.background = 'rgba(255, 255, 255, 0.70)';
-        this.thumb.isPointerBlocker = false;
-        this.ring.addControl(this.thumb);
+        this.thumb = document.createElement('div');
+        const ts = this.thumb.style;
+        ts.position = 'absolute';
+        ts.width = `${this.thumbRadius * 2}px`;
+        ts.height = `${this.thumbRadius * 2}px`;
+        ts.background = 'rgba(255, 255, 255, 0.70)';
+        ts.borderRadius = '50%';
+        ts.pointerEvents = 'none';
+        this.setThumb(0, 0);
+        this.ring.appendChild(this.thumb);
 
-        this.wireEvents();
+        this.wireEvents(canvas);
     }
 
-    private wireEvents(): void {
-        const canvas = this.ui.getScene()?.getEngine().getRenderingCanvas();
-        if (!canvas) return;
-        this.canvas = canvas;
+    /** Position the thumb by its offset from the ring centre (CSS px). */
+    private setThumb(offsetX: number, offsetY: number): void {
+        // -1.5 compensates for the ring's border (box-sizing: border-box shrinks
+        // the content box the thumb is positioned in).
+        this.thumb.style.left = `${this.baseRadius - this.thumbRadius + offsetX - 1.5}px`;
+        this.thumb.style.top  = `${this.baseRadius - this.thumbRadius + offsetY - 1.5}px`;
+    }
 
-        // GUI scale: idealWidth is set on the AdvancedDynamicTexture (800),
-        // so a canvas-pixel value maps to GUI by dividing by this scale.
-        const guiScale = (): number => {
-            const rect = canvas.getBoundingClientRect();
-            const idealW = (this.ui as { idealWidth?: number }).idealWidth || rect.width;
-            return rect.width / idealW;
-        };
+    private wireEvents(canvas: HTMLCanvasElement): void {
+        this.canvas = canvas;
+        // Babylon set touch-action: none on its rendering canvas; the Three
+        // renderer does not — without it, touch drags scroll/zoom the page.
+        canvas.style.touchAction = 'none';
 
         this.onPointerDown = (e: PointerEvent) => {
             if (this.activePointerId !== null) return;
@@ -92,12 +98,11 @@ export class SurvivorsJoystick {
             this.originCanvasX = cx;
             this.originCanvasY = cy;
 
-            const s = guiScale();
-            this.ring.left = `${cx / s - this.baseRadius}px`;
-            this.ring.top  = `${cy / s - this.baseRadius}px`;
-            this.ring.isVisible = true;
-            this.thumb.left = '0px';
-            this.thumb.top  = '0px';
+            // #ui-root is position: fixed, inset 0 — viewport coords ARE its coords.
+            this.ring.style.left = `${e.clientX - this.baseRadius}px`;
+            this.ring.style.top  = `${e.clientY - this.baseRadius}px`;
+            this.ring.style.display = 'block';
+            this.setThumb(0, 0);
         };
 
         this.onPointerMove = (e: PointerEvent) => {
@@ -112,17 +117,15 @@ export class SurvivorsJoystick {
             const normX = dist > 0 ? rawDx / dist : 0;
             const normY = dist > 0 ? rawDy / dist : 0;
 
-            // Convert ring's visual radius (GUI px) into canvas px for clamping
-            const s = guiScale();
-            const radiusCanvas = this.baseRadius * s;
-            const clampedCanvas = Math.min(dist, radiusCanvas);
+            // Ring radius is CSS px == canvas client px (no GUI ideal-width scale).
+            const radius = this.baseRadius;
+            const clamped = Math.min(dist, radius);
 
-            this.dx = normX * (clampedCanvas / radiusCanvas);
-            this.dz = -normY * (clampedCanvas / radiusCanvas);
+            this.dx = normX * (clamped / radius);
+            this.dz = -normY * (clamped / radius);
 
-            const thumbMaxGui = this.baseRadius - this.thumbRadius;
-            this.thumb.left = `${normX * thumbMaxGui}px`;
-            this.thumb.top  = `${normY * thumbMaxGui}px`;
+            const thumbMax = this.baseRadius - this.thumbRadius;
+            this.setThumb(normX * thumbMax, normY * thumbMax);
 
             if (this.onDirectionCallback) this.onDirectionCallback(this.dx, this.dz);
         };
@@ -132,9 +135,8 @@ export class SurvivorsJoystick {
             this.activePointerId = null;
             this.dx = 0;
             this.dz = 0;
-            this.ring.isVisible = false;
-            this.thumb.left = '0px';
-            this.thumb.top  = '0px';
+            this.ring.style.display = 'none';
+            this.setThumb(0, 0);
             if (this.onDirectionCallback) this.onDirectionCallback(0, 0);
         };
         this.onPointerUp = endSession;
@@ -160,6 +162,6 @@ export class SurvivorsJoystick {
             this.canvas.removeEventListener('pointercancel', this.onPointerUp);
             this.canvas = null;
         }
-        this.ring.dispose();
+        this.ring.remove();
     }
 }
