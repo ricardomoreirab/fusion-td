@@ -22,7 +22,6 @@ export interface ItemDropOpts {
 }
 
 export class ItemDrop {
-    private scene: SceneHost;
     private mesh: Mesh;
     private pillar: Mesh;
     private color: Color;
@@ -39,7 +38,6 @@ export class ItemDrop {
         heroProvider: () => Vector3,
         opts: ItemDropOpts,
     ) {
-        this.scene = scene;
         this.itemId = itemId;
         this.color = ITEM_COLORS[itemId] ?? new Color(1, 1, 1);
         this.opts = opts;
@@ -76,6 +74,12 @@ export class ItemDrop {
 
     public isAlive(): boolean {
         return this.alive;
+    }
+
+    /** Blow the magnet range open so the gem rushes to the hero (magnet pickup effect). */
+    public magnetize(): void {
+        this.opts.magnetRadius = Infinity;
+        this.opts.magnetSpeed = Math.max(this.opts.magnetSpeed, 18);
     }
 
     public update(deltaTime: number): void {

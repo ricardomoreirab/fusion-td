@@ -21,7 +21,6 @@ export interface PowerDropOpts {
  * Phase 4 will replace onPickup with the 3-card power-choice overlay.
  */
 export class PowerDrop {
-    private scene: SceneHost;
     private mesh: Mesh;
     public element: string;
     private opts: PowerDropOpts;
@@ -35,7 +34,6 @@ export class PowerDrop {
         heroProvider: () => Vector3,
         opts: PowerDropOpts,
     ) {
-        this.scene = scene;
         this.element = element;
         this.opts = opts;
         this.heroProvider = heroProvider;
@@ -50,6 +48,12 @@ export class PowerDrop {
 
     public isAlive(): boolean {
         return this.alive;
+    }
+
+    /** Blow the magnet range open so the orb rushes to the hero (magnet pickup effect). */
+    public magnetize(): void {
+        this.opts.magnetRadius = Infinity;
+        this.opts.magnetSpeed = Math.max(this.opts.magnetSpeed, 18);
     }
 
     public update(deltaTime: number): void {

@@ -15,6 +15,7 @@ import { GlobeSky } from './globe/GlobeSky';
 import { setCurveOrigin, clearCurveOrigin, curveDropAt } from './globe/curvature';
 import { GLOBE_RADIUS, GRASS_TILE_SIZE, GRASS_FAR_TILE_SIZE, GRASS_FAR_FADE_START, GRASS_FAR_FADE_END, FOG_START, FOG_END, FOG_COLOR_RGB } from './globe/constants';
 import { StatusEffect } from './GameTypes';
+import { FloorPickup, FloorPickupKind } from './FloorPickup';
 import { Champion } from './champions/Champion';
 import { HeroController } from './HeroController';
 import { SurvivorsJoystick } from './ui/SurvivorsJoystick';
@@ -466,6 +467,8 @@ export class SurvivorsGameplayState implements GameState {
 
     // Item drops (from milestone bosses) — runItems lives in the local PlayerSlot (accessors above).
     private itemDrops: ItemDrop[] = [];
+    /** VS-style floor pickups (heal orb / magnet ring), single-player only. */
+    private floorPickups: FloorPickup[] = [];
 
     // Extra Life revive shield — translucent bubble that follows the hero for the
     // post-revive invulnerability window. Tracked so it can be removed on shield
@@ -1128,6 +1131,9 @@ export class SurvivorsGameplayState implements GameState {
         // Boss-death → item-drop pipeline.
         this.enemyManager.setOnMilestoneBossDeath((pos, tier) => this.spawnItemDrop(pos, tier));
 
+        // Regular kills → VS-style floor-pickup loot roll (heal orb / magnet ring).
+        this.enemyManager.setOnDeathLoot(pos => this.maybeSpawnFloorPickup(pos));
+
         // Elite death → spawn a PowerDrop
         this.enemyManager.setOnEliteDeath((pos, element) => {
             const baseRadius = 4;
@@ -1552,6 +1558,62 @@ export class SurvivorsGameplayState implements GameState {
         // TODO(phase F): torch self-shadow exclusion via layers (hero must not
         // block its own light) — moot while the torch shadow stays off.
         torch.castShadow = false;
+    }
+
+    // ── VS-style floor pickups ────────────────────────────────────────────────
+    // Rare drops from regular kills: a heal orb (chunk of max HP back) and a
+    // magnet ring (vacuums every uncollected drop). Single-player only — in
+    // co-op the guest renders host-authoritative enemies and would never see
+    // these, so the roll is skipped entirely to keep sessions consistent.
+    private static readonly HEAL_DROP_CHANCE = 0.02;
+    private static readonly HEAL_MAX_ALIVE = 3;
+    private static readonly HEAL_FRACTION = 0.2;
+    private static readonly MAGNET_DROP_CHANCE = 0.004;
+    private static readonly MAGNET_MAX_ALIVE = 1;
+
+    private maybeSpawnFloorPickup(position: Vector3): void {
+        if (this.coopSession || !this.scene || !this.hero) return;
+        const roll = Math.random();
+        let kind: FloorPickupKind;
+        if (roll < SurvivorsGameplayState.MAGNET_DROP_CHANCE) kind = 'magnet';
+        else if (roll < SurvivorsGameplayState.MAGNET_DROP_CHANCE + SurvivorsGameplayState.HEAL_DROP_CHANCE) kind = 'heal';
+        else return;
+
+        const cap = kind === 'heal'
+            ? SurvivorsGameplayState.HEAL_MAX_ALIVE
+            : SurvivorsGameplayState.MAGNET_MAX_ALIVE;
+        let alive = 0;
+        for (const p of this.floorPickups) if (p.kind === kind) alive++;
+        if (alive >= cap) return;
+
+        this.floorPickups.push(new FloorPickup(
+            this.scene,
+            position,
+            kind,
+            () => this.hero!.getPosition(),
+            {
+                pickupRadius: 1.4,
+                magnetRadius: 3.5,
+                magnetSpeed: 12,
+                onPickup: k => this.onFloorPickup(k),
+            },
+        ));
+    }
+
+    private onFloorPickup(kind: FloorPickupKind): void {
+        if (!this.heroController || !this.hero) return;
+        if (kind === 'heal') {
+            const amount = this.heroController.getMaxHealth() * SurvivorsGameplayState.HEAL_FRACTION;
+            this.heroController.heal(amount);
+            this.damageNumbers?.showText(this.hero.getPosition(), `+${Math.round(amount)} HP`, '#ff6688');
+            this.game.getAssetManager().playSound('heal');
+        } else {
+            for (const d of this.powerDrops) if (d.isAlive()) d.magnetize();
+            for (const d of this.itemDrops) if (d.isAlive()) d.magnetize();
+            for (const d of this.floorPickups) if (d.isAlive()) d.magnetize();
+            this.damageNumbers?.showText(this.hero.getPosition(), 'MAGNET!', '#ffd84a');
+            this.game.getAssetManager().playSound('pickup');
+        }
     }
 
     private spawnItemDrop(position: Vector3, waveTier: number): void {
@@ -2757,6 +2819,8 @@ export class SurvivorsGameplayState implements GameState {
 
         for (const d of this.itemDrops) d.dispose();
         this.itemDrops = [];
+        for (const d of this.floorPickups) d.dispose();
+        this.floorPickups = [];
         this.runItems = null;
 
         this.removeReviveShield();
@@ -3443,6 +3507,15 @@ export class SurvivorsGameplayState implements GameState {
                 const last = this.itemDrops.length - 1;
                 if (i !== last) this.itemDrops[i] = this.itemDrops[last];
                 this.itemDrops.pop();
+            }
+        }
+        for (let i = this.floorPickups.length - 1; i >= 0; i--) {
+            const d = this.floorPickups[i];
+            d.update(dt);
+            if (!d.isAlive()) {
+                const last = this.floorPickups.length - 1;
+                if (i !== last) this.floorPickups[i] = this.floorPickups[last];
+                this.floorPickups.pop();
             }
         }
         _measure('drops');

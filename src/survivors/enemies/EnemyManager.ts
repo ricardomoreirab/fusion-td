@@ -56,6 +56,9 @@ export class EnemyManager {
     private heroProviders: TargetProvider[] = [];
     private arenaRadius: number = 25;
     private onEliteDeathCallback: (position: Vector3, element: string) => void = () => {};
+    /** Fired for every locally-credited kill (same branch as addKill) — the
+     *  floor-pickup loot roll. Never fires for guest-attributed co-op kills. */
+    private onDeathLootCallback: (position: Vector3) => void = () => {};
     private onMilestoneBossDeathCallback: (position: Vector3, waveTier: number) => void = () => {};
     private waveManager: WaveManager | null = null;
     /** When true, every spawned enemy's meshes get castShadow = true at spawn
@@ -268,6 +271,10 @@ export class EnemyManager {
      */
     public setOnEliteDeath(fn: (position: Vector3, element: string) => void): void {
         this.onEliteDeathCallback = fn;
+    }
+
+    public setOnDeathLoot(fn: (position: Vector3) => void): void {
+        this.onDeathLootCallback = fn;
     }
 
     /**
@@ -700,6 +707,7 @@ export class EnemyManager {
                 } else if (this.playerStats) {
                     this.playerStats.addMoney(Math.round(enemy.getReward() * this.playerStats.goldGainMultiplier));
                     this.playerStats.addKill();
+                    this.onDeathLootCallback(enemy.getPosition().clone());
                 }
                 if (enemy.isElite && enemy.eliteDropElement) {
                     this.onEliteDeathCallback(enemy.getPosition().clone(), enemy.eliteDropElement);
