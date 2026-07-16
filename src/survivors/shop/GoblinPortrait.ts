@@ -1,5 +1,5 @@
 import {
-    Box3, Clock, Color, DirectionalLight, HemisphereLight, PerspectiveCamera,
+    Box3, Color, DirectionalLight, HemisphereLight, PerspectiveCamera,
     Vector3, WebGLRenderer,
 } from 'three';
 import { SceneHost } from '../../engine/three/SceneHost';
@@ -47,7 +47,8 @@ export class GoblinPortrait {
     private idleAnim: AnimGroup | null = null;
     private camTarget = new Vector3(0, 0, 0);
     private camRadius = 4;
-    private readonly clock = new Clock();
+    // Manual delta clock — THREE.Clock is deprecated (r185).
+    private lastTickMs = -1;
     private loadStarted = false;
     private running = false;
     private resizeObserver: ResizeObserver | null = null;
@@ -57,7 +58,10 @@ export class GoblinPortrait {
     private readonly renderFn = () => {
         try {
             if (!this.renderer || !this.host || !this.camera) return;
-            this.host.tick(this.clock.getDelta());
+            const now = performance.now();
+            const dt = this.lastTickMs < 0 ? 0 : (now - this.lastTickMs) / 1000;
+            this.lastTickMs = now;
+            this.host.tick(dt);
             this.renderer.render(this.host.scene, this.camera);
         } catch { /* cosmetic */ }
     };
@@ -158,7 +162,7 @@ export class GoblinPortrait {
         void this.load();
         if (!this.running) {
             this.running = true;
-            this.clock.getDelta(); // discard the time accumulated while stopped
+            this.lastTickMs = -1; // discard the time accumulated while stopped
             this.renderer!.setAnimationLoop(this.renderFn);
             if (!this.resizeObserver && typeof ResizeObserver !== 'undefined') {
                 this.resizeObserver = new ResizeObserver(() => this.scheduleResize());
