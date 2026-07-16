@@ -519,6 +519,9 @@ export class SurvivorsGameplayState implements GameState {
 
     // Run tracking for game-over summary
     private runStartTime: number = 0;
+    /** Simulated run seconds — accumulated in update() past the pause/overlay
+     *  guards, unlike wall-clock runStartTime (which freeze logs still use). */
+    private runClockS: number = 0;
     private currentChampionType: ChampionType = 'mage';
 
     // DEV ?test fusion cycler
@@ -735,6 +738,7 @@ export class SurvivorsGameplayState implements GameState {
         }
 
         this.runStartTime = performance.now();
+        this.runClockS = 0;
         this.currentChampionType = (championType as ChampionType) ?? 'mage';
 
         this.startLongTaskObserver();
@@ -1999,7 +2003,7 @@ export class SurvivorsGameplayState implements GameState {
         if (this._runEnded) return; // fire exactly once
         this._runEnded = true;
         const role = this.coopSession?.role ?? null;
-        const timeSurvivedSec = (performance.now() - this.runStartTime) / 1000;
+        const timeSurvivedSec = this.runClockS;
         const waveReached = this.waveManager?.getCurrentWave() ?? 0;
         const localHero = this.buildLocalHeroSummary(role === 'guest' ? 1 : 0);
 
@@ -3042,6 +3046,11 @@ export class SurvivorsGameplayState implements GameState {
 
         const dt = deltaTime * this.timeScale;
 
+        // Simulated run clock: accumulated past the pause/overlay guards, so the
+        // HUD timer and the game-over summary stop while the player is choosing
+        // a power or paused (wall-clock runStartTime kept jumping on resume).
+        this.runClockS += dt;
+
         // Per-subsystem timing is gated behind a compile-time-style flag —
         // when off (production), no performance.now / object allocations run.
         const profile = SurvivorsGameplayState.PROFILE_UPDATE;
@@ -3492,6 +3501,11 @@ export class SurvivorsGameplayState implements GameState {
         // backwards pass (the previous .filter rebuilt both arrays every
         // frame, even when nothing was dying).
         for (let i = this.powerDrops.length - 1; i >= 0; i--) {
+            // A pickup earlier in this same frame can open the power-choice
+            // overlay; stop processing further orbs so a second clustered orb
+            // (magnet vacuum, elite pack) isn't consumed choice-less. It stays
+            // alive and re-offers after the overlay closes (sim pauses next frame).
+            if (this.powerChoice?.isOpen()) break;
             const d = this.powerDrops[i];
             d.update(dt);
             if (!d.isAlive()) {
@@ -3536,7 +3550,7 @@ export class SurvivorsGameplayState implements GameState {
                 waveInfo.enemiesAlive = this.waveManager.getRemainingEnemiesInWave() ?? 0;
                 waveInfo.inProgress = this.waveManager.isWaveInProgress();
             }
-            this._scratchRunStats.timeS = (performance.now() - this.runStartTime) / 1000;
+            this._scratchRunStats.timeS = this.runClockS;
             this._scratchRunStats.kills = this.playerStats.getTotalKills();
             this.hud.update(
                 this.heroController.getHealth(),

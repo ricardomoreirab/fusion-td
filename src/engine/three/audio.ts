@@ -85,7 +85,10 @@ export function stopLoop(name: string, fadeS = 0.8): void {
     const audio = ctx;
     if (!loop || !audio) return;
     activeLoops.delete(name);
-    loop.gain.gain.setValueAtTime(loop.gain.gain.value, audio.currentTime);
+    // Clear any pending fade-IN ramp first, or it would re-raise the gain
+    // after our fade-out when stopping during the start ramp.
+    loop.gain.gain.cancelScheduledValues(audio.currentTime);
+    loop.gain.gain.setValueAtTime(Math.max(loop.gain.gain.value, 0.0001), audio.currentTime);
     loop.gain.gain.exponentialRampToValueAtTime(0.0001, audio.currentTime + fadeS);
     loop.source.stop(audio.currentTime + fadeS);
 }

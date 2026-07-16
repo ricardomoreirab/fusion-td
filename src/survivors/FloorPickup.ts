@@ -24,6 +24,10 @@ export interface FloorPickupOpts {
  * cached (bounded-key) shared materials, disposeMesh on collection.
  */
 export class FloorPickup {
+    private static readonly LIFETIME_S = 45;
+    /** Beyond this the pickup is far offscreen (view frustum ≈ ±35 units). */
+    private static readonly STRAND_DISTANCE = 60;
+
     private mesh: Mesh;
     private alive = true;
     private ageS = 0;
@@ -71,6 +75,15 @@ export class FloorPickup {
         const dx = heroPos.x - this.mesh.position.x;
         const dz = heroPos.z - this.mesh.position.z;
         const dist = Math.hypot(dx, dz);
+
+        // Despawn when stale or stranded. The map is an infinite treadmill, so a
+        // pickup the hero runs past is unreachable forever — and because spawn
+        // caps count ALL alive pickups, stranded ones would permanently starve
+        // future drops of that kind.
+        if (this.ageS > FloorPickup.LIFETIME_S || dist > FloorPickup.STRAND_DISTANCE) {
+            this.dispose();
+            return;
+        }
 
         if (dist <= this.opts.pickupRadius) {
             this.opts.onPickup(this.kind);
