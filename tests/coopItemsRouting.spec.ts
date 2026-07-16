@@ -24,7 +24,7 @@
 //   - CoopFx module functions directly (invariant 5).
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { Vector3 } from '@babylonjs/core';
+import { Vector3 } from 'three';
 import { rollCrit } from '../src/survivors/enemies/critRoll';
 import { Enemy } from '../src/survivors/enemies/Enemy';
 import {

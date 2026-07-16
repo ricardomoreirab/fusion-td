@@ -14,10 +14,7 @@ module.exports = (env, argv) => ({
     rules: [
       {
         test: /\.tsx?$/,
-        // TODO(three-migration): onlyCompileBundledFiles keeps unconverted
-        // survivors files (still Babylon-typed) out of the type-check while the
-        // bundle graph is Three-only. Remove when the migration completes.
-        use: { loader: 'ts-loader', options: { onlyCompileBundledFiles: true } },
+        use: 'ts-loader',
         exclude: /node_modules/,
       },
       {

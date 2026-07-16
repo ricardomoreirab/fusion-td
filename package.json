@@ -1,7 +1,7 @@
 {
   "name": "ktg",
   "version": "1.0.0",
-  "description": "KTG — Kill the Goblins. Vampire Survivors-style arena game built with Babylon.js",
+  "description": "KTG — Kill the Goblins. Vampire Survivors-style arena game built with Three.js",
   "main": "index.js",
   "scripts": {
     "start": "webpack serve --open",
@@ -13,7 +13,7 @@
     "test:watch": "vitest"
   },
   "keywords": [
-    "babylonjs",
+    "threejs",
     "game",
     "vampire-survivors",
     "arena",
@@ -22,11 +22,6 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@babylonjs/core": "^9.9.1",
-    "@babylonjs/gui": "^9.9.1",
-    "@babylonjs/loaders": "^9.9.1",
-    "@babylonjs/materials": "^9.9.1",
-    "@babylonjs/procedural-textures": "^9.9.1",
     "postprocessing": "^6.39.2",
     "three": "^0.185.1"
   },
