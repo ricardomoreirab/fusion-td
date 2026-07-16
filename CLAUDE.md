@@ -2,7 +2,8 @@
 
 ## Project summary
 
-Vampire Survivors-style action game built with BabylonJS + TypeScript. Single hero, 4 power slots, wave-based, open circular arena.
+Vampire Survivors-style action game built with Three.js + TypeScript. Single hero, 4 power slots, wave-based, open circular arena.
+(Migrated from BabylonJS in July 2026 — see `docs/three-migration-conventions.md` for the API mapping conventions.)
 
 ## Build commands
 
@@ -21,6 +22,8 @@ The codebase is organized by **bounded context**, not by file type:
 ```
 src/
   engine/         cross-mode infrastructure (Game, scene, lights, asset loading)
+  engine/three/   the Three.js engine layer (SceneHost, RendererHost, primitives,
+                  ParticleSystem, AnimGroup, GLB assets, tween, audio, math)
   survivors/      survivors-mode gameplay (the only currently shipped mode)
   net/            online co-op networking (protocol, transport, codecs)
   menu/           main menu state
@@ -35,11 +38,14 @@ worker/           Cloudflare Worker + Room Durable Object (blind WS relay)
 - `src/engine/Game.ts` — engine init, scene setup (lights, camera, post-processing pipeline, pre-registered hero torch), registers states (`menu`, `survivors`, `gameOver`).
 - `src/engine/StateManager.ts` — `changeState()`, `getState()`, `registerState()`.
 - `src/engine/GameState.ts` — base interface every state implements.
-- `src/engine/AssetManager.ts` — load tracking + sound playback.
+- `src/engine/AssetManager.ts` — boot sound setup + `playSound` facade. The game ships NO audio files: every sound (SFX + the looping wind/drone ambience under the `bgMusic` handle) is synthesized at boot by `src/engine/three/proceduralSfx.ts` into WebAudio buffers.
+- `src/engine/three/SceneHost.ts` — THREE.Scene + the per-frame update buses (`onBeforeRender`, `onAnimUpdate` gated by `animationsEnabled`) + particle registry. Headless-friendly (Vitest drives it with `tick(dt)`).
+- `src/engine/three/RendererHost.ts` — WebGLRenderer + pmndrs postprocessing chain: RenderPass → Bloom + SelectiveBloom (GLOW_LAYER=11, Babylon GlowLayer parity) → ACES tone mapping → vignette → FXAA. `info` getter exposes renderer counts for the resource watchdog.
+- `src/engine/three/assets.ts` — GLB container cache + `instantiate()` (SkeletonUtils clone + per-instance materials + AnimationMixer). **Prefixes only the clone ROOT's name** — renaming descendants unbinds every animation track (THREE resolves tracks by node name) and the model T-poses.
 
 ### Core game states
 - `src/menu/MenuState.ts` — main menu; "Play" button routes to `survivors`.
-- `src/survivors/SurvivorsGameplayState.ts` — **primary game loop**; `enter()` shows champion select then calls `startRun(type)`. Orchestrates all systems. Sets up the directional + torch shadow generators.
+- `src/survivors/SurvivorsGameplayState.ts` — **primary game loop**; `enter()` shows champion select then calls `startRun(type)`. Orchestrates all systems. Sets up the key/fill directionals + the hero-following directional shadow map.
 - `src/game-over/GameOverState.ts` — death screen; survivors path passes `SurvivorsRunSummary` via `setSurvivorsSummary()`.
 
 ### Hero systems
@@ -49,7 +55,7 @@ worker/           Cloudflare Worker + Room Durable Object (blind WS relay)
 - `src/survivors/HeroController.ts` — WASD + joystick input, top-down follow camera, basic auto-attack, HP tracking, death callback.
 
 ### Enemy systems
-- `src/survivors/enemies/EnemyManager.ts` — enemy lifecycle, `configureSurvivorsMode()`, `spawnSurvivorsEnemy()`, `setOnEliteDeath()`, `setShadowGenerators([directional, torch])` to register casters into both shadow passes.
+- `src/survivors/enemies/EnemyManager.ts` — enemy lifecycle, `configureSurvivorsMode()`, `spawnSurvivorsEnemy()`, `setOnEliteDeath()`, `setOnDeathLoot()` (floor-pickup roll), `setShadowGenerators([lights])` to flag heavy spawns as shadow casters.
 - `src/survivors/enemies/Enemy.ts` — base enemy class. `seekTarget` field drives survivors-mode seek-hero AI. `contactDamagePerSecond`, `isElite`, `eliteDropElement`, `applyHealthBarTier()`.
 - Concrete enemies in `src/survivors/enemies/`: `BasicEnemy`, `FastEnemy`, `TankEnemy`, `BossEnemy`, `MilestoneBoss`, `SplittingEnemy`, `HealerEnemy`, `ShieldEnemy`, `MiniEnemy`.
 - `src/survivors/enemies/EliteSpawner.ts` — applies elite visual treatment (1.4× scale, emissive outline, orange HP bar tier).
@@ -62,7 +68,8 @@ worker/           Cloudflare Worker + Room Durable Object (blind WS relay)
 ### Power system
 - `src/survivors/powers/PowerSlotManager.ts` — 4 slots, cooldowns, auto-fire orchestration.
 - `src/survivors/powers/PowerDefinitions.ts` — 6 powers per champion class: Fireball (fire), Frost Shards (ice), Arcane Nova (arcane), Piercing Arrow (physical), Whirling Blades (physical), Lightning Chain (storm).
-- `src/survivors/powers/PowerDrop.ts` — orb entity: spawn, magnet, pickup flash, `onPickup` callback.
+- `src/survivors/powers/PowerDrop.ts` — orb entity: spawn, magnet, pickup flash, `onPickup` callback, `magnetize()`.
+- `src/survivors/FloorPickup.ts` — VS-style floor loot from regular kills (2% heal orb = 20% max HP, 0.4% magnet ring that vacuums all drops via `magnetize()` on every live drop). **Single-player only** — the roll is skipped in co-op.
 
 ### Manual ultimates
 - `src/survivors/abilities/AbilityManager.ts` — Meteor Strike (45s, click-to-target), Frost Nova (30s, instant), and per-champion class ults. `triggerFrostNova()`, `triggerMeteorAtNearest()`. Constructed with `(game, enemyManager)`.
@@ -78,7 +85,7 @@ worker/           Cloudflare Worker + Room Durable Object (blind WS relay)
 
 ### Survivors UI — migrated to **DOM** (in `src/ui/`)
 The HUD and overlays were migrated off Babylon-GUI to DOM (see `docs/superpowers/plans/2026-05-29-dom-ui-foundation-and-hud.md`). The live UI is:
-- `src/ui/hud/Hud.ts` (class `Hud`) — **THE in-game HUD**. HP pill, wave pill, **level pill (`LV n` + XP-progress fill)**, 4 power-slot icons with cooldown sweeps, 4-item row, ultimate buttons, low-HP vignette. Built from `src/ui/primitives/` (`Pill`, `IconSlot`), styled by `src/ui/styles/components.css`; pill text via `src/ui/format.ts`.
+- `src/ui/hud/Hud.ts` (class `Hud`) — **THE in-game HUD**. HP pill, wave pill, **run-stats pill (`⏱ mm:ss · ☠ kills`)**, **level pill (`LV n` + XP-progress fill)**, gold pill, 4 power-slot icons with cooldown sweeps, 4-item row, ultimate buttons, low-HP vignette. Built from `src/ui/primitives/` (`Pill`, `IconSlot`), styled by `src/ui/styles/components.css`; pill text via `src/ui/format.ts`.
 - `src/ui/overlays/ChampionSelect.ts` — 3-card champion picker.
 - `src/ui/overlays/PowerChoice.ts` — 3-card slow-mo orb pickup choice; subtitles show damage + cooldown delta.
 - `src/ui/overlays/ReplaceSlot.ts` — secondary slot-replacement prompt.
@@ -99,9 +106,10 @@ Still under `src/survivors/`:
 - `PauseScreen.ts` — global pause overlay.
 
 ### Rendering helpers (in `src/engine/rendering/`)
-- `StyleConstants.ts` — PALETTE color constants (Color3/Color4).
-- `LowPolyMaterial.ts` — `createLowPolyMaterial`, `createEmissiveMaterial`, `makeFlatShaded`. Note: materials returned are **frozen** for perf; scene also has `blockMaterialDirtyMechanism = true` so lights added at runtime are invisible to existing materials.
-- `MaterialCache.ts` — name-keyed material reuse.
+- `StyleConstants.ts` — PALETTE color constants (THREE.Color / rgba tuples).
+- `LowPolyMaterial.ts` — `createLowPolyMaterial(name, color)`, `createEmissiveMaterial(name, color, strength)` (each call = fresh material, NOT cached), `makeFlatShaded`, `markGlowing(mesh)` (adds to the selective-bloom GLOW_LAYER), `setMeshOpacity(mesh, a)` (clone-on-write fade — replaces Babylon `mesh.visibility`; never mutate a shared material's opacity).
+- `MaterialCache.ts` — `getCachedMaterial(key, setup)` name-keyed material reuse (no scene param). Cached materials have `userData.cached = true` so `disposeMesh` leaves them alone. Cache keys must be BOUNDED (element/colour), never instance ids.
+- `src/engine/three/primitives.ts` — `createSphere/Torus/Disc/...` mesh factories (Babylon orientations baked in), plus the disposal funnel: `disposeMesh(mesh)` (frees geometry unless cache-owned + owned materials) and `isMeshDisposed(mesh)`.
 - `ProceduralGrass.ts` — quality-tiered hardware-instanced grass blades (8k/16k/32k low/med/high) with custom ShaderMaterial. Wind animation in vertex shader; torch contribution in fragment via `setTorch()` per-frame uniforms.
 - `ProceduralGrassTexture.ts` — Voronoi + multi-octave noise baked once into a 2048² texture for the ground disc.
 - `ProjectilePool.ts` — pooled projectile mesh allocation.
@@ -110,26 +118,36 @@ Still under `src/survivors/`:
 - `src/survivors/GameTypes.ts` — `ElementType`, `EnemyType`, `StatusEffect` enums. Formerly in the deleted `towers/Tower.ts`.
 - `src/survivors/ItemDrop.ts`, `WaveStatus.ts`, `Map.ts` (mostly TD-era; only `buildSurvivorsArena()` is live), `LevelConfig.ts` (only consumed by Map).
 
-## Lighting & shadows
+## Lighting, tone mapping & shadows
 
-Survivors-mode lighting (configured in `Game.setupScene` + `SurvivorsGameplayState.enter` + `applyRuinsAmbience`):
+The frame renders into an HDR half-float chain and goes through **ACES filmic tone
+mapping + a subtle vignette** (RendererHost post stack). Light intensities are tuned
+FOR that curve — if you touch tone mapping, retune the lights.
+
+Survivors-mode lighting (configured in `Game.setupScene` + `SurvivorsGameplayState`):
 
 | Light | Intensity | Notes |
 |---|---|---|
-| `light` (HemisphericLight) | 0.55 | Single global warm fill. |
-| `survivorsKey` (DirectionalLight) | 0.9 | Dominant directional; **drives shadow generator**. |
-| `ruinsSpot` (SpotLight) | 1.2 | Warm orange overhead glow. |
-| `heroTorch` (PointLight) | 0 → 5.0 | Pre-registered in `Game.setupScene`; `Champion.enableTorch` parents to mesh + cranks intensity. **Pre-registration is required** because `scene.blockMaterialDirtyMechanism = true` means materials never recompile for runtime-added lights. |
+| `light` (HemisphereLight) | 0.75 | Global warm fill, persistent (`userData.persistent`). |
+| `survivorsKey` (DirectionalLight) | 1.35 | Warm dominant key; **owns the shadow map**; position + target follow the hero every frame. |
+| `survivorsFill` (DirectionalLight) | 0.5 | Cool back-fill, no shadows — rims the dark GLB characters so they separate from the grass. |
+| `heroTorch` (PointLight) | 0 → 5.0 | Created once in `Game.setupScene`, persistent; `Champion.enableTorch` parents it to the hero + cranks intensity (castShadow stays off). |
+| env cube (`scene.environment`) | 0.65 | IBL — read ONLY by the PBR GLB characters (grass/low-poly Phong ignore it), so it is the character-brightness knob that leaves the field untouched. |
 
-**Two shadow generators:**
-- Directional (1024 PCF, low quality filter) on `survivorsKey` — hero + bosses + heavies cast; ground discs receive.
-- Torch (512 cube + ExpShadowMap) on `heroTorch` — bosses + heavies cast (NOT hero, so it doesn't block its own light).
+**Shadows:** THREE has no ShadowGenerator — casting is per-mesh (`castShadow`) and
+the 1024 PCF map lives on `survivorsKey.shadow` with a fixed ±35-unit ortho frustum
+following the hero. Refresh is throttled (`light.shadow.autoUpdate = false`; update()
+sets `needsUpdate` every `_shadowRefreshInterval` frames — 2 normally, 3 under perf
+trim). Heavy enemies get `castShadow = true` via `EnemyManager.setShadowGenerators`;
+after wave 5 enemy shadow-casting is cut off entirely (hordes outgrow the cost).
+The grass shader samples the directional's shadow map directly.
 
-Bosses register into BOTH via `EnemyManager.setShadowGenerators([directional, torch])`.
+**Note:** the Babylon-era "never create lights at runtime" rule is GONE — THREE
+recompiles affected materials on demand (a one-frame cost; prewarm if it matters).
 
 ## Tests
 
-Vitest is wired for **pure-logic** modules only (no full Babylon scene; a few suites use the Babylon Null engine). Tests live under `tests/*.spec.ts` — currently ~42 spec files (~314 tests) covering player stats/items, power slots/fusions/status model, and the co-op/net stack (protocol round-trips, snapshot binary + delta codecs, connection FSM, reconciliation, damage routing, transports).
+Vitest is wired for **pure-logic** modules (no WebGL; SceneHost is headless and suites drive it with `tick(dt)`). Tests live under `tests/*.spec.ts` — currently ~65 spec files (~522 tests) covering player stats/items, power slots/fusions/status model, the engine/three layer (primitives, particles, tween, math), and the co-op/net stack (protocol round-trips, snapshot binary + delta codecs, connection FSM, reconciliation, damage routing, transports).
 
 ## Balance (current)
 
@@ -148,11 +166,10 @@ Vitest is wired for **pure-logic** modules only (no full Babylon scene; a few su
 ## Key design invariants
 
 - All game state lives in `SurvivorsGameplayState`; it is fully reset on `exit()`.
-- The `AdvancedDynamicTexture` (`this.ui`) is created in `enter()` and disposed in `exit()`.
+- The DOM UI root (`this.gameUI`, class `GameUI`) is created in `enter()` and disposed in `exit()`.
 - `startRun(championType)` is called AFTER the champion select; no gameplay objects exist before that.
 - `GameOverState.setSurvivorsSummary(summary)` must be called BEFORE `changeState('gameOver')`.
-- `Game.heroTorch` is pre-registered in `setupScene` at intensity 0 so materials compile with the light slot present. **Do not create new lights at runtime** — they will be invisible to existing materials.
-- Materials returned by `createLowPolyMaterial` are frozen. To re-tier a material's HP-bar light setup, increase `maxSimultaneousLights` before freezing.
-- **Transient-FX materials must never leak.** The recurring multi-second freeze is always ONE class of bug: a short-lived FX mesh whose material is orphaned by the default `mesh.dispose()` (which is `dispose(false, false)` — does NOT free the material), so `scene.materials` grows monotonically until a frame stalls for seconds. Rule for any per-attack/per-cast/per-frame FX: route the material through `getCachedMaterial(scene, key, …)` with a **bounded** key (element/colour hex — finitely many; never `Math.random()`/instance ids), OR, if the mesh owns a unique animated material, free it with `mesh.dispose(false, true)`. Fade transient meshes via `mesh.visibility`, not by mutating a shared/frozen material's `.alpha`. `createEmissiveMaterial`/`createLowPolyMaterial` do NOT cache — every call is a fresh material. `exit()` calls `clearMaterialCache()` + `clearProjectilePools()`.
-- **Black-screen / render-health guards (permanent).** A pure-black canvas while the game keeps running has two known cause classes: (1) **GPU context loss** — Babylon gates its whole frame on `!_contextWasLost`, so `Game.frameTick` stops and the near-black page bg shows (gameplay `clearColor` is near-black, so a vanished frame looks black, NOT sky-blue); (2) a **NaN/Infinity camera transform** — `HeroController`'s per-frame `LerpToRef(camera.position…)` makes a transient NaN sticky forever → NaN view matrix clips every mesh → near-black, and `scene.render()` does NOT throw. Guards: `src/engine/renderHealth.ts` (pure, Vitest-tested) drives `Game.installRenderWatchdog()` (a **separate `setInterval`, NOT rAF** — context loss freezes rAF) which banners+reloads on unrecovered loss / no-frame; `Game.installContextLossRecovery()` wires `onContextLost/RestoredObservable` + `webglcontextlost preventDefault`; `Game.guardActiveCamera()` + the `HeroController` follow-lerp finite-check + the `Champion.update` hero-position finite-check self-heal the NaN path. Don't remove these; keep the watchdog out of the rAF loop. Decisive repro test: if black, do the HUD pills keep updating? frozen → context loss; smooth → NaN camera.
-- **Resource-leak watchdog (permanent).** `SurvivorsGameplayState.checkResourceBudget()` runs at every wave clear (arena empty → live enemies ≈ 0) and, if `scene.materials`/`textures` exceed baseline + budget or climb too fast, logs `[resource-watchdog] LEAK SUSPECTED …` with the scene list bucketed by name-prefix (`src/engine/rendering/resourceBudget.ts`) — the largest bucket names the offending allocation site. If you see it fire, the named prefix is your leak.
+- **Transient-FX materials must never leak.** The recurring multi-second freeze is always ONE class of bug: a short-lived FX mesh whose per-instance material is orphaned on disposal, so live materials grow monotonically until a frame stalls for seconds. Rule for any per-attack/per-cast/per-frame FX: route the material through `getCachedMaterial(key, …)` with a **bounded** key (element/colour — finitely many; never `Math.random()`/instance ids), OR mark a uniquely-owned animated material with `userData.ownedMaterial` so `disposeMesh` frees it. Fade transient meshes via `setMeshOpacity(mesh, a)` (clone-on-write), never by mutating a shared material's `.opacity`. Always dispose via `disposeMesh(mesh)` — raw `removeFromParent()` leaks geometry. `createEmissiveMaterial`/`createLowPolyMaterial` do NOT cache — every call is a fresh material. `exit()` calls `clearMaterialCache()` + `clearProjectilePools()`.
+- **GLB clones must not rename descendants.** THREE binds animation tracks by node name; `GlbContainer.instantiate` prefixes only the root. Renaming bones = every model silently T-poses (only console warnings).
+- **Black-screen / render-health guards (permanent).** A pure-black canvas while the game keeps running has two known cause classes: (1) **GPU context loss** — the frame vanishes and the near-black page bg shows (gameplay clear color is near-black, so a vanished frame looks black, NOT sky-blue); (2) a **NaN/Infinity camera transform** — `HeroController`'s per-frame follow lerp makes a transient NaN sticky forever → NaN view matrix clips every mesh → near-black, and rendering does NOT throw. Guards: `src/engine/renderHealth.ts` (pure, Vitest-tested) drives `Game.installRenderWatchdog()` (a **separate `setInterval`, NOT rAF** — context loss freezes rAF) which banners+reloads on unrecovered loss / no-frame; `Game.installContextLossRecovery()` wires the RendererHost `webglcontextlost/restored` callbacks; `Game.guardActiveCamera()` + the `HeroController` follow-lerp finite-check + the `Champion.update` hero-position finite-check self-heal the NaN path. Don't remove these; keep the watchdog out of the rAF loop. Decisive repro test: if black, do the HUD pills keep updating? frozen → context loss; smooth → NaN camera.
+- **Resource-leak watchdog (permanent).** `SurvivorsGameplayState.checkResourceBudget()` runs at every wave clear (arena empty → live enemies ≈ 0). THREE has no global material/texture lists, so `collectSceneResources()` walks the scene graph for the live material set and reads texture/geometry/program counts from `RendererHost.info`. If materials exceed baseline + budget or climb too fast, it logs `[resource-watchdog] LEAK SUSPECTED …` bucketed by name-prefix (`src/engine/rendering/resourceBudget.ts`) — the largest bucket names the offending allocation site. If you see it fire, the named prefix is your leak.
