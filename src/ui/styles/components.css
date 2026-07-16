@@ -76,6 +76,12 @@
   font-size: var(--fs-400);
 }
 .pill--level .pill__fill { background: linear-gradient(180deg, #5fb0e8, #2b6aa8); }
+.pill--stats {
+  --accent: #9aa4b0;
+  color: #d5dbe2;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums; /* the clock must not jitter as digits change */
+}
 
 /* Transient feedback animations */
 @keyframes pill-flash-white { from { box-shadow: inset 0 0 0 999px rgba(255,255,255,0.4); } to {} }

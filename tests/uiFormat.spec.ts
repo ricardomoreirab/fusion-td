@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cooldownFraction, waveLabel, levelLabel } from '../src/ui/format';
+import { cooldownFraction, waveLabel, levelLabel, runStatsLabel } from '../src/ui/format';
 
 describe('cooldownFraction', () => {
   it('clamps to 0..1', () => {
@@ -30,5 +30,18 @@ describe('waveLabel', () => {
 describe('levelLabel', () => {
   it('prefixes the LV tag', () => {
     expect(levelLabel(23)).toBe('LV 23');
+  });
+});
+
+describe('runStatsLabel', () => {
+  it('formats minutes:seconds with zero-padding', () => {
+    expect(runStatsLabel(754, 128)).toBe('⏱ 12:34 · ☠ 128');
+  });
+  it('rolls into hours past 60 minutes', () => {
+    expect(runStatsLabel(3723, 9)).toBe('⏱ 1:02:03 · ☠ 9');
+  });
+  it('clamps negatives and truncates fractions', () => {
+    expect(runStatsLabel(-5, 0)).toBe('⏱ 00:00 · ☠ 0');
+    expect(runStatsLabel(59.9, 1)).toBe('⏱ 00:59 · ☠ 1');
   });
 });

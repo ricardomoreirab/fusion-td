@@ -7,7 +7,7 @@ import { el } from '../dom';
 import { makePill, PillController } from '../primitives/Pill';
 import { makeIconSlot, IconSlotController } from '../primitives/IconSlot';
 import { flashClass, onTap } from '../interaction';
-import { cooldownFraction, waveLabel, levelLabel, WaveInfo } from '../format';
+import { cooldownFraction, waveLabel, levelLabel, runStatsLabel, WaveInfo } from '../format';
 import { GearSlotVM } from '../overlays/CharacterProfile';
 import { SLOT_GLYPH } from '../overlays/slotMeta';
 import { EQUIP_SLOTS, RARITY_COLOR } from '../../survivors/items/ItemTypes';
@@ -50,6 +50,7 @@ export class Hud {
   private root: HTMLDivElement;
   private hpPill: PillController;
   private wavePill: PillController;
+  private statsPill: PillController;
   private levelPill: PillController;
   private goldPill: PillController;
 
@@ -94,9 +95,10 @@ export class Hud {
     const topBar = el('div', { class: 'hud__topbar' });
     this.hpPill = makePill('hp');
     this.wavePill = makePill('wave');
+    this.statsPill = makePill('stats');
     this.levelPill = makePill('level');
     this.goldPill = makePill('gold');
-    topBar.append(this.hpPill.root, this.wavePill.root, this.levelPill.root, this.goldPill.root);
+    topBar.append(this.hpPill.root, this.wavePill.root, this.statsPill.root, this.levelPill.root, this.goldPill.root);
     this.root.appendChild(topBar);
 
     // Always-visible inventory strip, top-left under the top bar (single-player).
@@ -207,7 +209,9 @@ export class Hud {
     slots: (PowerSlot | null)[],
     deltaTime = 0,
     waveInfo?: WaveInfo,
+    runStats?: { timeS: number; kills: number },
   ): void {
+    if (runStats) this.statsPill.setText(runStatsLabel(runStats.timeS, runStats.kills));
     const ratio = Math.max(0, hp.current / hp.max);
     this.hpPill.setFill(ratio);
     this.hpPill.setText(`❤ ${Math.ceil(hp.current)} / ${hp.max}`);

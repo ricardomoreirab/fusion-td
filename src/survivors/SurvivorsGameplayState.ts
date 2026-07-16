@@ -508,6 +508,7 @@ export class SurvivorsGameplayState implements GameState {
         enemiesAlive: 0,
         inProgress: false,
     };
+    private _scratchRunStats: { timeS: number; kills: number } = { timeS: 0, kills: 0 };
     /** Flip to true while diagnosing a slow-frame regression. Kept off by
      *  default so the per-frame instrumentation (per-subsystem performance.now,
      *  closure + object literal allocations) doesn't add background overhead. */
@@ -3462,12 +3463,15 @@ export class SurvivorsGameplayState implements GameState {
                 waveInfo.enemiesAlive = this.waveManager.getRemainingEnemiesInWave() ?? 0;
                 waveInfo.inProgress = this.waveManager.isWaveInProgress();
             }
+            this._scratchRunStats.timeS = (performance.now() - this.runStartTime) / 1000;
+            this._scratchRunStats.kills = this.playerStats.getTotalKills();
             this.hud.update(
                 this.heroController.getHealth(),
                 { level: this.levelSystem?.getLevel() ?? 1, progress: this.levelSystem?.getProgress() ?? 0 },
                 this.powerSlots.getSlots(),
                 dt,
                 waveInfo,
+                this._scratchRunStats,
             );
             this.hud.setGold(this.playerStats.getGold());
         }
