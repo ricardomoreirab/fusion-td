@@ -1561,6 +1561,7 @@ export class SurvivorsGameplayState implements GameState {
         if (!this.runItems) return;
         this.runItems.grant(id);
         this.hud?.pulseItem(id);
+        this.game.getAssetManager().playSound('pickup');
 
         // Pickup float text at the hero's position (spec: "+ <Item Name>").
         if (this.damageNumbers && this.hero) {
@@ -3514,6 +3515,7 @@ export class SurvivorsGameplayState implements GameState {
     // ─────────────────────────────────────────────────────────────────────────
 
     private onOrbPickup(element: string): void {
+        this.game.getAssetManager().playSound('pickup');
         // Hidden mechanic: every orb collected makes future enemy spawns +8%
         // tougher (geometric/compounding, per-run) so the buff tracks the
         // player's multiplicative per-orb damage growth. Applied BEFORE the
@@ -3848,6 +3850,7 @@ export class SurvivorsGameplayState implements GameState {
             this.applyLevelBonuses();
             this.heroController?.heal(this.heroController.getMaxHealth() * 0.05 * ups);
             this.showLevelUpFeedback(this.levelSystem.getLevel());
+            this.game.getAssetManager().playSound('levelUp');
         }
     }
 

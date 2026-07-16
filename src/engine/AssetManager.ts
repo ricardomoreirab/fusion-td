@@ -4,41 +4,57 @@
  * Slimmed down in the Three migration: the TD-era mesh/texture task queue
  * (basic_tower.glb etc.) was dead weight - character/enemy GLBs are loaded
  * on demand by SurvivorsGameplayState via engine/three/assets. What remains
- * is the sound preload (tolerant of missing files, as before) and the
- * playSound facade the gameplay call sites use.
+ * is the sound setup and the playSound facade the gameplay call sites use.
+ *
+ * The game ships NO audio files - every sound is synthesized at boot by
+ * proceduralSfx.ts and registered into the WebAudio buffer registry.
+ * 'bgMusic' is the looping ambient bed (wind + low drone), so the facade
+ * routes it through playLoop instead of a one-shot.
  */
 
-import { loadSound, playSound } from './three/audio';
+import { registerSound, playSound, playLoop } from './three/audio';
+import { SFX_DEFS, renderSfx } from './three/proceduralSfx';
 
-const SOUNDS: Array<{ name: string; url: string; volume: number }> = [
-    { name: 'bgMusic', url: 'assets/sounds/background.mp3', volume: 0.5 },
-    { name: 'towerShoot', url: 'assets/sounds/tower_shoot.mp3', volume: 0.7 },
-    { name: 'enemyDeath', url: 'assets/sounds/enemy_death.mp3', volume: 0.7 },
-    { name: 'explosion', url: 'assets/sounds/explosion.mp3', volume: 0.8 },
-];
+const VOLUMES: Record<string, number> = {
+    bgMusic: 0.5,
+    towerShoot: 0.5,
+    enemyDeath: 0.55,
+    explosion: 0.8,
+    pickup: 0.5,
+    levelUp: 0.6,
+    heal: 0.6,
+};
+
+/** Sound names played as seamless loops rather than one-shots. */
+const LOOPS = new Set(['bgMusic']);
 
 export class AssetManager {
-    private volumes = new Map<string, number>();
-
     /**
-     * Load all boot assets.
-     * @param onComplete Callback when loading finishes (failures tolerated)
+     * Render all procedural sounds.
+     * @param onComplete Callback when rendering finishes (failures tolerated)
      * @param onProgress Callback for loading progress (0-1)
      */
     public loadAssets(onComplete: () => void, onProgress?: (progress: number) => void): void {
+        if (typeof OfflineAudioContext === 'undefined') {
+            onComplete();
+            return;
+        }
         let done = 0;
-        const total = SOUNDS.length;
-        const tasks = SOUNDS.map(async s => {
-            this.volumes.set(s.name, s.volume);
-            await loadSound(s.name, s.url);
+        const tasks = SFX_DEFS.map(async def => {
+            // The ambience def registers under the legacy 'bgMusic' handle its
+            // call sites use.
+            const name = def.name === 'ambience' ? 'bgMusic' : def.name;
+            registerSound(name, await renderSfx(def));
             done++;
-            onProgress?.(done / total);
+            onProgress?.(done / SFX_DEFS.length);
         });
         void Promise.allSettled(tasks).then(() => onComplete());
     }
 
-    /** Play a preloaded sound by name (no-op if it failed to load). */
+    /** Play a named sound (loops start once and keep playing; one-shots fire). */
     public playSound(name: string): void {
-        playSound(name, this.volumes.get(name) ?? 1);
+        const volume = VOLUMES[name] ?? 1;
+        if (LOOPS.has(name)) playLoop(name, volume);
+        else playSound(name, volume);
     }
 }

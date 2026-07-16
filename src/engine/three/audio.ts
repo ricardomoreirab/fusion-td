@@ -1,14 +1,12 @@
 /**
  * audio.ts - engine-agnostic WebAudio playback replacing Babylon Sound.
  *
- * Load failures (404, decode errors) are tolerated with a single warn per
- * sound - the shipped assets/sounds/ files are optional and Babylon's
- * loader tolerated their absence too. AudioContext is created lazily and
- * resumed on the next user gesture if the browser suspended it.
+ * Buffers come from proceduralSfx.ts via registerSound (the game ships no
+ * audio files). AudioContext is created lazily and resumed on the next
+ * user gesture if the browser suspended it.
  */
 
 const buffers = new Map<string, AudioBuffer>();
-const warned = new Set<string>();
 
 let ctx: AudioContext | null = null;
 let masterGain: GainNode | null = null;
@@ -30,34 +28,66 @@ function getContext(): AudioContext | null {
     return ctx;
 }
 
-export async function loadSound(name: string, url: string): Promise<void> {
-    const audio = getContext();
-    if (!audio) return;
-    try {
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.arrayBuffer();
-        buffers.set(name, await audio.decodeAudioData(data));
-    } catch (err) {
-        if (!warned.has(name)) {
-            warned.add(name);
-            console.warn(`[audio] sound '${name}' unavailable (${String(err)})`);
-        }
-    }
+/** Register an already-built buffer (procedural SFX) under a name. */
+export function registerSound(name: string, buffer: AudioBuffer): void {
+    buffers.set(name, buffer);
 }
 
+// One-shots retrigger no faster than this — at horde scale dozens of identical
+// death sounds per frame would otherwise stack into a clipping wall.
+const MIN_RETRIGGER_MS = 45;
+const lastPlayedAt = new Map<string, number>();
+
 export function playSound(name: string, volume = 1): void {
+    const audio = getContext();
+    const buffer = buffers.get(name);
+    if (!audio || !buffer || !masterGain) return;
+    const now = performance.now();
+    if (now - (lastPlayedAt.get(name) ?? -Infinity) < MIN_RETRIGGER_MS) return;
+    lastPlayedAt.set(name, now);
+    if (audio.state === 'suspended') void audio.resume();
+    const source = audio.createBufferSource();
+    source.buffer = buffer;
+    // ±8% pitch variance keeps repeated SFX from sounding machine-gunned.
+    source.playbackRate.value = 0.92 + Math.random() * 0.16;
+    const gain = audio.createGain();
+    gain.gain.value = volume;
+    source.connect(gain);
+    gain.connect(masterGain);
+    source.start();
+}
+
+const activeLoops = new Map<string, { source: AudioBufferSourceNode; gain: GainNode }>();
+
+/** Start a named buffer as a seamless loop (no-op if already playing). */
+export function playLoop(name: string, volume = 1): void {
+    if (activeLoops.has(name)) return;
     const audio = getContext();
     const buffer = buffers.get(name);
     if (!audio || !buffer || !masterGain) return;
     if (audio.state === 'suspended') void audio.resume();
     const source = audio.createBufferSource();
     source.buffer = buffer;
+    source.loop = true;
     const gain = audio.createGain();
-    gain.gain.value = volume;
+    // Fade in so the loop never pops on state transitions.
+    gain.gain.setValueAtTime(0.0001, audio.currentTime);
+    gain.gain.exponentialRampToValueAtTime(Math.max(volume, 0.0001), audio.currentTime + 1.5);
     source.connect(gain);
     gain.connect(masterGain);
     source.start();
+    activeLoops.set(name, { source, gain });
+}
+
+/** Fade out and stop a named loop (no-op if not playing). */
+export function stopLoop(name: string, fadeS = 0.8): void {
+    const loop = activeLoops.get(name);
+    const audio = ctx;
+    if (!loop || !audio) return;
+    activeLoops.delete(name);
+    loop.gain.gain.setValueAtTime(loop.gain.gain.value, audio.currentTime);
+    loop.gain.gain.exponentialRampToValueAtTime(0.0001, audio.currentTime + fadeS);
+    loop.source.stop(audio.currentTime + fadeS);
 }
 
 export function setMasterVolume(v: number): void {
