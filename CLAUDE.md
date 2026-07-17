@@ -40,7 +40,7 @@ worker/           Cloudflare Worker + Room Durable Object (blind WS relay)
 - `src/engine/GameState.ts` — base interface every state implements.
 - `src/engine/AssetManager.ts` — boot sound setup + `playSound` facade. The game ships NO audio files: every sound (SFX + the looping wind/drone ambience under the `bgMusic` handle) is synthesized at boot by `src/engine/three/proceduralSfx.ts` into WebAudio buffers.
 - `src/engine/three/SceneHost.ts` — THREE.Scene + the per-frame update buses (`onBeforeRender`, `onAnimUpdate` gated by `animationsEnabled`) + particle registry. Headless-friendly (Vitest drives it with `tick(dt)`).
-- `src/engine/three/RendererHost.ts` — WebGLRenderer + pmndrs postprocessing chain: RenderPass → Bloom + SelectiveBloom (GLOW_LAYER=11, Babylon GlowLayer parity) → ACES tone mapping → vignette → FXAA. `info` getter exposes renderer counts for the resource watchdog.
+- `src/engine/three/RendererHost.ts` — WebGLRenderer + pmndrs postprocessing chain: RenderPass → Bloom + SelectiveBloom (GLOW_LAYER=11, Babylon GlowLayer parity) → ACES tone mapping → FXAA. NO vignette — over the bright uniform field it reads as a "halo of shadow" stamped on the screen, not as focus. `info` getter exposes renderer counts for the resource watchdog.
 - `src/engine/three/assets.ts` — GLB container cache + `instantiate()` (SkeletonUtils clone + per-instance materials + AnimationMixer). **Prefixes only the clone ROOT's name** — renaming descendants unbinds every animation track (THREE resolves tracks by node name) and the model T-poses.
 
 ### Core game states
@@ -121,8 +121,8 @@ Still under `src/survivors/`:
 ## Lighting, tone mapping & shadows
 
 The frame renders into an HDR half-float chain and goes through **ACES filmic tone
-mapping + a subtle vignette** (RendererHost post stack). Light intensities are tuned
-FOR that curve — if you touch tone mapping, retune the lights.
+mapping** (RendererHost post stack; deliberately NO vignette). Light intensities are
+tuned FOR that curve — if you touch tone mapping, retune the lights.
 
 Survivors-mode lighting (configured in `Game.setupScene` + `SurvivorsGameplayState`):
 

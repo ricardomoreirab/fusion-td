@@ -22,7 +22,6 @@ import {
     SelectiveBloomEffect,
     ToneMappingEffect,
     ToneMappingMode,
-    VignetteEffect,
 } from 'postprocessing';
 import { setParticleViewportHeight } from './particles/ParticleSystem';
 
@@ -76,13 +75,12 @@ export class RendererHost {
         // ACES filmic tone mapping: the HDR half-float chain would otherwise
         // hit the screen linearly, which reads flat and washed out (the
         // Babylon-era "full bright" look). ACES deepens shadow tones and rolls
-        // off highlights so the warm key light actually models form. The
-        // subtle vignette pulls focus to the hero without reading as an effect.
+        // off highlights so the warm key light actually models form.
+        // NO vignette: over the bright uniform survivors field even a subtle
+        // screen-space corner darkening (tried 0.55, then 0.35) reads as a
+        // "halo of shadow" ellipse stamped on top of the game, not as focus.
         const toneMapping = new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC });
-        // Kept subtle: at 0.55 the darkened corners formed a readable ellipse
-        // over the bright survivors field — players saw "a circle on the UI".
-        const vignette = new VignetteEffect({ offset: 0.32, darkness: 0.35 });
-        this.composer.addPass(new EffectPass(camera, this.bloom, this.glow, toneMapping, vignette, new FXAAEffect()));
+        this.composer.addPass(new EffectPass(camera, this.bloom, this.glow, toneMapping, new FXAAEffect()));
 
         canvas.addEventListener('webglcontextlost', event => {
             event.preventDefault(); // required by the WebGL spec for restoration
