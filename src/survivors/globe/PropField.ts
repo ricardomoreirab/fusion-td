@@ -198,6 +198,13 @@ export class PropField {
                 const parts = v.sources.map((src, p) => {
                     const part = new Mesh(src.geometry, src.material);
                     part.name = `globeProp_${i}_${c}_${p}`;
+                    // Trees/rocks cast into the key light's shadow map (solid
+                    // low-poly geometry, so the depth pass gets true
+                    // silhouettes). Only props inside the ±35-unit hero-follow
+                    // frustum hit the depth pass, so the cost stays a handful
+                    // of static meshes; the Low preset disables shadows at the
+                    // light, which makes this flag inert there.
+                    part.castShadow = true;
                     return part;
                 });
                 const root = parts[0];
