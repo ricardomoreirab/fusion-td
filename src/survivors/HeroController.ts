@@ -579,7 +579,11 @@ export class HeroController {
         if (this.keys['a'] || this.keys['arrowleft']) dx -= 1;
         if (this.keys['d'] || this.keys['arrowright']) dx += 1;
         if (Math.hypot(dx, dz) < 0.01) return null;
-        return { dx, dz };
+        // Screen→world: the follow camera sits at -Z looking toward +Z, so in
+        // right-handed THREE screen-right is world -X (Babylon's left-handed
+        // view put it at +X). Inputs are screen-space intent; this negation is
+        // the conversion point (mirrored in update()'s movement block).
+        return { dx: -dx, dz };
     }
 
     /**
@@ -729,6 +733,10 @@ export class HeroController {
             if (this.keys['s'] || this.keys['arrowdown']) dz -= 1;
             if (this.keys['a'] || this.keys['arrowleft']) dx -= 1;
             if (this.keys['d'] || this.keys['arrowright']) dx += 1;
+
+            // Screen→world: screen-right is world -X under the right-handed
+            // camera (see getMoveInput) — flip before integrating.
+            dx = -dx;
 
             // Normalize — cap at magnitude 1, allow joystick analog below 1.
             // Shared with the co-op input replay (integrateMove.ts) — same math.
