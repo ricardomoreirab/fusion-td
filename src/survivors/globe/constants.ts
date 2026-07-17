@@ -26,8 +26,13 @@ export const GRASS_FAR_FADE_END = 102;     // zero height past here — already 
 // Atmospheric horizon blend only: the square edge is now hidden structurally
 // (grass + cap extend past the horizon), so fog's only job is to melt the FAR
 // grass into the sky band — not to hide a hard edge. Keep it past the play area.
-export const FOG_START = 60;   // camera-distance where haze begins
-export const FOG_END   = 92;   // fully hazed beyond here — far grass dissolves into the sky
+// 60/92 put the onset arc MID-FIELD at high zoom: the linear ramp's kink at
+// fog.near sliced the ground in a visible ellipse around the hero ("weird
+// circles" bug). 80/112 hugs the band to the dome's horizon rim where it blends
+// into the sky; the far-grass fade (88-102 world units ≈ 110+ camera units) and
+// the ±95 cap edge still land fully inside the haze.
+export const FOG_START = 80;   // camera-distance where haze begins
+export const FOG_END   = 112;  // fully hazed beyond here — far grass dissolves into the sky
 // Matches the GlobeSky horizon band (GlobeSky.ts `horizon`) so ground/grass melt
 // into the sky rather than into a flat grey. A tuple keeps this module
 // dependency-free (no 'three' import).

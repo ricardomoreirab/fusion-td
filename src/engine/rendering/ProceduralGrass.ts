@@ -295,7 +295,10 @@ void main(void) {
     // cameraPosition is Three's auto-injected fragment uniform.
     if (uFogEnabled > 0.5) {
         float fogDist = distance(vWorldPos, cameraPosition);
-        float fogVis = clamp((uFogEnd - fogDist) / (uFogEnd - uFogStart), 0.0, 1.0);
+        // Smoothstep instead of the scene fog's linear ramp: the linear ramp's
+        // slope discontinuity at uFogStart reads as a visible arc across the
+        // field; smoothstep is C1 at both ends so the haze has no seam.
+        float fogVis = smoothstep(0.0, 1.0, clamp((uFogEnd - fogDist) / (uFogEnd - uFogStart), 0.0, 1.0));
         lit = mix(uFogColor, lit, fogVis);
     }
 
