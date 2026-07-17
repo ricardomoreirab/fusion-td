@@ -39,7 +39,27 @@ export class AnimGroup {
         this.action.setLoop(loop ? LoopRepeat : LoopOnce, Infinity);
         this.action.clampWhenFinished = !loop;
         this.action.paused = false;
+        this.action.setEffectiveWeight(1);
         this.action.play();
+    }
+
+    /** Start this clip from frame 0 cross-fading from `prev` over `fadeSec`
+     *  (both actions share the instance's mixer, so THREE blends the poses).
+     *  `prev === null`, `prev === this`, or a stopped `prev` → hard start,
+     *  same as start(). Replaces the stop()-then-start() hard cut for
+     *  locomotion/attack/cast transitions. */
+    public crossFrom(prev: AnimGroup | null, fadeSec: number, loop: boolean): void {
+        this.action.reset();
+        this.action.setLoop(loop ? LoopRepeat : LoopOnce, Infinity);
+        this.action.clampWhenFinished = !loop;
+        this.action.paused = false;
+        this.action.enabled = true;
+        this.action.setEffectiveWeight(1);
+        this.action.play();
+        if (prev && prev !== this && prev.action.isRunning()) {
+            // Fades prev's weight 1→0 and this action's 0→1 over fadeSec.
+            this.action.crossFadeFrom(prev.action, fadeSec, false);
+        }
     }
 
     public stop(): void {

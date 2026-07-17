@@ -553,35 +553,48 @@ export class Champion extends Enemy {
         return this.glbAttackTimer > 0;
     }
 
-    /** Switch the ranger to the named animation slot (no-op if already playing it). */
+    /** Switch to the named animation slot (no-op if already playing it).
+     *  Transitions cross-fade instead of hard-cutting: locomotion blends are
+     *  soft (idle↔walk), combat clips snap in fast so the hit still reads on
+     *  time — pose popping was the single biggest feel problem. */
     private playChampionAnim(slot: 'idle' | 'walk' | 'attack' | 'special'): void {
         const target = this.championAnims[slot];
         if (!target) return;
         if (this.championCurrentAnim === target) return;
-        if (this.championCurrentAnim) this.championCurrentAnim.stop();
         const loop = slot === 'idle' || slot === 'walk';
-        target.start(loop);
+        const fade = slot === 'attack' ? 0.07 : slot === 'special' ? 0.1 : 0.16;
+        target.crossFrom(this.championCurrentAnim, fade, loop);
         this.championCurrentAnim = target;
     }
 
     /** Called by HeroBasicAttack each time the champion's basic attack fires (ranger
      *  arrow, barbarian swing, etc.). Restarts the attack animation from frame 0 even
      *  if a previous one is still playing. The optional targetPos overrides facing —
-     *  during the attack timer the model turns to face the target. */
-    public triggerAttack(targetPos?: Vector3): void {
+     *  during the attack timer the model turns to face the target.
+     *
+     *  `maxDurationS` (the attack interval) compresses the clip so the swing
+     *  always completes within the firing cadence: attack-speed builds read as
+     *  visibly faster swings instead of clipped ones, and the animation never
+     *  gates DPS via isAttackActive(). Callers that omit it (power casts —
+     *  their cadence is the power cooldown) keep the clip's natural pace, which
+     *  also keeps getCastReleaseDelay()'s release-point sync intact. */
+    public triggerAttack(targetPos?: Vector3, maxDurationS?: number): void {
         if (!this.championAsset) return;
         if (this.glbDeathPlaying) return; // a corpse doesn't swing
         // Don't interrupt the special animation. Per-frame logic already prioritises
         // special over attack, but triggerAttack force-stops the current clip and
         // starts attack, which without this guard would cut the whirlwind short.
         if (this.glbSpecialTimer > 0) return;
-        const dur = (this as any).glbAttackDurationActual ?? Champion.GLB_ATTACK_DURATION;
+        const baseDur = (this as any).glbAttackDurationActual ?? Champion.GLB_ATTACK_DURATION;
+        const dur = (maxDurationS !== undefined && maxDurationS > 0.05)
+            ? Math.min(baseDur, maxDurationS)
+            : baseDur;
         this.glbAttackTimer = dur;
         this.glbAttackFacingTarget = targetPos ? targetPos.clone() : null;
         const attack = this.championAnims.attack;
         if (attack) {
-            if (this.championCurrentAnim) this.championCurrentAnim.stop();
-            attack.start(false);
+            attack.speedRatio = attack.duration / dur;
+            attack.crossFrom(this.championCurrentAnim, 0.07, false);
             this.championCurrentAnim = attack;
         }
     }
@@ -595,8 +608,7 @@ export class Champion extends Enemy {
         this.glbSpecialTimer = dur;
         const special = this.championAnims.special;
         if (special) {
-            if (this.championCurrentAnim) this.championCurrentAnim.stop();
-            special.start(false);
+            special.crossFrom(this.championCurrentAnim, 0.1, false);
             this.championCurrentAnim = special;
         }
     }
@@ -608,6 +620,27 @@ export class Champion extends Enemy {
         ranger:    0.35,
         mage:      0.45,
     };
+
+    /** Design move speed per class (HeroController's base speeds) — the walk
+     *  clip plays at 1× when travelling at this speed and time-scales with the
+     *  actual velocity, so move-speed items/slows never cause foot-sliding. */
+    private static readonly RUN_REFERENCE_SPEED: Record<'barbarian' | 'ranger' | 'mage', number> = {
+        barbarian: 6,
+        ranger:    9,
+        mage:      7,
+    };
+
+    /** Exponentially ease the mesh yaw toward `targetYaw` along the shortest
+     *  arc — replaces the per-frame hard snap, which made direction changes
+     *  and target switches read as teleporting rotations. Rate 14/s keeps it
+     *  responsive (~90% of the turn lands in 160 ms). */
+    private smoothFaceYaw(targetYaw: number, deltaTime: number): void {
+        if (!this.mesh) return;
+        const current = this.mesh.rotation.y;
+        let diff = targetYaw - current;
+        diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+        this.mesh.rotation.y = current + diff * (1 - Math.exp(-14 * deltaTime));
+    }
 
     /** Seconds between the power-cast animation starting and the clip's visual
      *  release point. PowerSlotManager delays the actual power cast by this much
@@ -651,8 +684,8 @@ export class Champion extends Enemy {
         const death = this.championAnims.death;
         if (!death) return; // no clip — body just stays in its last pose; burst played above
         death.speedRatio = 1.0;
-        if (this.championCurrentAnim) this.championCurrentAnim.stop();
-        death.start(false); // play once; AnimGroup clamps on the final frame when it ends
+        // Short blend into the crumple; AnimGroup clamps on the final frame.
+        death.crossFrom(this.championCurrentAnim, 0.14, false);
         this.championCurrentAnim = death;
     }
 
@@ -683,21 +716,21 @@ export class Champion extends Enemy {
         // Stop AND reset every other anim group on this rig — cloned GLB animation
         // groups can share underlying target tracks, so a previously-played clip
         // continues to drive bone state until explicitly stopped. Without this both
-        // ability clips end up looking like whichever ran first.
+        // ability clips end up looking like whichever ran first. The CURRENT clip
+        // is spared so the ult can cross-fade from it (its weight fades to 0,
+        // contributing nothing, instead of popping to a T-pose mid-blend).
         for (const ag of this.championAnims.all) {
-            if (ag !== match) {
+            if (ag !== match && ag !== this.championCurrentAnim) {
                 ag.stop();
                 ag.reset();
             }
         }
-        match.stop();
-        match.reset();
         match.speedRatio = speed;
         const naturalDur = match.duration / speed;
         const dur = durationSec ?? Math.min(3.0, naturalDur);
         const loop = durationSec !== undefined && durationSec > naturalDur;
         this.glbSpecialTimer = dur > 0.1 ? dur : Champion.GLB_SPECIAL_DURATION;
-        match.start(loop);
+        match.crossFrom(this.championCurrentAnim, 0.1, loop);
         this.championCurrentAnim = match;
         console.log(
             `[${this.championType}] ability clip "${match.name}" playing for ` +
@@ -1323,6 +1356,12 @@ export class Champion extends Enemy {
                 } else if (isMoving) {
                     if (this.championAnims.walk) {
                         this.playChampionAnim('walk');
+                        // Stride matches actual travel speed (move-speed items,
+                        // slows) so feet never slide.
+                        const speed = Math.sqrt(this.playerVelocity.lengthSq());
+                        const ref = Champion.RUN_REFERENCE_SPEED[this.championType] ?? 7;
+                        this.championAnims.walk.speedRatio =
+                            Math.min(1.8, Math.max(0.6, speed / ref));
                     } else {
                         if (this.championCurrentAnim) {
                             this.championCurrentAnim.stop();
@@ -1352,18 +1391,20 @@ export class Champion extends Enemy {
             // attack used to force a full 360° mesh spin here — it is now a
             // forward cone chop, so he faces the aim target like the ranger.)
             if (this.glbAttackTimer > 0 && this.glbAttackFacingTarget) {
-                // GLB attack mid-fire — turn to face the target (ranger aim).
+                // GLB attack mid-fire — ease toward the target (ranger aim /
+                // barbarian chop direction) instead of snapping.
                 const dx = this.glbAttackFacingTarget.x - this.position.x;
                 const dz = this.glbAttackFacingTarget.z - this.position.z;
                 if (dx * dx + dz * dz > 0.0001) {
-                    this.mesh.rotation.y = headingToYaw(dx, dz);
+                    this.smoothFaceYaw(headingToYaw(dx, dz), deltaTime);
                 }
             } else if (this.spinAttackTimer > 0 && !usingChampionGLB) {
                 // Procedural spin: full 360° rotation over SPIN_ATTACK_DURATION.
                 const progress = 1 - this.spinAttackTimer / Champion.SPIN_ATTACK_DURATION;
                 this.mesh.rotation.y = progress * Math.PI * 2;
             } else if (isMoving) {
-                this.mesh.rotation.y = headingToYaw(this.playerVelocity.x, this.playerVelocity.z);
+                this.smoothFaceYaw(
+                    headingToYaw(this.playerVelocity.x, this.playerVelocity.z), deltaTime);
             }
 
             // Mage orb pulse regardless of movement state

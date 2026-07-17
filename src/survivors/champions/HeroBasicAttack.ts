@@ -306,10 +306,11 @@ export class HeroBasicAttack {
                 }
             }
             // Trigger the ranger GLB's Shoot animation + face the target (no-op for
-            // non-ranger champions).
-            const hero = this.hero as { triggerAttack?: (targetPos?: Vector3) => void };
+            // non-ranger champions). The clip compresses to the attack interval so
+            // attack-speed builds fire visibly faster instead of clipping the draw.
+            const hero = this.hero as { triggerAttack?: (targetPos?: Vector3, maxDurationS?: number) => void };
             if (typeof hero.triggerAttack === 'function') {
-                hero.triggerAttack(target.position);
+                hero.triggerAttack(target.position, this.effectiveInterval);
             }
             this.cooldown = this.effectiveInterval;
         }
@@ -393,9 +394,10 @@ export class HeroBasicAttack {
             hero.triggerSpinAttack();
         }
         // GLB attack animation — face the cone's aim target so the chop clip
-        // points where the hits land.
+        // points where the hits land; the clip compresses to the attack
+        // interval so fast builds swing visibly faster.
         if (typeof hero.triggerAttack === 'function') {
-            hero.triggerAttack(aim.getPosition());
+            hero.triggerAttack(aim.getPosition(), this.effectiveInterval);
         }
     }
 

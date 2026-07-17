@@ -88,6 +88,65 @@ describe('AnimGroup', () => {
         expect(bEnded).toBe(0);
     });
 
+    it('crossFrom(null) hard-starts from frame 0', () => {
+        const { root, mixer, group } = makeRig();
+        group.crossFrom(null, 0.2, false);
+        expect(group.isPlaying).toBe(true);
+        mixer.update(0.5);
+        expect(root.position.x).toBeCloseTo(5);
+    });
+
+    it('crossFrom blends: both actions run during the fade, blend resolves to the new clip', () => {
+        const root = new Object3D();
+        const mixer = new AnimationMixer(root);
+        // Clip A holds x at 10; clip B holds x at 0 — the blended value exposes the weights.
+        const clipA = new AnimationClip('a', 1, [new NumberKeyframeTrack('.position[x]', [0, 1], [10, 10])]);
+        const clipB = new AnimationClip('b', 1, [new NumberKeyframeTrack('.position[x]', [0, 1], [0, 0])]);
+        const groupA = new AnimGroup(mixer, clipA);
+        const groupB = new AnimGroup(mixer, clipB);
+        groupA.start(true);
+        mixer.update(0.1);
+        expect(root.position.x).toBeCloseTo(10);
+
+        groupB.crossFrom(groupA, 0.2, true);
+        mixer.update(0.1); // mid-fade: both contribute
+        expect(groupA.isPlaying).toBe(true);
+        expect(groupB.isPlaying).toBe(true);
+        expect(root.position.x).toBeGreaterThan(0.5);
+        expect(root.position.x).toBeLessThan(9.5);
+
+        mixer.update(0.3); // fade complete
+        expect(root.position.x).toBeCloseTo(0, 1); // fully the new clip
+    });
+
+    it('crossFrom from a stopped prev still starts cleanly', () => {
+        const { root, mixer, group } = makeRig();
+        const other = makeRig();
+        other.group.stop();
+        group.crossFrom(other.group, 0.2, false);
+        mixer.update(0.5);
+        expect(root.position.x).toBeCloseTo(5);
+    });
+
+    it('crossFrom(self) restarts the clip from frame 0', () => {
+        const { root, mixer, group } = makeRig();
+        group.start(false);
+        mixer.update(0.8);
+        group.crossFrom(group, 0.2, false);
+        mixer.update(0.1);
+        expect(root.position.x).toBeCloseTo(1);
+    });
+
+    it('crossFrom non-looping still clamps and fires onEnded', () => {
+        const { mixer, group } = makeRig();
+        let ended = 0;
+        group.onEnded = () => ended++;
+        group.crossFrom(null, 0.1, false);
+        mixer.update(1.5);
+        expect(ended).toBe(1);
+        expect(group.isPlaying).toBe(false);
+    });
+
     it('dispose detaches the finished listener', () => {
         const { mixer, group } = makeRig();
         let ended = 0;

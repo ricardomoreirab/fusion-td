@@ -1123,8 +1123,15 @@ export class SurvivorsGameplayState implements GameState {
         // playAbilityClip). The barbarian keeps the special swing for power casts.
         this.powerSlots.setOnCast((slot) => {
             if (this.hero) {
-                if (this.hero.championType === 'barbarian') this.hero.triggerSpecial();
-                else this.hero.triggerAttack();
+                if (this.hero.championType === 'barbarian') {
+                    this.hero.triggerSpecial();
+                } else {
+                    // Face the nearest enemy while casting so the throw/staff
+                    // clip aims where the power actually goes. No maxDuration:
+                    // natural clip pace keeps getCastReleaseDelay() in sync.
+                    const target = this.enemyManager?.getClosestEnemy(this.hero.getPosition());
+                    this.hero.triggerAttack(target?.getPosition());
+                }
             }
             // Co-op (M6 C1): fusion + ultimate casts now replicate their EXACT visuals
             // via the PowerEffects primitives ('pe' messages emitted inside each
