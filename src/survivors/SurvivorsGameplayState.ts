@@ -1,6 +1,6 @@
 import {
     Vector3, Color, DirectionalLight, DoubleSide, Fog, CubeTexture, CubeTextureLoader,
-    Mesh, Object3D, Material, Texture,
+    HemisphereLight, Mesh, Object3D, Material, Texture,
 } from 'three';
 import { Game } from '../engine/Game';
 import { GameState } from '../engine/GameState';
@@ -208,6 +208,13 @@ const ITEM_FLOAT_COLOR: Record<ItemId, string> = {
 // procedural-grass shader so the in-world point light and the shader-baked
 // torch halo match each other.
 // Torch color now read live from the heroTorch PointLight at update time.
+/** Persistent hemi ('light' in Game.setupScene) runs hotter during a survivors
+ *  run — the flat-normal globe field needs the extra ambient lift or the ground
+ *  between grass blades reads as murky olive. Restored to the base value on
+ *  exit() so the menu keeps its original tuning. */
+const SURVIVORS_HEMI_INTENSITY = 1.0;
+const BASE_HEMI_INTENSITY = 0.75; // Game.setupScene's menu/boot value
+
 const TORCH_INTENSITY = 1.8;   // tuned for the grass shader's (1-d/r)² falloff
 const TORCH_RANGE     = 9;
 
@@ -615,8 +622,17 @@ export class SurvivorsGameplayState implements GameState {
         // band with depth handling baked into their materials.)
 
         // No second hemispheric light here — Game.setupScene already added
-        // 'light' (warm fill, intensity 0.55). Stacking another hemi was
-        // washing the scene out, contributing to the "flat / full bright" look.
+        // 'light' (warm hemi fill). Stacking another hemi was washing the
+        // scene out, contributing to the "flat / full bright" look. Instead
+        // the persistent hemi runs hotter for this state only (restored in
+        // exit()) — it lifts the ground + procedural meshes out of the murky
+        // olive range without touching the custom grass shader (which lights
+        // from its own uAmbient uniform).
+        this.scene.scene.traverse(o => {
+            if (o.name === 'light' && (o as HemisphereLight).isHemisphereLight) {
+                (o as HemisphereLight).intensity = SURVIVORS_HEMI_INTENSITY;
+            }
+        });
         //
         // Key light — warm directional from upper-left-front. Bumped to 0.9
         // (was 0.5) so it's the dominant directional source giving real form
@@ -632,9 +648,9 @@ export class SurvivorsGameplayState implements GameState {
 
         // Cool back-fill from the opposite side (no shadows): separates the
         // dark-textured GLB characters from the grass under ACES by rimming
-        // their shadow side with faint sky light. Deliberately weak — the warm
-        // key must stay dominant or the scene flattens out again.
-        const fillLight = new DirectionalLight(new Color(0.55, 0.65, 0.9), 0.5);
+        // their shadow side with sky light. Kept below the 1.35 key so the
+        // warm key stays dominant and the scene doesn't flatten out.
+        const fillLight = new DirectionalLight(new Color(0.55, 0.65, 0.9), 1.0);
         fillLight.name = 'survivorsFill';
         fillLight.position.copy(this._keyLightDir).multiplyScalar(40);
         fillLight.position.y = 25;
@@ -1416,10 +1432,12 @@ export class SurvivorsGameplayState implements GameState {
             // GLB heroes/bosses; the Phong low-poly mats ignore it, same as the
             // Babylon StandardMaterials effectively did.)
             host.scene.environment = envTexture;
-            // 0.25 pre-ACES; raised for filmic compression. Only the PBR GLB
-            // characters read this (grass/low-poly mats ignore IBL), so it is
-            // the character-brightness knob that leaves the field untouched.
-            host.scene.environmentIntensity = 0.65;
+            // Only the PBR GLB characters read this (grass/low-poly mats ignore
+            // IBL), so it is the character-brightness knob that leaves the field
+            // untouched. The env cube is a dark dusk map, so it needs to run hot:
+            // at 0.65 the dark-albedo GLB minions rendered as near-black
+            // silhouettes against the grass.
+            host.scene.environmentIntensity = 1.6;
 
             this.envTexture = envTexture;
         }
@@ -1500,7 +1518,10 @@ export class SurvivorsGameplayState implements GameState {
             // (blades gone by its ±22 edge, square corners included) instead of
             // ending in a hard square boundary against the sparser far layer.
             // The far layer underneath provides continuous coverage past it.
-            fadeStart: 14,
+            // Fade starts at 10 (not 14): the wider band softens the density
+            // step against the far layer, which otherwise reads as a faint
+            // ring around the hero on the open field.
+            fadeStart: 10,
             fadeEnd: 22,
             directionalLight: this.shadowSourceLight ?? undefined,
             shadowLight: grassShadowLight,
@@ -2991,6 +3012,13 @@ export class SurvivorsGameplayState implements GameState {
         if (this.scene) {
             this.scene.scene.fog = null;
             this.scene.scene.environment = null;
+            // Persistent hemi back to its menu/boot intensity (enter() runs it
+            // hotter for the survivors field).
+            this.scene.scene.traverse(o => {
+                if (o.name === 'light' && (o as HemisphereLight).isHemisphereLight) {
+                    (o as HemisphereLight).intensity = BASE_HEMI_INTENSITY;
+                }
+            });
         }
 
         // Dispose the per-run key light and env cube. Game.cleanupScene() removes

@@ -128,11 +128,17 @@ Survivors-mode lighting (configured in `Game.setupScene` + `SurvivorsGameplaySta
 
 | Light | Intensity | Notes |
 |---|---|---|
-| `light` (HemisphereLight) | 0.75 | Global warm fill, persistent (`userData.persistent`). |
+| `light` (HemisphereLight) | 0.75 menu / 1.0 survivors | Global warm fill, persistent (`userData.persistent`); survivors `enter()` raises it, `exit()` restores. |
 | `survivorsKey` (DirectionalLight) | 1.35 | Warm dominant key; **owns the shadow map**; position + target follow the hero every frame. |
-| `survivorsFill` (DirectionalLight) | 0.5 | Cool back-fill, no shadows — rims the dark GLB characters so they separate from the grass. |
+| `survivorsFill` (DirectionalLight) | 1.0 | Cool back-fill, no shadows — rims the dark GLB characters so they separate from the grass. Kept below the key. |
 | `heroTorch` (PointLight) | 0 → 5.0 | Created once in `Game.setupScene`, persistent; `Champion.enableTorch` parents it to the hero + cranks intensity (castShadow stays off). |
-| env cube (`scene.environment`) | 0.65 | IBL — read ONLY by the PBR GLB characters (grass/low-poly Phong ignore it), so it is the character-brightness knob that leaves the field untouched. |
+| env cube (`scene.environment`) | 1.6 | IBL — read ONLY by the PBR GLB characters (grass/low-poly Phong ignore it), so it is the character-brightness knob that leaves the field untouched. The cube itself is a dark dusk map, hence the hot intensity. |
+
+**Globe ground normals stay flat-up.** The curved cap (`GlobeGround`) bakes the
+curvature into positions but does NOT `computeVertexNormals()` — curved normals
+tilt up to ~30° at the rim and the hemi+key lights paint a huge radial bright/dark
+band that follows the hero (the "dark ellipse" bug). Grass blades light with
+un-tilted normals too, keeping ground and grass consistent.
 
 **Shadows:** THREE has no ShadowGenerator — casting is per-mesh (`castShadow`) and
 the 1024 PCF map lives on `survivorsKey.shadow` with a fixed ±35-unit ortho frustum

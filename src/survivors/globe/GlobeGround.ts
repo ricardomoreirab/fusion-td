@@ -49,7 +49,13 @@ export class GlobeGround {
             pos.setY(i, pos.getY(i) - curveDrop(pos.getX(i), pos.getZ(i)));
         }
         pos.needsUpdate = true;
-        ground.geometry.computeVertexNormals(); // re-light the curved surface
+        // Normals intentionally stay flat-up (the PlaneGeometry default): the
+        // curvature is a screen-space illusion, not real terrain. Recomputing
+        // normals from the curved cap tilts them up to ~30° at the rim, which
+        // makes the hemisphere + key lights paint a big radial bright/dark
+        // band across the field that travels with the hero. The grass blades
+        // already light with un-tilted normals, so flat ground normals keep
+        // the two layers consistent.
 
         this.grassTexture = renderer
             ? createProceduralGrassTexture(renderer, { size: TEX_SIZE, tile: TEX_TILES })
