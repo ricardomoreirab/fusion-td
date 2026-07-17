@@ -79,7 +79,9 @@ export class RendererHost {
         // off highlights so the warm key light actually models form. The
         // subtle vignette pulls focus to the hero without reading as an effect.
         const toneMapping = new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC });
-        const vignette = new VignetteEffect({ offset: 0.32, darkness: 0.55 });
+        // Kept subtle: at 0.55 the darkened corners formed a readable ellipse
+        // over the bright survivors field — players saw "a circle on the UI".
+        const vignette = new VignetteEffect({ offset: 0.32, darkness: 0.35 });
         this.composer.addPass(new EffectPass(camera, this.bloom, this.glow, toneMapping, vignette, new FXAAEffect()));
 
         canvas.addEventListener('webglcontextlost', event => {

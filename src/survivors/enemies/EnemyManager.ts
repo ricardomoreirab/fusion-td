@@ -632,12 +632,14 @@ export class EnemyManager {
         // for all non-milestone-boss enemies. Compounds on the above multipliers.
         this._applyGlobalDifficulty(enemy);
 
-        // Shadow caster gating: basic swarm enemies never register as shadow casters
-        // on any quality level — they're the bulk of spawns and their shadows are visual noise.
-        //   low    → scene.shadowsEnabled is off, registration is a no-op anyway.
-        //   medium/high → basics skipped; everything else casts.
-        const skipShadow = type === 'basic' || type === 'basic_red';
-        if (!skipShadow) this._registerAsShadowCaster(enemy);
+        // Shadow casters: EVERY enemy casts while enemy shadows are enabled —
+        // in the early waves the basics are the only monsters on screen, and
+        // shadowless monsters next to a shadowed hero read as "lighting not
+        // applied" (2026-07-17 playtest feedback). The horde-scale cost is
+        // bounded elsewhere: SurvivorsGameplayState cuts ALL enemy shadow
+        // casting after the cutoff wave via setShadowGenerators([]).
+        //   low → scene shadows are off entirely, registration is a no-op.
+        this._registerAsShadowCaster(enemy);
 
         enemy.id = this.nextEnemyId++;
         this.enemies.push(enemy);
