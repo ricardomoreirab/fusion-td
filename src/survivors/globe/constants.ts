@@ -36,4 +36,4 @@ export const FOG_END   = 112;  // fully hazed beyond here — far grass dissolve
 // Matches the GlobeSky horizon band (GlobeSky.ts `horizon`) so ground/grass melt
 // into the sky rather than into a flat grey. A tuple keeps this module
 // dependency-free (no 'three' import).
-export const FOG_COLOR_RGB: [number, number, number] = [0.52, 0.58, 0.86];
+export const FOG_COLOR_RGB: [number, number, number] = [0.68, 0.55, 0.66];

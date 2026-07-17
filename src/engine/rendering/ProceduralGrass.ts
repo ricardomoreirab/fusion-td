@@ -518,6 +518,19 @@ export function createProceduralGrass(host: SceneHost, opts: ProceduralGrassOpti
     const lightPosScratch = new Vector3();
     const lightTargetScratch = new Vector3();
 
+    // Dirty-check caches: the light/fog rarely change frame to frame (the
+    // shadow-follow light snaps to a 0.5u grid, fog is scene-static outside
+    // zoom transitions), so skip the uniform writes when nothing moved.
+    let lastLightPX = NaN, lastLightPY = NaN, lastLightPZ = NaN;
+    let lastLightTX = NaN, lastLightTY = NaN, lastLightTZ = NaN;
+    let lastLightIntensity = NaN;
+    let lastLightColorHex = -1;
+    let lastFogEnabled = -1;
+    let lastFogColorHex = -1;
+    let lastFogNear = NaN;
+    let lastFogFar = NaN;
+    const dirtyEps = 1e-4;
+
     let elapsed = 0;
     const tickToken: UpdateToken = host.onBeforeRender.add(() => {
         elapsed += host.deltaSeconds;
@@ -529,10 +542,31 @@ export function createProceduralGrass(host: SceneHost, opts: ProceduralGrassOpti
         if (light) {
             light.getWorldPosition(lightPosScratch);
             light.target.getWorldPosition(lightTargetScratch);
-            (mat.uniforms.uLightDir.value as Vector3)
-                .subVectors(lightTargetScratch, lightPosScratch).normalize();
-            (mat.uniforms.uLightColor.value as Color)
-                .copy(light.color).multiplyScalar(light.intensity);
+            const colorHex = light.color.getHex();
+            const posChanged =
+                Math.abs(lightPosScratch.x - lastLightPX) > dirtyEps ||
+                Math.abs(lightPosScratch.y - lastLightPY) > dirtyEps ||
+                Math.abs(lightPosScratch.z - lastLightPZ) > dirtyEps ||
+                Math.abs(lightTargetScratch.x - lastLightTX) > dirtyEps ||
+                Math.abs(lightTargetScratch.y - lastLightTY) > dirtyEps ||
+                Math.abs(lightTargetScratch.z - lastLightTZ) > dirtyEps;
+            const styleChanged =
+                Math.abs(light.intensity - lastLightIntensity) > dirtyEps ||
+                colorHex !== lastLightColorHex;
+            if (posChanged || styleChanged) {
+                (mat.uniforms.uLightDir.value as Vector3)
+                    .subVectors(lightTargetScratch, lightPosScratch).normalize();
+                (mat.uniforms.uLightColor.value as Color)
+                    .copy(light.color).multiplyScalar(light.intensity);
+                lastLightPX = lightPosScratch.x;
+                lastLightPY = lightPosScratch.y;
+                lastLightPZ = lightPosScratch.z;
+                lastLightTX = lightTargetScratch.x;
+                lastLightTY = lightTargetScratch.y;
+                lastLightTZ = lightTargetScratch.z;
+                lastLightIntensity = light.intensity;
+                lastLightColorHex = colorHex;
+            }
         }
 
         // Per-frame shadow map + matrix. light.shadow.matrix is updated in
@@ -553,12 +587,26 @@ export function createProceduralGrass(host: SceneHost, opts: ProceduralGrassOpti
         // band-shift), so both grass layers stay automatically consistent.
         const fog = host.scene.fog as Fog | null;
         if (fog && fog.isFog) {
-            mat.uniforms.uFogEnabled.value = 1;
-            (mat.uniforms.uFogColor.value as Color).copy(fog.color);
-            mat.uniforms.uFogStart.value = fog.near;
-            mat.uniforms.uFogEnd.value = fog.far;
-        } else {
+            const fogColorHex = fog.color.getHex();
+            if (lastFogEnabled !== 1) {
+                mat.uniforms.uFogEnabled.value = 1;
+                lastFogEnabled = 1;
+            }
+            if (
+                fogColorHex !== lastFogColorHex ||
+                Math.abs(fog.near - lastFogNear) > dirtyEps ||
+                Math.abs(fog.far - lastFogFar) > dirtyEps
+            ) {
+                (mat.uniforms.uFogColor.value as Color).copy(fog.color);
+                mat.uniforms.uFogStart.value = fog.near;
+                mat.uniforms.uFogEnd.value = fog.far;
+                lastFogColorHex = fogColorHex;
+                lastFogNear = fog.near;
+                lastFogFar = fog.far;
+            }
+        } else if (lastFogEnabled !== 0) {
             mat.uniforms.uFogEnabled.value = 0;
+            lastFogEnabled = 0;
         }
     });
 

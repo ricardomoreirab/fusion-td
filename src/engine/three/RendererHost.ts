@@ -23,7 +23,6 @@ import {
     ToneMappingEffect,
     ToneMappingMode,
 } from 'postprocessing';
-import { setParticleViewportHeight } from './particles/ParticleSystem';
 
 /** Layer index reserved for emissive-glow meshes (Babylon GlowLayer parity). */
 export const GLOW_LAYER = 11;
@@ -104,7 +103,6 @@ export class RendererHost {
         this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         this.renderer.setSize(width, height, false);
         this.composer.setSize(width, height);
-        setParticleViewportHeight(height);
     }
 
     /** Late-wave quality ratchet (Babylon setPostFxReduced parity). */

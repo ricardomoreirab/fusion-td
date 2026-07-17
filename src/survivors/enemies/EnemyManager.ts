@@ -36,6 +36,12 @@ export class EnemyManager {
      *  animatables (the death-animation feature must not become a new freeze source). */
     private corpses: Enemy[] = [];
     private static readonly MAX_CORPSES = 16;
+    /** id → live Enemy, kept in sync with every push/removal of `enemies`.
+     *  Lets getEnemyById (the co-op snapshot path) do an O(1) lookup instead of
+     *  a linear scan. Only enemies with an assigned id (>= 0) are registered —
+     *  the pre-configureSurvivorsMode constructor split handler never assigns
+     *  one, matching getEnemyById's existing behavior of never matching those. */
+    private enemiesById: Map<number, Enemy> = new Map();
     private playerStats: PlayerStats | null = null;
     private compositePath: Vector3[] | null = null;
     private splitHandler: ((e: Event) => void) | null = null;
@@ -124,7 +130,7 @@ export class EnemyManager {
                 const mini = new MiniEnemy(this.game, spawnPos, [...path]);
                 this._applyOrbHpBonus(mini);
                 this._registerAsShadowCaster(mini);
-                this.enemies.push(mini);
+                this._pushEnemy(mini);
             }
         };
         document.addEventListener('enemySplit', this.splitHandler);
@@ -197,7 +203,7 @@ export class EnemyManager {
                 this._registerAsShadowCaster(mini);
                 mini.netType = 'mini';
                 mini.id = this.nextEnemyId++;
-                this.enemies.push(mini);
+                this._pushEnemy(mini);
                 // M3 host hook: notify after id is assigned.
                 if (this.onEnemySpawnedCb) this.onEnemySpawnedCb(mini);
             }
@@ -256,7 +262,7 @@ export class EnemyManager {
             this._registerAsShadowCaster(clone);
             clone.netType = 'boss_milestone';
             clone.id = this.nextEnemyId++;
-            this.enemies.push(clone);
+            this._pushEnemy(clone);
             // M3 host hook: notify after id is assigned.
             if (this.onEnemySpawnedCb) this.onEnemySpawnedCb(clone);
           } catch (err) {
@@ -642,7 +648,7 @@ export class EnemyManager {
         this._registerAsShadowCaster(enemy);
 
         enemy.id = this.nextEnemyId++;
-        this.enemies.push(enemy);
+        this._pushEnemy(enemy);
         // M3 host hook: notify after id is assigned and enemy is in the live list.
         if (this.onEnemySpawnedCb) this.onEnemySpawnedCb(enemy);
         const spawnMs = performance.now() - spawnStart;
@@ -762,9 +768,19 @@ export class EnemyManager {
 
     /** Swap-pop removal — O(1), order-preserving is not required for enemies. */
     private _removeAt(index: number): void {
+        const removed = this.enemies[index];
+        if (removed.id >= 0) this.enemiesById.delete(removed.id);
         const last = this.enemies.length - 1;
         if (index !== last) this.enemies[index] = this.enemies[last];
         this.enemies.pop();
+    }
+
+    /** Push a newly-constructed enemy into the live list and (if it has an
+     *  assigned id) the id lookup map. The single funnel for every spawn site
+     *  so the map can never drift out of sync with `enemies`. */
+    private _pushEnemy(enemy: Enemy): void {
+        this.enemies.push(enemy);
+        if (enemy.id >= 0) this.enemiesById.set(enemy.id, enemy);
     }
 
     /**
@@ -782,11 +798,11 @@ export class EnemyManager {
     }
 
     /**
-     * Look up a live enemy by its network id. Linear scan over live enemies —
-     * acceptable for ≤100 enemies (the expected co-op cap).
+     * Look up a live enemy by its network id. O(1) via the id → Enemy map kept
+     * in sync at every spawn/removal site.
      */
     public getEnemyById(id: number): Enemy | undefined {
-        return this.enemies.find(e => e.id === id);
+        return this.enemiesById.get(id);
     }
 
     /**
@@ -890,6 +906,7 @@ export class EnemyManager {
             enemy.dispose();
         }
         this.enemies = [];
+        this.enemiesById.clear();
 
         // Release any lingering corpses (death animation still in progress at teardown).
         for (const corpse of this.corpses) {

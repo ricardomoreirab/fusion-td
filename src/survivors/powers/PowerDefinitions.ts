@@ -1,12 +1,22 @@
-import { BufferGeometry, Color, DoubleSide, Float32BufferAttribute, Mesh, MeshPhongMaterial, Vector3 } from 'three';
+import { BufferGeometry, Color, DoubleSide, Float32BufferAttribute, Group, Mesh, MeshPhongMaterial, type Object3D, Vector3 } from 'three';
+import type { ParticleSystemConfig } from '@newkrok/three-particles';
 import type { SceneHost } from '../../engine/three/SceneHost';
-import { createBox, createCylinder, createPolyhedron, createSphere, createTorus, disposeMesh, isMeshDisposed } from '../../engine/three/primitives';
-import { createLowPolyMaterial, setMeshOpacity } from '../../engine/rendering/LowPolyMaterial';
+import { createBox, disposeMesh, isMeshDisposed } from '../../engine/three/primitives';
+import { createLowPolyMaterial } from '../../engine/rendering/LowPolyMaterial';
 import { headingToYaw } from '../../engine/three/math';
 import { Enemy } from '../enemies/Enemy';
 import { StatusEffect } from '../GameTypes';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
 import { buildArrowMesh } from './ArrowMesh';
+import { ParticleEffect } from '../../engine/three/particles/ParticleEffect';
+import {
+    elementFlashConfig,
+    elementImpactConfig,
+    elementNovaConfig,
+    elementProjectileHeadConfig,
+    elementProjectileTrailConfig,
+    fireSmokePuffConfig,
+} from '../fx/ElementParticles';
 
 export type PowerElement = 'fire' | 'ice' | 'arcane' | 'physical' | 'storm';
 export type ChampionType = 'barbarian' | 'ranger' | 'mage';
@@ -90,120 +100,50 @@ export interface PowerDefinition {
 }
 
 // =============================================================================
-// VISUAL HELPERS
+// VISUAL HELPERS - all power FX run on @newkrok/three-particles via
+// ParticleEffect. No hand-animated mesh sprites remain in this file; the only
+// meshes left are gameplay-readable bodies (arrows, shurikens, lightning bolts).
 // =============================================================================
 
-/**
- * Spawns a small fading trail particle behind a moving projectile.
- * Uses a low-poly sphere that fades out in `duration` seconds.
- */
-function spawnTrailParticle(
-    scene: SceneHost,
-    position: Vector3,
-    color: Color,
-    size: number = 0.15,
-    duration: number = 0.3,
-): void {
-    const part = createSphere(
-        `trail_${performance.now()}_${Math.random()}`,
-        { diameter: size, segments: 3 },
-        scene,
-    );
-    part.position.copy(position);
-    // Share the trail material across every in-flight trail of the same color.
-    // The previous code allocated a new material per call (~20 Hz per
-    // projectile, several projectiles in flight) — that allocation churn was
-    // the dominant GC pressure during sustained power use.
-    const matKey = `trailMat_${color.r.toFixed(2)}_${color.g.toFixed(2)}_${color.b.toFixed(2)}`;
-    part.material = getCachedMaterial(matKey, m => {
-        m.emissive.copy(color);
-        m.color.set(0, 0, 0);
-        m.opacity = 0.7;
-        m.transparent = true;
-    });
-    const startScale = 1;
-    let elapsed = 0;
-    const token = scene.onBeforeRender.add(() => {
-        const dt = scene.deltaSeconds;
-        elapsed += dt;
-        const t = Math.min(elapsed / duration, 1);
-        // Fade via mesh scale only (per-instance) — sharing the material means
-        // we can no longer mutate opacity per particle.
-        part.scale.setScalar(startScale * (1 - t));
-        if (t >= 1) {
-            disposeMesh(part);
-            scene.onBeforeRender.remove(token);
-        }
-    });
+/** One-shot particle burst at a world position; auto-disposes on completion. */
+function spawnFx(scene: SceneHost, name: string, config: ParticleSystemConfig, position: Vector3): void {
+    new ParticleEffect(name, scene, config, { autoDispose: true }).object.position.copy(position);
 }
 
 /**
- * Quick expanding flash sphere at an impact point — shared by the mage spells
- * (fireball burst core, frost-shard hits, lightning strike points). Material is
- * cached per color hex (bounded — one per element palette entry); fade is
- * mesh-local (scaling + setMeshOpacity) so the shared material is never mutated.
+ * Attaches the element's projectile-body cloud (LOCAL-space head riding the
+ * carrier) + hanging wake trail (WORLD-space) to a moving carrier object.
+ * Returns the disposer to call when the projectile dies.
  */
-function spawnImpactFlash(scene: SceneHost, position: Vector3, color: Color, scale: number = 1): void {
-    const flash = createSphere('impactFlash', { diameter: 0.5 * scale, segments: 3 }, scene);
-    flash.position.copy(position);
-    flash.material = getCachedMaterial(`impactFlashMat_${color.getHexString()}`, m => {
-        m.emissive.copy(color);
-        m.color.set(0, 0, 0);
-        m.opacity = 0.85;
-        m.transparent = true;
-    });
-    const duration = 0.18;
-    let elapsed = 0;
-    const token = scene.onBeforeRender.add(() => {
-        elapsed += scene.deltaSeconds;
-        const t = Math.min(elapsed / duration, 1);
-        flash.scale.setScalar(1 + t * 1.6);
-        setMeshOpacity(flash, 0.85 * (1 - t)); // Babylon visibility × mat.alpha(0.85)
-        if (t >= 1) {
-            disposeMesh(flash); // cached/shared material — kept; owned fade clone freed
-            scene.onBeforeRender.remove(token);
-        }
-    });
-}
-
-/**
- * Expanding + fading ground ring (Arcane Nova waves, fireball scorch). Cached
- * material per color; fade via setMeshOpacity. Optional delay staggers waves.
- */
-function spawnExpandingRing(
-    scene: SceneHost,
-    center: Vector3,
-    radius: number,
-    color: Color,
-    opts: { delayMs?: number; thickness?: number; duration?: number } = {},
-): void {
-    const make = () => {
-        const ring = createTorus('expandRing', {
-            diameter: 1.0, thickness: opts.thickness ?? 0.25, tessellation: 32,
-        }, scene);
-        ring.position.set(center.x, 0.3, center.z);
-        ring.material = getCachedMaterial(`expandRingMat_${color.getHexString()}`, m => {
-            m.emissive.copy(color);
-            m.color.set(0, 0, 0);
-            m.opacity = 0.7;
-            m.transparent = true;
-        });
-        const duration = opts.duration ?? 0.4;
-        let elapsed = 0;
-        const token = scene.onBeforeRender.add(() => {
-            elapsed += scene.deltaSeconds;
-            const t = Math.min(elapsed / duration, 1);
-            const s = radius * 2 * (0.35 + 0.65 * t);
-            ring.scale.set(s, 1, s); // unit torus — scaling IS the diameter
-            setMeshOpacity(ring, 0.7 * (1 - t * t)); // Babylon visibility × mat.alpha(0.7)
-            if (t >= 1) {
-                disposeMesh(ring); // cached/shared material — kept; owned fade clone freed
-                scene.onBeforeRender.remove(token);
-            }
-        });
+function attachProjectileFx(scene: SceneHost, name: string, element: PowerElement, carrier: Object3D): () => void {
+    const head = new ParticleEffect(`${name}Head`, scene, elementProjectileHeadConfig(element), { follow: carrier });
+    const trail = new ParticleEffect(`${name}Trail`, scene, elementProjectileTrailConfig(element), { follow: carrier });
+    return () => {
+        head.dispose();
+        trail.dispose();
     };
-    if (opts.delayMs && opts.delayMs > 0) setTimeout(make, opts.delayMs);
-    else make();
+}
+
+/**
+ * Invisible carrier for the mage projectiles whose visible body is ENTIRELY
+ * particles (no primitive mesh at all). Move/aim the returned group like the
+ * old projectile mesh; dispose() tears down the fx and detaches the group.
+ */
+function createParticleProjectile(
+    scene: SceneHost, name: string, element: PowerElement, start: Vector3,
+): { carrier: Group; dispose: () => void } {
+    const carrier = new Group();
+    carrier.name = name;
+    carrier.position.copy(start);
+    scene.scene.add(carrier);
+    const disposeFx = attachProjectileFx(scene, name, element, carrier);
+    return {
+        carrier,
+        dispose: () => {
+            disposeFx();
+            carrier.removeFromParent();
+        },
+    };
 }
 
 // =============================================================================
@@ -349,95 +289,47 @@ const mageFireDef: PowerDefinition = {
         }
         if (!best) return;
 
-        // Flame-shaped projectile: stretched outer cone + bright inner sphere
-        const outerCone = createCylinder('fireballOuter', {
-            height: 0.7, diameterTop: 0, diameterBottom: 0.4, tessellation: 8,
-        }, ctx.scene);
-        outerCone.rotation.order = 'YXZ'; // Babylon Euler order: yaw then pitch
-        outerCone.position.copy(ctx.heroPosition);
-        outerCone.position.y = 1;
-        outerCone.material = getCachedMaterial('fireball_outer_mat', m => {
-            m.emissive.copy(new Color(1, 0.45, 0.05));
-            m.color.set(0, 0, 0);
-        });
-        const innerSphere = createSphere('fireballInner', { diameter: 0.22, segments: 4 });
-        innerSphere.material = getCachedMaterial('fireball_inner_mat', m => {
-            m.emissive.copy(new Color(1, 0.85, 0.4));
-            m.color.set(0, 0, 0);
-        });
-        outerCone.add(innerSphere);
-
-        // Spinning ember halo around the flame body (perpendicular to flight)
-        const halo = createTorus('fireballHalo',
-            { diameter: 0.5, thickness: 0.05, tessellation: 10 });
-        halo.material = getCachedMaterial('fireball_halo_mat', m => {
-            m.emissive.copy(new Color(1, 0.6, 0.1));
-            m.color.set(0, 0, 0);
-            m.opacity = 0.6;
-            m.transparent = true;
-        });
-        outerCone.add(halo);
-
-        const proj = outerCone;
+        // The fireball IS its particles: a roiling LOCAL-space flame head on an
+        // invisible carrier, with a WORLD-space ember wake hanging behind it.
+        const start = ctx.heroPosition.clone(); start.y = 1;
+        const projectile = createParticleProjectile(ctx.scene, 'fireball', 'fire', start);
+        const proj = projectile.carrier;
 
         const target = best;
         const damage = mageFireDef.damageFor(state) * ctx.damageMultiplier;
         const speed = 18;
-        const trailColor = new Color(1, 0.25, 0);
-        let lastTrailTime = 0;
-        let flameTime = 0;
-
-        const cleanup = () => {
-            // disposeMesh recurses into children (innerSphere + halo); cached
-            // materials are shared and survive.
-            disposeMesh(outerCone);
-        };
 
         const observer = ctx.scene.onBeforeRender.add(() => {
             if (!target.isAlive()) {
-                cleanup();
+                projectile.dispose();
                 ctx.scene.onBeforeRender.remove(observer);
                 return;
             }
             const dt = ctx.scene.deltaSeconds;
-            flameTime += dt;
-            lastTrailTime += dt;
 
             const tp = target.getPosition().clone(); tp.y = 1;
             const dir = new Vector3().subVectors(tp, proj.position);
             const dist = dir.length();
-
-            // Orient cone toward travel direction
             const dirN = dir.normalize();
-            proj.rotation.y = headingToYaw(dirN.x, dirN.z);
-            // Tip of cone points forward; cone is built along Y; rotate so Y aligns with dir
-            proj.rotation.x = -Math.PI / 2;
-
-            // Flame wobble on scale + halo spin around the flight axis
-            proj.scale.y = 0.9 + 0.2 * Math.sin(flameTime * 40);
-            halo.rotation.y = flameTime * 9;
-
-            // Trail particle
-            if (lastTrailTime >= 0.05) {
-                spawnTrailParticle(ctx.scene, proj.position, trailColor, 0.18, 0.3);
-                lastTrailTime = 0;
-            }
 
             if (dist < 0.5) {
                 target.takeDamage(damage, ctx.element);
                 target.applyStatusEffect(StatusEffect.BURNING, 3, 3.0);
-                // Impact burst: bright flash core + scorch ring on the ground
-                spawnImpactFlash(ctx.scene, proj.position, new Color(1, 0.75, 0.3), 1.4);
-                spawnExpandingRing(ctx.scene, proj.position, 1.1, new Color(1, 0.45, 0.05),
-                    { thickness: 0.16, duration: 0.3 });
-                cleanup();
+                // Impact stack: ember mesh burst + bright bloom + ground scorch
+                // ring + rising smoke.
+                spawnFx(ctx.scene, 'fireballImpact', elementImpactConfig('fire', 1.2), proj.position);
+                spawnFx(ctx.scene, 'fireballFlash', elementFlashConfig('fire', 1.4), proj.position);
+                const ground = proj.position.clone(); ground.y = 0.3;
+                spawnFx(ctx.scene, 'fireballScorch', elementNovaConfig('fire', 1.1), ground);
+                spawnFx(ctx.scene, 'fireballSmoke', fireSmokePuffConfig(1), ground);
+                projectile.dispose();
                 ctx.scene.onBeforeRender.remove(observer);
                 return;
             }
             proj.position.addScaledVector(dirN, Math.min(dist, speed * dt));
         });
         setTimeout(() => {
-            cleanup();
+            projectile.dispose();
             ctx.scene.onBeforeRender.remove(observer);
         }, 4000);
     },
@@ -470,77 +362,44 @@ const mageIceDef: PowerDefinition = {
         }
         if (!best) return;
 
-        // Ice crystal: octahedron (polyhedron type 1) stretched along Y to look like an ice spear
-        const proj = createPolyhedron('frostCrystal', { type: 1, size: 0.2 }, ctx.scene);
-        proj.scale.set(0.4, 1.5, 0.4);
-        proj.position.copy(ctx.heroPosition);
-        proj.position.y = 1;
-        proj.material = getCachedMaterial('frost_proj_mat', m => {
-            m.emissive.copy(new Color(0.4, 0.8, 1.0));
-            m.color.set(0, 0, 0);
-        });
-
-        // Two smaller flanking shards trailing the main spear — reads as a
-        // shard CLUSTER instead of a single lonely crystal. Local offsets are
-        // pre-divided by the parent's (0.4, 1.5, 0.4) scaling.
-        const sideMat = getCachedMaterial('frost_proj_side_mat', m => {
-            m.emissive.copy(new Color(0.65, 0.92, 1.0));
-            m.color.set(0, 0, 0);
-        });
-        for (let s = -1; s <= 1; s += 2) {
-            const side = createPolyhedron(`frostCrystalSide${s}`,
-                { type: 1, size: 0.11 });
-            side.material = sideMat;
-            side.position.set(s * 0.6, -0.18, 0);
-            side.scale.set(1, 0.8, 1);
-            proj.add(side);
-        }
+        // The shard cluster IS its particles: tumbling octahedron MESH shards
+        // in a LOCAL-space cloud on an invisible carrier + a frost-mist wake.
+        const start = ctx.heroPosition.clone(); start.y = 1;
+        const projectile = createParticleProjectile(ctx.scene, 'frostShard', 'ice', start);
+        const proj = projectile.carrier;
 
         const target = best;
         const damage = mageIceDef.damageFor(state) * ctx.damageMultiplier;
         const speed = 20;
-        const trailColor = new Color(0.5, 0.85, 1.0);
-        let lastTrailTime = 0;
-        let spinTime = 0;
 
         const observer = ctx.scene.onBeforeRender.add(() => {
             if (!target.isAlive()) {
-                disposeMesh(proj);
+                projectile.dispose();
                 ctx.scene.onBeforeRender.remove(observer);
                 return;
             }
             const dt = ctx.scene.deltaSeconds;
-            spinTime += dt;
-            lastTrailTime += dt;
 
             const tp = target.getPosition().clone(); tp.y = 1;
             const dir = new Vector3().subVectors(tp, proj.position);
             const dist = dir.length();
 
-            // Rotate around long axis
-            proj.rotation.y = spinTime * 5;
-
-            // Trail particle
-            if (lastTrailTime >= 0.05) {
-                spawnTrailParticle(ctx.scene, proj.position, trailColor, 0.08, 0.3);
-                lastTrailTime = 0;
-            }
-
             if (dist < 0.4) {
                 target.takeDamage(damage, ctx.element);
                 target.applyStatusEffect(StatusEffect.SLOWED, 2, 0.5);
-                // Icy shatter flash + brief frost ring at the point of impact
-                spawnImpactFlash(ctx.scene, proj.position, new Color(0.6, 0.9, 1.0), 1.1);
-                spawnExpandingRing(ctx.scene, proj.position, 0.8, new Color(0.4, 0.8, 1.0),
-                    { thickness: 0.12, duration: 0.25 });
-                disposeMesh(proj);
+                // Shatter: shard mesh burst + icy bloom + frost ring on the ground
+                spawnFx(ctx.scene, 'frostShardImpact', elementImpactConfig('ice', 1), proj.position);
+                spawnFx(ctx.scene, 'frostShardFlash', elementFlashConfig('ice', 1.1), proj.position);
+                const ground = proj.position.clone(); ground.y = 0.3;
+                spawnFx(ctx.scene, 'frostShardRing', elementNovaConfig('ice', 0.8), ground);
+                projectile.dispose();
                 ctx.scene.onBeforeRender.remove(observer);
                 return;
             }
             proj.position.addScaledVector(dir.normalize(), Math.min(dist, speed * dt));
         });
         setTimeout(() => {
-            disposeMesh(proj);
+            projectile.dispose();
             ctx.scene.onBeforeRender.remove(observer);
         }, 4000);
     },
@@ -576,63 +435,20 @@ const mageArcaneDef: PowerDefinition = {
             }
         }
 
-        // Two staggered expanding ring waves (the old single static ring popped
-        // in at full size and vanished — these animate outward) + a center pulse.
-        const novaCenter = ctx.heroPosition.clone();
-        spawnExpandingRing(ctx.scene, novaCenter, radius, new Color(0.8, 0.3, 1.0),
-            { thickness: 0.25, duration: 0.4 });
-        spawnExpandingRing(ctx.scene, novaCenter, radius, new Color(0.6, 0.25, 0.9),
-            { thickness: 0.16, duration: 0.4, delayMs: 110 });
-        const flashPos = novaCenter.clone(); flashPos.y = 1.2;
-        spawnImpactFlash(ctx.scene, flashPos, new Color(0.85, 0.5, 1.0), 2.2);
-
-        // Swirling purple particles launched outward from ring edge
-        const particleCount = 10;
-        const purpleColor = new Color(0.7, 0.2, 1.0);
-        for (let i = 0; i < particleCount; i++) {
-            const angle = (i / particleCount) * Math.PI * 2;
-            const startX = ctx.heroPosition.x + Math.cos(angle) * radius;
-            const startZ = ctx.heroPosition.z + Math.sin(angle) * radius;
-            const startPos = new Vector3(startX, 0.3, startZ);
-
-            const particle = createSphere(
-                `arcaneNova_part_${i}_${Math.random()}`,
-                { diameter: 0.18, segments: 3 },
-                ctx.scene,
-            );
-            particle.position.copy(startPos);
-            particle.material = getCachedMaterial('arcaneNova_pMat', m => {
-                m.emissive.copy(purpleColor);
-                m.color.set(0, 0, 0);
-                m.opacity = 0.85;
-                m.transparent = true;
-            });
-            setMeshOpacity(particle, 0.85 * 0.85); // Babylon visibility(0.85) × mat.alpha(0.85)
-
-            const outDir = new Vector3(Math.cos(angle), 0, Math.sin(angle));
-            const duration = 0.35;
-            const outSpeed = radius * 1.5;
-            let elapsed = 0;
-            const pObs = ctx.scene.onBeforeRender.add(() => {
-                const dt = ctx.scene.deltaSeconds;
-                elapsed += dt;
-                const t = Math.min(elapsed / duration, 1);
-                particle.position.addScaledVector(outDir, outSpeed * dt);
-                setMeshOpacity(particle, 0.85 * 0.85 * (1 - t));
-                particle.scale.setScalar(1 - t * 0.5);
-                if (t >= 1) {
-                    disposeMesh(particle); // keeps the cached/shared material; frees the fade clone
-                    ctx.scene.onBeforeRender.remove(pObs);
-                }
-            });
-        }
+        // Fully particle-driven nova: two staggered expanding ring waves from a
+        // single system, a bright center bloom, and swirling orbital motes.
+        const ground = ctx.heroPosition.clone(); ground.y = 0.3;
+        spawnFx(ctx.scene, 'arcaneNovaRing', elementNovaConfig('arcane', radius, 2), ground);
+        const flashPos = ctx.heroPosition.clone(); flashPos.y = 1.2;
+        spawnFx(ctx.scene, 'arcaneNovaFlash', elementFlashConfig('arcane', 2.2), flashPos);
+        spawnFx(ctx.scene, 'arcaneNovaImpact', elementImpactConfig('arcane', 1.3), flashPos);
     },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Whirling Blades — persistent orbiting blades
 // ─────────────────────────────────────────────────────────────────────────────
-type WhirlingBlade = { mesh: Mesh; angle: number; lastTrail?: number };
+type WhirlingBlade = { mesh: Mesh; angle: number; fx: ParticleEffect };
 
 /** Blade count: 2 at level 1, +1 per level thereafter. */
 function whirlingBladeCount(level: number): number {
@@ -705,11 +521,17 @@ function ensureWhirlingBlades(state: PowerRuntimeState, scene: SceneHost, desire
     });
     while (blades.length < desired) {
         const blade = createShurikenMesh(`wbBlade_${blades.length}`, scene, bladeMat);
-        blades.push({ mesh: blade, angle: 0 });
+        // Per-blade steel-glint wake (WORLD-space, hangs behind the spinning star).
+        const fx = new ParticleEffect(`wbBladeTrail_${blades.length}`, scene,
+            elementProjectileTrailConfig('physical'), { follow: blade });
+        blades.push({ mesh: blade, angle: 0, fx });
     }
     while (blades.length > desired) {
         const extra = blades.pop();
-        try { if (extra) disposeMesh(extra.mesh); } catch { /* ignore */ }
+        if (extra) {
+            extra.fx.dispose();
+            try { disposeMesh(extra.mesh); } catch { /* ignore */ }
+        }
     }
     // Re-space evenly (only runs when the count changed, i.e. on level-up).
     for (let i = 0; i < blades.length; i++) {
@@ -733,6 +555,13 @@ const magePhysicalDef: PowerDefinition = {
     init: (state, ctx) => {
         ensureWhirlingBlades(state, ctx.scene, whirlingBladeCount(state.level));
         state.data!['orbitRadius'] = magePhysicalDef.baseRange;
+        // Persistent hero-following steel-spark wake for the activation window
+        // (init..dispose is the one clean activation boundary this tick-driven
+        // power has - the orbiting blades themselves stay untouched as the
+        // readable core mechanic, this only adds an ambient spark layer).
+        const sparkFx = new ParticleEffect('whirlingBladeSparks', ctx.scene, elementProjectileTrailConfig('physical'));
+        sparkFx.object.position.copy(ctx.heroPosition);
+        state.data!['sparkFx'] = sparkFx;
     },
     // Persistent passive: the blades orbit the hero EVERY frame (smooth, always-on,
     // no enemy required) and never play the hero attack animation. Damage is applied
@@ -741,12 +570,13 @@ const magePhysicalDef: PowerDefinition = {
         // Reconcile blade count to the current level every frame (cheap when unchanged),
         // so a level-up adds a blade without re-running init.
         const blades = ensureWhirlingBlades(state, ctx.scene, whirlingBladeCount(state.level));
+        const sparkFx = state.data?.['sparkFx'] as ParticleEffect | undefined;
+        if (sparkFx) sparkFx.object.position.copy(ctx.heroPosition);
         if (blades.length === 0) return;
 
         const orbitRadius = (state.data!['orbitRadius'] as number) ?? magePhysicalDef.baseRange;
         // Mage Whirling Blades spin 3× faster than the base orbit speed.
         const rotateSpeed = 7.5;
-        const sparkleColor = new Color(0.8, 0.8, 1.0);
 
         for (const blade of blades) {
             blade.angle += rotateSpeed * dt;
@@ -756,15 +586,9 @@ const magePhysicalDef: PowerDefinition = {
                 ctx.heroPosition.z + Math.sin(blade.angle) * orbitRadius,
             );
             // Spin the shuriken fast around its own vertical axis (like a thrown star),
-            // independent of its slower orbit around the hero.
+            // independent of its slower orbit around the hero. The glint wake is
+            // a per-blade ParticleEffect following the mesh - no per-frame work.
             blade.mesh.rotation.y += SHURIKEN_SPIN * dt;
-            // Sparkle trail every ~0.1s
-            if (blade.lastTrail === undefined) blade.lastTrail = 0;
-            blade.lastTrail += dt;
-            if (blade.lastTrail >= 0.1) {
-                spawnTrailParticle(ctx.scene, blade.mesh.position, sparkleColor, 0.1, 0.25);
-                blade.lastTrail = 0;
-            }
         }
 
         // Damage cadence: one sweep per cooldownFor(state) seconds (the same per-level
@@ -791,11 +615,17 @@ const magePhysicalDef: PowerDefinition = {
         state.data!['hitTimer'] = hitTimer;
     },
     dispose: (state) => {
-        const blades = state.data?.['blades'] as { mesh: Mesh }[] | undefined;
+        const blades = state.data?.['blades'] as WhirlingBlade[] | undefined;
         if (blades) {
             for (const b of blades) {
+                b.fx.dispose();
                 try { disposeMesh(b.mesh); } catch { /* ignore */ }
             }
+        }
+        const sparkFx = state.data?.['sparkFx'] as ParticleEffect | undefined;
+        if (sparkFx) {
+            sparkFx.stop();
+            sparkFx.dispose();
         }
     },
 };
@@ -860,8 +690,9 @@ const mageStormDef: PowerDefinition = {
             const from = seg.from.clone(); from.y = 1;
             const to = seg.to.clone(); to.y = 1;
             spawnJaggedBolt(ctx.scene, from, to, boltColor, 0.2);
-            // Bright strike flash where each chain lands
-            spawnImpactFlash(ctx.scene, to, new Color(1.0, 0.95, 0.55), 1.2);
+            // Bright strike bloom + spark crackle where each chain lands
+            spawnFx(ctx.scene, 'lightningChainFlash', elementFlashConfig('storm', 1.2), to);
+            spawnFx(ctx.scene, 'lightningChainImpact', elementImpactConfig('storm'), to);
         }
     },
 };
@@ -897,43 +728,27 @@ const rangerFireDef: PowerDefinition = {
         }
         if (!best) return;
 
-        // Fire arrow: orange arrow with two small flame cones parented to shaft
+        // Fire arrow: orange arrow shaft wrapped in a burning particle sheath
+        // (LOCAL-space flame head riding the arrow + hanging ember wake).
         const arrowColor = new Color(1, 0.4, 0.05);
         const proj = buildArrowMesh(ctx.scene, `fire_arrow_${Math.random()}`, arrowColor);
         proj.position.copy(ctx.heroPosition);
         proj.position.y = 1;
-
-        // Add two small flame cones flanking the tip
-        const flameColor = new Color(1, 0.6, 0.0);
-        const flameMat = getCachedMaterial('fire_arrow_flame_mat', m => {
-            m.emissive.copy(flameColor);
-            m.color.set(0, 0, 0);
-        });
-        for (let f = 0; f < 2; f++) {
-            const flameC = createCylinder(`fire_arrow_flame_${f}_${Math.random()}`, {
-                height: 0.25, diameterTop: 0, diameterBottom: 0.1, tessellation: 5,
-            });
-            flameC.material = flameMat;
-            flameC.position.y = 0.22;
-            flameC.position.x = (f === 0 ? 0.07 : -0.07);
-            proj.add(flameC);
-        }
+        const disposeFx = attachProjectileFx(ctx.scene, 'fireArrow', 'fire', proj);
 
         const target = best;
         const damage = rangerFireDef.damageFor(state) * ctx.damageMultiplier;
         const aoeRadius = 2.5;
         const speed = 22;
         const enemies = ctx.enemies;
-        const trailColor = new Color(1, 0.3, 0);
-        let lastTrailTime = 0;
 
         const cleanup = () => {
-            disposeMesh(proj); // recurses into the flame-cone children
+            disposeFx();
+            disposeMesh(proj);
         };
 
         const observer = ctx.scene.onBeforeRender.add(() => {
             const dt = ctx.scene.deltaSeconds;
-            lastTrailTime += dt;
 
             if (!target.isAlive()) {
                 explodeFireArrow(proj.position.clone(), damage, aoeRadius, enemies, ctx.scene);
@@ -948,12 +763,6 @@ const rangerFireDef: PowerDefinition = {
 
             // Orient arrow toward travel direction
             proj.rotation.y = headingToYaw(dirN.x, dirN.z);
-
-            // Trail
-            if (lastTrailTime >= 0.05) {
-                spawnTrailParticle(ctx.scene, proj.position, trailColor, 0.14, 0.3);
-                lastTrailTime = 0;
-            }
 
             if (dist < 0.5) {
                 explodeFireArrow(proj.position.clone(), damage, aoeRadius, enemies, ctx.scene, ctx.element);
@@ -982,16 +791,13 @@ function explodeFireArrow(pos: Vector3, damage: number, radius: number, enemies:
             e.applyStatusEffect(StatusEffect.BURNING, 2.5, 2.5);
         }
     }
-    // Burst ring visual
-    const ring = createTorus('fireExplosion', { diameter: radius * 2, thickness: 0.3, tessellation: 16 }, scene);
-    ring.position.copy(pos);
-    ring.position.y = 0.3;
-    ring.material = getCachedMaterial('fire_explosion_mat', m => {
-        m.emissive.copy(new Color(1, 0.4, 0));
-        m.opacity = 0.8;
-        m.transparent = true;
-    });
-    setTimeout(() => { if (!isMeshDisposed(ring)) disposeMesh(ring); }, 250);
+    // Explosion stack: expanding fire ring across the AOE radius + ember mesh
+    // burst + bright bloom + rising smoke, all particle-driven.
+    const ground = pos.clone(); ground.y = 0.3;
+    spawnFx(scene, 'fireArrowRing', elementNovaConfig('fire', radius), ground);
+    spawnFx(scene, 'fireArrowImpact', elementImpactConfig('fire', radius / 2.5), pos);
+    spawnFx(scene, 'fireArrowFlash', elementFlashConfig('fire', radius / 2), pos);
+    spawnFx(scene, 'fireArrowSmoke', fireSmokePuffConfig(radius / 2.5), ground);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1025,23 +831,13 @@ const rangerIceDef: PowerDefinition = {
         direction.y = 0;
         direction.normalize();
 
-        // Frost arrow: cyan arrow with a small ice crystal parented behind the tip
+        // Frost arrow: cyan arrow wrapped in a tumbling ice-shard particle
+        // cloud (MESH shards riding the shaft) + frost-mist wake.
         const arrowColor = new Color(0.4, 0.85, 1.0);
         const proj = buildArrowMesh(ctx.scene, `frost_arrow_${Math.random()}`, arrowColor);
         proj.position.copy(ctx.heroPosition);
         proj.position.y = 1;
-
-        // Small octahedron crystal attached near the tip
-        const crystal = createPolyhedron(
-            `frost_arrow_crystal_${Math.random()}`,
-            { type: 1, size: 0.07 },
-        );
-        crystal.material = getCachedMaterial('frost_arrow_crystal_mat', m => {
-            m.emissive.copy(new Color(0.6, 0.9, 1.0));
-            m.color.set(0, 0, 0);
-        });
-        crystal.position.y = 0.25;
-        proj.add(crystal);
+        const disposeFx = attachProjectileFx(ctx.scene, 'frostArrow', 'ice', proj);
 
         // Orient arrow toward travel direction from the start
         proj.rotation.y = headingToYaw(direction.x, direction.z);
@@ -1051,29 +847,18 @@ const rangerIceDef: PowerDefinition = {
         const maxPierces = 2;
         let pierceCount = 0;
         let traveledDist = 0;
-        let lastTrailTime = 0;
         const hitEnemies = new Set<Enemy>();
-        const trailColor = new Color(0.5, 0.9, 1.0);
 
         const cleanup = () => {
-            disposeMesh(proj); // recurses into the crystal child
+            disposeFx();
+            disposeMesh(proj);
         };
 
         const observer = ctx.scene.onBeforeRender.add(() => {
             const dt = ctx.scene.deltaSeconds;
             const step = speed * dt;
             traveledDist += step;
-            lastTrailTime += dt;
             proj.position.addScaledVector(direction, step);
-
-            // Spin the crystal
-            crystal.rotation.y += dt * 6;
-
-            // Trail
-            if (lastTrailTime >= 0.05) {
-                spawnTrailParticle(ctx.scene, proj.position, trailColor, 0.1, 0.3);
-                lastTrailTime = 0;
-            }
 
             for (const e of ctx.enemies) {
                 if (!e.isAlive() || hitEnemies.has(e)) continue;
@@ -1084,6 +869,7 @@ const rangerIceDef: PowerDefinition = {
                     e.applyStatusEffect(StatusEffect.SLOWED, 1.5, 0.5);
                     hitEnemies.add(e);
                     pierceCount++;
+                    spawnFx(ctx.scene, 'frostArrowImpact', elementImpactConfig('ice'), proj.position);
                 }
             }
 
@@ -1127,19 +913,13 @@ const rangerArcaneDef: PowerDefinition = {
         }
         if (!best) return;
 
-        // Seeking arrow: purple arrow with a small orbiting purple sphere
+        // Seeking arrow: purple arrow wrapped in orbiting arcane motes (the
+        // particle head's orbital velocity replaces the old hand-animated orb).
         const arrowColor = new Color(0.7, 0.3, 1.0);
         const proj = buildArrowMesh(ctx.scene, `seek_arrow_${Math.random()}`, arrowColor);
         proj.position.copy(ctx.heroPosition);
         proj.position.y = 1;
-
-        // Small orbiting purple sphere attached to shaft
-        const orb = createSphere(`seek_orb_${Math.random()}`, { diameter: 0.12, segments: 4 });
-        orb.material = getCachedMaterial('seek_orb_mat', m => {
-            m.emissive.copy(new Color(0.9, 0.4, 1.0));
-            m.color.set(0, 0, 0);
-        });
-        proj.add(orb);
+        const disposeFx = attachProjectileFx(ctx.scene, 'seekArrow', 'arcane', proj);
 
         const target = best;
         const damage = rangerArcaneDef.damageFor(state) * ctx.damageMultiplier;
@@ -1148,18 +928,14 @@ const rangerArcaneDef: PowerDefinition = {
         const velDir = target.getPosition().clone().sub(ctx.heroPosition);
         velDir.y = 0;
         velDir.normalize();
-        let orbAngle = 0;
-        let lastTrailTime = 0;
-        const trailColor = new Color(0.6, 0.2, 1.0);
 
         const cleanup = () => {
-            disposeMesh(proj); // recurses into the orb child
+            disposeFx();
+            disposeMesh(proj);
         };
 
         const observer = ctx.scene.onBeforeRender.add(() => {
             const dt = ctx.scene.deltaSeconds;
-            lastTrailTime += dt;
-            orbAngle += dt * 8;
 
             if (!target.isAlive()) {
                 cleanup();
@@ -1173,19 +949,10 @@ const rangerArcaneDef: PowerDefinition = {
             // Orient arrow toward velocity
             proj.rotation.y = headingToYaw(velDir.x, velDir.z);
 
-            // Orbit the sphere around shaft
-            orb.position.x = Math.cos(orbAngle) * 0.22;
-            orb.position.z = Math.sin(orbAngle) * 0.22;
-            orb.position.y = 0;
-
-            // Trail
-            if (lastTrailTime >= 0.05) {
-                spawnTrailParticle(ctx.scene, proj.position, trailColor, 0.12, 0.3);
-                lastTrailTime = 0;
-            }
-
             if (dist < 0.5) {
                 target.takeDamage(damage, ctx.element);
+                spawnFx(ctx.scene, 'seekArrowImpact', elementImpactConfig('arcane'), proj.position);
+                spawnFx(ctx.scene, 'seekArrowFlash', elementFlashConfig('arcane', 0.9), proj.position);
                 cleanup();
                 ctx.scene.onBeforeRender.remove(observer);
                 return;
@@ -1236,12 +1003,14 @@ const rangerPhysicalDef: PowerDefinition = {
         direction.y = 0;
         direction.normalize();
 
-        // Piercing Shot: large bright white-silver arrow (scale 1.3), clean and fast
+        // Piercing Shot: large bright white-silver arrow (scale 1.3) wrapped in
+        // a tight silver-glint particle sheath + dust wake.
         const arrowColor = new Color(0.95, 0.95, 0.95);
         const proj = buildArrowMesh(ctx.scene, `pierce_arrow_${Math.random()}`, arrowColor);
         proj.scale.setScalar(1.3);
         proj.position.copy(ctx.heroPosition);
         proj.position.y = 1;
+        const disposeFx = attachProjectileFx(ctx.scene, 'pierceArrow', 'physical', proj);
 
         // Orient arrow to face travel direction
         proj.rotation.y = headingToYaw(direction.x, direction.z);
@@ -1250,10 +1019,9 @@ const rangerPhysicalDef: PowerDefinition = {
         const speed = 28;
         const hitEnemies = new Set<Enemy>();
         let traveledDist = 0;
-        let lastTrailTime = 0;
-        const trailColor = new Color(0.85, 0.85, 1.0);
 
         const cleanup = () => {
+            disposeFx();
             disposeMesh(proj); // recurses into the tip/fletch children
         };
 
@@ -1261,14 +1029,7 @@ const rangerPhysicalDef: PowerDefinition = {
             const dt = ctx.scene.deltaSeconds;
             const step = speed * dt;
             traveledDist += step;
-            lastTrailTime += dt;
             proj.position.addScaledVector(direction, step);
-
-            // Subtle silver trail
-            if (lastTrailTime >= 0.05) {
-                spawnTrailParticle(ctx.scene, proj.position, trailColor, 0.12, 0.2);
-                lastTrailTime = 0;
-            }
 
             for (const e of ctx.enemies) {
                 if (!e.isAlive() || hitEnemies.has(e)) continue;
@@ -1277,6 +1038,7 @@ const rangerPhysicalDef: PowerDefinition = {
                 if (Math.hypot(dx, dz) < 0.6) {
                     e.takeDamage(damage, ctx.element);
                     hitEnemies.add(e);
+                    spawnFx(ctx.scene, 'pierceArrowImpact', elementImpactConfig('physical', 0.7), proj.position);
                 }
             }
 
@@ -1320,43 +1082,26 @@ const rangerStormDef: PowerDefinition = {
         }
         if (!best) return;
 
-        // Lightning Arrow: yellow arrow with a small flickering zigzag bolt above the shaft
+        // Lightning Arrow: yellow arrow wrapped in a crackling spark sheath
+        // (the particle head's flicker replaces the old scaled zigzag box).
         const arrowColor = new Color(1.0, 0.95, 0.4);
         const proj = buildArrowMesh(ctx.scene, `lightning_arrow_${Math.random()}`, arrowColor);
         proj.position.copy(ctx.heroPosition);
         proj.position.y = 1;
-
-        // Small decorative zigzag box above the shaft representing stored electricity
-        const staticBolt = createBox(`lightning_arrow_bolt_${Math.random()}`, {
-            width: 0.06, height: 0.06, depth: 0.35,
-        });
-        staticBolt.material = getCachedMaterial('lightning_arrow_bolt_mat', m => {
-            m.emissive.copy(new Color(0.8, 1.0, 0.4));
-            m.color.set(0, 0, 0);
-        });
-        staticBolt.position.y = 0.12;
-        staticBolt.position.z = 0;
-        proj.add(staticBolt);
+        const disposeFx = attachProjectileFx(ctx.scene, 'lightningArrow', 'storm', proj);
 
         const target = best;
         const damage = rangerStormDef.damageFor(state) * ctx.damageMultiplier;
         const speed = 24;
         const allEnemies = ctx.enemies;
-        const trailColor = new Color(1.0, 0.9, 0.3);
-        let lastTrailTime = 0;
-        let boltFlicker = 0;
 
         const cleanup = () => {
-            disposeMesh(proj); // recurses into the static-bolt child
+            disposeFx();
+            disposeMesh(proj);
         };
 
         const observer = ctx.scene.onBeforeRender.add(() => {
             const dt = ctx.scene.deltaSeconds;
-            lastTrailTime += dt;
-            boltFlicker += dt;
-
-            // Flicker the decorative bolt's scale
-            staticBolt.scale.x = 0.8 + 0.4 * Math.sin(boltFlicker * 35);
 
             if (!target.isAlive()) {
                 chainLightning(target.getPosition(), damage, allEnemies, target, ctx.scene, ctx.element);
@@ -1372,14 +1117,10 @@ const rangerStormDef: PowerDefinition = {
             // Orient arrow toward travel direction
             proj.rotation.y = headingToYaw(dirN.x, dirN.z);
 
-            // Trail
-            if (lastTrailTime >= 0.05) {
-                spawnTrailParticle(ctx.scene, proj.position, trailColor, 0.13, 0.25);
-                lastTrailTime = 0;
-            }
-
             if (dist < 0.5) {
                 target.takeDamage(damage, ctx.element);
+                spawnFx(ctx.scene, 'lightningArrowImpact', elementImpactConfig('storm'), proj.position);
+                spawnFx(ctx.scene, 'lightningArrowFlash', elementFlashConfig('storm', 1.1), proj.position);
                 chainLightning(target.getPosition(), damage, allEnemies, target, ctx.scene, ctx.element);
                 cleanup();
                 ctx.scene.onBeforeRender.remove(observer);
@@ -1418,6 +1159,7 @@ function chainLightning(fromPos: Vector3, damage: number, enemies: Enemy[], excl
         const from = origin.clone(); from.y = 1;
         const to = nearest.getPosition().clone(); to.y = 1;
         spawnJaggedBolt(scene, from, to, chainBoltColor, 0.18);
+        spawnFx(scene, 'chainLightningImpact', elementImpactConfig('storm'), to);
         origin = nearest.getPosition();
         excluded = nearest;
     }
@@ -1446,6 +1188,7 @@ const barbarianFireDef: PowerDefinition = {
     onHit: (enemy, level, ctx) => {
         const dotStrength = ctx.baseDamage * 0.3 * level;
         enemy.applyStatusEffect(StatusEffect.BURNING, 2, dotStrength);
+        spawnFx(ctx.scene, 'flamingEdgeImpact', elementImpactConfig('fire', 0.6), enemy.getPosition());
     },
 };
 
@@ -1469,9 +1212,10 @@ const barbarianIceDef: PowerDefinition = {
         const pct = Math.round((1 - slowMult) * 100);
         return `On hit: slow target ${pct}% for 1.5s`;
     },
-    onHit: (enemy, level) => {
+    onHit: (enemy, level, ctx) => {
         const slowMult = Math.max(0.4, 0.65 - level * 0.05);
         enemy.applyStatusEffect(StatusEffect.SLOWED, 1.5, slowMult);
+        spawnFx(ctx.scene, 'frostbiteImpact', elementImpactConfig('ice', 0.6), enemy.getPosition());
     },
 };
 
@@ -1494,6 +1238,7 @@ const barbarianArcaneDef: PowerDefinition = {
     onHit: (enemy, level, ctx) => {
         const bonusDamage = ctx.baseDamage * 0.20 * level;
         enemy.takeDamage(bonusDamage, ctx.element);
+        spawnFx(ctx.scene, 'arcaneBiteImpact', elementImpactConfig('arcane', 0.6), enemy.getPosition());
     },
 };
 
@@ -1517,6 +1262,7 @@ const barbarianPhysicalDef: PowerDefinition = {
     onHit: (enemy, level, ctx) => {
         const bonusDamage = ctx.baseDamage * 0.25 * level;
         enemy.takeDamage(bonusDamage, ctx.element);
+        spawnFx(ctx.scene, 'heavyStrikeImpact', elementImpactConfig('physical', 0.6), enemy.getPosition());
     },
 };
 
@@ -1558,6 +1304,7 @@ const barbarianStormDef: PowerDefinition = {
             const from = origin.clone(); from.y = 1;
             const to = nearest.getPosition().clone(); to.y = 1;
             spawnJaggedBolt(ctx.scene, from, to, new Color(0.9, 0.9, 0.3), 0.15);
+            spawnFx(ctx.scene, 'shockChainImpact', elementImpactConfig('storm', 0.6), to);
             origin = nearest.getPosition();
             excluded = nearest;
         }

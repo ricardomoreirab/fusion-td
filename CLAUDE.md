@@ -23,7 +23,8 @@ The codebase is organized by **bounded context**, not by file type:
 src/
   engine/         cross-mode infrastructure (Game, scene, lights, asset loading)
   engine/three/   the Three.js engine layer (SceneHost, RendererHost, primitives,
-                  ParticleSystem, AnimGroup, GLB assets, tween, audio, math)
+                  ParticleEffect (@newkrok/three-particles wrapper), AnimGroup,
+                  GLB assets, tween, audio, math)
   survivors/      survivors-mode gameplay (the only currently shipped mode)
   net/            online co-op networking (protocol, transport, codecs)
   menu/           main menu state
@@ -42,6 +43,7 @@ worker/           Cloudflare Worker + Room Durable Object (blind WS relay)
 - `src/engine/three/SceneHost.ts` — THREE.Scene + the per-frame update buses (`onBeforeRender`, `onAnimUpdate` gated by `animationsEnabled`) + particle registry. Headless-friendly (Vitest drives it with `tick(dt)`).
 - `src/engine/three/RendererHost.ts` — WebGLRenderer + pmndrs postprocessing chain: RenderPass → Bloom + SelectiveBloom (GLOW_LAYER=11, Babylon GlowLayer parity) → ACES tone mapping → FXAA. NO vignette — over the bright uniform field it reads as a "halo of shadow" stamped on the screen, not as focus. `info` getter exposes renderer counts for the resource watchdog.
 - `src/engine/three/assets.ts` — GLB container cache + `instantiate()` (SkeletonUtils clone + per-instance materials + AnimationMixer). **Prefixes only the clone ROOT's name** — renaming descendants unbinds every animation track (THREE resolves tracks by node name) and the model T-poses.
+- `src/engine/three/particles/ParticleEffect.ts` — ALL gameplay particles run on `@newkrok/three-particles` (Unity-style declarative configs) through this SceneHost-aware wrapper: synthetic ms clock (never Date.now, headless-testable), `parent` + `SimulationSpace.WORLD` for moving emitters, `autoDispose` for one-shot bursts, `fxSize()` (world units ×19 → lib point size), `fxRenderer('additive'|'normal')`, shared `getSoftParticleTexture()`. The lib's cone/box shapes emit along local +Z (rotate −π/2 X for "up"), its `angle`/`arc` are DEGREES (doc comments claiming radians are wrong), and `gravity` is a downward scalar (negative = updraft). Old Babylon sim-time tunings were converted at ×0.6 (`updateSpeed 0.01 × 60`): lifetimes ÷0.6, rates/speeds ×0.6, gravity ×0.36. package.json pins a `"three": "$three"` override — without it three-noise nests three@0.128 and double-bundles Three ("Multiple instances" warning + broken instanceof).
 
 ### Core game states
 - `src/menu/MenuState.ts` — main menu; "Play" button routes to `survivors`.

@@ -1,7 +1,8 @@
 import { Color, DoubleSide, Mesh, MeshBasicMaterial, MeshPhongMaterial, Vector3 } from 'three';
+import { LifeTimeCurve, Shape, SimulationSpace } from '@newkrok/three-particles';
 import { SceneHost } from '../../engine/three/SceneHost';
-import { ParticleSystem } from '../../engine/three/particles/ParticleSystem';
-import { RGBA, headingToYaw } from '../../engine/three/math';
+import { fxRenderer, fxSize, ParticleEffect } from '../../engine/three/particles/ParticleEffect';
+import { headingToYaw } from '../../engine/three/math';
 import { tween } from '../../engine/three/tween';
 import {
     createCylinder, createDisc, createIcoSphere, createTorus,
@@ -150,44 +151,58 @@ export function spawnHurricaneVisual(
 
     // ── Storm updraft ───────────────────────────────────────────────────
     // A tall, fast column of pale storm-grey debris spiralling upward — the
-    // airborne body of the hurricane. Emitter is a Vector3 we move each frame
-    // so the PS tracks the hero.
-    const vortexEmitter = start.clone();
-    const vortexPs = new ParticleSystem('whirlwindVortex', 240, host);
-    vortexPs.emitter = vortexEmitter;
-    vortexPs.minEmitBox.set(-radius * 0.5, 0, -radius * 0.5);
-    vortexPs.maxEmitBox.set(radius * 0.5, 0.3, radius * 0.5);
-    if (tint) {
-        // Element-charged whirlwind: debris glows in the blended power color.
-        vortexPs.color1 = new RGBA(
-            Math.min(1, tint.r * 1.2 + 0.15), Math.min(1, tint.g * 1.2 + 0.15), Math.min(1, tint.b * 1.2 + 0.15), 0.9);
-        vortexPs.color2 = new RGBA(tint.r * 0.7, tint.g * 0.7, tint.b * 0.7, 0.8);
-        vortexPs.colorDead = new RGBA(tint.r * 0.25, tint.g * 0.25, tint.b * 0.25, 0);
-    } else {
-        vortexPs.color1 = new RGBA(0.85, 0.90, 0.97, 0.9); // pale storm white
-        vortexPs.color2 = new RGBA(0.55, 0.62, 0.72, 0.8); // grey-blue
-        vortexPs.colorDead = new RGBA(0.30, 0.34, 0.40, 0);
-    }
-    vortexPs.minSize = 0.08;
-    vortexPs.maxSize = 0.30;
-    vortexPs.minLifeTime = 0.6;
-    vortexPs.maxLifeTime = 1.2;
-    vortexPs.emitRate = 420;
-    vortexPs.blendMode = ParticleSystem.BLENDMODE_STANDARD;
-    // Wide tangential spread + strong updraft so the swarm reads as a tall,
-    // churning funnel rather than a flat ground swirl.
-    vortexPs.direction1.set(-5, 3.0, -5);
-    vortexPs.direction2.set(5, 6.0, 5);
-    vortexPs.minEmitPower = 3;
-    vortexPs.maxEmitPower = 6;
-    vortexPs.gravity.set(0, 3.0, 0); // strong updraft → tall column
-    vortexPs.start();
+    // airborne body of the hurricane. The effect stays at the scene root
+    // (WORLD sim) and its transform is repositioned each frame to track the
+    // hero, matching the old Vector3-emitter follow pattern.
+    const startColorRange = tint
+        ? {
+            min: { r: tint.r * 0.7, g: tint.g * 0.7, b: tint.b * 0.7 },
+            max: {
+                r: Math.min(1, tint.r * 1.2 + 0.15),
+                g: Math.min(1, tint.g * 1.2 + 0.15),
+                b: Math.min(1, tint.b * 1.2 + 0.15),
+            },
+        }
+        : {
+            min: { r: 0.55, g: 0.62, b: 0.72 }, // grey-blue
+            max: { r: 0.85, g: 0.90, b: 0.97 }, // pale storm white
+        };
+    const deadColor = tint
+        ? { r: tint.r * 0.25, g: tint.g * 0.25, b: tint.b * 0.25 }
+        : { r: 0.30, g: 0.34, b: 0.40 };
+    const vortexPs = new ParticleEffect('whirlwindVortex', host, {
+        transform: {
+            position: new Vector3(start.x, start.y + 0.2, start.z),
+            rotation: new Vector3(-Math.PI / 2, 0, 0),
+        },
+        simulationSpace: SimulationSpace.WORLD,
+        looping: true,
+        duration: 2,
+        maxParticles: 240,
+        emission: { rateOverTime: 252 },
+        shape: { shape: Shape.CIRCLE, circle: { radius: Math.max(0.05, radius * 0.5), radiusThickness: 1, arc: 360 } },
+        startLifetime: { min: 1.0, max: 2.0 },
+        startSpeed: { min: 15.3, max: 30.6 },
+        startSize: { min: fxSize(0.08), max: fxSize(0.30) },
+        startColor: startColorRange,
+        startOpacity: 0.9,
+        colorOverLifetime: {
+            isActive: true,
+            r: { type: LifeTimeCurve.EASING, curveFunction: (t: number) => 1 - t * (1 - deadColor.r / startColorRange.max.r) },
+            g: { type: LifeTimeCurve.EASING, curveFunction: (t: number) => 1 - t * (1 - deadColor.g / startColorRange.max.g) },
+            b: { type: LifeTimeCurve.EASING, curveFunction: (t: number) => 1 - t * (1 - deadColor.b / startColorRange.max.b) },
+        },
+        opacityOverLifetime: { isActive: true, lifetimeCurve: { type: LifeTimeCurve.EASING, curveFunction: (t: number) => 1 - t } },
+        // Old gravity.set(0, 3, 0) was an updraft (positive Y accel); the lib's
+        // gravity is a downward scalar, so a negative value reproduces the lift.
+        gravity: -1.08,
+        renderer: fxRenderer('normal'),
+    });
 
     const emitterObs = host.onBeforeRender.add(() => {
         const pos = getCenter();
         if (!pos) return;
-        vortexEmitter.copy(pos);
-        vortexEmitter.y += 0.2;
+        vortexPs.object.position.set(pos.x, pos.y + 0.2, pos.z);
     });
 
     // ── Funnel cloud ────────────────────────────────────────────────────
@@ -354,30 +369,31 @@ export function createMeteorVisual(host: SceneHost, position: Vector3, radius: n
                 setMeshOpacity(ring, 0.8 * (1 - t));
             }, { onEnd: () => disposeMesh(ring) });
 
-            const ps = new ParticleSystem('meteorImpact', 60, host);
-            ps.emitter = new Vector3(position.x, position.y + 0.5, position.z);
-            ps.minEmitBox.set(-0.5, 0, -0.5);
-            ps.maxEmitBox.set(0.5, 0, 0.5);
-            ps.color1 = new RGBA(1, 0.5, 0, 1);
-            ps.color2 = new RGBA(1, 0.2, 0, 1);
-            ps.colorDead = new RGBA(0.3, 0, 0, 0);
-            ps.minSize = 0.3;
-            ps.maxSize = 0.8;
-            ps.minLifeTime = 0.3;
-            ps.maxLifeTime = 0.8;
-            ps.emitRate = 200;
-            ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-            ps.direction1.set(-2, 2, -2);
-            ps.direction2.set(2, 4, 2);
-            ps.minEmitPower = 2;
-            ps.maxEmitPower = 5;
-            ps.gravity.set(0, -8, 0);
-            ps.start();
+            const ps = new ParticleEffect('meteorImpact', host, {
+                transform: {
+                    position: new Vector3(position.x, position.y + 0.5, position.z),
+                    rotation: new Vector3(-Math.PI / 2, 0, 0),
+                },
+                simulationSpace: SimulationSpace.WORLD,
+                looping: true,
+                duration: 1.433,
+                maxParticles: 60,
+                emission: { rateOverTime: 120 },
+                shape: { shape: Shape.CONE, cone: { angle: 60, radius: 0.5, radiusThickness: 1, arc: 360 } },
+                startLifetime: { min: 0.5, max: 1.333 },
+                startSpeed: { min: 5.04, max: 12.6 },
+                startSize: { min: fxSize(0.3), max: fxSize(0.8) },
+                startColor: {
+                    min: { r: 1, g: 0.2, b: 0 },
+                    max: { r: 1, g: 0.5, b: 0 },
+                },
+                startOpacity: 1,
+                opacityOverLifetime: { isActive: true, lifetimeCurve: { type: LifeTimeCurve.EASING, curveFunction: (t: number) => 1 - t } },
+                gravity: 2.88,
+                renderer: fxRenderer('additive'),
+            }, { autoDispose: true });
             setTimeout(() => {
                 try { ps.stop(); } catch { /* already disposed */ }
-                setTimeout(() => {
-                    try { ps.dispose(); } catch { /* already disposed */ }
-                }, 800);
             }, 200);
         },
     });
@@ -414,29 +430,30 @@ export function createFrostNovaVisual(host: SceneHost): void {
         setMeshOpacity(ring, 0.5 * (1 - t));
     }, { onEnd: () => disposeMesh(ring) });
 
-    const ps = new ParticleSystem('frostParticles', 100, host);
-    ps.emitter = center;
-    ps.minEmitBox.set(-20, 0, -20);
-    ps.maxEmitBox.set(20, 0.5, 20);
-    ps.color1 = new RGBA(0.7, 0.9, 1, 1);
-    ps.color2 = new RGBA(0.4, 0.6, 1, 1);
-    ps.colorDead = new RGBA(0.2, 0.3, 0.5, 0);
-    ps.minSize = 0.1;
-    ps.maxSize = 0.3;
-    ps.minLifeTime = 0.5;
-    ps.maxLifeTime = 1.5;
-    ps.emitRate = 200;
-    ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-    ps.direction1.set(-0.5, 1, -0.5);
-    ps.direction2.set(0.5, 2, 0.5);
-    ps.minEmitPower = 0.5;
-    ps.maxEmitPower = 1.5;
-    ps.start();
+    const ps = new ParticleEffect('frostParticles', host, {
+        transform: {
+            position: center.clone(),
+            rotation: new Vector3(-Math.PI / 2, 0, 0),
+        },
+        simulationSpace: SimulationSpace.WORLD,
+        looping: true,
+        duration: 2.8,
+        maxParticles: 100,
+        emission: { rateOverTime: 120 },
+        shape: { shape: Shape.BOX, box: { scale: { x: 40, y: 0.5, z: 40 } } },
+        startLifetime: { min: 0.833, max: 2.5 },
+        startSpeed: { min: 0.51, max: 1.53 },
+        startSize: { min: fxSize(0.1), max: fxSize(0.3) },
+        startColor: {
+            min: { r: 0.4, g: 0.6, b: 1 },
+            max: { r: 0.7, g: 0.9, b: 1 },
+        },
+        startOpacity: 1,
+        opacityOverLifetime: { isActive: true, lifetimeCurve: { type: LifeTimeCurve.EASING, curveFunction: (t: number) => 1 - t } },
+        renderer: fxRenderer('additive'),
+    }, { autoDispose: true });
     setTimeout(() => {
         try { ps.stop(); } catch { /* already disposed */ }
-        setTimeout(() => {
-            try { ps.dispose(); } catch { /* already disposed */ }
-        }, 1500);
     }, 300);
 }
 
@@ -486,33 +503,36 @@ export function spawnMultishotAura(host: SceneHost, getCenter: () => Vector3 | n
     ring.material = mat;
     ring.userData.ownedMaterial = true;
 
-    const auraEmitter = start.clone();
+    const ps = new ParticleEffect('multishotAuraPs', host, {
+        transform: {
+            position: start.clone(),
+            rotation: new Vector3(-Math.PI / 2, 0, 0),
+        },
+        simulationSpace: SimulationSpace.WORLD,
+        looping: true,
+        duration: 1.1,
+        maxParticles: 40,
+        emission: { rateOverTime: 36 },
+        shape: { shape: Shape.CONE, cone: { angle: 30, radius: 0.8, radiusThickness: 1, arc: 360 } },
+        startLifetime: { min: 0.5, max: 1.0 },
+        startSpeed: { min: 0.63, max: 1.512 },
+        startSize: { min: fxSize(0.06), max: fxSize(0.16) },
+        startColor: {
+            min: { r: 0.5, g: 1.0, b: 0.4 },
+            max: { r: 0.8, g: 1.0, b: 0.6 },
+        },
+        startOpacity: 1,
+        opacityOverLifetime: { isActive: true, lifetimeCurve: { type: LifeTimeCurve.EASING, curveFunction: (t: number) => 1 - t } },
+        gravity: 0.54,
+        renderer: fxRenderer('additive'),
+    });
+
     const followObs = host.onBeforeRender.add(() => {
         const p = getCenter();
         if (!p) return;
         ring.position.set(p.x, p.y + 0.2, p.z);
-        auraEmitter.copy(p);
+        ps.object.position.set(p.x, p.y, p.z);
     });
-
-    const ps = new ParticleSystem('multishotAuraPs', 40, host);
-    ps.emitter = auraEmitter;
-    ps.minEmitBox.set(-0.8, 0, -0.8);
-    ps.maxEmitBox.set(0.8, 0.1, 0.8);
-    ps.color1 = new RGBA(0.5, 1.0, 0.4, 1);
-    ps.color2 = new RGBA(0.8, 1.0, 0.6, 1);
-    ps.colorDead = new RGBA(0.2, 0.4, 0.1, 0);
-    ps.minSize = 0.06;
-    ps.maxSize = 0.16;
-    ps.minLifeTime = 0.3;
-    ps.maxLifeTime = 0.6;
-    ps.emitRate = 60;
-    ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-    ps.direction1.set(-0.5, 1.5, -0.5);
-    ps.direction2.set(0.5, 2.5, 0.5);
-    ps.minEmitPower = 0.5;
-    ps.maxEmitPower = 1.2;
-    ps.gravity.set(0, -1.5, 0);
-    ps.start();
 
     let disposed = false;
     return {
@@ -637,29 +657,30 @@ export function spawnExplosionVisual(host: SceneHost, position: Vector3, radius:
     }, { onEnd: () => disposeMesh(ring) });
 
     // Particle burst
-    const ps = new ParticleSystem('expBurst', 40, host);
-    ps.emitter = new Vector3(position.x, position.y + 0.5, position.z);
-    ps.minEmitBox.set(-0.3, 0, -0.3);
-    ps.maxEmitBox.set(0.3, 0, 0.3);
-    ps.color1 = new RGBA(1, 0.6, 0.1, 1);
-    ps.color2 = new RGBA(1, 0.3, 0, 1);
-    ps.colorDead = new RGBA(0.4, 0.1, 0, 0);
-    ps.minSize = 0.2;
-    ps.maxSize = 0.6;
-    ps.minLifeTime = 0.2;
-    ps.maxLifeTime = 0.6;
-    ps.emitRate = 150;
-    ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-    ps.direction1.set(-2, 2, -2);
-    ps.direction2.set(2, 4, 2);
-    ps.minEmitPower = 2;
-    ps.maxEmitPower = 5;
-    ps.gravity.set(0, -6, 0);
-    ps.start();
+    const ps = new ParticleEffect('expBurst', host, {
+        transform: {
+            position: new Vector3(position.x, position.y + 0.5, position.z),
+            rotation: new Vector3(-Math.PI / 2, 0, 0),
+        },
+        simulationSpace: SimulationSpace.WORLD,
+        looping: true,
+        duration: 1.1,
+        maxParticles: 40,
+        emission: { rateOverTime: 90 },
+        shape: { shape: Shape.CONE, cone: { angle: 60, radius: 0.3, radiusThickness: 1, arc: 360 } },
+        startLifetime: { min: 0.333, max: 1.0 },
+        startSpeed: { min: 5.04, max: 12.6 },
+        startSize: { min: fxSize(0.2), max: fxSize(0.6) },
+        startColor: {
+            min: { r: 1, g: 0.3, b: 0 },
+            max: { r: 1, g: 0.6, b: 0.1 },
+        },
+        startOpacity: 1,
+        opacityOverLifetime: { isActive: true, lifetimeCurve: { type: LifeTimeCurve.EASING, curveFunction: (t: number) => 1 - t } },
+        gravity: 2.16,
+        renderer: fxRenderer('additive'),
+    }, { autoDispose: true });
     setTimeout(() => {
         try { ps.stop(); } catch { /* already disposed */ }
-        setTimeout(() => {
-            try { ps.dispose(); } catch { /* already disposed */ }
-        }, 600);
     }, 150);
 }

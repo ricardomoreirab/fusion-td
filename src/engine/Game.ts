@@ -86,6 +86,9 @@ export class Game {
 
     public async start(): Promise<void> {
         this.sceneHost = new SceneHost();
+        if (new URLSearchParams(window.location.search).has('debug')) {
+            (window as unknown as Record<string, unknown>).__ktgScene = this.sceneHost.scene;
+        }
 
         // Lights + cameras must exist before the composer (RenderPass binds
         // scene + camera at construction).

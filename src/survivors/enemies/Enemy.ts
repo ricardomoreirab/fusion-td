@@ -9,8 +9,10 @@ import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
 import { AnimGroup } from '../../engine/three/AnimGroup';
 import type { ContainerInstance } from '../../engine/three/assets';
 import { DynamicTexture } from '../../engine/three/DynamicTexture';
-import { headingToYaw, rgba } from '../../engine/three/math';
-import { ParticleSystem } from '../../engine/three/particles/ParticleSystem';
+import { headingToYaw } from '../../engine/three/math';
+import { fxRenderer, fxSize, ParticleEffect } from '../../engine/three/particles/ParticleEffect';
+import { LifeTimeCurve, Shape } from '@newkrok/three-particles';
+import { elementStatusConfig } from '../fx/ElementParticles';
 import { createPlane, createSphere, disposeMesh, isMeshDisposed } from '../../engine/three/primitives';
 import type { SceneHost, UpdateToken } from '../../engine/three/SceneHost';
 import type { SnapshotEnemy } from '../../net/Protocol';
@@ -61,8 +63,8 @@ const HIT_FLASH_DURATION_S = 0.1;
 
 // Lazy-loaded shared texture for status-effect particle systems. Flagged
 // userData.cached so no disposal path (disposeMesh / bulk material teardown)
-// ever frees the singleton out from under other live particle systems; the
-// engine ParticleSystem never disposes its texture (caller-owned by contract).
+// ever frees the singleton out from under other live particle systems;
+// ParticleEffect.dispose() never disposes config.map textures (caller-owned).
 let _statusEffectTexture: Texture | null = null;
 export function getStatusEffectTexture(_host?: SceneHost): Texture {
     if (!_statusEffectTexture) {
@@ -72,7 +74,7 @@ export function getStatusEffectTexture(_host?: SceneHost): Texture {
     return _statusEffectTexture;
 }
 
-// Hard cap on simultaneously-alive death-burst ParticleSystems. host.particleSystems
+// Hard cap on simultaneously-alive death-burst particle effects. host.particleSystems
 // is walked + updated every frame, so a mass AoE wipe (Frost Nova / Meteor / Whirlwind)
 // killing dozens of enemies in a single frame would otherwise spawn dozens of concurrent
 // systems and spike the per-frame particle walk for ~1-2s. Past the cap, extra deaths
@@ -95,66 +97,18 @@ export function resetDeathBurstBudget(): void {
     _activeDeathBursts = 0;
 }
 
-// ── Death-burst teardown reaper ───────────────────────────────────────────────
-// Drives stop + dispose of death-burst ParticleSystems from the render loop
-// instead of nested setTimeout chains: timers drift under load, pile up in the
-// event queue on mass AoE kills, and can fire on already-disposed systems after
-// run teardown. One lazily-created observer walks the (tiny, ≤18) live list.
-interface BurstTeardown {
-    ps: ParticleSystem;
-    /** Seconds of emission left before stop() is called. */
-    emitRemainingS: number;
-    stopped: boolean;
-    /** Set when the system was disposed externally (run teardown). */
-    dead: boolean;
-}
-const _liveBursts: BurstTeardown[] = [];
-let _burstReaper: UpdateToken | null = null;
-let _burstReaperHost: SceneHost | null = null;
-
-/** Emit for `emitS` seconds, then dispose once the last particle expires.
- *  Releases the death-burst budget slot exactly once, even if the run tears
- *  the system down first. Caller must have acquired the slot and started ps.
- *  (The old disposeTexture flag is gone: the engine ParticleSystem never
- *  disposes its texture — the shared status-effect singleton is always safe.) */
-export function scheduleDeathBurstTeardown(
-    host: SceneHost,
-    ps: ParticleSystem,
-    emitS: number,
-): void {
-    const entry: BurstTeardown = { ps, emitRemainingS: emitS, stopped: false, dead: false };
-    // Fires on BOTH reaper disposal and external (teardown) disposal.
-    ps.onDispose = () => {
-        entry.dead = true;
-        releaseDeathBurst();
-    };
-    _liveBursts.push(entry);
-    if (_burstReaper) return;
-    _burstReaperHost = host;
-    _burstReaper = host.onBeforeRender.add(h => {
-        const dt = h.deltaSeconds;
-        for (let i = _liveBursts.length - 1; i >= 0; i--) {
-            const b = _liveBursts[i];
-            if (!b.dead) {
-                if (!b.stopped) {
-                    b.emitRemainingS -= dt;
-                    if (b.emitRemainingS <= 0) { b.ps.stop(); b.stopped = true; }
-                } else if (b.ps.getLiveCount() === 0) {
-                    // Emission stopped and the last particle expired.
-                    b.ps.dispose(); // → onDispose sets dead + releases budget
-                }
-            }
-            if (b.dead) {
-                _liveBursts[i] = _liveBursts[_liveBursts.length - 1];
-                _liveBursts.pop();
-            }
-        }
-        if (_liveBursts.length === 0 && _burstReaper && _burstReaperHost) {
-            _burstReaperHost.onBeforeRender.remove(_burstReaper);
-            _burstReaper = null;
-            _burstReaperHost = null;
-        }
-    });
+// ── Death-burst teardown ──────────────────────────────────────────────────────
+// The lib effect is a one-shot burst (`looping: false` + a single burst),
+// so it self-disposes once its duration elapses (ParticleEffect autoDispose,
+// wired to config.onComplete). We only need to release the budget slot when
+// that happens — no more render-loop reaper polling live-particle counts.
+/** Wire budget release into a death-burst effect's disposal. Call once,
+ *  right after construction, for any effect that reserved a slot via
+ *  tryAcquireDeathBurst(). Safe whether disposal comes from autoDispose
+ *  completing or from external (run) teardown. */
+export function scheduleDeathBurstTeardown(host: SceneHost, ps: ParticleEffect): void {
+    void host; // kept for call-site parity; no longer needed by teardown itself
+    ps.onDispose = () => releaseDeathBurst();
 }
 
 export class Enemy {
@@ -353,7 +307,7 @@ export class Enemy {
 
     // Status effect properties
     protected activeStatusEffects: Map<StatusEffect, { endTime: number, strength: number }> = new Map();
-    protected statusEffectParticles: Map<StatusEffect, ParticleSystem> = new Map();
+    protected statusEffectParticles: Map<StatusEffect, ParticleEffect> = new Map();
     /** Rich-status stack model (burn/chill/curse/fragile). Legacy CC (slow/
      *  freeze/stun) still lives in activeStatusEffects above. */
     protected statuses: StatusStacks = new StatusStacks();
@@ -824,13 +778,15 @@ export class Enemy {
             const dist = this._scratchDir.length();
 
             if (dist > 0.001 && !rooted) {
-                this._scratchDir.normalize();
+                // Single division by the already-computed length instead of
+                // normalize() (which would recompute the length via a second sqrt).
+                this._scratchDir.multiplyScalar(1 / dist);
                 // Respect slow/freeze speed modifications already applied to this.speed
                 this._scratchMovement.copy(this._scratchDir).multiplyScalar(this.speed * deltaTime);
                 this.position.add(this._scratchMovement);
             } else if (dist > 0.001) {
                 // Rooted: still normalize the direction so the mesh faces the hero
-                this._scratchDir.normalize();
+                this._scratchDir.multiplyScalar(1 / dist);
             }
 
             this._curveDropY = Enemy.curveDropFn
@@ -1284,105 +1240,25 @@ export class Enemy {
     protected createStatusEffectParticles(effect: StatusEffect): void {
         if (!this.mesh) return;
 
-        // Idempotent: keep a running ParticleSystem instead of dispose+recreate on every
+        // Idempotent: keep a running effect instead of dispose+recreate on every
         // status re-apply (Frostfire etc. refresh BURNING/CHILL each cast). Recreating the
         // system per apply churns GPU buffers across many enemies = a per-frame hitch. It
         // persists until the status expires (stopStatusEffectParticles is called on expiry).
         if (this.statusEffectParticles.has(effect)) return;
 
-        // Create a new particle system
-        const particleSystem = new ParticleSystem(`${effect}Particles`, 20, this.scene);
+        const config = elementStatusConfig(effect);
+        if (!config) return;
 
-        // Set particle texture (shared singleton — avoids N parallel texture loads on AoE bursts)
-        particleSystem.particleTexture = getStatusEffectTexture();
-
-        // Set emission properties
-        particleSystem.emitter = this.mesh;
-        particleSystem.minEmitBox.set(-0.4, 0, -0.4);
-        particleSystem.maxEmitBox.set(0.4, 0.8, 0.4);
-
-        // Set particle properties based on effect
-        switch (effect) {
-            case StatusEffect.BURNING:
-                particleSystem.color1 = rgba(1, 0.5, 0, 1.0);
-                particleSystem.color2 = rgba(1, 0, 0, 1.0);
-                particleSystem.colorDead = rgba(0.3, 0, 0, 0.0);
-                particleSystem.minSize = 0.1;
-                particleSystem.maxSize = 0.3;
-                particleSystem.minLifeTime = 0.2;
-                particleSystem.maxLifeTime = 0.4;
-                particleSystem.emitRate = 30;
-                particleSystem.direction1.set(0, 1, 0);
-                particleSystem.direction2.set(0, 1, 0);
-                particleSystem.minEmitPower = 1;
-                particleSystem.maxEmitPower = 2;
-                break;
-
-            case StatusEffect.SLOWED:
-                particleSystem.color1 = rgba(0, 0.5, 1, 1.0);
-                particleSystem.color2 = rgba(0, 0, 1, 1.0);
-                particleSystem.colorDead = rgba(0, 0, 0.3, 0.0);
-                particleSystem.minSize = 0.1;
-                particleSystem.maxSize = 0.2;
-                particleSystem.minLifeTime = 0.5;
-                particleSystem.maxLifeTime = 1.0;
-                particleSystem.emitRate = 10;
-                particleSystem.direction1.set(-0.5, -1, -0.5);
-                particleSystem.direction2.set(0.5, -1, 0.5);
-                particleSystem.minEmitPower = 0.5;
-                particleSystem.maxEmitPower = 1;
-                break;
-
-            case StatusEffect.FROZEN:
-                particleSystem.color1 = rgba(0.8, 0.8, 1, 1.0);
-                particleSystem.color2 = rgba(0.5, 0.5, 1, 1.0);
-                particleSystem.colorDead = rgba(0, 0, 0.5, 0.0);
-                particleSystem.minSize = 0.05;
-                particleSystem.maxSize = 0.15;
-                particleSystem.minLifeTime = 1.0;
-                particleSystem.maxLifeTime = 2.0;
-                particleSystem.emitRate = 20;
-                particleSystem.direction1.set(-0.1, 0.1, -0.1);
-                particleSystem.direction2.set(0.1, 0.1, 0.1);
-                particleSystem.minEmitPower = 0.1;
-                particleSystem.maxEmitPower = 0.3;
-                break;
-
-            case StatusEffect.STUNNED:
-                particleSystem.color1 = rgba(1, 1, 0, 1.0);
-                particleSystem.color2 = rgba(1, 0.5, 0, 1.0);
-                particleSystem.colorDead = rgba(0.5, 0.5, 0, 0.0);
-                particleSystem.minSize = 0.1;
-                particleSystem.maxSize = 0.2;
-                particleSystem.minLifeTime = 0.3;
-                particleSystem.maxLifeTime = 0.6;
-                particleSystem.emitRate = 15;
-                particleSystem.direction1.set(-0.5, 1, -0.5);
-                particleSystem.direction2.set(0.5, 1, 0.5);
-                particleSystem.minEmitPower = 1;
-                particleSystem.maxEmitPower = 2;
-                break;
-
-            case StatusEffect.CONFUSED:
-                particleSystem.color1 = rgba(1, 0, 1, 1.0);
-                particleSystem.color2 = rgba(0.5, 0, 0.5, 1.0);
-                particleSystem.colorDead = rgba(0.3, 0, 0.3, 0.0);
-                particleSystem.minSize = 0.1;
-                particleSystem.maxSize = 0.3;
-                particleSystem.minLifeTime = 0.5;
-                particleSystem.maxLifeTime = 1.0;
-                particleSystem.emitRate = 10;
-                particleSystem.direction1.set(-1, 1, -1);
-                particleSystem.direction2.set(1, 1, 1);
-                particleSystem.minEmitPower = 0.5;
-                particleSystem.maxEmitPower = 1;
-                break;
+        // CONFUSED motes orbit at head height, matching the old emit-box's upper
+        // extent (0..0.8 Y) rather than the enemy's feet-level origin.
+        if (effect === StatusEffect.CONFUSED) {
+            config.transform = { ...config.transform, position: new Vector3(0, 0.7, 0) };
         }
 
-        // Start the particle system
-        particleSystem.start();
+        const particleSystem = new ParticleEffect(`${effect}Particles`, this.scene, config, {
+            follow: this.mesh,
+        });
 
-        // Store the particle system
         this.statusEffectParticles.set(effect, particleSystem);
     }
 
@@ -1394,7 +1270,7 @@ export class Enemy {
         const particleSystem = this.statusEffectParticles.get(effect);
         if (particleSystem) {
             particleSystem.stop();
-            // The engine ParticleSystem never disposes its texture, so the shared
+            // ParticleEffect.dispose() never disposes config.map, so the shared
             // status-effect singleton (getStatusEffectTexture) is safe here.
             particleSystem.dispose();
             this.statusEffectParticles.delete(effect);
@@ -1785,26 +1661,28 @@ export class Enemy {
 
         // --- Particle burst (capped to bound concurrent systems under mass kills) ---
         if (tryAcquireDeathBurst()) {
-            const ps = new ParticleSystem('deathBurst', 30, this.scene);
-            ps.emitter = deathPos;
-            ps.minEmitBox.set(-0.2, 0, -0.2);
-            ps.maxEmitBox.set(0.2, 0, 0.2);
-            ps.color1 = rgba(1, 0.8, 0.3, 1);
-            ps.color2 = rgba(0.8, 0.3, 0.1, 1);
-            ps.colorDead = rgba(0.3, 0.1, 0, 0);
-            ps.minSize = 0.1;
-            ps.maxSize = 0.35;
-            ps.minLifeTime = 0.2;
-            ps.maxLifeTime = 0.5;
-            ps.emitRate = 100;
-            ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-            ps.direction1.set(-1, 1, -1);
-            ps.direction2.set(1, 2, 1);
-            ps.minEmitPower = 1;
-            ps.maxEmitPower = 3;
-            ps.gravity.set(0, -5, 0);
-            ps.start();
-            scheduleDeathBurstTeardown(this.scene, ps, 0.15);
+            const ps = new ParticleEffect(
+                'deathBurst',
+                this.scene,
+                {
+                    looping: false,
+                    duration: 0.9,
+                    maxParticles: 30,
+                    emission: { rateOverTime: 0, bursts: [{ time: 0, count: 9 }] },
+                    startLifetime: { min: 0.333, max: 0.833 },
+                    startSize: { min: fxSize(0.1), max: fxSize(0.35) },
+                    startSpeed: { min: 1.039, max: 4.409 },
+                    startColor: { min: { r: 1, g: 0.8, b: 0.3 }, max: { r: 0.8, g: 0.3, b: 0.1 } },
+                    startOpacity: 1,
+                    opacityOverLifetime: { isActive: true, lifetimeCurve: { type: LifeTimeCurve.EASING, curveFunction: t => 1 - t } },
+                    gravity: 1.8,
+                    shape: { shape: Shape.CONE, cone: { angle: 60, radius: 0.2, radiusThickness: 1, arc: 360 } },
+                    transform: { position: deathPos.clone(), rotation: new Vector3(-Math.PI / 2, 0, 0) },
+                    renderer: fxRenderer('additive'),
+                },
+                { autoDispose: true }
+            );
+            scheduleDeathBurstTeardown(this.scene, ps);
         }
 
         // --- Gold reward float-up text ---

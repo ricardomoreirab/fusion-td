@@ -5,8 +5,9 @@ import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '.
 import { PALETTE } from '../../engine/rendering/StyleConstants';
 import { AnimGroup } from '../../engine/three/AnimGroup';
 import type { GlbContainer } from '../../engine/three/assets';
-import { headingToYaw, rgba } from '../../engine/three/math';
-import { ParticleSystem } from '../../engine/three/particles/ParticleSystem';
+import { headingToYaw } from '../../engine/three/math';
+import { fxRenderer, fxSize, ParticleEffect } from '../../engine/three/particles/ParticleEffect';
+import { LifeTimeCurve, Shape } from '@newkrok/three-particles';
 import { createBox, createCylinder, createSphere, disposeMesh } from '../../engine/three/primitives';
 
 export class ShieldEnemy extends Enemy {
@@ -459,7 +460,10 @@ export class ShieldEnemy extends Enemy {
         domeMat.emissive = new Color(0.15, 0.30, 0.60);
         domeMat.specular = new Color(0, 0, 0);
         domeMat.transparent = true;
-        domeMat.opacity = 0.35; // full shield = 0.35
+        // 0.22 (was 0.35): several shield-bearers clustered on one target
+        // stacked their shells into a white blob that hid the fight — a single
+        // dome still reads clearly at 0.22, and overlaps stay see-through.
+        domeMat.opacity = 0.22;
         this.shieldDome.material = domeMat;
         this.shieldDome.userData.ownedMaterial = true;
     }
@@ -507,11 +511,12 @@ export class ShieldEnemy extends Enemy {
             }
         }
 
-        // Update dome visibility: opacity = shieldFraction × 0.35
+        // Update dome visibility: opacity = shieldFraction × 0.22 (matches the
+        // reduced full-shield opacity — see _buildShieldDome).
         if (this.shieldDome) {
             const domeMat = this.shieldDome.material as MeshPhongMaterial;
             if (domeMat) {
-                domeMat.opacity = shieldFraction * 0.35;
+                domeMat.opacity = shieldFraction * 0.22;
             }
             this.shieldDome.visible = shieldFraction > 0;
         }
@@ -692,64 +697,47 @@ export class ShieldEnemy extends Enemy {
     protected createDeathEffect(): void {
         if (!this.mesh) return;
 
-        // Cap concurrent death-burst particle systems (mass-AoE-kill spike guard).
+        // Cap concurrent death-burst particle effects (mass-AoE-kill spike guard).
         // Past the cap, skip only the poof — the death sound still plays.
         if (!tryAcquireDeathBurst()) {
             this.game.getAssetManager().playSound('enemyDeath');
             return;
         }
 
-        // Create a simple explosion effect
-        const particleSystem = new ParticleSystem('deathParticles', 50, this.scene);
+        const emitPos = this.position.clone();
+        emitPos.y += 0.7;
 
-        // Set particle texture
-        particleSystem.particleTexture = getStatusEffectTexture();
-
-        // Set emission properties
-        particleSystem.emitter = this.position.clone();
-        (particleSystem.emitter as Vector3).y += 0.7;
-        particleSystem.minEmitBox.set(-0.2, 0, -0.2);
-        particleSystem.maxEmitBox.set(0.2, 0, 0.2);
-
-        // Set particle properties - silver/gold metallic burst
-        particleSystem.color1 = rgba(0.75, 0.72, 0.80, 1.0);
-        particleSystem.color2 = rgba(0.85, 0.70, 0.25, 1.0);
-        particleSystem.colorDead = rgba(0.3, 0.3, 0.2, 0.0);
-
-        particleSystem.minSize = 0.1;
-        particleSystem.maxSize = 0.5;
-
-        particleSystem.minLifeTime = 0.3;
-        particleSystem.maxLifeTime = 1.0;
-
-        particleSystem.emitRate = 100;
-
-        particleSystem.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-
-        particleSystem.gravity.set(0, 8, 0);
-
-        particleSystem.direction1.set(-1, 8, -1);
-        particleSystem.direction2.set(1, 8, 1);
-
-        particleSystem.minAngularSpeed = 0;
-        particleSystem.maxAngularSpeed = Math.PI;
-
-        particleSystem.minEmitPower = 1;
-        particleSystem.maxEmitPower = 3;
-        particleSystem.updateSpeed = 0.01;
-
-        // Start the particle system
-        particleSystem.start();
+        // Silver/gold metallic burst, floating upward (gravity is negative = anti-gravity).
+        const particleSystem = new ParticleEffect(
+            'deathParticles',
+            this.scene,
+            {
+                looping: false,
+                duration: 1.9,
+                maxParticles: 50,
+                emission: { rateOverTime: 0, bursts: [{ time: 0, count: 60 }] },
+                startLifetime: { min: 0.5, max: 1.667 },
+                startSize: { min: fxSize(0.1), max: fxSize(0.5) },
+                startSpeed: { min: 4.874, max: 14.623 },
+                startColor: { min: { r: 0.75, g: 0.72, b: 0.80 }, max: { r: 0.85, g: 0.70, b: 0.25 } },
+                startOpacity: 1,
+                rotationOverLifetime: { isActive: true, min: 0, max: 108 },
+                opacityOverLifetime: { isActive: true, lifetimeCurve: { type: LifeTimeCurve.EASING, curveFunction: t => 1 - t } },
+                gravity: -2.88,
+                shape: { shape: Shape.CONE, cone: { angle: 10, radius: 0.2, radiusThickness: 1, arc: 360 } },
+                transform: { position: emitPos, rotation: new Vector3(-Math.PI / 2, 0, 0) },
+                map: getStatusEffectTexture(),
+                renderer: fxRenderer('additive'),
+            },
+            { autoDispose: true }
+        );
 
         // Play sound effect
         this.game.getAssetManager().playSound('enemyDeath');
 
-        // Emit 1s, dispose when the last particle expires (render-loop driven —
-        // see scheduleDeathBurstTeardown). The engine ParticleSystem never
-        // disposes its texture, so the SHARED status-effect singleton
-        // (getStatusEffectTexture) stays alive for other enemies' live status
-        // particles.
-        scheduleDeathBurstTeardown(this.scene, particleSystem, 1.0);
+        // Disposes once the burst's particles finish (autoDispose above);
+        // this only wires the death-burst budget release into that disposal.
+        scheduleDeathBurstTeardown(this.scene, particleSystem);
     }
 
     /**

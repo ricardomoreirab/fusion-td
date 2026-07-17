@@ -21,7 +21,11 @@
   ],
   "author": "",
   "license": "MIT",
+  "overrides": {
+    "three": "$three"
+  },
   "dependencies": {
+    "@newkrok/three-particles": "^3.0.0",
     "postprocessing": "^6.39.2",
     "three": "^0.185.1"
   },

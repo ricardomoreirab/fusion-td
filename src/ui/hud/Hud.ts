@@ -59,8 +59,19 @@ export class Hud {
     extraLife: null, multishotCleave: null, knockback: null, attackSpeed: null, elementalCore: null,
   };
   private prevCooldownRemaining: number[] = [-1, -1, -1, -1];
+  private cachedPowerEmpty: (boolean | null)[] = [null, null, null, null];
+  private cachedPowerIcon: (string | null)[] = [null, null, null, null];
+  private cachedPowerColor: (string | null)[] = [null, null, null, null];
+  private cachedPowerLevel: (number | null)[] = [null, null, null, null];
+  private cachedPowerCdFrac: number[] = [-1, -1, -1, -1];
   private itemPulse: Record<ItemId, boolean> = {
     extraLife: false, multishotCleave: false, knockback: false, attackSpeed: false, elementalCore: false,
+  };
+  private cachedItemOwned: Record<ItemId, boolean | null> = {
+    extraLife: null, multishotCleave: null, knockback: null, attackSpeed: null, elementalCore: null,
+  };
+  private cachedItemStacks: Record<ItemId, number | null> = {
+    extraLife: null, multishotCleave: null, knockback: null, attackSpeed: null, elementalCore: null,
   };
 
   private ultButtons: { root: HTMLDivElement; label: HTMLDivElement; cd: HTMLDivElement; cdText: HTMLDivElement; id: string }[] = [];
@@ -82,6 +93,22 @@ export class Hud {
   private prevLevel = -1;
   private prevWaveInProgress = false;
   private prevGold = -1;
+
+  // Per-frame write caches — the last value actually written to the DOM for
+  // each field, so unchanged frames skip the write entirely (style/textContent
+  // writes force style recalc even when the value is identical). Always
+  // rounded/formatted BEFORE comparison so sub-visible deltas don't defeat the
+  // cache.
+  private cachedStatsText: string | null = null;
+  private cachedHpFill = -1;
+  private cachedHpText: string | null = null;
+  private cachedLevelText: string | null = null;
+  private cachedLevelFill = -1;
+  private cachedWaveText: string | null = null;
+  private cachedUltCdHeight: (number | null)[] = [];
+  private cachedUltCdText: (string | null)[] = [];
+  private cachedUltLabelOpacity: (number | null)[] = [];
+  private cachedVignetteOpacity = -1;
 
   constructor(gameUI: GameUI, abilityManager?: AbilityManager, game?: Game) {
     this.gameUI = gameUI;
@@ -211,23 +238,49 @@ export class Hud {
     waveInfo?: WaveInfo,
     runStats?: { timeS: number; kills: number },
   ): void {
-    if (runStats) this.statsPill.setText(runStatsLabel(runStats.timeS, runStats.kills));
+    if (runStats) {
+      const statsText = runStatsLabel(runStats.timeS, runStats.kills);
+      if (statsText !== this.cachedStatsText) {
+        this.cachedStatsText = statsText;
+        this.statsPill.setText(statsText);
+      }
+    }
     const ratio = Math.max(0, hp.current / hp.max);
-    this.hpPill.setFill(ratio);
-    this.hpPill.setText(`❤ ${Math.ceil(hp.current)} / ${hp.max}`);
+    const hpFill = Math.round(ratio * 1000) / 1000;
+    if (hpFill !== this.cachedHpFill) {
+      this.cachedHpFill = hpFill;
+      this.hpPill.setFill(hpFill);
+    }
+    const hpText = `❤ ${Math.ceil(hp.current)} / ${hp.max}`;
+    if (hpText !== this.cachedHpText) {
+      this.cachedHpText = hpText;
+      this.hpPill.setText(hpText);
+    }
     if (this.prevHp >= 0 && hp.current < this.prevHp - 0.01) {
       flashClass(this.hpPill.root, 'pill--flash-dmg');
     }
     this.prevHp = hp.current;
 
-    this.levelPill.setText(levelLabel(xp.level));
-    this.levelPill.setFill(xp.progress);
+    const levelText = levelLabel(xp.level);
+    if (levelText !== this.cachedLevelText) {
+      this.cachedLevelText = levelText;
+      this.levelPill.setText(levelText);
+    }
+    const levelFill = Math.round(xp.progress * 1000) / 1000;
+    if (levelFill !== this.cachedLevelFill) {
+      this.cachedLevelFill = levelFill;
+      this.levelPill.setFill(levelFill);
+    }
     if (this.prevLevel >= 0 && xp.level > this.prevLevel) {
       flashClass(this.levelPill.root, 'pill--pulse');
     }
     this.prevLevel = xp.level;
 
-    this.wavePill.setText(waveLabel(waveInfo));
+    const waveText = waveLabel(waveInfo);
+    if (waveText !== this.cachedWaveText) {
+      this.cachedWaveText = waveText;
+      this.wavePill.setText(waveText);
+    }
     if (waveInfo && this.prevWaveInProgress && !waveInfo.inProgress) {
       flashClass(this.wavePill.root, 'pill--flash-clear');
     }
@@ -238,21 +291,32 @@ export class Hud {
       const slot = slots[i];
       const ui = this.powerSlots[i];
       if (!slot) {
-        ui.setEmpty(true);
-        ui.setIcon('+', '#666');
-        ui.setLevel(0);
-        ui.setCooldown(0);
+        if (this.cachedPowerEmpty[i] !== true) { this.cachedPowerEmpty[i] = true; ui.setEmpty(true); }
+        if (this.cachedPowerIcon[i] !== '+') { this.cachedPowerIcon[i] = '+'; this.cachedPowerColor[i] = '#666'; ui.setIcon('+', '#666'); }
+        if (this.cachedPowerLevel[i] !== 0) { this.cachedPowerLevel[i] = 0; ui.setLevel(0); }
+        if (this.cachedPowerCdFrac[i] !== 0) { this.cachedPowerCdFrac[i] = 0; ui.setCooldown(0); }
         this.prevCooldownRemaining[i] = -1;
         continue;
       }
-      ui.setEmpty(false);
+      if (this.cachedPowerEmpty[i] !== false) { this.cachedPowerEmpty[i] = false; ui.setEmpty(false); }
       const { glyph, color } = this.glyphFor(slot);
-      ui.setIcon(glyph, color);
-      ui.setAccent(color);
-      ui.setLevel(slot.state.level);
+      if (this.cachedPowerIcon[i] !== glyph || this.cachedPowerColor[i] !== color) {
+        this.cachedPowerIcon[i] = glyph;
+        this.cachedPowerColor[i] = color;
+        ui.setIcon(glyph, color);
+        ui.setAccent(color);
+      }
+      if (this.cachedPowerLevel[i] !== slot.state.level) {
+        this.cachedPowerLevel[i] = slot.state.level;
+        ui.setLevel(slot.state.level);
+      }
       const total = slot.def.cooldownFor(slot.state);
       const remaining = Math.max(0, slot.state.cooldownRemaining);
-      ui.setCooldown(this.cdFraction(remaining, total));
+      const cdFrac = Math.round(this.cdFraction(remaining, total) * 1000) / 1000;
+      if (cdFrac !== this.cachedPowerCdFrac[i]) {
+        this.cachedPowerCdFrac[i] = cdFrac;
+        ui.setCooldown(cdFrac);
+      }
       const prev = this.prevCooldownRemaining[i];
       if (prev >= 0 && prev < 0.05 && remaining > total * 0.9) ui.pulseReady();
       this.prevCooldownRemaining[i] = remaining;
@@ -264,9 +328,15 @@ export class Hud {
       if (!ui) continue;
       const stacks = this.runItems?.getStacks(id) ?? 0;
       const owned = stacks > 0;
-      ui.setIcon(ITEM_GLYPH[id], owned ? ITEM_COLOR[id] : '#3a3a46');
-      ui.setAccent(owned ? ITEM_COLOR[id] : '#3a3a46');
-      ui.setLevel(stacks);
+      if (this.cachedItemOwned[id] !== owned) {
+        this.cachedItemOwned[id] = owned;
+        ui.setIcon(ITEM_GLYPH[id], owned ? ITEM_COLOR[id] : '#3a3a46');
+        ui.setAccent(owned ? ITEM_COLOR[id] : '#3a3a46');
+      }
+      if (this.cachedItemStacks[id] !== stacks) {
+        this.cachedItemStacks[id] = stacks;
+        ui.setLevel(stacks);
+      }
       if (this.itemPulse[id]) { ui.pulseReady(); this.itemPulse[id] = false; }
     }
 
@@ -277,14 +347,22 @@ export class Hud {
         const ability = ids[i] ? this.abilityManager.getAbility(ids[i]) : null;
         if (!ability) continue;
         if (ability.isReady) {
-          btn.cd.style.height = '0%';
-          btn.cdText.textContent = '';
-          btn.label.style.opacity = '1';
+          if (this.cachedUltCdHeight[i] !== 0) { this.cachedUltCdHeight[i] = 0; btn.cd.style.height = '0%'; }
+          if (this.cachedUltCdText[i] !== '') { this.cachedUltCdText[i] = ''; btn.cdText.textContent = ''; }
+          if (this.cachedUltLabelOpacity[i] !== 1) { this.cachedUltLabelOpacity[i] = 1; btn.label.style.opacity = '1'; }
         } else {
-          btn.cd.style.height = `${this.cdFraction(ability.currentCooldown, ability.cooldown) * 100}%`;
+          const heightPct = Math.round(this.cdFraction(ability.currentCooldown, ability.cooldown) * 1000) / 10;
+          if (this.cachedUltCdHeight[i] !== heightPct) {
+            this.cachedUltCdHeight[i] = heightPct;
+            btn.cd.style.height = `${heightPct}%`;
+          }
           const secs = ability.currentCooldown;
-          btn.cdText.textContent = secs >= 10 ? `${Math.ceil(secs)}` : secs.toFixed(1);
-          btn.label.style.opacity = '0.35';
+          const cdText = secs >= 10 ? `${Math.ceil(secs)}` : secs.toFixed(1);
+          if (this.cachedUltCdText[i] !== cdText) {
+            this.cachedUltCdText[i] = cdText;
+            btn.cdText.textContent = cdText;
+          }
+          if (this.cachedUltLabelOpacity[i] !== 0.35) { this.cachedUltLabelOpacity[i] = 0.35; btn.label.style.opacity = '0.35'; }
         }
       }
     }
@@ -292,10 +370,16 @@ export class Hud {
     const inDanger = ratio < 0.25;
     if (inDanger) {
       this.lowHpTime += deltaTime;
-      const a = 0.08 + 0.1 * Math.max(0, Math.sin(this.lowHpTime * Math.PI * 1.8));
-      this.vignette.style.opacity = `${a}`;
+      const a = Math.round((0.08 + 0.1 * Math.max(0, Math.sin(this.lowHpTime * Math.PI * 1.8))) * 1000) / 1000;
+      if (a !== this.cachedVignetteOpacity) {
+        this.cachedVignetteOpacity = a;
+        this.vignette.style.opacity = `${a}`;
+      }
     } else {
-      this.vignette.style.opacity = '0';
+      if (this.cachedVignetteOpacity !== 0) {
+        this.cachedVignetteOpacity = 0;
+        this.vignette.style.opacity = '0';
+      }
       this.lowHpTime = 0;
     }
   }

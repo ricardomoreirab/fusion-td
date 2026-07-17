@@ -11,6 +11,9 @@ import { rgba } from '../engine/three/math';
 import { setMeshOpacity } from '../engine/rendering/LowPolyMaterial';
 import { GlobeGround } from './globe/GlobeGround';
 import { PropField } from './globe/PropField';
+import { GroundCoverField } from './globe/GroundCoverField';
+import { AmbientMotes } from './fx/AmbientMotes';
+import { spawnKillGems } from './fx/LootFx';
 import { GlobeSky } from './globe/GlobeSky';
 import { setCurveOrigin, clearCurveOrigin, curveDropAt } from './globe/curvature';
 import { GLOBE_RADIUS, GRASS_TILE_SIZE, GRASS_FAR_TILE_SIZE, GRASS_FAR_FADE_START, GRASS_FAR_FADE_END, FOG_START, FOG_END, FOG_COLOR_RGB } from './globe/constants';
@@ -296,6 +299,8 @@ export class SurvivorsGameplayState implements GameState {
     private scene: SceneHost | null = null;
     private map: GlobeGround | null = null;
     private propField: PropField | null = null;
+    private groundCover: GroundCoverField | null = null;
+    private ambientMotes: AmbientMotes | null = null;
     // Previous-frame hero position — yields the travel direction the prop
     // recycler biases toward (zero displacement → full-circle placement).
     private _lastHeroX = 0;
@@ -437,6 +442,12 @@ export class SurvivorsGameplayState implements GameState {
      *  perf trim raises it to 3). Driven in update() via shadow.needsUpdate. */
     private _shadowRefreshInterval = 2;
     private _shadowRefreshCounter = 0;
+    /** Last hero-follow point applied to the shadow light/target this run —
+     *  lets update() skip the position.set()/updateMatrixWorld() churn when
+     *  the hero hasn't moved past the snap grid (e.g. idle or paused). */
+    private _lastShadowFollowX = Number.NaN;
+    private _lastShadowFollowY = Number.NaN;
+    private _lastShadowFollowZ = Number.NaN;
     /** Slow FPS EMA (~8s time constant) sampled across each wave — read at wave
      *  clear by maybeTrimPerformance to decide late-wave quality stepdowns. */
     private _fpsEma = 60;
@@ -639,7 +650,10 @@ export class SurvivorsGameplayState implements GameState {
         // and falloff after the SpotLight + ambient cuts below. Direction is
         // encoded via light.target (kept on the hero in update()).
         // 0.9 pre-ACES; raised for filmic midtone compression.
-        const keyLight = new DirectionalLight(new Color(1.0, 0.78, 0.55), 1.35);
+        // Late-day sun: warmer + slightly hotter than the old noon key so the
+        // dusk-mauve sky (GlobeSky SKY_TINT / FOG_COLOR_RGB) reads as golden
+        // hour instead of overcast — verified against the ACES curve in-game.
+        const keyLight = new DirectionalLight(new Color(1.0, 0.74, 0.48), 1.45);
         keyLight.name = 'survivorsKey';
         keyLight.position.copy(this._keyLightDir).multiplyScalar(-40);
         keyLight.target.position.set(0, 0, 0);
@@ -783,10 +797,11 @@ export class SurvivorsGameplayState implements GameState {
             championAsset ?? undefined,
         );
         this.hero.controlMode = 'player';
-        // Torch left off — it's a strong warm point light that masks shadows
-        // around the hero. The grass shader's torch glow auto-syncs with this,
-        // so leaving torch.intensity at 0 keeps both quiet. Toggle on by
-        // calling `this.hero.enableTorch()` for a moodier night-arena look.
+        // Soft hero-presence glow: the full torch (5.0, unlimited falloff)
+        // masks the key light's shadows, but at 2.2 with an 9-unit cutoff it
+        // just lifts the dark GLB hero out of the grass — the flicker makes it
+        // read as carried firelight. The grass shader's torch glow auto-syncs.
+        this.hero.enableTorch(2.2, 9);
 
         // Register the hero as a shadow caster (directional key light).
         // GLB heroes are skinned, so the whole mesh tree is flagged.
@@ -1042,6 +1057,12 @@ export class SurvivorsGameplayState implements GameState {
         // Horizon props: recycled low-poly decoration that drifts past as the
         // hero runs — the motion cue that sells the rotating-globe illusion.
         this.propField = new PropField(this.scene);
+        // Meadow dressing between hero and tree ring: instanced flowers,
+        // tufts, pebbles, mushrooms, logs (8 draw calls, recycled like props).
+        this.groundCover = new GroundCoverField(this.scene);
+        // Drifting firefly/pollen motes hovering over the field around the hero.
+        const heroFollowMesh = (this.hero as unknown as { mesh: Object3D | null }).mesh;
+        if (heroFollowMesh) this.ambientMotes = new AmbientMotes(this.scene, heroFollowMesh);
         Enemy.onDamageCallback = (position, damage, isCrit, element) => {
             this.damageNumbers?.showDamage(position, damage, element, isCrit);
             // M4-9: mirror EVERY host-side damage number to the guest — its own routed
@@ -1065,6 +1086,8 @@ export class SurvivorsGameplayState implements GameState {
             // reward × goldGainMultiplier, so the float must scale identically.
             this.damageNumbers?.showReward(position,
                 Math.round(reward * (this.playerStats?.goldGainMultiplier ?? 1)));
+            // Cosmetic gold-gem spray — loot made visible; capped internally.
+            if (this.scene) spawnKillGems(this.scene, position.x, position.z);
         };
         // Each monster killed refunds a flat slice of every ability cooldown. Wired
         // to the kill hook (fires once per death from base die()) rather than the
@@ -1436,8 +1459,9 @@ export class SurvivorsGameplayState implements GameState {
             // IBL), so it is the character-brightness knob that leaves the field
             // untouched. The env cube is a dark dusk map, so it needs to run hot:
             // at 0.65 the dark-albedo GLB minions rendered as near-black
-            // silhouettes against the grass.
-            host.scene.environmentIntensity = 1.6;
+            // silhouettes against the grass. 2.0 (was 1.6) lifts hero + enemy
+            // readability another notch under the dusk grade.
+            host.scene.environmentIntensity = 2.0;
 
             this.envTexture = envTexture;
         }
@@ -2523,8 +2547,13 @@ export class SurvivorsGameplayState implements GameState {
                 break;
             }
             case 'swing': {
-                const range = m.hint ? parseFloat(m.hint) : 3.5;
-                spawnCosmeticSwingRing(this.scene, m.x, m.z, isNaN(range) ? 3.5 : range);
+                // "range" (legacy full-ring) or "range:facingAngle" (cone chop).
+                const [rangePart, anglePart] = (m.hint ?? '').split(':');
+                const range = parseFloat(rangePart);
+                const angle = anglePart !== undefined ? parseFloat(anglePart) : NaN;
+                spawnCosmeticSwingRing(this.scene, m.x, m.z,
+                    isNaN(range) ? 3.5 : range,
+                    isNaN(angle) ? undefined : angle);
                 break;
             }
             case 'power':
@@ -2997,6 +3026,10 @@ export class SurvivorsGameplayState implements GameState {
         this.map = null;
         this.propField?.dispose();
         this.propField = null;
+        this.groundCover?.dispose();
+        this.groundCover = null;
+        this.ambientMotes?.dispose();
+        this.ambientMotes = null;
         this._lastHeroX = 0;
         this._lastHeroZ = 0;
         clearCurveOrigin(); // globe drop reads 0 everywhere until the next run
@@ -3033,6 +3066,9 @@ export class SurvivorsGameplayState implements GameState {
             this.shadowSourceLight.dispose();
             this.shadowSourceLight = null;
         }
+        this._lastShadowFollowX = Number.NaN;
+        this._lastShadowFollowY = Number.NaN;
+        this._lastShadowFollowZ = Number.NaN;
         this.envTexture?.dispose();
         this.envTexture = null;
         this.globeSky?.dispose();
@@ -3294,9 +3330,19 @@ export class SurvivorsGameplayState implements GameState {
                 const light = this.shadowSourceLight;
                 const sx = Math.round(hp.x * 2) / 2;
                 const sz = Math.round(hp.z * 2) / 2;
-                light.position.set(sx, hp.y, sz).addScaledVector(this._keyLightDir, -40);
-                light.target.position.set(sx, hp.y, sz);
-                light.target.updateMatrixWorld();
+                const followEps = 1e-4;
+                if (
+                    Math.abs(sx - this._lastShadowFollowX) > followEps ||
+                    Math.abs(hp.y - this._lastShadowFollowY) > followEps ||
+                    Math.abs(sz - this._lastShadowFollowZ) > followEps
+                ) {
+                    this._lastShadowFollowX = sx;
+                    this._lastShadowFollowY = hp.y;
+                    this._lastShadowFollowZ = sz;
+                    light.position.set(sx, hp.y, sz).addScaledVector(this._keyLightDir, -40);
+                    light.target.position.set(sx, hp.y, sz);
+                    light.target.updateMatrixWorld();
+                }
                 // Shadow-map refresh throttle (Babylon shadowMap.refreshRate):
                 // re-render the map every Nth frame only.
                 if (light.castShadow) {
@@ -3316,6 +3362,7 @@ export class SurvivorsGameplayState implements GameState {
             this._lastHeroX = hp.x;
             this._lastHeroZ = hp.z;
             this.propField?.update(hp.x, hp.z, pdx, pdz);
+            this.groundCover?.update(hp.x, hp.z, pdx, pdz);
         }
 
         // Shift the distance-fog band outward by however far the camera has

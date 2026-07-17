@@ -35,6 +35,26 @@ export type ProjectileShape = 'sphere' | 'arrow' | 'mageBolt';
 /** Delay between the main melee swing and each queued follow-up spin. */
 const EXTRA_SPIN_DELAY = 0.15;
 
+/** Half-angle of the forward melee cone (full chop arc = 110°). */
+export const MELEE_CONE_HALF_ANGLE_RAD = (55 * Math.PI) / 180;
+
+/** Baseline shove every cone hit applies (world units). Small on purpose —
+ *  it staggers the front rank without scattering the horde; the knockback
+ *  item's per-stack push (1.0) stacks on top inside applyHit. */
+export const MELEE_BASE_KNOCKBACK = 0.5;
+
+/** Pure cone test: is the (dx, dz) offset within the cone around the unit
+ *  facing (fx, fz)? Exported for Vitest. */
+export function isInMeleeCone(
+    dx: number, dz: number,
+    fx: number, fz: number,
+    cosHalfAngle: number,
+): boolean {
+    const d = Math.hypot(dx, dz);
+    if (d < 1e-3) return true; // standing inside the hero — always hit
+    return (dx / d) * fx + (dz / d) * fz >= cosHalfAngle;
+}
+
 /** In-flight projectile state, advanced by the ONE shared per-frame observer
  *  (was: one observer registered per projectile — dozens of live observers
  *  with attack-speed builds). */
@@ -248,8 +268,8 @@ export class HeroBasicAttack {
             if (!target || !target.isAlive()) return;
 
             const heroPos = this.getHeroPosition();
-            const dist = heroPos.distanceTo(target.position);
-            if (dist > this.effectiveRange) return;
+            const range = this.effectiveRange;
+            if (heroPos.distanceToSquared(target.position) > range * range) return;
 
             const extras = this.playerStats?.extraAttacks ?? 0;
             // Ranger: every 15% above 1.0× AS grants an extra projectile. The
@@ -296,7 +316,7 @@ export class HeroBasicAttack {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Melee — 360° AOE swing
+    // Melee — forward cone chop (aimed at the nearest enemy in range)
     // ─────────────────────────────────────────────────────────────────────────
 
     /** True when at least one alive enemy is within the effective melee range. */
@@ -319,32 +339,63 @@ export class HeroBasicAttack {
         const range = this.effectiveRange;
         const enemies = this.enemyProvider ? this.enemyProvider() : [];
         const hitEnemies: Enemy[] = [];
-
         const rangeSq = range * range;
+
+        // Aim the chop at the nearest enemy in range — the swing only fires
+        // when one exists (hasMeleeTarget), so the cone always connects.
+        let aim: Enemy | null = null;
+        let aimDistSq = Infinity;
         for (const e of enemies) {
             if (!e.isAlive()) continue;
             const dx = e.getPosition().x - heroPos.x;
             const dz = e.getPosition().z - heroPos.z;
-            if (dx * dx + dz * dz <= rangeSq) {
-                this.applyHit(e, heroPos, enemies);
-                hitEnemies.push(e);
-            }
+            const dSq = dx * dx + dz * dz;
+            if (dSq <= rangeSq && dSq < aimDistSq) { aim = e; aimDistSq = dSq; }
+        }
+        if (!aim) return;
+        let fx = aim.getPosition().x - heroPos.x;
+        let fz = aim.getPosition().z - heroPos.z;
+        const fLen = Math.hypot(fx, fz);
+        if (fLen > 1e-3) { fx /= fLen; fz /= fLen; } else { fx = 1; fz = 0; }
+        const cosHalf = Math.cos(MELEE_CONE_HALF_ANGLE_RAD);
+
+        for (const e of enemies) {
+            if (!e.isAlive()) continue;
+            const dx = e.getPosition().x - heroPos.x;
+            const dz = e.getPosition().z - heroPos.z;
+            if (dx * dx + dz * dz > rangeSq) continue;
+            if (!isInMeleeCone(dx, dz, fx, fz, cosHalf)) continue;
+            this.applyHit(e, heroPos, enemies);
+            // Baseline shove radiating from the hero — the chop staggers the
+            // front rank. Item knockback (applyHit) stacks on top.
+            const d = Math.hypot(dx, dz);
+            if (d > 0.001) e.applyKnockback(dx / d, dz / d, MELEE_BASE_KNOCKBACK);
+            hitEnemies.push(e);
         }
 
-        // Bright sword-arc visual (thick golden torus + sweeping blade trail)
-        this.spawnSwingRing(heroPos, range);
-        // Co-op: broadcast the swing so the teammate sees the melee arc (cosmetic).
-        emitCoopFx('swing', heroPos.x, heroPos.z, undefined, undefined, String(range));
+        // Forward chop-arc visual aligned to the cone.
+        const facingAngle = Math.atan2(fz, fx);
+        this.spawnSwingCone(heroPos, range, facingAngle);
+        // Per-enemy impact flash — capped so a crowded chop doesn't spike
+        // draw calls; the cone arc + damage numbers carry the rest.
+        for (let i = 0; i < Math.min(hitEnemies.length, 4); i++) {
+            this.spawnImpactFlash(hitEnemies[i].getPosition());
+        }
+        // Co-op: broadcast the swing (range + facing) so the teammate sees the
+        // same cone arc. "range:angle" — old builds parseFloat the range prefix.
+        emitCoopFx('swing', heroPos.x, heroPos.z, undefined, undefined,
+            `${range}:${facingAngle.toFixed(3)}`);
 
-        // Procedural barbarian spin FX (no-op for GLB champions — they lack barbAxeHead etc).
+        // Weapon-trail FX (axe ribbon follows the weapon bone through the chop;
+        // also drives the procedural fallback's attack timer).
         const hero = this.hero as any;
         if (typeof hero.triggerSpinAttack === 'function') {
             hero.triggerSpinAttack();
         }
-        // GLB attack animation — facing the nearest hit enemy if we landed any.
+        // GLB attack animation — face the cone's aim target so the chop clip
+        // points where the hits land.
         if (typeof hero.triggerAttack === 'function') {
-            const facing = hitEnemies.length > 0 ? hitEnemies[0].getPosition() : undefined;
-            hero.triggerAttack(facing);
+            hero.triggerAttack(aim.getPosition());
         }
     }
 
@@ -403,102 +454,136 @@ export class HeroBasicAttack {
         }
     }
 
-    private spawnSwingRing(center: Vector3, range: number): void {
+    /** Forward chop-arc visual: a faint wedge showing the full cone plus a
+     *  bright blade slice sweeping across it. `facingAngle` is the world XZ
+     *  angle of the cone center (atan2(dz, dx)).
+     *
+     *  Yaw math: geometry theta θ maps to world angle θ − rotation.y after the
+     *  x=π/2 pitch (order 'YXZ'), so aiming geometry-center θ=0 at the facing
+     *  means rotation.y = −facingAngle. */
+    private spawnSwingCone(center: Vector3, range: number, facingAngle: number): void {
         // Barbarian-only elemental tint: blend the colors of every active power
         // element. No elements (or non-barbarian) → the classic gold arc.
         const active = (this.powerSlots && (this.hero as any).championType === 'barbarian')
             ? Array.from(this.powerSlots.getActiveElements())
             : [];
         const tint = active.length > 0 ? blendElements(active) : null;
+        const half = MELEE_CONE_HALF_ANGLE_RAD;
 
-        // Thick golden torus on the ground — the main slash arc readout
-        const ring = createTorus(
-            'swingRing',
-            { diameter: range * 2, thickness: 0.45, tessellation: 32 },
-            this.scene,
-        );
-        ring.position.copy(center);
-        ring.position.y = 0.25;
-        // Cache the material by its tint hue. There are only finitely many element
-        // blends, so each variant is compiled once and reused forever — no per-swing
-        // allocation, nothing to orphan into the scene. The per-frame fade goes
-        // through setMeshOpacity (clone-on-write), so this shared cached material is
-        // NEVER mutated in place.
-        const ringMat = tint
-            ? getCachedMaterial('swingRingMatElem_' + tint.getHexString(), m => {
+        // Faint full-cone wedge — the hit-area readout.
+        const wedge = new Mesh(new CircleGeometry(range, 24, -half, half * 2));
+        wedge.name = 'swingCone';
+        this.scene.scene.add(wedge);
+        wedge.position.copy(center);
+        wedge.position.y = 0.3;
+        wedge.rotation.order = 'YXZ';
+        wedge.rotation.x = Math.PI / 2;
+        wedge.rotation.y = -facingAngle;
+        // Cache materials by tint hue — finitely many element blends, compiled
+        // once, reused forever. Fades go through setMeshOpacity (clone-on-write)
+        // so the shared cached material is NEVER mutated in place.
+        const wedgeMat = tint
+            ? getCachedMaterial('swingConeMatElem_' + tint.getHexString(), m => {
                 m.emissive.copy(tint).multiplyScalar(1.1);
-                m.color.set(0, 0, 0); // was disableLighting — emissive-only look
+                m.color.set(0, 0, 0); // emissive-only look
                 m.transparent = true;
-                m.opacity = 0.9;
+                m.opacity = 0.4;
                 m.depthWrite = false;
+                m.side = DoubleSide; // flat wedge must read from above regardless of winding
             })
-            : getCachedMaterial('swingRingMat', m => {
+            : getCachedMaterial('swingConeMat', m => {
                 m.emissive.set(1, 0.85, 0.4);
                 m.color.set(0, 0, 0);
                 m.transparent = true;
-                m.opacity = 0.9;
-                m.depthWrite = false;
-            });
-        ring.material = ringMat;
-        ring.scale.set(0.7, 0.7, 0.7); // starts a bit smaller
-
-        // Sweeping blade trail — a flat half-disc that rotates around the hero matching
-        // the spin. (Direct CircleGeometry: primitives.createDisc has no half-arc option.)
-        const arc = new Mesh(new CircleGeometry(range, 32, 0, Math.PI));
-        arc.name = 'swingArc';
-        this.scene.scene.add(arc);
-        arc.position.copy(center);
-        arc.position.y = 0.35;
-        arc.rotation.order = 'YXZ'; // Babylon Euler order: yaw (swept per-frame) then this pitch
-        arc.rotation.x = Math.PI / 2;
-        const arcMat = tint
-            ? getCachedMaterial('swingArcMatElem_' + tint.getHexString(), m => {
-                m.emissive.copy(tint).multiplyScalar(1.25);
-                m.color.set(0, 0, 0);
-                m.transparent = true;
-                m.opacity = 0.5;
-                m.depthWrite = false;
-                m.side = DoubleSide; // flat disc must read from above regardless of winding
-            })
-            : getCachedMaterial('swingArcMat', m => {
-                m.emissive.set(1, 0.95, 0.7);
-                m.color.set(0, 0, 0);
-                m.transparent = true;
-                m.opacity = 0.5;
+                m.opacity = 0.4;
                 m.depthWrite = false;
                 m.side = DoubleSide;
             });
-        arc.material = arcMat;
+        wedge.material = wedgeMat;
+        wedge.scale.setScalar(0.75); // grows to full reach during the chop
 
-        const duration = 0.35; // seconds — matches Champion spin duration roughly
+        // Bright blade slice sweeping edge-to-edge across the cone.
+        const bladeHalf = (14 * Math.PI) / 180;
+        const blade = new Mesh(new CircleGeometry(range, 10, -bladeHalf, bladeHalf * 2));
+        blade.name = 'swingBlade';
+        this.scene.scene.add(blade);
+        blade.position.copy(center);
+        blade.position.y = 0.35;
+        blade.rotation.order = 'YXZ';
+        blade.rotation.x = Math.PI / 2;
+        const bladeMat = tint
+            ? getCachedMaterial('swingBladeMatElem_' + tint.getHexString(), m => {
+                m.emissive.copy(tint).multiplyScalar(1.4);
+                m.color.set(0, 0, 0);
+                m.transparent = true;
+                m.opacity = 0.75;
+                m.depthWrite = false;
+                m.side = DoubleSide;
+            })
+            : getCachedMaterial('swingBladeMat', m => {
+                m.emissive.set(1, 0.95, 0.7);
+                m.color.set(0, 0, 0);
+                m.transparent = true;
+                m.opacity = 0.75;
+                m.depthWrite = false;
+                m.side = DoubleSide;
+            });
+        blade.material = bladeMat;
+
+        const duration = 0.3;
+        const sweep = half - bladeHalf; // blade center travels ±this around facing
         let elapsed = 0;
 
         let token: UpdateToken | null = null;
         token = this.scene.onBeforeRender.add(() => {
-            const dt = this.scene.deltaSeconds;
-            elapsed += dt;
+            elapsed += this.scene.deltaSeconds;
             const t = Math.min(elapsed / duration, 1);
 
-            // Ring: expand from 0.7 to 1.0× and fade out. Fade is per-mesh via
-            // setMeshOpacity (first call clones the cached material into a mesh-owned
-            // copy), so the shared cached material is never mutated and concurrent
-            // swings can't fight. Effective alpha = base alpha × (1 - t), matching
-            // the old material.alpha × mesh.visibility product.
-            const ringScale = 0.7 + 0.3 * t;
-            ring.scale.set(ringScale, ringScale, ringScale);
-            setMeshOpacity(ring, 0.9 * (1 - t));
+            // Wedge: expand to full reach and fade.
+            const s = 0.75 + 0.25 * t;
+            wedge.scale.set(s, s, s);
+            setMeshOpacity(wedge, 0.4 * (1 - t));
 
-            // Arc: sweep a full 360° (the half-disc rotates twice to look like a continuous sweep).
-            // Negative sign = clockwise (viewed from above), matching the Aulus whirlwind spin.
-            arc.rotation.y = -t * Math.PI * 2;
-            setMeshOpacity(arc, 0.5 * (1 - t));
+            // Blade: sweep across the cone (clockwise viewed from above) and fade.
+            blade.rotation.y = -(facingAngle + (1 - 2 * t) * sweep);
+            setMeshOpacity(blade, 0.75 * (1 - t * t));
 
             if (t >= 1) {
                 // disposeMesh frees the meshes + their setMeshOpacity clones (flagged
                 // ownedMaterial); the cached shared materials are skipped —
                 // clearMaterialCache() frees them on run teardown.
+                disposeMesh(wedge);
+                disposeMesh(blade);
+                this.scene.onBeforeRender.remove(token);
+            }
+        });
+    }
+
+    /** Small expanding shockwave ring at a struck enemy — the same cached-
+     *  material + setMeshOpacity(clone-on-write) + disposeMesh lifecycle as the
+     *  swing ring, so nothing is orphaned. ~0.22 s, one draw call while live. */
+    private spawnImpactFlash(pos: Vector3): void {
+        const ring = createTorus('impactFlash', { diameter: 0.7, thickness: 0.14, tessellation: 16 }, this.scene);
+        ring.position.set(pos.x, 0.45, pos.z);
+        ring.material = getCachedMaterial('impactFlashMat', m => {
+            m.emissive.set(1, 0.9, 0.6);
+            m.color.set(0, 0, 0);
+            m.transparent = true;
+            m.opacity = 0.85;
+            m.depthWrite = false;
+        });
+
+        const duration = 0.22;
+        let elapsed = 0;
+        let token: UpdateToken | null = null;
+        token = this.scene.onBeforeRender.add(() => {
+            elapsed += this.scene.deltaSeconds;
+            const t = Math.min(elapsed / duration, 1);
+            const s = 0.6 + 1.5 * t;
+            ring.scale.set(s, s, s);
+            setMeshOpacity(ring, 0.85 * (1 - t));
+            if (t >= 1) {
                 disposeMesh(ring);
-                disposeMesh(arc);
                 this.scene.onBeforeRender.remove(token);
             }
         });

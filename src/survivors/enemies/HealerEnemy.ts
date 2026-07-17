@@ -6,8 +6,9 @@ import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
 import { PALETTE } from '../../engine/rendering/StyleConstants';
 import { AnimGroup } from '../../engine/three/AnimGroup';
 import type { GlbContainer } from '../../engine/three/assets';
-import { headingToYaw, rgba } from '../../engine/three/math';
-import { ParticleSystem } from '../../engine/three/particles/ParticleSystem';
+import { headingToYaw } from '../../engine/three/math';
+import { fxRenderer, fxSize, ParticleEffect } from '../../engine/three/particles/ParticleEffect';
+import { LifeTimeCurve, Shape } from '@newkrok/three-particles';
 import { createBox, createCylinder, createDisc, createSphere, createTorus, disposeMesh, isMeshDisposed } from '../../engine/three/primitives';
 
 export class HealerEnemy extends Enemy {
@@ -431,64 +432,47 @@ export class HealerEnemy extends Enemy {
     protected createDeathEffect(): void {
         if (!this.mesh) return;
 
-        // Cap concurrent death-burst particle systems (mass-AoE-kill spike guard).
+        // Cap concurrent death-burst particle effects (mass-AoE-kill spike guard).
         // Past the cap, skip only the poof — the death sound still plays.
         if (!tryAcquireDeathBurst()) {
             this.game.getAssetManager().playSound('enemyDeath');
             return;
         }
 
-        // Create a healing-themed explosion effect
-        const particleSystem = new ParticleSystem('deathParticles', 50, this.scene);
+        const emitPos = this.position.clone();
+        emitPos.y += 0.7;
 
-        // Set particle texture
-        particleSystem.particleTexture = getStatusEffectTexture();
-
-        // Set emission properties
-        particleSystem.emitter = this.position.clone();
-        (particleSystem.emitter as Vector3).y += 0.7;
-        particleSystem.minEmitBox.set(-0.2, 0, -0.2);
-        particleSystem.maxEmitBox.set(0.2, 0, 0.2);
-
-        // Set particle properties - green/purple mystic poof
-        particleSystem.color1 = rgba(0.30, 0.95, 0.50, 1.0);
-        particleSystem.color2 = rgba(0.40, 0.25, 0.65, 1.0);
-        particleSystem.colorDead = rgba(0.15, 0.30, 0.20, 0.0);
-
-        particleSystem.minSize = 0.1;
-        particleSystem.maxSize = 0.5;
-
-        particleSystem.minLifeTime = 0.3;
-        particleSystem.maxLifeTime = 1.0;
-
-        particleSystem.emitRate = 100;
-
-        particleSystem.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-
-        particleSystem.gravity.set(0, 8, 0);
-
-        particleSystem.direction1.set(-1, 8, -1);
-        particleSystem.direction2.set(1, 8, 1);
-
-        particleSystem.minAngularSpeed = 0;
-        particleSystem.maxAngularSpeed = Math.PI;
-
-        particleSystem.minEmitPower = 1;
-        particleSystem.maxEmitPower = 3;
-        particleSystem.updateSpeed = 0.01;
-
-        // Start the particle system
-        particleSystem.start();
+        // Green/purple mystic poof, floating upward (gravity is negative = anti-gravity).
+        const particleSystem = new ParticleEffect(
+            'deathParticles',
+            this.scene,
+            {
+                looping: false,
+                duration: 1.9,
+                maxParticles: 50,
+                emission: { rateOverTime: 0, bursts: [{ time: 0, count: 60 }] },
+                startLifetime: { min: 0.5, max: 1.667 },
+                startSize: { min: fxSize(0.1), max: fxSize(0.5) },
+                startSpeed: { min: 4.874, max: 14.623 },
+                startColor: { min: { r: 0.30, g: 0.95, b: 0.50 }, max: { r: 0.40, g: 0.25, b: 0.65 } },
+                startOpacity: 1,
+                rotationOverLifetime: { isActive: true, min: 0, max: 108 },
+                opacityOverLifetime: { isActive: true, lifetimeCurve: { type: LifeTimeCurve.EASING, curveFunction: t => 1 - t } },
+                gravity: -2.88,
+                shape: { shape: Shape.CONE, cone: { angle: 10, radius: 0.2, radiusThickness: 1, arc: 360 } },
+                transform: { position: emitPos, rotation: new Vector3(-Math.PI / 2, 0, 0) },
+                map: getStatusEffectTexture(),
+                renderer: fxRenderer('additive'),
+            },
+            { autoDispose: true }
+        );
 
         // Play sound effect
         this.game.getAssetManager().playSound('enemyDeath');
 
-        // Emit 1s, dispose when the last particle expires (render-loop driven —
-        // see scheduleDeathBurstTeardown). The engine ParticleSystem never
-        // disposes its texture, so the SHARED status-effect singleton
-        // (getStatusEffectTexture) stays alive for other enemies' live status
-        // particles.
-        scheduleDeathBurstTeardown(this.scene, particleSystem, 1.0);
+        // Disposes once the burst's particles finish (autoDispose above);
+        // this only wires the death-burst budget release into that disposal.
+        scheduleDeathBurstTeardown(this.scene, particleSystem);
     }
 
     /**

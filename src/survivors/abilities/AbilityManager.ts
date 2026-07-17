@@ -1,10 +1,11 @@
 import {
     Color, DoubleSide, Material, Mesh, MeshBasicMaterial, Plane, Raycaster, Vector2, Vector3,
 } from 'three';
+import { LifeTimeCurve, Shape, SimulationSpace } from '@newkrok/three-particles';
 import { Game } from '../../engine/Game';
 import { SceneHost, UpdateToken } from '../../engine/three/SceneHost';
-import { ParticleSystem } from '../../engine/three/particles/ParticleSystem';
-import { RGBA, headingToYaw } from '../../engine/three/math';
+import { fxRenderer, fxSize, ParticleEffect } from '../../engine/three/particles/ParticleEffect';
+import { headingToYaw } from '../../engine/three/math';
 import { tween } from '../../engine/three/tween';
 import {
     createCylinder, createDisc, createIcoSphere, createPlane, createTorus,
@@ -696,58 +697,58 @@ export class AbilityManager {
 
     /** Brief dust streak at the dash origin for barbarian. */
     private spawnDashTrail(origin: Vector3): void {
-        const ps = new ParticleSystem('dashTrail', 30, this.host);
-        ps.emitter = new Vector3(origin.x, origin.y + 0.1, origin.z);
-        ps.minEmitBox.set(-0.3, 0, -0.3);
-        ps.maxEmitBox.set(0.3, 0.1, 0.3);
-        ps.color1 = new RGBA(0.65, 0.55, 0.40, 1);
-        ps.color2 = new RGBA(0.40, 0.32, 0.22, 1);
-        ps.colorDead = new RGBA(0.15, 0.12, 0.08, 0);
-        ps.minSize = 0.15;
-        ps.maxSize = 0.35;
-        ps.minLifeTime = 0.20;
-        ps.maxLifeTime = 0.40;
-        ps.emitRate = 0;
-        ps.manualEmitCount = 30;
-        ps.blendMode = ParticleSystem.BLENDMODE_STANDARD;
-        ps.direction1.set(-1, 0.5, -1);
-        ps.direction2.set(1, 1.2, 1);
-        ps.minEmitPower = 1.5;
-        ps.maxEmitPower = 3.0;
-        ps.gravity.set(0, -2, 0);
-        ps.start();
-        setTimeout(() => {
-            try { ps.stop(); } catch { /* ignore */ }
-            setTimeout(() => { try { ps.dispose(); } catch { /* ignore */ } }, 500);
-        }, 100);
+        const ps = new ParticleEffect('dashTrail', this.host, {
+            transform: {
+                position: new Vector3(origin.x, origin.y + 0.1, origin.z),
+                rotation: new Vector3(-Math.PI / 2, 0, 0),
+            },
+            simulationSpace: SimulationSpace.WORLD,
+            looping: false,
+            duration: 0.767,
+            maxParticles: 30,
+            emission: { rateOverTime: 0, bursts: [{ time: 0, count: 30 }] },
+            shape: { shape: Shape.CONE, cone: { angle: 40, radius: 0.3, radiusThickness: 1, arc: 360 } },
+            startLifetime: { min: 0.333, max: 0.667 },
+            startSpeed: { min: 1.53, max: 3.06 },
+            startSize: { min: fxSize(0.15), max: fxSize(0.35) },
+            startColor: {
+                min: { r: 0.40, g: 0.32, b: 0.22 },
+                max: { r: 0.65, g: 0.55, b: 0.40 },
+            },
+            startOpacity: 1,
+            opacityOverLifetime: { isActive: true, lifetimeCurve: { type: LifeTimeCurve.EASING, curveFunction: (t: number) => 1 - t } },
+            gravity: 0.72,
+            renderer: fxRenderer('normal'),
+        }, { autoDispose: true });
+        setTimeout(() => { try { ps.stop(); } catch { /* ignore */ } }, 100);
     }
 
     /** Landing dust ring for barbarian dash and ranger jump. */
     private spawnDashLandingDust(center: Vector3): void {
-        const ps = new ParticleSystem('dashLandDust', 40, this.host);
-        ps.emitter = new Vector3(center.x, center.y + 0.1, center.z);
-        ps.minEmitBox.set(-0.5, 0, -0.5);
-        ps.maxEmitBox.set(0.5, 0.1, 0.5);
-        ps.color1 = new RGBA(0.70, 0.60, 0.45, 1);
-        ps.color2 = new RGBA(0.45, 0.35, 0.25, 1);
-        ps.colorDead = new RGBA(0.15, 0.12, 0.08, 0);
-        ps.minSize = 0.15;
-        ps.maxSize = 0.40;
-        ps.minLifeTime = 0.25;
-        ps.maxLifeTime = 0.50;
-        ps.emitRate = 0;
-        ps.manualEmitCount = 40;
-        ps.blendMode = ParticleSystem.BLENDMODE_STANDARD;
-        ps.direction1.set(-2, 0.8, -2);
-        ps.direction2.set(2, 1.6, 2);
-        ps.minEmitPower = 1.5;
-        ps.maxEmitPower = 3.5;
-        ps.gravity.set(0, -3, 0);
-        ps.start();
-        setTimeout(() => {
-            try { ps.stop(); } catch { /* ignore */ }
-            setTimeout(() => { try { ps.dispose(); } catch { /* ignore */ } }, 600);
-        }, 120);
+        const ps = new ParticleEffect('dashLandDust', this.host, {
+            transform: {
+                position: new Vector3(center.x, center.y + 0.1, center.z),
+                rotation: new Vector3(-Math.PI / 2, 0, 0),
+            },
+            simulationSpace: SimulationSpace.WORLD,
+            looping: false,
+            duration: 0.933,
+            maxParticles: 40,
+            emission: { rateOverTime: 0, bursts: [{ time: 0, count: 40 }] },
+            shape: { shape: Shape.CONE, cone: { angle: 50, radius: 0.5, radiusThickness: 1, arc: 360 } },
+            startLifetime: { min: 0.417, max: 0.833 },
+            startSpeed: { min: 2.79, max: 6.51 },
+            startSize: { min: fxSize(0.15), max: fxSize(0.40) },
+            startColor: {
+                min: { r: 0.45, g: 0.35, b: 0.25 },
+                max: { r: 0.70, g: 0.60, b: 0.45 },
+            },
+            startOpacity: 1,
+            opacityOverLifetime: { isActive: true, lifetimeCurve: { type: LifeTimeCurve.EASING, curveFunction: (t: number) => 1 - t } },
+            gravity: 1.08,
+            renderer: fxRenderer('normal'),
+        }, { autoDispose: true });
+        setTimeout(() => { try { ps.stop(); } catch { /* ignore */ } }, 120);
     }
 
     // ========================================================================
@@ -1101,29 +1102,30 @@ export class AbilityManager {
         }
 
         if (positions.length > 0) {
-            const ps = new ParticleSystem('lightningBurst', 30, this.host);
-            ps.emitter = new Vector3(positions[0].x, positions[0].y + 1.5, positions[0].z);
-            ps.minEmitBox.set(-0.3, 0, -0.3);
-            ps.maxEmitBox.set(0.3, 0, 0.3);
-            ps.color1 = new RGBA(0.6, 0.6, 1, 1);
-            ps.color2 = new RGBA(0.8, 0.8, 1, 1);
-            ps.colorDead = new RGBA(0.3, 0.3, 0.5, 0);
-            ps.minSize = 0.1;
-            ps.maxSize = 0.3;
-            ps.minLifeTime = 0.2;
-            ps.maxLifeTime = 0.5;
-            ps.emitRate = 100;
-            ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-            ps.direction1.set(-1, 1, -1);
-            ps.direction2.set(1, 2, 1);
-            ps.minEmitPower = 1;
-            ps.maxEmitPower = 3;
-            ps.start();
+            const ps = new ParticleEffect('lightningBurst', this.host, {
+                transform: {
+                    position: new Vector3(positions[0].x, positions[0].y + 1.5, positions[0].z),
+                    rotation: new Vector3(-Math.PI / 2, 0, 0),
+                },
+                simulationSpace: SimulationSpace.WORLD,
+                looping: true,
+                duration: 0.65,
+                maxParticles: 30,
+                emission: { rateOverTime: 60 },
+                shape: { shape: Shape.CONE, cone: { angle: 55, radius: 0.3, radiusThickness: 1, arc: 360 } },
+                startLifetime: { min: 0.333, max: 0.833 },
+                startSpeed: { min: 1.26, max: 3.78 },
+                startSize: { min: fxSize(0.1), max: fxSize(0.3) },
+                startColor: {
+                    min: { r: 0.6, g: 0.6, b: 1 },
+                    max: { r: 0.8, g: 0.8, b: 1 },
+                },
+                startOpacity: 1,
+                opacityOverLifetime: { isActive: true, lifetimeCurve: { type: LifeTimeCurve.EASING, curveFunction: (t: number) => 1 - t } },
+                renderer: fxRenderer('additive'),
+            }, { autoDispose: true });
             setTimeout(() => {
                 try { ps.stop(); } catch { /* already disposed */ }
-                setTimeout(() => {
-                    try { ps.dispose(); } catch { /* already disposed */ }
-                }, 500);
             }, 150);
         }
     }
@@ -1184,30 +1186,31 @@ export class AbilityManager {
         for (const enemy of enemies) {
             if (enemy.isAlive()) {
                 const ePos = enemy.getPosition();
-                const ps = new ParticleSystem('goldRainPS', 15, this.host);
-                ps.emitter = new Vector3(ePos.x, ePos.y + 3, ePos.z);
-                ps.minEmitBox.set(-0.5, 0, -0.5);
-                ps.maxEmitBox.set(0.5, 0, 0.5);
-                ps.color1 = new RGBA(1, 0.85, 0.1, 1);
-                ps.color2 = new RGBA(1, 0.7, 0, 1);
-                ps.colorDead = new RGBA(0.6, 0.5, 0, 0);
-                ps.minSize = 0.15;
-                ps.maxSize = 0.3;
-                ps.minLifeTime = 0.5;
-                ps.maxLifeTime = 1.0;
-                ps.emitRate = 30;
-                ps.blendMode = ParticleSystem.BLENDMODE_STANDARD;
-                ps.direction1.set(-0.3, -2, -0.3);
-                ps.direction2.set(0.3, -1, 0.3);
-                ps.minEmitPower = 1;
-                ps.maxEmitPower = 2;
-                ps.gravity.set(0, -5, 0);
-                ps.start();
+                const ps = new ParticleEffect('goldRainPS', this.host, {
+                    transform: {
+                        position: new Vector3(ePos.x, ePos.y + 3, ePos.z),
+                        rotation: new Vector3(Math.PI / 2, 0, 0),
+                    },
+                    simulationSpace: SimulationSpace.WORLD,
+                    looping: true,
+                    duration: 1.967,
+                    maxParticles: 15,
+                    emission: { rateOverTime: 18 },
+                    shape: { shape: Shape.CONE, cone: { angle: 15, radius: 0.5, radiusThickness: 1, arc: 360 } },
+                    startLifetime: { min: 0.833, max: 1.667 },
+                    startSpeed: { min: 0.96, max: 1.92 },
+                    startSize: { min: fxSize(0.15), max: fxSize(0.3) },
+                    startColor: {
+                        min: { r: 1, g: 0.7, b: 0 },
+                        max: { r: 1, g: 0.85, b: 0.1 },
+                    },
+                    startOpacity: 1,
+                    opacityOverLifetime: { isActive: true, lifetimeCurve: { type: LifeTimeCurve.EASING, curveFunction: (t: number) => 1 - t } },
+                    gravity: 1.8,
+                    renderer: fxRenderer('normal'),
+                }, { autoDispose: true });
                 setTimeout(() => {
                     try { ps.stop(); } catch { /* already disposed */ }
-                    setTimeout(() => {
-                        try { ps.dispose(); } catch { /* already disposed */ }
-                    }, 1000);
                 }, 300);
             }
         }
@@ -1240,52 +1243,44 @@ export class AbilityManager {
     public prewarmAbilityEffects(): void {
         const host = this.host;
         const farAway = new Vector3(1000, -100, 1000);
-        const warmups: ParticleSystem[] = [];
+        const warmups: ParticleEffect[] = [];
 
-        // === BLENDMODE_ONEONE variant — covers meteor, frost, expBurst, lightning ===
-        // All four PS share this blend mode; one prewarm pass compiles the shader.
+        // === Additive blend variant — covers meteor, frost, expBurst, lightning ===
+        // All four effects share this blend mode; one prewarm pass compiles the shader.
         {
-            const ps = new ParticleSystem('prewarmOneOne', 60, host);
-            ps.emitter = farAway;
-            ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-            ps.color1 = new RGBA(1, 0.5, 0, 1);
-            ps.color2 = new RGBA(1, 0.2, 0, 1);
-            ps.colorDead = new RGBA(0.3, 0, 0, 0);
-            ps.minSize = 0.1;
-            ps.maxSize = 0.5;
-            ps.minLifeTime = 0.1;
-            ps.maxLifeTime = 0.5;
-            ps.emitRate = 100;
-            ps.direction1.set(-2, 2, -2);
-            ps.direction2.set(2, 4, 2);
-            ps.minEmitPower = 1;
-            ps.maxEmitPower = 3;
-            ps.gravity.set(0, -8, 0);
-            ps.manualEmitCount = 60;
-            ps.start();
+            const ps = new ParticleEffect('prewarmOneOne', host, {
+                transform: { position: farAway.clone() },
+                simulationSpace: SimulationSpace.WORLD,
+                looping: false,
+                duration: 0.6,
+                maxParticles: 1,
+                emission: { rateOverTime: 0, bursts: [{ time: 0, count: 1 }] },
+                shape: { shape: Shape.SPHERE, sphere: { radius: 0.05, radiusThickness: 1, arc: 360 } },
+                startLifetime: 0.2,
+                startSpeed: 0.1,
+                startSize: fxSize(0.1),
+                startOpacity: 0.01,
+                renderer: fxRenderer('additive'),
+            });
             warmups.push(ps);
         }
 
-        // === BLENDMODE_STANDARD variant — covers goldRainPS (default blend mode) ===
+        // === Normal blend variant — covers goldRainPS (default blend mode) ===
         {
-            const ps = new ParticleSystem('prewarmStandard', 15, host);
-            ps.emitter = farAway;
-            ps.blendMode = ParticleSystem.BLENDMODE_STANDARD;
-            ps.color1 = new RGBA(1, 0.85, 0.1, 1);
-            ps.color2 = new RGBA(1, 0.7, 0, 1);
-            ps.colorDead = new RGBA(0.6, 0.5, 0, 0);
-            ps.minSize = 0.15;
-            ps.maxSize = 0.3;
-            ps.minLifeTime = 0.5;
-            ps.maxLifeTime = 1.0;
-            ps.emitRate = 30;
-            ps.direction1.set(-0.3, -2, -0.3);
-            ps.direction2.set(0.3, -1, 0.3);
-            ps.minEmitPower = 1;
-            ps.maxEmitPower = 2;
-            ps.gravity.set(0, -5, 0);
-            ps.manualEmitCount = 15;
-            ps.start();
+            const ps = new ParticleEffect('prewarmStandard', host, {
+                transform: { position: farAway.clone() },
+                simulationSpace: SimulationSpace.WORLD,
+                looping: false,
+                duration: 0.6,
+                maxParticles: 1,
+                emission: { rateOverTime: 0, bursts: [{ time: 0, count: 1 }] },
+                shape: { shape: Shape.SPHERE, sphere: { radius: 0.05, radiusThickness: 1, arc: 360 } },
+                startLifetime: 0.2,
+                startSpeed: 0.1,
+                startSize: fxSize(0.1),
+                startOpacity: 0.01,
+                renderer: fxRenderer('normal'),
+            });
             warmups.push(ps);
         }
 

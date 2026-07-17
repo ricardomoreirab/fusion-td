@@ -8,7 +8,8 @@ import { PlayerStats } from './PlayerStats';
 import { DashMode } from './abilities/AbilityManager';
 import { capInputLen, arenaClampScale } from './integrateMove';
 import { stepZoom, lerpZoom, parsePersistedZoom, setCameraSlantPosition } from './cameraZoom';
-import { ParticleSystem } from '../engine/three/particles/ParticleSystem';
+import { fxRenderer, fxSize, ParticleEffect } from '../engine/three/particles/ParticleEffect';
+import { LifeTimeCurve, Shape } from '@newkrok/three-particles';
 import type { SceneHost } from '../engine/three/SceneHost';
 
 /** Hero damage-feedback tuning — adjust here, not deep in the update loop. */
@@ -359,28 +360,31 @@ export class HeroController {
         const heroPos = this.hero.getPosition();
         const burstPos = new Vector3(heroPos.x, heroPos.y + 0.8, heroPos.z);
 
-        const ps = new ParticleSystem('heroBloodBurst', BLOOD_BURST_COUNT, this.scene);
-        ps.emitter = burstPos;
-        ps.minEmitBox.set(-0.10, 0, -0.10);
-        ps.maxEmitBox.set(0.10, 0, 0.10);
-        ps.color1.set(0.80, 0.05, 0.05, 1);
-        ps.color2.set(0.50, 0.02, 0.02, 1);
-        ps.colorDead.set(0.10, 0, 0, 0);
-        ps.minSize = 0.10;
-        ps.maxSize = 0.20;
-        ps.minLifeTime = 0.25;
-        ps.maxLifeTime = 0.40;
-        ps.emitRate = 80;
-        ps.manualEmitCount = BLOOD_BURST_COUNT; // one-shot
-        ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-        ps.direction1.set(-1, 0.4, -1);
-        ps.direction2.set(1, 1.2, 1);
-        ps.minEmitPower = 1.5;
-        ps.maxEmitPower = 3.0;
-        ps.gravity.set(0, -15, 0);
-        ps.start();
-        // Stop emission shortly after, then dispose once particles finish their lifetime.
-        setTimeout(() => { ps.stop(); setTimeout(() => ps.dispose(), 500); }, 80);
+        const ps = new ParticleEffect(
+            'heroBloodBurst',
+            this.scene,
+            {
+                looping: false,
+                duration: 0.58,
+                maxParticles: BLOOD_BURST_COUNT,
+                emission: { rateOverTime: 0, bursts: [{ time: 0, count: BLOOD_BURST_COUNT }] },
+                startLifetime: { min: 0.417, max: 0.667 },
+                startSize: { min: fxSize(0.10), max: fxSize(0.20) },
+                startSpeed: { min: 1.323, max: 3.339 },
+                startColor: { min: { r: 0.80, g: 0.05, b: 0.05 }, max: { r: 0.50, g: 0.02, b: 0.02 } },
+                startOpacity: 1,
+                opacityOverLifetime: { isActive: true, lifetimeCurve: { type: LifeTimeCurve.EASING, curveFunction: t => 1 - t } },
+                gravity: 5.4,
+                shape: { shape: Shape.CONE, cone: { angle: 65, radius: 0.10, radiusThickness: 1, arc: 360 } },
+                transform: { position: burstPos, rotation: new Vector3(-Math.PI / 2, 0, 0) },
+                renderer: fxRenderer('additive'),
+            },
+            { autoDispose: true }
+        );
+        // Emission is a single instantaneous burst, so stopping early is a no-op
+        // safety net preserved from the old two-timeout dance; disposal itself is
+        // driven by autoDispose once the burst's short duration elapses.
+        setTimeout(() => ps.stop(), 80);
     }
 
     /** DEV ?test: when true, the hero ignores all damage (set by test mode so a

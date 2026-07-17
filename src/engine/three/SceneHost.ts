@@ -29,7 +29,9 @@ export interface SceneParticleSystem {
 }
 
 class UpdateBus {
-    private entries: UpdateToken[] = [];
+    private entries: (UpdateToken | null)[] = [];
+    private running = false;
+    private needsCompact = false;
 
     public add(cb: (host: SceneHost) => void): UpdateToken {
         const token: UpdateToken = { cb };
@@ -41,26 +43,48 @@ class UpdateBus {
     public remove(token: UpdateToken | null | undefined): void {
         if (!token) return;
         const i = this.entries.indexOf(token);
-        if (i >= 0) this.entries.splice(i, 1);
+        if (i < 0) return;
+        if (this.running) {
+            // Null the slot in place so run()'s in-progress loop skips it
+            // without shifting indices out from under the live iteration;
+            // the array is compacted once the loop finishes.
+            this.entries[i] = null;
+            this.needsCompact = true;
+        } else {
+            this.entries.splice(i, 1);
+        }
     }
 
     public get size(): number {
-        return this.entries.length;
+        let count = 0;
+        for (const e of this.entries) if (e) count++;
+        return count;
     }
 
     public run(host: SceneHost): void {
-        // Snapshot so callbacks may add/remove entries mid-iteration;
-        // removed entries are re-checked so a callback that unregisters
-        // another callback prevents its stale execution this frame.
-        const snapshot = this.entries.slice();
-        for (const token of snapshot) {
-            if (this.entries.indexOf(token) < 0) continue;
+        // Iterate the live array by index (no per-frame allocation). The
+        // length is captured up front so callbacks that add() mid-run don't
+        // get executed until the next run() - matching the old slice()
+        // semantics. Entries removed mid-run are nulled by remove() above
+        // and skipped here, then compacted after the loop.
+        const len = this.entries.length;
+        const wasRunning = this.running;
+        this.running = true;
+        for (let i = 0; i < len; i++) {
+            const token = this.entries[i];
+            if (!token) continue;
             token.cb(host);
+        }
+        this.running = wasRunning;
+        if (!this.running && this.needsCompact) {
+            this.entries = this.entries.filter((e): e is UpdateToken => e !== null);
+            this.needsCompact = false;
         }
     }
 
     public clear(): void {
         this.entries.length = 0;
+        this.needsCompact = false;
     }
 }
 
@@ -75,6 +99,8 @@ export class SceneHost {
 
     /** Live particle systems (registered/unregistered by ParticleSystem itself). */
     public readonly particleSystems: SceneParticleSystem[] = [];
+    private _tickingParticles = false;
+    private _particlesNeedCompact = false;
 
     public readonly onBeforeRender = new UpdateBus();
 
@@ -85,9 +111,22 @@ export class SceneHost {
         this.deltaSeconds = dtSeconds;
         this.onBeforeRender.run(this);
         if (this.animationsEnabled) this.onAnimUpdate.run(this);
-        // Snapshot: a system may dispose (unregister) during its own tick.
-        for (const ps of this.particleSystems.slice()) {
+        // Index-based over the live array (no per-frame allocation). The
+        // length is captured up front so a system registered mid-loop
+        // doesn't tick until next frame; unregisterParticleSystem nulls the
+        // slot in place so a system that disposes itself (or another) mid-
+        // tick is skipped here, then the array is compacted after the loop.
+        const list = this.particleSystems as (SceneParticleSystem | null)[];
+        const len = list.length;
+        this._tickingParticles = true;
+        for (let i = 0; i < len; i++) {
+            const ps = list[i];
+            if (!ps) continue;
             ps.tick(dtSeconds);
+        }
+        this._tickingParticles = false;
+        if (this._particlesNeedCompact) {
+            this._compactParticleSystems();
         }
     }
 
@@ -96,7 +135,22 @@ export class SceneHost {
     }
 
     public unregisterParticleSystem(ps: SceneParticleSystem): void {
-        const i = this.particleSystems.indexOf(ps);
-        if (i >= 0) this.particleSystems.splice(i, 1);
+        const list = this.particleSystems as (SceneParticleSystem | null)[];
+        const i = list.indexOf(ps);
+        if (i < 0) return;
+        if (this._tickingParticles) {
+            list[i] = null;
+            this._particlesNeedCompact = true;
+        } else {
+            list.splice(i, 1);
+        }
+    }
+
+    private _compactParticleSystems(): void {
+        const list = this.particleSystems as (SceneParticleSystem | null)[];
+        const compacted = list.filter((ps): ps is SceneParticleSystem => ps !== null);
+        list.length = 0;
+        list.push(...compacted);
+        this._particlesNeedCompact = false;
     }
 }

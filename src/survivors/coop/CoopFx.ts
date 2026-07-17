@@ -1,4 +1,4 @@
-import { Color, DoubleSide, Mesh, Vector3 } from 'three';
+import { CircleGeometry, Color, DoubleSide, Mesh, Vector3 } from 'three';
 import { SceneHost } from '../../engine/three/SceneHost';
 import { createDisc, createPlane, createSphere, createTorus, disposeMesh } from '../../engine/three/primitives';
 import { headingToYaw } from '../../engine/three/math';
@@ -257,28 +257,52 @@ export function startCosmeticUltChannel(
 }
 
 /**
- * Replay a teammate's melee swing arc: a golden torus that expands + fades over ~0.3s
- * at (x,z) with the given range. Cosmetic. Leak-safe (cached material by bounded key;
- * setMeshOpacity clones it per-mesh for the fade and disposeMesh frees that clone —
- * per CLAUDE.md FX rules).
+ * Replay a teammate's melee swing: the barbarian's forward cone chop when the
+ * facing angle is known, else the legacy full ring (old peers send range only).
+ * Cosmetic. Leak-safe (cached material by bounded key; setMeshOpacity clones it
+ * per-mesh for the fade and disposeMesh frees that clone — per CLAUDE.md FX rules).
  */
-export function spawnCosmeticSwingRing(host: SceneHost, x: number, z: number, range: number): void {
-    const ring = createTorus('coopFxSwing', { diameter: range * 2, thickness: 0.4, tessellation: 24 }, host);
-    ring.position.set(x, 0.25, z);
-    ring.material = getCachedMaterial('coopFxSwingMat', m => {
-        m.emissive.setRGB(1, 0.85, 0.4);
-        m.color.setRGB(0, 0, 0);
-        m.transparent = true;
-        m.opacity = 0.85;
-    });
-    ring.scale.setScalar(0.7);
+export function spawnCosmeticSwingRing(
+    host: SceneHost, x: number, z: number, range: number, facingAngle?: number,
+): void {
+    let mesh: Mesh;
+    if (facingAngle !== undefined) {
+        // Forward cone wedge matching HeroBasicAttack.spawnSwingCone (110°).
+        const half = (55 * Math.PI) / 180;
+        mesh = new Mesh(new CircleGeometry(range, 24, -half, half * 2));
+        mesh.name = 'coopFxSwing';
+        host.scene.add(mesh);
+        mesh.position.set(x, 0.3, z);
+        mesh.rotation.order = 'YXZ';
+        mesh.rotation.x = Math.PI / 2;
+        mesh.rotation.y = -facingAngle; // geometry θ maps to world θ − yaw
+        mesh.material = getCachedMaterial('coopFxSwingConeMat', m => {
+            m.emissive.setRGB(1, 0.85, 0.4);
+            m.color.setRGB(0, 0, 0);
+            m.transparent = true;
+            m.opacity = 0.5;
+            m.depthWrite = false;
+            m.side = DoubleSide;
+        });
+    } else {
+        mesh = createTorus('coopFxSwing', { diameter: range * 2, thickness: 0.4, tessellation: 24 }, host);
+        mesh.position.set(x, 0.25, z);
+        mesh.material = getCachedMaterial('coopFxSwingMat', m => {
+            m.emissive.setRGB(1, 0.85, 0.4);
+            m.color.setRGB(0, 0, 0);
+            m.transparent = true;
+            m.opacity = 0.85;
+        });
+    }
+    const baseOpacity = facingAngle !== undefined ? 0.5 : 0.85;
+    mesh.scale.setScalar(0.7);
     const dur = 0.3;
     let t = 0;
     const token = host.onBeforeRender.add(() => {
         t += host.deltaSeconds;
         const k = Math.min(t / dur, 1);
-        ring.scale.setScalar(0.7 + 0.3 * k);
-        setMeshOpacity(ring, 0.85 * (1 - k)); // Babylon visibility × material alpha
-        if (k >= 1) { disposeMesh(ring); host.onBeforeRender.remove(token); }
+        mesh.scale.setScalar(0.7 + 0.3 * k);
+        setMeshOpacity(mesh, baseOpacity * (1 - k)); // Babylon visibility × material alpha
+        if (k >= 1) { disposeMesh(mesh); host.onBeforeRender.remove(token); }
     });
 }

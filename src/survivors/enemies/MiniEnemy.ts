@@ -6,8 +6,9 @@ import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '.
 import { PALETTE } from '../../engine/rendering/StyleConstants';
 import { AnimGroup } from '../../engine/three/AnimGroup';
 import type { GlbContainer } from '../../engine/three/assets';
-import { headingToYaw, rgba } from '../../engine/three/math';
-import { ParticleSystem } from '../../engine/three/particles/ParticleSystem';
+import { headingToYaw } from '../../engine/three/math';
+import { fxRenderer, fxSize, ParticleEffect } from '../../engine/three/particles/ParticleEffect';
+import { LifeTimeCurve, Shape } from '@newkrok/three-particles';
 import { createBox, createCylinder, createPlane } from '../../engine/three/primitives';
 
 /**
@@ -271,28 +272,33 @@ export class MiniEnemy extends Enemy {
             return;
         }
 
-        const ps = new ParticleSystem('miniDeathParticles', 20, this.scene);
-        ps.emitter = this.position.clone();
-        (ps.emitter as Vector3).y += 0.3;
-        ps.minEmitBox.set(-0.1, 0, -0.1);
-        ps.maxEmitBox.set(0.1, 0, 0.1);
-        ps.color1 = rgba(0.3, 0.7, 0.5, 1.0);
-        ps.color2 = rgba(0.5, 0.8, 0.4, 1.0);
-        ps.colorDead = rgba(0.2, 0.3, 0.1, 0.0);
-        ps.minSize = 0.05;
-        ps.maxSize = 0.2;
-        ps.minLifeTime = 0.2;
-        ps.maxLifeTime = 0.6;
-        ps.emitRate = 60;
-        ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-        ps.gravity.set(0, 5, 0);
-        ps.direction1.set(-1, 5, -1);
-        ps.direction2.set(1, 5, 1);
-        ps.minEmitPower = 0.5;
-        ps.maxEmitPower = 2;
-        ps.start();
+        const emitPos = this.position.clone();
+        emitPos.y += 0.3;
+
+        // Small green poof, floating upward (gravity is negative = anti-gravity).
+        const ps = new ParticleEffect(
+            'miniDeathParticles',
+            this.scene,
+            {
+                looping: false,
+                duration: 1.5,
+                maxParticles: 20,
+                emission: { rateOverTime: 0, bursts: [{ time: 0, count: 18 }] },
+                startLifetime: { min: 0.333, max: 1.0 },
+                startSize: { min: fxSize(0.05), max: fxSize(0.2) },
+                startSpeed: { min: 1.559, max: 6.235 },
+                startColor: { min: { r: 0.3, g: 0.7, b: 0.5 }, max: { r: 0.5, g: 0.8, b: 0.4 } },
+                startOpacity: 1,
+                opacityOverLifetime: { isActive: true, lifetimeCurve: { type: LifeTimeCurve.EASING, curveFunction: t => 1 - t } },
+                gravity: -1.8,
+                shape: { shape: Shape.CONE, cone: { angle: 16, radius: 0.1, radiusThickness: 1, arc: 360 } },
+                transform: { position: emitPos, rotation: new Vector3(-Math.PI / 2, 0, 0) },
+                renderer: fxRenderer('additive'),
+            },
+            { autoDispose: true }
+        );
         this.game.getAssetManager().playSound('enemyDeath');
-        scheduleDeathBurstTeardown(this.scene, ps, 0.5);
+        scheduleDeathBurstTeardown(this.scene, ps);
 
         // Gold reward float
         this.showGoldRewardText(this.position.clone());

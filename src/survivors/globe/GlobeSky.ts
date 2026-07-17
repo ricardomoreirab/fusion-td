@@ -20,8 +20,10 @@ const SKY_RADIUS = 420;
 /** Cloud pan speed (texture U per second) — slow drift. */
 const CLOUD_PAN_SPEED = 0.0015;
 /** Dusk tint multiplied into the (unlit) sky texture — the raw UE4 clouds are
- *  a bright midday sky and wash out the game's torch-lit mood. */
-const SKY_TINT = new Color(0.42, 0.48, 0.74);
+ *  a bright midday sky and wash out the game's torch-lit mood. Mauve-rose
+ *  twilight: reads as early dusk over the green field and matches
+ *  FOG_COLOR_RGB so the horizon haze melts into the sky band. */
+const SKY_TINT = new Color(0.55, 0.42, 0.55);
 
 // Texture-free gradient sky used INSTANTLY while the GLB skydome streams in
 // (and kept forever if it fails to load): warm-blue twilight band at the
@@ -48,9 +50,9 @@ void main(void) {
     vec3 d = normalize(vDir);
     float h = d.y;
 
-    vec3 zenith  = vec3(0.08, 0.13, 0.36);  // deep night blue overhead
-    vec3 horizon = vec3(0.52, 0.58, 0.86);  // pale periwinkle twilight band
-    vec3 below   = vec3(0.15, 0.18, 0.34);  // blue slate haze under the world's rim
+    vec3 zenith  = vec3(0.10, 0.12, 0.32);  // deep night blue overhead
+    vec3 horizon = vec3(0.68, 0.55, 0.66);  // mauve-rose twilight band (matches FOG_COLOR_RGB)
+    vec3 below   = vec3(0.30, 0.24, 0.38);  // violet slate haze under the world's rim
                                             // (most of the visible sky at the tilted
                                             // camera sits BELOW the dome's horizontal,
                                             // so this must never read as black)

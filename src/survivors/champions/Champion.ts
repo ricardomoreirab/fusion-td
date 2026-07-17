@@ -8,7 +8,9 @@ import { buildBarbarianMesh } from './BarbarianBuilder';
 import { ELEMENT_COLOR, blendElements } from '../ElementColors';
 import { PowerElement } from '../powers/PowerDefinitions';
 import { MythicFxConfig } from '../items/ItemTypes';
-import { ParticleSystem } from '../../engine/three/particles/ParticleSystem';
+import { fxRenderer, fxSize, ParticleEffect } from '../../engine/three/particles/ParticleEffect';
+import { LifeTimeCurve, Shape, SimulationSpace } from '@newkrok/three-particles';
+import { elementAuraConfig, elementBurstConfig } from '../fx/ElementParticles';
 import { GlbContainer, ContainerInstance } from '../../engine/three/assets';
 import { AnimGroup } from '../../engine/three/AnimGroup';
 import { createBox, createCylinder, createSphere, createTorus, createPolyhedron, disposeMesh, isMeshDisposed } from '../../engine/three/primitives';
@@ -90,7 +92,7 @@ export class Champion extends Enemy {
 
     // Mythic weapon: ONE persistent aura particle system at the weapon bone.
     // Keyed by style+color so it only rebuilds when the equipped mythic changes.
-    private mythicAuraPs: ParticleSystem | null = null;
+    private mythicAuraPs: ParticleEffect | null = null;
     private mythicAuraKey: string | null = null;
 
     // Barbarian berserker animated parts
@@ -110,11 +112,17 @@ export class Champion extends Enemy {
     private barbSpinArcMesh: Mesh | null = null;
     private barbSpinArcTimer: number = 0;
     // Spin-attack blood trail particles
-    private barbSpinBloodPs: ParticleSystem | null = null;
+    private barbSpinBloodPs: ParticleEffect | null = null;
     // Latest active power elements, snapshotted each frame from updateElementVisuals.
     private activeElementSnapshot: string[] = [];
     // Elemental axe-trail particle systems created per spin (one per active element).
-    private barbSpinElemPs: ParticleSystem[] = [];
+    private barbSpinElemPs: ParticleEffect[] = [];
+    // Spin-attack trail particles that already stopped and are waiting out their
+    // fade window before dispose(). Tracked so dispose()/die() can flush them
+    // immediately instead of leaving their setTimeout ticking against a torn-down
+    // scene (or a live scene after the champion itself is gone).
+    private pendingFxDisposal: ParticleEffect[] = [];
+    private pendingFxDisposalTimers: ReturnType<typeof setTimeout>[] = [];
 
     // Cached Color instances — reused every frame to avoid per-frame allocation
     private mageOrbColor: Color = new Color(0, 0, 0);
@@ -129,7 +137,7 @@ export class Champion extends Enemy {
     private flashHitRedSnapshot: { mat: EmissiveMaterial; color: Color }[] = [];
 
     // Pooled footstep dust particle system (barbarian only)
-    private barbFootDustPs: ParticleSystem | null = null;
+    private barbFootDustPs: ParticleEffect | null = null;
 
     // Torch light — warm point light that follows the hero with a gentle flicker.
     private torchLight: PointLight | null = null;
@@ -137,7 +145,9 @@ export class Champion extends Enemy {
     private torchFlickerTime: number = 0;
 
     // Per-element weapon aura particle systems, created lazily on first activation.
-    private elementAuraPs: Map<string, ParticleSystem> = new Map();
+    private elementAuraPs: Map<string, ParticleEffect> = new Map();
+    // Started/stopped state per element aura (ParticleEffect has no isStarted()).
+    private elementAuraActive: Map<string, boolean> = new Map();
     // Storm-only flickering bolt meshes + their shared (per-champion) material.
     private stormBolts: Mesh[] = [];
     private stormBoltMat: MeshPhongMaterial | null = null;
@@ -276,51 +286,33 @@ export class Champion extends Enemy {
         const axeAnchor = this.getWeaponAnchor();
 
         // ===== Axe-head trail particles =====
+        // Direction range (-1,0.2,-1)..(1,1.2,1) is a wide up-and-out spread ->
+        // SPHERE shape approximation (M = magnitude of the direction range midpoint ~= 1.68).
+        const SPIN_TRAIL_M = 1.64;
         if (axeAnchor && elems.length > 0 && this.barbSpinElemPs.length === 0) {
             for (const el of elems) {
                 const c = ELEMENT_COLOR[el];
                 if (!c) continue;
-                const ps = new ParticleSystem(`barbSpinElem_${el}`, 64, this.scene);
-                ps.emitter = axeAnchor;
-                ps.minEmitBox.set(-0.2, -0.2, -0.2);
-                ps.maxEmitBox.set(0.2, 0.2, 0.2);
-                ps.color1.set(c.r, c.g, c.b, 1);
-                ps.color2.set(c.r * 0.6, c.g * 0.6, c.b * 0.6, 1);
-                ps.colorDead.set(c.r * 0.2, c.g * 0.2, c.b * 0.2, 0);
-                ps.minSize = 0.10;
-                ps.maxSize = 0.30;
-                ps.minLifeTime = 0.1;
-                ps.maxLifeTime = 0.22;
-                ps.emitRate = 200;
-                ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-                ps.direction1.set(-1, 0.2, -1);
-                ps.direction2.set(1, 1.2, 1);
-                ps.minEmitPower = 1;
-                ps.maxEmitPower = 3;
-                ps.gravity.set(0, -3, 0);
-                ps.start();
+                const ps = new ParticleEffect(`barbSpinElem_${el}`, this.scene, elementBurstConfig(el), { follow: axeAnchor });
                 this.barbSpinElemPs.push(ps);
             }
         } else if (axeAnchor && elems.length === 0 && !this.barbSpinBloodPs) {
-            const ps = new ParticleSystem('barbSpinBlood', 60, this.scene);
-            ps.emitter = axeAnchor;
-            ps.minEmitBox.set(-0.2, -0.2, -0.2);
-            ps.maxEmitBox.set(0.2, 0.2, 0.2);
-            ps.color1.set(0.7, 0.10, 0.05, 1);
-            ps.color2.set(0.45, 0.05, 0.02, 1);
-            ps.colorDead.set(0.10, 0.0, 0.0, 0);
-            ps.minSize = 0.10;
-            ps.maxSize = 0.30;
-            ps.minLifeTime = 0.1;
-            ps.maxLifeTime = 0.2;
-            ps.emitRate = 240;
-            ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-            ps.direction1.set(-1, 0.2, -1);
-            ps.direction2.set(1, 1.2, 1);
-            ps.minEmitPower = 1;
-            ps.maxEmitPower = 3;
-            ps.gravity.set(0, -3, 0);
-            ps.start();
+            const ps = new ParticleEffect('barbSpinBlood', this.scene, {
+                looping: true,
+                duration: 5,
+                maxParticles: 60,
+                simulationSpace: SimulationSpace.WORLD,
+                emission: { rateOverTime: 240 * 0.6 },
+                startLifetime: { min: 0.1 / 0.6, max: 0.2 / 0.6 },
+                startSpeed: { min: 1 * 0.6 * SPIN_TRAIL_M, max: 3 * 0.6 * SPIN_TRAIL_M },
+                startSize: { min: fxSize(0.10), max: fxSize(0.30) },
+                startColor: { min: { r: 0.45, g: 0.05, b: 0.02 }, max: { r: 0.7, g: 0.10, b: 0.05 } },
+                startOpacity: 1,
+                opacityOverLifetime: { isActive: true, lifetimeCurve: { type: LifeTimeCurve.EASING, curveFunction: (t: number) => 1 - t } },
+                gravity: 3 * 0.6 * 0.6,
+                shape: { shape: Shape.SPHERE, sphere: { radius: 0.2, radiusThickness: 1, arc: 360 } },
+                renderer: fxRenderer('additive'),
+            }, { follow: axeAnchor });
             this.barbSpinBloodPs = ps;
         }
 
@@ -389,9 +381,8 @@ export class Champion extends Enemy {
         this.barbChestPulseGroup = parts.chestPulseGroup;
         this.cape = null;
         this.originalScale = 1.0;
-
-        // Allocate the pooled footstep dust PS once; reused every stride
-        this.barbFootDustPs = this.createPooledFootstepDust();
+        // barbFootDustPs is allocated per-footstep now (see spawnFootstepDust) —
+        // no pre-allocation needed.
     }
 
     /** Instantiate the preloaded GLB and parent it under an empty transform root.
@@ -1356,19 +1347,11 @@ export class Champion extends Enemy {
                 this.animateHumanoid();
             }
 
-            // Facing priority: barbarian whirlwind spin > glb-aim-at-target > procedural
-            // spin (procedural champs only) > movement direction > idle.
-            const glbBarbAttacking = usingChampionGLB
-                && this.championType === 'barbarian'
-                && this.glbAttackTimer > 0;
-            if (glbBarbAttacking) {
-                // Aulus whirlwind: spin 360° around Y over the attack-timer window so
-                // the GLB swing animation reads as a full whirling sweep. Negative
-                // sign = clockwise (viewed from above), matching the swing arc.
-                const dur = (this as any).glbAttackDurationActual ?? Champion.GLB_ATTACK_DURATION;
-                const progress = 1 - this.glbAttackTimer / dur;
-                this.mesh.rotation.y = -progress * Math.PI * 2;
-            } else if (this.glbAttackTimer > 0 && this.glbAttackFacingTarget) {
+            // Facing priority: glb-aim-at-target > procedural spin (procedural
+            // champs only) > movement direction > idle. (The barbarian's basic
+            // attack used to force a full 360° mesh spin here — it is now a
+            // forward cone chop, so he faces the aim target like the ranger.)
+            if (this.glbAttackTimer > 0 && this.glbAttackFacingTarget) {
                 // GLB attack mid-fire — turn to face the target (ranger aim).
                 const dx = this.glbAttackFacingTarget.x - this.position.x;
                 const dz = this.glbAttackFacingTarget.z - this.position.z;
@@ -1600,68 +1583,58 @@ export class Champion extends Enemy {
         }
     }
 
-    /** Barbarian-only: allocate the single pooled footstep dust ParticleSystem. */
-    private createPooledFootstepDust(): ParticleSystem {
-        const ps = new ParticleSystem('barbFootDust', 8, this.scene);
-        ps.minEmitBox.set(-0.10, 0, -0.10);
-        ps.maxEmitBox.set(0.10, 0, 0.10);
-        ps.color1.set(0.50, 0.35, 0.20, 1);
-        ps.color2.set(0.35, 0.25, 0.15, 1);
-        ps.colorDead.set(0.25, 0.20, 0.15, 0);
-        ps.minSize = 0.08;
-        ps.maxSize = 0.18;
-        ps.minLifeTime = 0.2;
-        ps.maxLifeTime = 0.4;
-        ps.emitRate = 80;
-        ps.manualEmitCount = 8;
-        ps.blendMode = ParticleSystem.BLENDMODE_STANDARD;
-        ps.direction1.set(-0.5, 0.4, -0.5);
-        ps.direction2.set(0.5, 0.8, 0.5);
-        ps.minEmitPower = 0.4;
-        ps.maxEmitPower = 1.2;
-        ps.gravity.set(0, -0.5, 0);
-        // emitter will be repositioned per-footstep
-        return ps;
-    }
-
-    /** Barbarian-only: reposition the pooled PS to worldPos and fire a one-shot burst. */
+    /** Barbarian-only: fire a one-shot dust burst at worldPos.
+     *  The old system pooled a single reposition-and-reset ParticleSystem; the
+     *  library has no reset() equivalent, so this now spawns a short-lived
+     *  autoDispose effect per footstep instead — footsteps are throttled to one
+     *  per foot-plant (see barbLastStepSign), so this stays well within the
+     *  transient-FX budget. barbFootDustPs is kept as the "last active" handle
+     *  purely for the dispose-path invariant (always one live instance to free). */
     private spawnFootstepDust(worldPos: Vector3): void {
-        if (!this.barbFootDustPs) return;
-        const ps = this.barbFootDustPs;
-        ps.emitter = worldPos;
-        ps.stop();
-        ps.reset();
-        ps.manualEmitCount = 8;
-        ps.start();
-        // Auto-stop after the burst so the next footstep can restart cleanly
-        setTimeout(() => { ps.stop(); }, 100);
+        if (this.barbFootDustPs) {
+            this.barbFootDustPs.stop();
+            this.barbFootDustPs.dispose();
+            this.barbFootDustPs = null;
+        }
+        const ps = new ParticleEffect('barbFootDust', this.scene, {
+            looping: false,
+            duration: 0.5,
+            maxParticles: 8,
+            transform: { position: worldPos.clone(), rotation: new Vector3(-Math.PI / 2, 0, 0) },
+            emission: { rateOverTime: 0, bursts: [{ time: 0, count: 8 }] },
+            startLifetime: { min: 0.2 / 0.6, max: 0.4 / 0.6 },
+            startSpeed: { min: 0.4 * 0.6 * 0.94, max: 1.2 * 0.6 * 0.94 },
+            startSize: { min: fxSize(0.08), max: fxSize(0.18) },
+            startColor: { min: { r: 0.35, g: 0.25, b: 0.15 }, max: { r: 0.50, g: 0.35, b: 0.20 } },
+            startOpacity: 1,
+            opacityOverLifetime: { isActive: true, lifetimeCurve: { type: LifeTimeCurve.EASING, curveFunction: (t: number) => 1 - t } },
+            gravity: 0.5 * 0.6 * 0.6,
+            shape: { shape: Shape.CONE, cone: { angle: 27, radius: 0.1, radiusThickness: 1, arc: 360 } },
+            renderer: fxRenderer('normal'),
+        }, { autoDispose: true });
+        this.barbFootDustPs = ps;
     }
 
     /** Barbarian-only: small red splatter at a target position on basic-attack hit. */
     private spawnBloodSplatter(targetPos: Vector3): void {
         const splatPos = targetPos.clone();
         splatPos.y += 0.8;
-        const ps = new ParticleSystem('barbBloodSplatter', 10, this.scene);
-        ps.emitter = splatPos;
-        ps.minEmitBox.set(-0.10, 0, -0.10);
-        ps.maxEmitBox.set(0.10, 0, 0.10);
-        ps.color1.set(0.70, 0.10, 0.05, 1);
-        ps.color2.set(0.45, 0.05, 0.02, 1);
-        ps.colorDead.set(0.10, 0, 0, 0);
-        ps.minSize = 0.08;
-        ps.maxSize = 0.16;
-        ps.minLifeTime = 0.25;
-        ps.maxLifeTime = 0.5;
-        ps.emitRate = 40;
-        ps.manualEmitCount = 10; // one-shot
-        ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-        ps.direction1.set(-1, 0.3, -1);
-        ps.direction2.set(1, 1, 1);
-        ps.minEmitPower = 1;
-        ps.maxEmitPower = 2.5;
-        ps.gravity.set(0, -4, 0);
-        ps.start();
-        setTimeout(() => { ps.stop(); setTimeout(() => ps.dispose(), 500); }, 100);
+        new ParticleEffect('barbBloodSplatter', this.scene, {
+            looping: false,
+            duration: 0.6,
+            maxParticles: 10,
+            transform: { position: splatPos },
+            emission: { rateOverTime: 0, bursts: [{ time: 0, count: 10 }] },
+            startLifetime: { min: 0.25 / 0.6, max: 0.5 / 0.6 },
+            startSpeed: { min: 1 * 0.6 * 1.59, max: 2.5 * 0.6 * 1.59 },
+            startSize: { min: fxSize(0.08), max: fxSize(0.16) },
+            startColor: { min: { r: 0.45, g: 0.05, b: 0.02 }, max: { r: 0.70, g: 0.10, b: 0.05 } },
+            startOpacity: 1,
+            opacityOverLifetime: { isActive: true, lifetimeCurve: { type: LifeTimeCurve.EASING, curveFunction: (t: number) => 1 - t } },
+            gravity: 4 * 0.6 * 0.6,
+            shape: { shape: Shape.SPHERE, sphere: { radius: 0.1, radiusThickness: 1, arc: 360 } },
+            renderer: fxRenderer('additive'),
+        }, { autoDispose: true });
     }
 
     /** Barbarian-only: animate the spin arc ring (scale out + fade) and tear down FX when done. */
@@ -1707,16 +1680,31 @@ export class Champion extends Enemy {
             this.barbSpinBloodPs.stop();
             const ps = this.barbSpinBloodPs;
             this.barbSpinBloodPs = null;
-            setTimeout(() => ps.dispose(), 400);
+            this._deferFxDisposal(ps);
         }
         if (this.barbSpinElemPs.length > 0 && this.spinAttackTimer <= 0) {
             const list = this.barbSpinElemPs;
             this.barbSpinElemPs = [];
             for (const ps of list) {
                 ps.stop();
-                setTimeout(() => ps.dispose(), 400);
+                this._deferFxDisposal(ps);
             }
         }
+    }
+
+    /** Schedule a stopped, fading-out particle effect for disposal after its fade
+     *  window, while keeping it tracked so dispose()/die() can flush it early if
+     *  the champion goes away first (see pendingFxDisposal above). */
+    private _deferFxDisposal(ps: ParticleEffect): void {
+        this.pendingFxDisposal.push(ps);
+        const timer = setTimeout(() => {
+            const idx = this.pendingFxDisposal.indexOf(ps);
+            if (idx !== -1) this.pendingFxDisposal.splice(idx, 1);
+            const timerIdx = this.pendingFxDisposalTimers.indexOf(timer);
+            if (timerIdx !== -1) this.pendingFxDisposalTimers.splice(timerIdx, 1);
+            ps.dispose();
+        }, 400);
+        this.pendingFxDisposalTimers.push(timer);
     }
 
     /** Pulse the mage staff orb emissive intensity over time */
@@ -1767,27 +1755,25 @@ export class Champion extends Enemy {
      * Create a visual slash effect when attacking
      */
     private createAttackEffect(targetPos: Vector3): void {
-        const ps = new ParticleSystem('championSlash', 15, this.scene);
         const midpoint = new Vector3().lerpVectors(this.position, targetPos, 0.5);
         midpoint.y += 1.0;
-        ps.emitter = midpoint;
-        ps.minEmitBox.set(-0.3, 0, -0.3);
-        ps.maxEmitBox.set(0.3, 0, 0.3);
-        ps.color1.set(1, 0.85, 0.3, 1);
-        ps.color2.set(1, 0.7, 0.1, 1);
-        ps.colorDead.set(0.5, 0.3, 0, 0);
-        ps.minSize = 0.15;
-        ps.maxSize = 0.4;
-        ps.minLifeTime = 0.1;
-        ps.maxLifeTime = 0.3;
-        ps.emitRate = 80;
-        ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-        ps.direction1.set(-1, 0.5, -1);
-        ps.direction2.set(1, 1.5, 1);
-        ps.minEmitPower = 1;
-        ps.maxEmitPower = 3;
-        ps.start();
-        setTimeout(() => { ps.stop(); setTimeout(() => ps.dispose(), 400); }, 100);
+        // Old code ran at rate (emitRate=80, T=0.6 -> 48/s) for a 100ms window
+        // before stopping -> ~5 particles; ported to an equivalent one-shot burst.
+        new ParticleEffect('championSlash', this.scene, {
+            looping: false,
+            duration: 0.5,
+            maxParticles: 15,
+            transform: { position: midpoint },
+            emission: { rateOverTime: 0, bursts: [{ time: 0, count: 5 }] },
+            startLifetime: { min: 0.1 / 0.6, max: 0.3 / 0.6 },
+            startSpeed: { min: 1 * 0.6 * 1.78, max: 3 * 0.6 * 1.78 },
+            startSize: { min: fxSize(0.15), max: fxSize(0.4) },
+            startColor: { min: { r: 1, g: 0.7, b: 0.1 }, max: { r: 1, g: 0.85, b: 0.3 } },
+            startOpacity: 1,
+            opacityOverLifetime: { isActive: true, lifetimeCurve: { type: LifeTimeCurve.EASING, curveFunction: (t: number) => 1 - t } },
+            shape: { shape: Shape.SPHERE, sphere: { radius: 0.3, radiusThickness: 1, arc: 360 } },
+            renderer: fxRenderer('additive'),
+        }, { autoDispose: true });
     }
 
     /**
@@ -1837,7 +1823,12 @@ export class Champion extends Enemy {
      * Parented to the mesh so it follows the hero without per-frame position
      * sync. Idempotent: a second call is a no-op.
      */
-    public enableTorch(): void {
+    /** @param intensity full torch = 5.0; lower values give a soft "hero
+     *  presence" glow that lifts the character without washing out the key
+     *  light's shadows.
+     *  @param distance PointLight falloff cutoff (0 = unlimited); keep it
+     *  small for the presence glow so the field stays untouched. */
+    public enableTorch(intensity: number = 5.0, distance: number = 0): void {
         if (this.torchLight || !this.mesh) return;
 
         // Reuse the torch owned by Game (created once in Game.setupScene). Three
@@ -1847,7 +1838,8 @@ export class Champion extends Enemy {
         const torch = this.game.getHeroTorch();
         torch.position.set(0, 1.4, 0);
         this.mesh.add(torch);
-        torch.intensity = 5.0;
+        torch.intensity = intensity;
+        torch.distance = distance;
 
         this.torchLight          = torch;
         this.torchBaseIntensity  = torch.intensity;
@@ -1913,13 +1905,25 @@ export class Champion extends Enemy {
             this.barbFootDustPs.dispose();
             this.barbFootDustPs = null;
         }
-        // Free the per-element aura particle systems. The engine ParticleSystem
-        // never disposes its texture (the SHARED status-effect singleton survives).
+        // Flush any spin-trail FX still waiting out their fade window and cancel
+        // their disposal timers, so nothing keeps ticking (or fires) after the
+        // champion is gone.
+        for (const timer of this.pendingFxDisposalTimers) {
+            clearTimeout(timer);
+        }
+        this.pendingFxDisposalTimers = [];
+        for (const ps of this.pendingFxDisposal) {
+            ps.dispose();
+        }
+        this.pendingFxDisposal = [];
+        // Free the per-element aura particle systems. ParticleEffect.dispose()
+        // never touches config.map (the SHARED status-effect singleton survives).
         for (const ps of this.elementAuraPs.values()) {
             ps.stop();
             ps.dispose();
         }
         this.elementAuraPs.clear();
+        this.elementAuraActive.clear();
         // Mythic weapon aura: ONE persistent PS — texture is the shared singleton.
         if (this.mythicAuraPs) {
             this.mythicAuraPs.stop();
@@ -2019,26 +2023,25 @@ export class Champion extends Enemy {
         const deathPos = this.position.clone();
         deathPos.y += 0.5;
 
-        const ps = new ParticleSystem('championDeath', 40, this.scene);
-        ps.emitter = deathPos;
-        ps.minEmitBox.set(-0.3, 0, -0.3);
-        ps.maxEmitBox.set(0.3, 0, 0.3);
-        ps.color1.set(1, 0.85, 0.3, 1);
-        ps.color2.set(0.2, 0.5, 1.0, 1);
-        ps.colorDead.set(0.1, 0.2, 0.5, 0);
-        ps.minSize = 0.15;
-        ps.maxSize = 0.45;
-        ps.minLifeTime = 0.3;
-        ps.maxLifeTime = 0.8;
-        ps.emitRate = 120;
-        ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-        ps.direction1.set(-1.5, 1, -1.5);
-        ps.direction2.set(1.5, 3, 1.5);
-        ps.minEmitPower = 1;
-        ps.maxEmitPower = 4;
-        ps.gravity.set(0, -5, 0);
-        ps.start();
-        setTimeout(() => { ps.stop(); setTimeout(() => ps.dispose(), 800); }, 200);
+        // Old rate=120 for a 200ms window (T=0.6) -> ~14 particles; ported to
+        // an equivalent one-shot burst. Direction range is strictly upward
+        // (y 1..3) -> upward CONE (~60deg spread).
+        new ParticleEffect('championDeath', this.scene, {
+            looping: false,
+            duration: 1,
+            maxParticles: 40,
+            transform: { position: deathPos, rotation: new Vector3(-Math.PI / 2, 0, 0) },
+            emission: { rateOverTime: 0, bursts: [{ time: 0, count: 15 }] },
+            startLifetime: { min: 0.3 / 0.6, max: 0.8 / 0.6 },
+            startSpeed: { min: 1 * 0.6 * 3.0, max: 4 * 0.6 * 3.0 },
+            startSize: { min: fxSize(0.15), max: fxSize(0.45) },
+            startColor: { min: { r: 0.2, g: 0.5, b: 1.0 }, max: { r: 1, g: 0.85, b: 0.3 } },
+            startOpacity: 1,
+            opacityOverLifetime: { isActive: true, lifetimeCurve: { type: LifeTimeCurve.EASING, curveFunction: (t: number) => 1 - t } },
+            gravity: 5 * 0.6 * 0.6,
+            shape: { shape: Shape.CONE, cone: { angle: 60, radius: 0.3, radiusThickness: 1, arc: 360 } },
+            renderer: fxRenderer('additive'),
+        }, { autoDispose: true });
     }
 
     // =========================================================================
@@ -2068,8 +2071,9 @@ export class Champion extends Enemy {
                 this.elementAuraPs.set(element, ps);
             }
             if (ps) {
-                if (shouldShow && !ps.isStarted()) ps.start();
-                else if (!shouldShow && ps.isStarted()) ps.stop();
+                const active = this.elementAuraActive.get(element) ?? false;
+                if (shouldShow && !active) { ps.start(); this.elementAuraActive.set(element, true); }
+                else if (!shouldShow && active) { ps.stop(); this.elementAuraActive.set(element, false); }
             }
         }
 
@@ -2095,31 +2099,57 @@ export class Champion extends Enemy {
         const anchor = this.getWeaponAnchor();
         if (!anchor) return;
         const c = new Color(cfg.auraColor);
-        const ps = new ParticleSystem('mythicAura', 64, this.scene);
-        ps.emitter = anchor;
-        ps.particleTexture = getStatusEffectTexture(this.scene);
-        ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-        ps.color1.set(c.r, c.g, c.b, 1);
-        ps.color2.set(c.r * 0.7, c.g * 0.7, c.b * 0.7, 1);
-        ps.colorDead.set(c.r * 0.15, c.g * 0.15, c.b * 0.15, 0);
-        ps.minEmitBox.set(-0.3, -0.05, -0.3);
-        ps.maxEmitBox.set(0.3, 0.5, 0.3);
-        ps.gravity.set(0, 0, 0);
+
+        // Per-style tuning: emitRate (real particles/s after *T), lifetime range,
+        // size, shape (embers/motes are upward cones; ribbon is a wide up-and-out
+        // spread -> SPHERE), and speed range scaled by the direction range's
+        // magnitude M.
+        let emitRate: number, minLife: number, maxLife: number;
+        let minSpeed: number, maxSpeed: number, minSize: number, maxSize: number;
+        let shapeConfig: { shape: Shape; cone?: { angle: number; radius: number; radiusThickness: number; arc: number }; sphere?: { radius: number; radiusThickness: number; arc: number } };
+        let rotation: Vector3 | undefined;
         switch (cfg.style) {
             case 'embers':
-                ps.minSize = 0.18; ps.maxSize = 0.42; ps.minLifeTime = 0.4; ps.maxLifeTime = 0.9; ps.emitRate = 50;
-                ps.direction1.set(-0.3, 0.7, -0.3); ps.direction2.set(0.3, 1.4, 0.3);
-                ps.minEmitPower = 0.5; ps.maxEmitPower = 1.2; break;
+                minLife = 0.4; maxLife = 0.9; emitRate = 50;
+                minSize = 0.18; maxSize = 0.42;
+                minSpeed = 0.5 * 0.6 * 1.14; maxSpeed = 1.2 * 0.6 * 1.14;
+                shapeConfig = { shape: Shape.CONE, cone: { angle: 20, radius: 0.3, radiusThickness: 1, arc: 360 } };
+                rotation = new Vector3(-Math.PI / 2, 0, 0);
+                break;
             case 'ribbon':
-                ps.minSize = 0.10; ps.maxSize = 0.24; ps.minLifeTime = 0.15; ps.maxLifeTime = 0.4; ps.emitRate = 70;
-                ps.direction1.set(-1, -0.4, -1); ps.direction2.set(1, 1, 1);
-                ps.minEmitPower = 1.2; ps.maxEmitPower = 2.4; break;
+                minLife = 0.15; maxLife = 0.4; emitRate = 70;
+                minSize = 0.10; maxSize = 0.24;
+                minSpeed = 1.2 * 0.6 * 1.6; maxSpeed = 2.4 * 0.6 * 1.6;
+                shapeConfig = { shape: Shape.SPHERE, sphere: { radius: 0.3, radiusThickness: 1, arc: 360 } };
+                break;
             case 'motes':
-                ps.minSize = 0.16; ps.maxSize = 0.34; ps.minLifeTime = 0.8; ps.maxLifeTime = 1.5; ps.emitRate = 28;
-                ps.direction1.set(-0.4, 0.1, -0.4); ps.direction2.set(0.4, 0.5, 0.4);
-                ps.minEmitPower = 0.15; ps.maxEmitPower = 0.5; break;
+            default:
+                minLife = 0.8; maxLife = 1.5; emitRate = 28;
+                minSize = 0.16; maxSize = 0.34;
+                minSpeed = 0.15 * 0.6 * 0.66; maxSpeed = 0.5 * 0.6 * 0.66;
+                shapeConfig = { shape: Shape.CONE, cone: { angle: 55, radius: 0.3, radiusThickness: 1, arc: 360 } };
+                rotation = new Vector3(-Math.PI / 2, 0, 0);
+                break;
         }
-        ps.start();
+
+        const ps = new ParticleEffect('mythicAura', this.scene, {
+            looping: true,
+            duration: 5,
+            maxParticles: 64,
+            simulationSpace: SimulationSpace.WORLD,
+            map: getStatusEffectTexture(this.scene),
+            emission: { rateOverTime: emitRate * 0.6 },
+            startLifetime: { min: minLife / 0.6, max: maxLife / 0.6 },
+            startSpeed: { min: minSpeed, max: maxSpeed },
+            startSize: { min: fxSize(minSize), max: fxSize(maxSize) },
+            startColor: { min: { r: c.r * 0.7, g: c.g * 0.7, b: c.b * 0.7 }, max: { r: c.r, g: c.g, b: c.b } },
+            startOpacity: 1,
+            opacityOverLifetime: { isActive: true, lifetimeCurve: { type: LifeTimeCurve.EASING, curveFunction: (t: number) => 1 - t } },
+            gravity: 0,
+            shape: shapeConfig,
+            transform: rotation ? { rotation } : undefined,
+            renderer: fxRenderer('additive'),
+        }, { follow: anchor });
         this.mythicAuraPs = ps;
     }
 
@@ -2196,67 +2226,12 @@ export class Champion extends Enemy {
         }
     }
 
-    /** One persistent additive particle aura per element, anchored at the
-     *  weapon. Uses the shared soft-dot status texture so particles read as a
-     *  glow, not hard squares — the engine ParticleSystem never disposes its
-     *  texture, so the shared singleton survives every aura teardown. */
-    private createElementAura(element: PowerElement, anchor: Object3D): ParticleSystem {
-        const c = ELEMENT_COLOR[element];
-        const ps = new ParticleSystem(`heroAura_${element}`, 48, this.scene);
-        ps.emitter = anchor;
-        ps.particleTexture = getStatusEffectTexture(this.scene);
-        ps.blendMode = ParticleSystem.BLENDMODE_ONEONE;
-        ps.color1.set(c.r, c.g, c.b, 1);
-        ps.color2.set(c.r * 0.7, c.g * 0.7, c.b * 0.7, 1);
-        ps.colorDead.set(c.r * 0.15, c.g * 0.15, c.b * 0.15, 0);
-        ps.minEmitBox.set(-0.28, -0.05, -0.28);
-        ps.maxEmitBox.set(0.28, 0.45, 0.28);
-        ps.gravity.set(0, 0, 0);
-        switch (element) {
-            case 'fire': // rising embers
-                ps.minSize = 0.16; ps.maxSize = 0.38;
-                ps.minLifeTime = 0.35; ps.maxLifeTime = 0.8;
-                ps.emitRate = 42;
-                ps.direction1.set(-0.25, 0.6, -0.25);
-                ps.direction2.set(0.25, 1.3, 0.25);
-                ps.minEmitPower = 0.4; ps.maxEmitPower = 1.0;
-                break;
-            case 'ice': // slow falling frost mist
-                ps.minSize = 0.20; ps.maxSize = 0.42;
-                ps.minLifeTime = 0.6; ps.maxLifeTime = 1.2;
-                ps.emitRate = 24;
-                ps.direction1.set(-0.2, -0.05, -0.2);
-                ps.direction2.set(0.2, 0.25, 0.2);
-                ps.minEmitPower = 0.1; ps.maxEmitPower = 0.4;
-                ps.gravity.set(0, -0.7, 0);
-                break;
-            case 'storm': // fast crackling sparks
-                ps.minSize = 0.09; ps.maxSize = 0.20;
-                ps.minLifeTime = 0.1; ps.maxLifeTime = 0.25;
-                ps.emitRate = 64;
-                ps.direction1.set(-1, -0.5, -1);
-                ps.direction2.set(1, 1, 1);
-                ps.minEmitPower = 1.2; ps.maxEmitPower = 2.6;
-                break;
-            case 'arcane': // slow swirling motes
-                ps.minSize = 0.15; ps.maxSize = 0.32;
-                ps.minLifeTime = 0.8; ps.maxLifeTime = 1.5;
-                ps.emitRate = 20;
-                ps.direction1.set(-0.4, 0.1, -0.4);
-                ps.direction2.set(0.4, 0.5, 0.4);
-                ps.minEmitPower = 0.15; ps.maxEmitPower = 0.5;
-                break;
-            case 'physical': // sparse white glints
-                ps.minSize = 0.10; ps.maxSize = 0.22;
-                ps.minLifeTime = 0.25; ps.maxLifeTime = 0.6;
-                ps.emitRate = 14;
-                ps.direction1.set(-0.5, 0.2, -0.5);
-                ps.direction2.set(0.5, 0.9, 0.5);
-                ps.minEmitPower = 0.3; ps.maxEmitPower = 0.9;
-                break;
-        }
-        ps.start();
-        return ps;
+    /** One persistent particle aura per element, anchored at the weapon.
+     *  Created paused; updateElementVisuals() drives start/stop. */
+    private createElementAura(element: PowerElement, anchor: Object3D): ParticleEffect {
+        return new ParticleEffect(`heroAura_${element}`, this.scene, elementAuraConfig(element), {
+            follow: anchor, startPaused: true,
+        });
     }
 
     /** Three thin emissive bolts around the weapon that flicker while storm is
