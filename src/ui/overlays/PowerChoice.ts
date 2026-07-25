@@ -1,6 +1,8 @@
 import { makeModal, ModalController } from '../primitives/Modal';
 import { makeCard } from '../primitives/Card';
 import { makeButton } from '../primitives/Button';
+import { IconName } from '../icons';
+import { elementColor, elementIcon, TIER_COLOR } from '../elementMeta';
 import { el } from '../dom';
 
 export type PowerCardKind = 'power' | 'wildcard' | 'perk' | 'fusion' | 'ultimate';
@@ -9,34 +11,17 @@ export interface PowerCard {
     kind: PowerCardKind;
     title: string;
     subtitle: string;
-    /** Element of the power, used for border color on power cards */
+    /** Element of the power, used for accent color on power cards */
     element?: string;
     onPick: () => void;
 }
 
-// ─── Glyph maps shared with HeroHud ──────────────────────────────────────────
-const ELEMENT_GLYPH: Record<string, string> = {
-    fire:     '🔥',
-    ice:      '◆',
-    arcane:   '◉',
-    physical: '➤',
-    storm:    '⚡',
-};
-
-const ELEMENT_COLOR: Record<string, string> = {
-    fire:     '#ff6030',
-    ice:      '#30cfff',
-    arcane:   '#b050ff',
-    physical: '#e0e0e0',
-    storm:    '#ffe040',
-};
-
-const KIND_CONFIG: Record<PowerCardKind, { border: string; kindLabel: string; glyph: string }> = {
-    power:    { border: '#888',    kindLabel: 'POWER',   glyph: '★'  },
-    wildcard: { border: '#ffffff', kindLabel: 'UPGRADE', glyph: '↑'  },
-    perk:     { border: '#ffd700', kindLabel: 'PERK',    glyph: '✦'  },
-    fusion:   { border: '#c060ff', kindLabel: 'FUSE',    glyph: '✦'  },
-    ultimate: { border: '#ffd24d', kindLabel: 'ULTIMATE',glyph: '✪'  },
+const KIND_CONFIG: Record<PowerCardKind, { accent: string; kindLabel: string; icon: IconName }> = {
+    power:    { accent: '#b9ad93',            kindLabel: 'POWER',    icon: 'star' },
+    wildcard: { accent: '#ece0c8',            kindLabel: 'UPGRADE',  icon: 'chevronUp' },
+    perk:     { accent: '#ffd700',            kindLabel: 'PERK',     icon: 'scroll' },
+    fusion:   { accent: TIER_COLOR.fusion,    kindLabel: 'FUSE',     icon: 'fusion' },
+    ultimate: { accent: TIER_COLOR.ultimate,  kindLabel: 'ULTIMATE', icon: 'ultimate' },
 };
 
 export class PowerChoiceOverlay {
@@ -56,13 +41,13 @@ export class PowerChoiceOverlay {
         for (const card of cards) {
             const kindCfg = KIND_CONFIG[card.kind];
             const isElementPower = card.kind === 'power' && card.element;
-            const accent  = isElementPower ? (ELEMENT_COLOR[card.element!] ?? kindCfg.border) : kindCfg.border;
-            const glyph   = isElementPower ? (ELEMENT_GLYPH[card.element!] ?? kindCfg.glyph) : kindCfg.glyph;
+            const accent = isElementPower ? elementColor(card.element) : kindCfg.accent;
+            const icon   = isElementPower ? elementIcon(card.element) : kindCfg.icon;
 
             const cardEl = makeCard({
                 name:     card.title,
                 subtitle: card.subtitle,
-                glyph,
+                icon,
                 accent,
                 kind:     kindCfg.kindLabel,
                 onClick: () => {

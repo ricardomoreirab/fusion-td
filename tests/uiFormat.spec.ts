@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { cooldownFraction, waveLabel, levelLabel, runStatsLabel } from '../src/ui/format';
+import {
+  cooldownFraction, waveTitle, enemiesLeftLabel, waveBannerLabel,
+  clockLabel, levelLabel,
+} from '../src/ui/format';
 
 describe('cooldownFraction', () => {
   it('clamps to 0..1', () => {
@@ -12,36 +15,64 @@ describe('cooldownFraction', () => {
   });
 });
 
-describe('waveLabel', () => {
-  it('formats an in-progress wave', () => {
-    expect(waveLabel({ wave: 3, enemiesAlive: 12, inProgress: true })).toBe('WAVE 3 · 12 LEFT');
+describe('waveTitle', () => {
+  it('shows the wave number alone — count and clock are separate fields', () => {
+    expect(waveTitle({ wave: 3, enemiesAlive: 12, inProgress: true })).toBe('WAVE 3');
+    expect(waveTitle({ wave: 4, enemiesAlive: 0, inProgress: false })).toBe('WAVE 4');
   });
-  it('formats the starting state', () => {
-    expect(waveLabel({ wave: 0, enemiesAlive: 0, inProgress: false })).toBe('WAVE 1 STARTING');
+  it('floors the pre-first-wave state at 1 rather than showing "WAVE 0"', () => {
+    expect(waveTitle({ wave: 0, enemiesAlive: 0, inProgress: false })).toBe('WAVE 1');
   });
-  it('formats a cleared wave', () => {
-    expect(waveLabel({ wave: 4, enemiesAlive: 0, inProgress: false })).toBe('WAVE 4 CLEARED');
+  it('falls back before any wave info exists', () => {
+    expect(waveTitle(undefined)).toBe('WAVE 1');
   });
-  it('returns empty string when no info', () => {
-    expect(waveLabel(undefined)).toBe('');
+});
+
+describe('enemiesLeftLabel', () => {
+  it('counts the living enemies mid-wave', () => {
+    expect(enemiesLeftLabel({ wave: 2, enemiesAlive: 26, inProgress: true })).toBe('26');
+  });
+  it('shows a dash between waves, where there is nothing to count', () => {
+    expect(enemiesLeftLabel({ wave: 2, enemiesAlive: 0, inProgress: false })).toBe('—');
+    expect(enemiesLeftLabel(undefined)).toBe('—');
+  });
+  it('never renders a negative count', () => {
+    expect(enemiesLeftLabel({ wave: 2, enemiesAlive: -3, inProgress: true })).toBe('0');
+  });
+});
+
+describe('waveBannerLabel', () => {
+  it('announces a wave starting', () => {
+    expect(waveBannerLabel({ wave: 5, enemiesAlive: 20, inProgress: true })).toBe('Wave 5');
+  });
+  it('announces a wave cleared', () => {
+    expect(waveBannerLabel({ wave: 5, enemiesAlive: 0, inProgress: false })).toBe('Wave 5 Cleared');
+  });
+  it('stays silent before the first wave and with no info', () => {
+    expect(waveBannerLabel({ wave: 0, enemiesAlive: 0, inProgress: false })).toBeNull();
+    expect(waveBannerLabel(undefined)).toBeNull();
+  });
+});
+
+describe('clockLabel', () => {
+  it('formats minutes:seconds with zero-padding', () => {
+    expect(clockLabel(754)).toBe('12:34');
+  });
+  it('rolls into hours past 60 minutes', () => {
+    expect(clockLabel(3723)).toBe('1:02:03');
+  });
+  it('clamps negatives and truncates fractions', () => {
+    expect(clockLabel(-5)).toBe('00:00');
+    expect(clockLabel(59.9)).toBe('00:59');
   });
 });
 
 describe('levelLabel', () => {
-  it('prefixes the LV tag', () => {
-    expect(levelLabel(23)).toBe('LV 23');
+  it('renders the bare number for the medallion', () => {
+    expect(levelLabel(23)).toBe('23');
   });
-});
-
-describe('runStatsLabel', () => {
-  it('formats minutes:seconds with zero-padding', () => {
-    expect(runStatsLabel(754, 128)).toBe('⏱ 12:34 · ☠ 128');
-  });
-  it('rolls into hours past 60 minutes', () => {
-    expect(runStatsLabel(3723, 9)).toBe('⏱ 1:02:03 · ☠ 9');
-  });
-  it('clamps negatives and truncates fractions', () => {
-    expect(runStatsLabel(-5, 0)).toBe('⏱ 00:00 · ☠ 0');
-    expect(runStatsLabel(59.9, 1)).toBe('⏱ 00:59 · ☠ 1');
+  it('floors to at least 1 so the medallion is never blank or fractional', () => {
+    expect(levelLabel(0)).toBe('1');
+    expect(levelLabel(4.7)).toBe('4');
   });
 });

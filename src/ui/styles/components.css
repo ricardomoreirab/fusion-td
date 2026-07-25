@@ -1,200 +1,407 @@
-/* Component styles are appended by later tasks. */
+/* ── Icons ───────────────────────────────────────────────────
+   One authored family (src/ui/icons.ts) replacing the old emoji glyphs.
+   They inherit `color`, so element/rarity `--accent` tinting works for free,
+   and `--lift-sm` keeps a light-on-light icon legible over the bright field. */
+.icon {
+  width: 1em;
+  height: 1em;
+  display: block;
+  flex: 0 0 auto;
+  color: inherit;
+  filter: var(--lift-sm);
+}
 
-/* ── Frame ───────────────────────────────────────────────── */
+/* ── Forged plate ────────────────────────────────────────────
+   THE HUD chrome primitive. Bronze rim + smoky fill painted as two background
+   layers (border-box / padding-box) so the chamfer cuts both as one plate,
+   grain on top for material, and a drop-shadow filter for separation from the
+   bright meadow — an outer box-shadow would be clipped away by the chamfer. */
+.plate {
+  position: relative;
+  background-image: var(--fill-plate), var(--rim-bronze);
+  background-origin: padding-box, border-box;
+  background-clip: padding-box, border-box;
+  border: 2px solid transparent;
+  border-radius: var(--r-sm);
+  clip-path: var(--chamfer-sm);
+  box-shadow: var(--bevel-chrome);
+  filter: var(--lift);
+}
+/* Hammered-metal grain. Sits above the fill, below the content. */
+.plate::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: var(--tex-grain);
+  background-size: 140px 140px;
+  opacity: 0.07;
+  mix-blend-mode: overlay;
+  pointer-events: none;
+}
+
+/* ── Frame ───────────────────────────────────────────────────
+   `ornate` = menu/modal panels, `lite` = the older HUD chrome (now an alias of
+   the plate recipe so both languages stay identical). */
 .frame {
   --accent: var(--c-gold);
   position: relative;
   box-sizing: border-box;
 }
 .frame--ornate {
-  background: linear-gradient(180deg, var(--c-stone-700), var(--c-stone-900));
-  border: 2px solid var(--c-gold);
+  background-image:
+    linear-gradient(180deg, rgba(38, 31, 20, 0.97), rgba(12, 10, 6, 0.98)),
+    var(--rim-bronze);
+  background-origin: padding-box, border-box;
+  background-clip: padding-box, border-box;
+  border: 2px solid transparent;
   border-radius: var(--r-md);
+  clip-path: var(--chamfer-lg);
   box-shadow: var(--bevel-ornate);
 }
-.frame--ornate::before,
+.frame--ornate::before {
+  /* Grain + an engraved inner rule, one pseudo-element: the rule is an inset
+     box-shadow so the corners stay chamfer-clean. */
+  content: '';
+  position: absolute;
+  inset: 5px;
+  background-image: var(--tex-grain);
+  background-size: 140px 140px;
+  opacity: 0.06;
+  mix-blend-mode: overlay;
+  box-shadow: inset 0 0 0 1px rgba(201, 162, 63, 0.22);
+  pointer-events: none;
+}
+/* Corner brackets — hammered rivets at the four corners of a menu panel. */
 .frame--ornate::after {
   content: '';
   position: absolute;
-  width: 12px;
-  height: 12px;
-  border: 2px solid var(--c-gold-hi);
-  opacity: 0.85;
+  inset: 9px;
+  border: 1px solid transparent;
+  background:
+    linear-gradient(var(--c-gold-hi), var(--c-gold-hi)) 0 0 / 14px 2px no-repeat,
+    linear-gradient(var(--c-gold-hi), var(--c-gold-hi)) 0 0 / 2px 14px no-repeat,
+    linear-gradient(var(--c-gold-hi), var(--c-gold-hi)) 100% 0 / 14px 2px no-repeat,
+    linear-gradient(var(--c-gold-hi), var(--c-gold-hi)) 100% 0 / 2px 14px no-repeat,
+    linear-gradient(var(--c-gold-hi), var(--c-gold-hi)) 0 100% / 14px 2px no-repeat,
+    linear-gradient(var(--c-gold-hi), var(--c-gold-hi)) 0 100% / 2px 14px no-repeat,
+    linear-gradient(var(--c-gold-hi), var(--c-gold-hi)) 100% 100% / 14px 2px no-repeat,
+    linear-gradient(var(--c-gold-hi), var(--c-gold-hi)) 100% 100% / 2px 14px no-repeat;
+  opacity: 0.5;
   pointer-events: none;
 }
-.frame--ornate::before { top: 5px; left: 5px; border-right: none; border-bottom: none; }
-.frame--ornate::after { bottom: 5px; right: 5px; border-left: none; border-top: none; }
 .frame--lite {
-  /* Bronze-gradient border via layered backgrounds: the outer layer (border-box,
-     no clip) paints the gradient border ring, the inner layer (padding-box)
-     paints the smoky chrome fill on top of it — cheaper than border-image and
-     keeps the existing --accent tinting working through color-mix. */
-  background-image:
-    linear-gradient(180deg, rgba(20, 15, 9, 0.82) 0%, rgba(10, 8, 5, 0.86) 55%, rgba(6, 5, 3, 0.90) 100%),
-    linear-gradient(155deg, var(--c-gold-hi), var(--c-gold) 45%, var(--c-gold-lo) 75%, #5a4418);
+  background-image: var(--fill-plate), var(--rim-bronze);
   background-origin: padding-box, border-box;
   background-clip: padding-box, border-box;
-  border: 1px solid transparent;
+  border: 2px solid transparent;
   border-radius: var(--r-sm);
   clip-path: var(--chamfer-sm);
   box-shadow: var(--bevel-chrome);
+  filter: var(--lift);
 }
 
-/* ── Pill ────────────────────────────────────────────────── */
-.pill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--s-1);
-  padding: var(--s-1) var(--s-3);
-  font-family: var(--ff-body);
-  font-weight: 700;
-  font-size: var(--fs-200);
-  line-height: 1;
+/* ── Meters (HP + XP) ────────────────────────────────────────
+   A game health bar, not a progress bar: engraved trough, segment ticks so
+   the player reads "how many hits left" by counting rather than estimating,
+   a gloss band on the fill, and a damage-lag ghost. */
+.meter {
+  --accent: var(--c-blood);
   position: relative;
+  width: var(--hud-meter-w);
   overflow: hidden;
-  white-space: nowrap;
+  background-image: var(--fill-socket), var(--rim-bronze);
+  background-origin: padding-box, border-box;
+  background-clip: padding-box, border-box;
+  border: 2px solid transparent;
+  clip-path: var(--chamfer-xs);
+  box-shadow: var(--bevel-chrome), inset 0 2px 4px rgba(0, 0, 0, 0.75);
+  filter: var(--lift);
 }
-.pill__txt { position: relative; text-shadow: 0 1px 2px #000; }
-/* HP + level read at a glance mid-combat — bigger than the wave pill. */
-.pill--hp {
-  --accent: var(--c-parchment-dim);
-  min-width: clamp(150px, 28vw, 230px);
-  padding: var(--s-2) var(--s-4);
-  font-size: var(--fs-400);
-}
-.pill__fill {
+.meter__ghost,
+.meter__fill {
   position: absolute;
-  inset: 0;
+  inset: 0 auto 0 0;
   width: 100%;
-  background: linear-gradient(180deg, #d2453c, #7a1f1f);
 }
-.pill__fill::after {
+/* The ghost trails the real fill by a beat, so a burst of chip damage reads as
+   a visible amount lost rather than a bar that is simply shorter than before. */
+.meter__ghost {
+  background: linear-gradient(180deg, rgba(255, 214, 190, 0.55), rgba(190, 90, 60, 0.4));
+  transition: width 520ms cubic-bezier(0.22, 0.61, 0.36, 1) 220ms;
+}
+.meter__fill {
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--accent) 78%, #ffffff) 0%,
+    var(--accent) 42%,
+    color-mix(in srgb, var(--accent) 55%, #000000) 100%);
+  box-shadow: inset 0 -3px 6px rgba(0, 0, 0, 0.4);
+}
+/* Gloss band across the top third — the highlight of a cylindrical vial. */
+.meter__fill::after {
   content: '';
   position: absolute;
   inset: 0 0 auto 0;
-  height: 45%;
-  background: rgba(255, 255, 255, 0.18);
+  height: 42%;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.26), rgba(255, 255, 255, 0));
 }
-.pill--wave { --accent: var(--c-gold); color: var(--c-gold-hi); letter-spacing: 0.06em; }
-.pill--level {
-  --accent: #5fb0e8;
-  color: #bfe3ff;
-  min-width: clamp(130px, 24vw, 190px);
-  padding: var(--s-2) var(--s-4);
-  font-size: var(--fs-400);
-  /* Visible XP track: the unfilled remainder must read as a progress trough,
-     not a black stub glued to the fill. Keeps the shared bronze-border-image
-     layering (background-origin/-clip pair from .frame--lite) — only the
-     padding-box fill layer changes to the trough's dark-blue tone. */
+/* Engraved segment divisions, drawn over the fill AND the empty trough. */
+.meter__ticks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: repeating-linear-gradient(90deg,
+    transparent 0 calc(10% - 1px), rgba(0, 0, 0, 0.5) calc(10% - 1px) 10%);
+}
+.meter__label {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  height: 100%;
+  padding: 0 var(--s-2);
+  font-family: var(--ff-body);
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--c-parchment);
+  text-shadow: 0 1px 2px #000, 0 0 6px rgba(0, 0, 0, 0.8);
+  font-variant-numeric: tabular-nums; /* digits must not shift the layout */
+}
+.meter--hp {
+  --accent: var(--c-blood);
+  height: clamp(20px, 3.4vw, 26px);
+  font-size: var(--fs-300);
+}
+.meter--hp .meter__label { justify-content: center; padding: 0 var(--s-3); }
+.meter--hp .icon { font-size: 1.05em; color: #ffd9cf; }
+/* Icon pinned to the left edge, readout centred over the fill. */
+.meter__lead {
+  position: absolute;
+  left: var(--s-2);
+  display: flex; align-items: center;
+}
+.meter__value { letter-spacing: 0.02em; }
+/* XP is a thin secondary rail under HP: same trough language, arcane hue,
+   half the height so it can never be mistaken for the survival bar. Its
+   trough is tinted rather than near-black — at level 1 an empty black strip
+   just reads as a shadow under the health bar, not as a track to fill. */
+.meter--xp {
+  --accent: var(--c-arcane);
+  height: clamp(8px, 1.4vw, 11px);
+  border-width: 1px;
   background-image:
-    linear-gradient(180deg, #16222e 0%, #0c141c 100%),
-    linear-gradient(155deg, var(--c-gold-hi), var(--c-gold) 45%, var(--c-gold-lo) 75%, #5a4418);
-  box-shadow: var(--bevel-chrome), inset 0 1px 3px rgba(0, 0, 0, 0.6), inset 0 0 0 1px rgba(95, 176, 232, 0.18);
+    linear-gradient(180deg, rgba(46, 30, 74, 0.92), rgba(22, 14, 38, 0.95)),
+    var(--rim-bronze);
+  box-shadow:
+    var(--bevel-chrome),
+    inset 0 1px 3px rgba(0, 0, 0, 0.7),
+    inset 0 0 6px rgba(164, 99, 255, 0.22);
 }
-.pill--level .pill__fill { background: linear-gradient(180deg, #5fb0e8, #2b6aa8); }
-.pill--stats {
-  --accent: #9aa4b0;
-  color: #d5dbe2;
-  letter-spacing: 0.04em;
-  font-variant-numeric: tabular-nums; /* the clock must not jitter as digits change */
+.meter--xp .meter__ticks {
+  background-image: repeating-linear-gradient(90deg,
+    transparent 0 calc(25% - 1px), rgba(0, 0, 0, 0.45) calc(25% - 1px) 25%);
 }
+.meter--xp .meter__fill { transition: width 200ms ease-out; }
 
-/* Transient feedback animations */
-@keyframes pill-flash-white { from { box-shadow: inset 0 0 0 999px rgba(255,255,255,0.4); } to {} }
-@keyframes pill-flash-green { from { box-shadow: inset 0 0 0 999px rgba(0,255,128,0.45); } to {} }
-@keyframes pill-pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.1); } }
-.pill--flash-dmg { animation: pill-flash-white 80ms linear; }
-.pill--flash-clear { animation: pill-flash-green 300ms ease-out; }
-.pill--pulse { animation: pill-pulse 180ms ease-out; }
+/* Health in the red band: the rim breathes so the danger state has a second
+   channel besides colour. */
+@keyframes meter-danger {
+  0%, 100% { box-shadow: var(--bevel-chrome), inset 0 2px 4px rgba(0,0,0,.75), 0 0 0 0 rgba(200,40,30,0); }
+  50%      { box-shadow: var(--bevel-chrome), inset 0 2px 4px rgba(0,0,0,.75), inset 0 0 12px 2px rgba(255,60,40,.55); }
+}
+.meter--danger { animation: meter-danger 1s ease-in-out infinite; }
+@keyframes meter-hit { from { filter: var(--lift) brightness(2.6); } to { filter: var(--lift); } }
+.meter--hit { animation: meter-hit 160ms ease-out; }
 
-/* ── IconSlot ────────────────────────────────────────────── */
+/* ── Level medallion ─────────────────────────────────────────
+   The hero's level as a struck bronze coin at the head of the vitals cluster,
+   rather than a fifth floating chip in the top bar. */
+.medallion {
+  position: relative;
+  width: clamp(34px, 5.4vw, 46px);
+  height: clamp(34px, 5.4vw, 46px);
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background-image:
+    radial-gradient(circle at 38% 30%, rgba(70, 56, 34, 0.98), rgba(14, 11, 7, 0.98) 72%),
+    var(--rim-bronze);
+  background-origin: padding-box, border-box;
+  background-clip: padding-box, border-box;
+  border: 2px solid transparent;
+  box-shadow: var(--bevel-chrome), inset 0 0 10px rgba(0, 0, 0, 0.6);
+  filter: var(--lift);
+}
+.medallion__tag {
+  font-family: var(--ff-display);
+  font-weight: 700;
+  font-size: clamp(6px, 1vw, 8px);
+  letter-spacing: 0.18em;
+  line-height: 1;
+  color: var(--c-arcane-hi);
+  opacity: 0.85;
+}
+.medallion__n {
+  font-family: var(--ff-display);
+  font-weight: 700;
+  font-size: clamp(14px, 2.4vw, 19px);
+  line-height: 1.05;
+  color: var(--c-parchment);
+  text-shadow: 0 1px 2px #000;
+  font-variant-numeric: tabular-nums;
+}
+@keyframes medallion-levelup {
+  0%   { transform: scale(1);    box-shadow: var(--bevel-chrome), 0 0 0 0 rgba(164, 99, 255, 0.7); }
+  45%  { transform: scale(1.16); box-shadow: var(--bevel-chrome), 0 0 22px 6px rgba(164, 99, 255, 0.75); }
+  100% { transform: scale(1);    box-shadow: var(--bevel-chrome), 0 0 0 0 rgba(164, 99, 255, 0); }
+}
+.medallion--up { animation: medallion-levelup 620ms ease-out; }
+
+/* ── IconSlot (powers, items, ultimates) ─────────────────────
+   Cooldown reads as a radial sweep plus a bright rim arc — the language every
+   action game uses — instead of the old top-down window-blind wipe. */
 .slot {
+  --accent: var(--c-gold);
+  --cd: 0;                       /* 0..1 remaining fraction */
   width: var(--hud-slot);
   height: var(--hud-slot);
-  border-radius: var(--r-sm);
   position: relative;
-  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
-  background:
+  border-radius: var(--r-sm);
+  background-image:
     linear-gradient(180deg,
-      color-mix(in srgb, var(--accent) 18%, var(--c-stone-900)),
-      var(--c-stone-900));
+      color-mix(in srgb, var(--accent) 20%, rgba(16, 13, 8, 0.94)),
+      rgba(7, 5, 3, 0.96)),
+    var(--rim-bronze);
+  background-origin: padding-box, border-box;
+  background-clip: padding-box, border-box;
+  border: 2px solid transparent;
+  clip-path: var(--chamfer-xs);
   box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--accent) 35%, transparent),
-    0 0 7px color-mix(in srgb, var(--accent) 30%, transparent);
+    var(--bevel-chrome),
+    inset 0 0 12px color-mix(in srgb, var(--accent) 26%, transparent);
+  filter: var(--lift);
 }
-.slot__icon { font-size: calc(var(--hud-slot) * 0.5); line-height: 1; }
+.slot__icon {
+  position: relative;
+  z-index: 1;
+  font-size: calc(var(--hud-slot) * 0.52);
+  line-height: 1;
+  display: flex;
+}
 .slot__level {
   position: absolute;
-  right: 2px;
+  right: 3px;
   bottom: 1px;
-  font-family: var(--ff-body);
-  font-weight: 800;
+  z-index: 3;
+  font-family: var(--ff-display);
+  font-weight: 700;
   font-size: calc(var(--hud-slot) * 0.26);
-  color: #fff;
-  text-shadow: 0 1px 1px #000;
+  color: var(--c-parchment);
+  text-shadow: 0 1px 2px #000, 0 0 4px #000;
   display: none;
 }
+/* Radial cooldown sweep: the dark wedge covers what is still on cooldown. */
 .slot__cd {
   position: absolute;
-  left: 0; right: 0; top: 0;
-  height: 0;
-  background: rgba(0, 0, 0, 0.55);
+  inset: 0;
+  z-index: 2;
   pointer-events: none;
+  background: conic-gradient(from -90deg,
+    rgba(3, 2, 1, 0.74) 0 calc(var(--cd) * 360deg),
+    transparent calc(var(--cd) * 360deg) 360deg);
+}
+/* Bright rim arc mirroring the sweep — readable at a glance in peripheral vision. */
+.slot__ring {
+  position: absolute;
+  inset: -1px;
+  z-index: 2;
+  pointer-events: none;
+  background: conic-gradient(from -90deg,
+    color-mix(in srgb, var(--accent) 85%, #ffffff) 0 calc(var(--cd) * 360deg),
+    transparent calc(var(--cd) * 360deg) 360deg);
+  -webkit-mask: radial-gradient(closest-side, transparent 0 78%, #000 81%);
+  mask: radial-gradient(closest-side, transparent 0 78%, #000 81%);
+  opacity: 0.9;
 }
 .slot--empty {
-  /* An intentional recessed socket, not an unfinished placeholder: solid
-     bronze bevel + inset shadow reads as "carved in" rather than "sketched".
-     Keeps the shared bronze-border-image layering from .frame--lite — only
-     the padding-box fill layer darkens and the box-shadow flips to inset. */
-  background-image:
-    linear-gradient(180deg, rgba(10, 8, 5, 0.7), rgba(10, 8, 5, 0.7)),
-    linear-gradient(155deg, var(--c-gold-hi), var(--c-gold) 45%, var(--c-gold-lo) 75%, #5a4418);
+  /* An intentional recessed socket, not an unfinished placeholder: darker
+     fill, inset shadow, no outward glow — it reads as "carved in, waiting". */
+  background-image: var(--fill-socket), var(--rim-bronze);
   box-shadow:
-    inset 0 2px 4px rgba(0, 0, 0, 0.6),
-    inset 0 1px 0 rgba(201, 162, 63, 0.15);
-  opacity: 0.6; /* unfilled sockets recede — filled slots carry the row */
+    inset 0 3px 6px rgba(0, 0, 0, 0.72),
+    inset 0 1px 0 rgba(201, 162, 63, 0.14),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.5);
+  opacity: 0.72;
 }
-.slot--empty .slot__icon { color: rgba(201, 162, 63, 0.35); font-size: calc(var(--hud-slot) * 0.32); }
-@keyframes slot-ready { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
-.slot--ready { animation: slot-ready 400ms ease-out; }
+.slot--empty .slot__icon {
+  color: rgba(201, 162, 63, 0.42);
+  font-size: calc(var(--hud-slot) * 0.42);
+}
+@keyframes slot-ready {
+  0%   { transform: scale(1);    box-shadow: var(--bevel-chrome), 0 0 0 0 color-mix(in srgb, var(--accent) 70%, transparent); }
+  45%  { transform: scale(1.08); box-shadow: var(--bevel-chrome), 0 0 16px 4px color-mix(in srgb, var(--accent) 70%, transparent); }
+  100% { transform: scale(1);    box-shadow: var(--bevel-chrome), 0 0 0 0 transparent; }
+}
+.slot--ready { animation: slot-ready 420ms ease-out; }
 
-/* ── Button ──────────────────────────────────────────────── */
+/* ── Button ──────────────────────────────────────────────────
+   Full hover / active / focus / disabled ladder — a menu button that never
+   changes under the cursor reads as a mock-up. */
 .btn {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: var(--s-2);
   font-family: var(--ff-display);
   font-weight: 700;
   font-size: var(--fs-400);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   padding: var(--s-3) var(--s-6);
-  border-radius: var(--r-sm);
   cursor: pointer;
   user-select: none;
-  transition: transform 100ms ease;
+  clip-path: var(--chamfer-sm);
+  transition: transform 100ms ease, filter 120ms ease;
+  outline: none;
 }
-.btn:active { transform: scale(0.94); }
+.btn:focus-visible { filter: brightness(1.18) drop-shadow(0 0 8px rgba(243, 218, 142, 0.7)); }
+.btn:active { transform: translateY(1px) scale(0.98); }
 .btn--forged {
   color: #1a1206;
-  border: 2px solid var(--c-gold);
-  background: linear-gradient(180deg, var(--c-gold-hi), var(--c-gold) 55%, #9a7a2e);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 3px 0 #5a4418, 0 5px 10px rgba(0, 0, 0, 0.5);
+  border: 2px solid transparent;
+  background-image:
+    linear-gradient(180deg, var(--c-gold-hi), var(--c-gold) 52%, #90701f 100%),
+    var(--rim-bronze);
+  background-origin: padding-box, border-box;
+  background-clip: padding-box, border-box;
+  text-shadow: 0 1px 0 rgba(255, 245, 210, 0.6);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), inset 0 -3px 6px rgba(90, 68, 24, 0.55);
+  filter: var(--lift);
 }
+.btn--forged:hover { filter: var(--lift) brightness(1.1); }
 .btn--ghost {
   color: var(--c-parchment);
-  border: 2px solid var(--c-gold);
-  background: linear-gradient(180deg, var(--c-stone-700), var(--c-stone-900));
-  box-shadow: inset 0 1px 0 rgba(243, 218, 142, 0.2), 0 3px 0 #000, 0 5px 10px rgba(0, 0, 0, 0.5);
+  border: 2px solid transparent;
+  background-image: var(--fill-plate), var(--rim-bronze);
+  background-origin: padding-box, border-box;
+  background-clip: padding-box, border-box;
+  box-shadow: var(--bevel-chrome);
+  filter: var(--lift);
 }
+.btn--ghost:hover { color: var(--c-gold-hi); filter: var(--lift) brightness(1.22); }
+.btn--disabled,
+.btn[aria-disabled='true'] { opacity: 0.45; filter: grayscale(0.6); pointer-events: none; }
 
-/* ── HUD layout ──────────────────────────────────────────── */
-/* Inset from the screen edges (and notches). Anchored regions position to
-   this box, so the padding actually takes effect — unlike padding on the
+/* ── HUD layout ──────────────────────────────────────────────
+   Inset from the screen edges (and notches). Anchored zones position to this
+   box, so the padding actually takes effect — unlike padding on the
    absolutely-positioned layer, which children ignore. */
 .hud {
   position: absolute;
@@ -204,78 +411,225 @@
   left: max(var(--hud-pad), env(safe-area-inset-left));
   pointer-events: none;
 }
+
+/* Three intentional zones rather than a row of scattered chips: who I am
+   (top-left), what I'm fighting (top-centre), what I've earned (top-right).
+   They live in one flex row rather than three absolutely-positioned boxes:
+   absolute centring looks identical on a desktop viewport but drives the
+   objective plate straight through the vitals cluster on a phone. Here the
+   centre zone takes the leftover space and centres inside it, so the plate
+   sits centred when there is room and simply shifts when there isn't. */
 .hud__topbar {
   position: absolute;
   top: 0; left: 0; right: 0;
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
   gap: var(--s-2);
 }
-.hud__topbar .pill { pointer-events: none; }
+.hud__zone { display: flex; gap: var(--s-2); }
+/* The outer zones take an equal share of the leftover space, which centres the
+   objective plate on screen without absolute positioning. `min-width:
+   min-content` is what keeps that honest: the flanks can give space back to
+   the centre but never shrink into their own content. */
+.hud__zone--tl,
+.hud__zone--tr { flex: 1 1 0; min-width: min-content; }
+.hud__zone--tl { flex-direction: column; align-items: flex-start; }
+.hud__zone--tc { flex: 0 1 auto; min-width: 0; flex-direction: column; align-items: center; }
+.hud__zone--tr { justify-content: flex-end; align-items: flex-start; }
 
+/* Vitals: level medallion + the HP/XP rail stack, read as one carved cluster. */
+.hud__vitals { display: flex; align-items: center; gap: var(--s-2); }
+.hud__bars { display: flex; flex-direction: column; gap: 3px; }
+
+/* Objective plate: wave, goblins left, run clock, kills — divided by engraved
+   rules instead of split across three floating pills. */
+.hud__objective {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-1) var(--s-3);
+  max-width: 100%;
+}
+.obj__wave {
+  font-family: var(--ff-display);
+  font-weight: 700;
+  font-size: var(--fs-300);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--c-gold-hi);
+  text-shadow: 0 1px 2px #000;
+  white-space: nowrap;
+}
+.obj__rule {
+  width: 1px;
+  align-self: stretch;
+  margin: 2px 0;
+  background: linear-gradient(180deg, transparent, rgba(201, 162, 63, 0.55), transparent);
+}
+.obj__stat {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--ff-body);
+  font-weight: 700;
+  font-size: var(--fs-200);
+  color: var(--c-parchment);
+  text-shadow: 0 1px 2px #000;
+  font-variant-numeric: tabular-nums;
+}
+.obj__stat .icon { font-size: 1.15em; color: var(--c-parchment-dim); }
+/* Fixed-width numeric cells: the clock ticking from 09:59 to 10:00 must not
+   nudge the kill counter sideways. */
+.obj__num { display: inline-block; min-width: 4ch; text-align: left; }
+.obj__num--clock { min-width: 5ch; }
+.obj__stat--threat .icon { color: var(--c-blood-hi); }
+
+/* Narrow phones: tighten the plate and drop the kill tally. Wave, threat count
+   and the run clock inform the next decision; the kill count is a trophy, and
+   it survives on the game-over summary. These rules sit AFTER the .obj__stat
+   base rule on purpose — same specificity, so source order decides. */
+@media (max-width: 640px) {
+  .hud__objective { gap: var(--s-1); padding: var(--s-1) var(--s-2); }
+  .obj__stat--kills, .obj__rule--kills { display: none; }
+}
+/* Portrait phones: three zones cannot share one row without crushing the
+   objective plate to an unreadable stub, so it wraps to its own full-width
+   row under the vitals rather than being squeezed or clipped. */
+@media (max-width: 560px) {
+  .hud__topbar { flex-wrap: wrap; }
+  .hud__zone--tl, .hud__zone--tr { flex: 0 1 auto; }
+  .hud__zone--tc { order: 3; flex: 1 0 100%; }
+  .hud__zone--tr { margin-left: auto; }
+}
+
+/* Purse. Currency is the one place gold-on-gold is the point. */
+.hud__purse {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: var(--s-1) var(--s-3);
+  font-family: var(--ff-display);
+  font-weight: 700;
+  font-size: var(--fs-300);
+  color: #ffd84a;
+  text-shadow: 0 1px 2px #000;
+  font-variant-numeric: tabular-nums;
+}
+.hud__purse .icon { font-size: 1.15em; }
+.hud__purse-n { min-width: 3ch; text-align: right; }
+@keyframes purse-gain {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.14); filter: var(--lift) brightness(1.5); }
+  100% { transform: scale(1); }
+}
+.hud__purse--gain { animation: purse-gain 260ms ease-out; }
+
+/* ── Event banner ────────────────────────────────────────────
+   Centre-top, under the objective plate: wave start/clear and level-up get a
+   struck-plate callout instead of vanishing into a pill's text. */
+.hud__banner {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  opacity: 0;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.hud__banner-rule {
+  width: clamp(24px, 6vw, 60px);
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--c-gold), transparent);
+}
+.hud__banner-text {
+  font-family: var(--ff-display);
+  font-weight: 700;
+  font-size: var(--fs-400);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--c-gold-hi);
+  text-shadow: 0 2px 5px #000, 0 0 16px rgba(201, 162, 63, 0.55);
+}
+.hud__banner--danger .hud__banner-text { color: var(--c-blood-hi); text-shadow: 0 2px 5px #000, 0 0 16px rgba(200, 48, 42, 0.7); }
+.hud__banner--danger .hud__banner-rule { background: linear-gradient(90deg, transparent, var(--c-blood), transparent); }
+.hud__banner--arcane .hud__banner-text { color: var(--c-arcane-hi); text-shadow: 0 2px 5px #000, 0 0 16px rgba(164, 99, 255, 0.7); }
+.hud__banner--arcane .hud__banner-rule { background: linear-gradient(90deg, transparent, var(--c-arcane), transparent); }
+@keyframes banner-in {
+  0%   { opacity: 0; transform: translateY(-10px) scale(0.96); letter-spacing: 0.4em; }
+  14%  { opacity: 1; transform: translateY(0) scale(1); }
+  74%  { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(-4px) scale(1); }
+}
+.hud__banner--show { animation: banner-in 2000ms ease-out forwards; }
+
+/* ── Bottom clusters ─────────────────────────────────────────
+   Powers stack above items on the left; ultimates sit right, out of the
+   movement lane and away from the hero at screen centre. */
 .hud__cluster { position: absolute; display: flex; gap: var(--s-2); }
 .hud__cluster--left { left: 0; bottom: 0; flex-direction: column; }
+.hud__cluster--right { right: 0; bottom: 0; flex-direction: row; }
 .hud__row { display: flex; gap: var(--s-2); }
 .hud__row .slot { pointer-events: none; }
-.slot--item { --accent: #8a6d35; } /* warm bronze — matches the gold pill language, not utility grey */
+.hud__row--items { --hud-slot: clamp(26px, 4.4vw, 34px); }
+.slot--item { --accent: #8a6d35; }
 @media (max-height: 430px) { .hud__cluster { gap: var(--s-1); } .hud__row { gap: var(--s-1); } }
 
-/* ── Ultimate buttons ────────────────────────────────────── */
-.hud__cluster--right { right: 0; bottom: 0; flex-direction: row; }
+/* ── Ultimate buttons ────────────────────────────────────────── */
 .ult {
-  width: var(--hud-ult);
-  height: var(--hud-ult);
-  border-radius: var(--r-md);
+  --hud-slot: var(--hud-ult);
   cursor: pointer;
 }
-.ult__label { font-size: calc(var(--hud-ult) * 0.45); line-height: 1; transition: opacity 120ms; }
+.ult__label { font-size: calc(var(--hud-ult) * 0.46); line-height: 1; transition: opacity 120ms; display: flex; }
 .ult__cdtext {
-  position: absolute; inset: 0;
+  position: absolute; inset: 0; z-index: 3;
   display: flex; align-items: center; justify-content: center;
-  font-family: var(--ff-body); font-weight: 800;
-  font-size: calc(var(--hud-ult) * 0.3); color: #fff;
+  font-family: var(--ff-display); font-weight: 700;
+  font-size: calc(var(--hud-ult) * 0.3);
+  color: var(--c-parchment);
+  text-shadow: 0 1px 3px #000;
+  font-variant-numeric: tabular-nums;
 }
-@keyframes ult-fire { from { box-shadow: inset 0 0 0 999px rgba(255,255,255,0.6); } to {} }
-.ult--fire { animation: ult-fire 200ms linear; }
+@keyframes ult-fire {
+  0%   { filter: var(--lift) brightness(3); transform: scale(1.1); }
+  100% { filter: var(--lift); transform: scale(1); }
+}
+.ult--fire { animation: ult-fire 260ms ease-out; }
+/* Keybind hint as a small forged keycap, not a browser-form chip. */
 .ult__key {
   position: absolute;
-  top: 2px;
-  left: 3px;
-  min-width: calc(var(--hud-ult) * 0.28);
-  padding: 0 2px;
-  border: 1px solid rgba(255, 255, 255, 0.7);
-  border-radius: 3px;
-  background: rgba(0, 0, 0, 0.7);
-  font-family: var(--ff-body);
-  font-weight: 800;
-  font-size: calc(var(--hud-ult) * 0.22);
-  line-height: 1.35;
+  top: 2px; left: 3px;
+  z-index: 4;
+  min-width: calc(var(--hud-ult) * 0.3);
+  padding: 0 3px;
+  border: 1px solid var(--c-gold-lo);
+  border-radius: 2px;
+  background: linear-gradient(180deg, rgba(46, 37, 22, 0.95), rgba(10, 8, 5, 0.95));
+  font-family: var(--ff-display);
+  font-weight: 700;
+  font-size: calc(var(--hud-ult) * 0.2);
+  letter-spacing: 0.06em;
+  line-height: 1.5;
   text-align: center;
-  color: #fff;
+  color: var(--c-gold-hi);
   pointer-events: none;
 }
 @media (pointer: coarse) { .ult__key { display: none; } }
 
-/* ── Pause button + vignette ─────────────────────────────── */
+/* ── Pause button + low-HP vignette ──────────────────────────── */
 .hud__pause {
-  /* Uses .frame--lite for the forged background/border/bevel, matching the
-     gold & wave pills. This rule only handles placement, size, and shape. */
-  position: absolute;
-  right: 0;                       /* right corner, directly under the gold pill */
-  top: clamp(30px, 6vw, 38px);
   width: clamp(30px, 5vw, 36px);
   height: clamp(30px, 5vw, 36px);
   display: flex; align-items: center; justify-content: center;
-  border-radius: var(--r-sm);
   cursor: pointer;
+  color: var(--c-parchment);
+  transition: color 120ms ease, filter 120ms ease;
 }
-.hud__pause-icon { font-size: clamp(14px, 2.6vw, 18px); color: var(--c-parchment); }
+.hud__pause:hover { color: var(--c-gold-hi); filter: var(--lift) brightness(1.2); }
+.hud__pause .icon { font-size: clamp(14px, 2.4vw, 18px); }
 .hud__vignette {
   position: absolute; inset: 0;
   opacity: 0;
   pointer-events: none;
-  background: radial-gradient(ellipse at center, transparent 45%, rgba(200,20,20,0.85) 100%);
+  background: radial-gradient(ellipse at center, transparent 45%, rgba(200, 20, 20, 0.85) 100%);
   transition: opacity 120ms linear;
 }
 
@@ -285,11 +639,12 @@
   .ult { min-width: 44px; min-height: 44px; }
 }
 
-/* ── Modal (ornate overlay) ──────────────────────────────── */
+/* ── Modal (ornate overlay) ──────────────────────────────────── */
 .modal-scrim {
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
-  background: rgba(0, 0, 0, 0.65);
+  background: rgba(4, 3, 6, 0.72);
+  backdrop-filter: blur(2px);
   padding: var(--s-4);
 }
 /* Opaque themed backdrop (champion select) — fully hides the scene behind,
@@ -299,6 +654,7 @@
     radial-gradient(60% 50% at 50% 38%, rgba(120, 30, 20, 0.25), transparent 70%),
     radial-gradient(50% 30% at 50% 10%, rgba(60, 100, 30, 0.10), transparent 70%),
     var(--c-void);
+  backdrop-filter: none;
 }
 .modal-panel {
   max-width: min(680px, 92vw);
@@ -307,82 +663,102 @@
   padding: var(--s-6) var(--s-4) var(--s-4);
   display: flex; flex-direction: column; gap: var(--s-3);
 }
+/* Title flanked by engraved rules and a centred rune — the menu equivalent of
+   the HUD's objective plate. */
 .modal-title {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-3);
   font-family: var(--ff-display);
   font-weight: 700;
   font-size: var(--fs-500);
-  letter-spacing: 0.1em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--c-gold-hi);
   text-align: center;
-  text-shadow: 0 2px 4px #000;
+  text-shadow: 0 2px 4px #000, 0 0 14px rgba(201, 162, 63, 0.35);
+}
+.modal-title::before,
+.modal-title::after {
+  content: '';
+  flex: 1 1 0;
+  max-width: 90px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--c-gold), transparent);
 }
 .modal-body { display: flex; flex-direction: column; gap: var(--s-3); }
 /* Buttons in a modal body must not stretch to full panel width (the column's
    default align-items:stretch) — center them at their intrinsic size. */
 .modal-body > .btn { align-self: center; }
-.modal-subtitle { font-size: var(--fs-200); color: var(--c-text-muted, #aaa); text-align: center; }
+.modal-subtitle { font-size: var(--fs-200); color: var(--c-parchment-dim); text-align: center; }
 .modal-choices { display: flex; gap: var(--s-3); flex-wrap: wrap; justify-content: center; }
 @media (max-width: 760px) { .modal-choices { flex-direction: column; } }
 
-/* ── Choice card ─────────────────────────────────────────── */
+/* ── Choice card ─────────────────────────────────────────────── */
 .choice-card {
   --accent: var(--c-gold);
   flex: 1 1 0; min-width: 150px;
   position: relative;
   display: flex; flex-direction: column; align-items: center; gap: var(--s-2);
   padding: var(--s-4) var(--s-3);
-  border-radius: var(--r-sm);
-  background: linear-gradient(180deg, #221c12, #100d08);
-  border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 2px 6px rgba(0,0,0,0.5);
+  background-image:
+    linear-gradient(180deg, rgba(36, 29, 18, 0.96), rgba(12, 10, 6, 0.97)),
+    linear-gradient(158deg,
+      color-mix(in srgb, var(--accent) 85%, #ffffff),
+      var(--accent) 45%,
+      color-mix(in srgb, var(--accent) 45%, #000000));
+  background-origin: padding-box, border-box;
+  background-clip: padding-box, border-box;
+  border: 1px solid transparent;
+  clip-path: var(--chamfer-sm);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), inset 0 -14px 26px rgba(0, 0, 0, 0.5);
   cursor: pointer;
-  transition: transform 100ms ease, box-shadow 120ms ease;
+  transition: transform 110ms ease, filter 130ms ease;
+  filter: var(--lift);
 }
-.choice-card:hover { box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 0 10px color-mix(in srgb, var(--accent) 45%, transparent); }
-.choice-card:active { transform: scale(0.97); }
+.choice-card:hover { transform: translateY(-3px); filter: var(--lift) brightness(1.12); }
+.choice-card:active { transform: translateY(0) scale(0.98); }
 .choice-card__kind {
-  /* In normal flow at the top of the card (first child) so it sits above
-     the emblem instead of overlapping it. */
-  font-family: var(--ff-body); font-weight: 800; font-size: var(--fs-100);
-  letter-spacing: 0.18em; text-transform: uppercase; color: var(--accent);
+  font-family: var(--ff-display); font-weight: 700; font-size: var(--fs-100);
+  letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent);
   text-align: center;
+  min-height: 1.2em;   /* holds the row open when a card has no kind label */
 }
 .choice-card__emblem {
-  width: clamp(40px, 9vw, 56px); height: clamp(40px, 9vw, 56px);
+  width: clamp(44px, 9vw, 58px); height: clamp(44px, 9vw, 58px);
   display: flex; align-items: center; justify-content: center;
-  font-size: clamp(22px, 5vw, 28px);
-  border-radius: var(--r-sm);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 22%, var(--c-stone-900)), var(--c-stone-900));
-  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  font-size: clamp(26px, 5.4vw, 34px);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 38% 30%,
+      color-mix(in srgb, var(--accent) 30%, rgba(24, 19, 12, 0.98)),
+      rgba(8, 6, 4, 0.98) 72%);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent),
+    inset 0 0 16px color-mix(in srgb, var(--accent) 30%, transparent),
+    0 0 14px color-mix(in srgb, var(--accent) 22%, transparent);
   color: var(--accent);
 }
 .choice-card__name {
   font-family: var(--ff-display); font-weight: 700; font-size: var(--fs-300);
-  letter-spacing: 0.04em; color: var(--c-parchment); text-align: center;
+  letter-spacing: 0.05em; color: var(--c-parchment); text-align: center;
 }
 .choice-card__sub {
   font-family: var(--ff-body); font-size: var(--fs-200);
   color: var(--c-parchment-dim); text-align: center; line-height: 1.35;
+  white-space: pre-line;
 }
-.choice-card__sub { white-space: pre-line; }
 
 /* ── Shop overlay (Gribble's Traveling Emporium) ──────────────
-   New itemization shop. The panel needs an explicit width (not just
-   max-width) so the 3-column card grid has room to form; it also
-   overrides .modal-panel's 680px cap. Vertical overflow is handled by
-   .modal-panel's max-height: 92vh + overflow: auto. */
+   The panel needs an explicit width (not just max-width) so the 3-column card
+   grid has room to form; it also overrides .modal-panel's 680px cap. */
 .modal-panel--shop {
   width: min(880px, 92vw);
   max-width: min(880px, 92vw);
   overflow-x: hidden;
 }
-/* Two-column body: Gribble's portrait column + the stock/equipment column. */
-.shop-body {
-  display: flex;
-  gap: var(--s-3);
-  align-items: stretch;
-}
+.shop-body { display: flex; gap: var(--s-3); align-items: stretch; }
 .shop-portrait-col {
   flex: 0 0 200px;
   display: flex; flex-direction: column; gap: var(--s-2);
@@ -392,14 +768,15 @@
   flex: 1 1 auto; min-width: 0;
   display: flex; flex-direction: column; gap: var(--s-3);
 }
-.shop-topbar {
-  display: flex; justify-content: flex-end; align-items: center;
-}
+.shop-topbar { display: flex; justify-content: flex-end; align-items: center; gap: var(--s-3); }
 .shop-gold {
+  display: inline-flex; align-items: center; gap: var(--s-1);
   font-family: var(--ff-display); font-weight: 700;
   font-size: var(--fs-400); color: #ffd84a;
   letter-spacing: 0.06em; white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
+.shop-gold .icon { font-size: 1.1em; }
 
 /* Gribble's live portrait — the isolated GoblinPortrait canvas is mounted here. */
 .shop-portrait-mount {
@@ -407,8 +784,11 @@
   min-height: 220px;
   border-radius: var(--r-sm);
   background: radial-gradient(120% 90% at 50% 25%, #2a2114 0%, #15110a 70%, #0c0906 100%);
-  border: 1px solid color-mix(in srgb, var(--c-gold) 35%, transparent);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), inset 0 -18px 30px rgba(0,0,0,0.5);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--c-gold) 38%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    inset 0 -18px 30px rgba(0, 0, 0, 0.55);
+  clip-path: var(--chamfer-sm);
   overflow: hidden;
 }
 .goblin-portrait { width: 100%; height: 100%; }
@@ -420,7 +800,7 @@
   align-self: stretch;
   padding: var(--s-2) var(--s-3);
   border-radius: var(--r-lg);
-  background: rgba(14, 12, 8, 0.92);
+  background: rgba(14, 12, 8, 0.94);
   border: 1px solid var(--c-gold);
   color: #ffe9b0;
   font-family: var(--ff-body);
@@ -456,27 +836,31 @@
   position: relative;
   display: flex; flex-direction: column; align-items: center; gap: 2px;
   padding: var(--s-2);
-  border-radius: var(--r-sm);
-  background: linear-gradient(180deg, #1d1410, #0d0907);
-  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 2px 6px rgba(0,0,0,0.5);
+  background-image:
+    linear-gradient(180deg, rgba(30, 21, 15, 0.96), rgba(11, 8, 6, 0.97)),
+    linear-gradient(158deg, color-mix(in srgb, var(--accent) 80%, #ffffff), var(--accent) 50%, color-mix(in srgb, var(--accent) 40%, #000000));
+  background-origin: padding-box, border-box;
+  background-clip: padding-box, border-box;
+  border: 1px solid transparent;
+  clip-path: var(--chamfer-xs);
   cursor: pointer;
-  transition: transform 100ms ease, box-shadow 120ms ease;
+  transition: transform 110ms ease, filter 130ms ease;
   text-align: center;
+  filter: var(--lift-sm);
 }
-.shop-potion:hover {
-  transform: translateY(-2px);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 0 12px color-mix(in srgb, var(--accent) 40%, transparent);
-}
+.shop-potion:hover { transform: translateY(-2px); filter: var(--lift) brightness(1.16); }
 .shop-potion:active { transform: scale(0.97); }
 .shop-potion--poor { opacity: 0.55; filter: saturate(0.6); cursor: default; }
 .shop-potion--poor .shop-potion__price { color: var(--c-blood); }
-.shop-potion--active { opacity: 0.7; cursor: default; box-shadow: inset 0 0 0 1px color-mix(in srgb, #46e05a 70%, transparent); }
-.shop-potion--active .shop-potion__price { color: #46e05a; }
-.shop-potion__glyph { font-size: var(--fs-500); line-height: 1.1; }
-.shop-potion__name { font-family: var(--ff-body); font-weight: 800; font-size: var(--fs-100); color: var(--accent); }
+.shop-potion--active { opacity: 0.7; cursor: default; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c-moss) 80%, transparent); }
+.shop-potion--active .shop-potion__price { color: var(--c-moss); }
+.shop-potion__glyph { font-size: var(--fs-500); line-height: 1.1; color: var(--accent); display: flex; }
+.shop-potion__name { font-family: var(--ff-display); font-weight: 700; font-size: var(--fs-100); color: var(--accent); }
 .shop-potion__desc { font-size: var(--fs-100); color: var(--c-parchment); opacity: 0.85; }
-.shop-potion__price { font-weight: 800; font-size: var(--fs-100); color: var(--c-gold); margin-top: 2px; }
+.shop-potion__price {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-weight: 700; font-size: var(--fs-100); color: var(--c-gold); margin-top: 2px;
+}
 
 /* Item card — rarity color arrives via the --accent custom prop
    (set inline from RARITY_COLOR by ShopOverlay). */
@@ -485,29 +869,33 @@
   position: relative;
   display: flex; flex-direction: column; gap: 2px;
   padding: var(--s-2) var(--s-2) calc(var(--s-6) + var(--s-1));
-  border-radius: var(--r-sm);
-  background: linear-gradient(180deg, #1c1710, #0e0b08);
-  border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 2px 6px rgba(0,0,0,0.5);
+  background-image:
+    linear-gradient(180deg, rgba(30, 24, 16, 0.96), rgba(11, 9, 6, 0.97)),
+    linear-gradient(158deg, color-mix(in srgb, var(--accent) 80%, #ffffff), var(--accent) 50%, color-mix(in srgb, var(--accent) 40%, #000000));
+  background-origin: padding-box, border-box;
+  background-clip: padding-box, border-box;
+  border: 1px solid transparent;
+  clip-path: var(--chamfer-xs);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), inset 0 -12px 22px rgba(0, 0, 0, 0.45);
   cursor: pointer;
-  transition: transform 100ms ease, box-shadow 120ms ease;
+  transition: transform 110ms ease, filter 130ms ease;
+  filter: var(--lift-sm);
 }
-.shop-card:hover {
-  transform: translateY(-2px);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 0 12px color-mix(in srgb, var(--accent) 40%, transparent);
-}
+.shop-card:hover { transform: translateY(-2px); filter: var(--lift) brightness(1.14); }
 .shop-card:active { transform: scale(0.97); }
 .shop-card--poor { opacity: 0.55; filter: saturate(0.6); }
 .shop-card--poor .shop-card__price { color: var(--c-blood); }
 /* Top-tier emphasis: brighter accent frame + glow (accent comes from RARITY_COLOR). */
-.shop-card--unique { box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 0 0 1px var(--accent), 0 0 14px -2px var(--accent); }
-.shop-card--mythic { box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 0 0 2px var(--accent), 0 0 22px -1px var(--accent); }
+.shop-card--unique { box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), inset 0 0 0 1px var(--accent), 0 0 14px -2px var(--accent); }
+.shop-card--mythic { box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), inset 0 0 0 2px var(--accent), 0 0 22px -1px var(--accent); }
 .shop-card--mythic .shop-card__kind { color: var(--accent); letter-spacing: 0.14em; }
 .shop-card__kind {
-  font-family: var(--ff-body); font-weight: 800; font-size: var(--fs-100);
+  font-family: var(--ff-display); font-weight: 700; font-size: var(--fs-100);
   text-transform: uppercase; letter-spacing: 0.1em; color: var(--accent);
+  /* Keeps clear of the +N badge pinned to the top-right corner. */
+  padding-right: 2.4em;
 }
-.shop-card__emblem { font-size: clamp(20px, 4vw, 26px); line-height: 1.4; }
+.shop-card__emblem { font-size: clamp(22px, 4vw, 28px); line-height: 1.35; color: var(--accent); display: flex; }
 .shop-card__name {
   font-family: var(--ff-display); font-weight: 700; font-size: var(--fs-200);
   color: var(--c-parchment); margin-bottom: var(--s-1);
@@ -522,16 +910,16 @@
   position: absolute; inset: 0; z-index: 2;
   display: flex; flex-direction: column; gap: 2px; justify-content: center;
   padding: var(--s-2);
-  border-radius: var(--r-sm);
-  background: rgba(8, 6, 4, 0.96);
-  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  background: rgba(8, 6, 4, 0.97);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+  clip-path: var(--chamfer-xs);
   opacity: 0; visibility: hidden; pointer-events: none;
   transition: opacity 120ms ease;
 }
 .shop-card:hover .shop-card__compare { opacity: 1; visibility: visible; }
 .shop-card--sold:hover .shop-card__compare { opacity: 0; visibility: hidden; }
 .shop-card__compare-title {
-  font-family: var(--ff-body); font-size: 9px; font-weight: 800;
+  font-family: var(--ff-display); font-size: 9px; font-weight: 700;
   text-transform: uppercase; letter-spacing: 0.1em; color: var(--c-parchment-faint);
   margin-bottom: 2px;
 }
@@ -551,17 +939,14 @@
 }
 .shop-card__price {
   position: absolute; bottom: var(--s-2); right: var(--s-2);
+  display: inline-flex; align-items: center; gap: 3px;
   font-family: var(--ff-display); font-weight: 700; font-size: var(--fs-200);
   color: #ffd84a;
 }
 
 /* Sold tile — bought this visit, kept in place so nothing reflows. */
-.shop-card--sold {
-  cursor: default;
-  opacity: 0.5;
-  filter: grayscale(0.7);
-}
-.shop-card--sold:hover { transform: none; box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 2px 6px rgba(0,0,0,0.5); }
+.shop-card--sold { cursor: default; opacity: 0.5; filter: grayscale(0.7); }
+.shop-card--sold:hover { transform: none; filter: grayscale(0.7); }
 .shop-card--sold .shop-card__price { color: var(--c-parchment-faint); letter-spacing: 0.12em; }
 
 .shop-footer {
@@ -570,18 +955,17 @@
 }
 .shop-reroll--poor { opacity: 0.5; pointer-events: none; }
 .shop-upgrade--poor { opacity: 0.5; pointer-events: none; }
-
-/* Current shop upgrade level, shown beside the gold bar. */
 .shop-level {
+  display: inline-flex; align-items: center; gap: 4px;
   font-family: var(--ff-display); font-weight: 700; font-size: var(--fs-200);
-  color: #7ad7ff; letter-spacing: 0.06em;
+  color: var(--c-arcane-hi); letter-spacing: 0.06em;
 }
-
-/* +N tier badge on a for-sale card (top-left corner). */
+/* +N tier badge on a for-sale card. Pinned top-RIGHT: on the left it printed
+   straight over the rarity·slot line, which is the card's own heading. */
 .shop-card__plus {
-  position: absolute; top: var(--s-2); left: var(--s-2);
+  position: absolute; top: var(--s-2); right: var(--s-2);
   font-family: var(--ff-display); font-weight: 700; font-size: var(--fs-200);
-  color: #7ad7ff; text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+  color: var(--c-arcane-hi); text-shadow: 0 1px 2px rgba(0,0,0,0.6);
 }
 
 /* Mobile: stack the goblin above the stock as a short header strip. Card grid
@@ -594,74 +978,67 @@
   .shop-portrait-mount { flex: 0 0 96px; min-height: 96px; }
 }
 
-/* ── HUD inventory strip (always-visible equipment, top-left under HP) ────────
-   Clicking it opens the character profile. 6 slots in a 3×2 grid of small
-   rarity-colored cells. */
+/* ── HUD inventory strip (always-visible equipment) ───────────
+   Sits directly under the vitals cluster in the top-left zone. Clicking it
+   opens the character profile. 6 cells in a 3×2 grid of rarity-lit sockets. */
 .hud__inventory {
-  position: absolute;
-  top: 64px; left: var(--s-3);
   display: grid;
   grid-template-columns: repeat(3, auto);
   gap: 4px;
   padding: 5px;
-  border-radius: var(--r-sm);
-  background-image:
-    linear-gradient(180deg, rgba(20, 15, 9, 0.75), rgba(8, 6, 4, 0.8)),
-    linear-gradient(155deg, var(--c-gold-hi), var(--c-gold) 45%, var(--c-gold-lo) 75%, #5a4418);
+  background-image: var(--fill-plate), var(--rim-bronze);
   background-origin: padding-box, border-box;
   background-clip: padding-box, border-box;
   border: 1px solid transparent;
   clip-path: var(--chamfer-xs);
   box-shadow: var(--bevel-chrome);
+  filter: var(--lift);
   cursor: pointer;
+  transition: filter 130ms ease;
 }
-.hud__inventory:hover {
-  background-image:
-    linear-gradient(180deg, rgba(30, 23, 14, 0.85), rgba(14, 11, 7, 0.88)),
-    linear-gradient(155deg, var(--c-gold-hi), var(--c-gold) 55%, var(--c-gold-lo) 80%, #6b5220);
-}
+.hud__inventory:hover { filter: var(--lift) brightness(1.22); }
 .gear-slot {
   --accent: #8a6d35;
   width: 30px; height: 30px;
   display: flex; align-items: center; justify-content: center;
-  border-radius: var(--r-sm);
+  color: var(--accent);
+  font-size: 17px;
   background-image:
-    linear-gradient(180deg, #1c1710, #0e0b08),
-    linear-gradient(155deg, color-mix(in srgb, var(--accent) 90%, var(--c-gold-hi)), var(--accent) 60%, #4a3a1c);
+    linear-gradient(180deg, rgba(30, 24, 16, 0.96), rgba(12, 9, 6, 0.97)),
+    linear-gradient(158deg, color-mix(in srgb, var(--accent) 85%, var(--c-gold-hi)), var(--accent) 55%, #4a3a1c);
   background-origin: padding-box, border-box;
   background-clip: padding-box, border-box;
   border: 1px solid transparent;
   clip-path: var(--chamfer-xs);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), inset 0 0 8px color-mix(in srgb, var(--accent) 25%, transparent);
 }
 .gear-slot--empty {
-  /* Same recessed-socket language as the power/item slots (.slot--empty):
-     inset shadow reads as a carved-in bevel rather than a ghost/placeholder. */
-  background-image:
-    linear-gradient(180deg, rgba(10, 8, 5, 0.6), rgba(10, 8, 5, 0.6)),
-    linear-gradient(155deg, color-mix(in srgb, var(--accent) 60%, transparent), color-mix(in srgb, var(--accent) 40%, transparent));
-  box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.6);
+  /* Same recessed-socket language as the power/item slots (.slot--empty).
+     The mark stays legible rather than fading to a smudge: an empty slot is
+     information ("bring me a helm"), not decoration. */
+  background-image: var(--fill-socket), var(--rim-bronze);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.7);
+  color: rgba(216, 180, 96, 0.62);
 }
-.gear-slot--empty .gear-slot__glyph { opacity: 0.35; filter: none; }
-.gear-slot__glyph { font-size: 16px; line-height: 1; filter: brightness(1.25); }
+.gear-slot__glyph { display: flex; font-size: 1em; line-height: 1; }
 
 @media (max-width: 720px) {
-  .hud__inventory { top: 56px; gap: 3px; padding: 4px; }
-  .gear-slot { width: 24px; height: 24px; }
-  .gear-slot__glyph { font-size: 13px; }
+  .hud__inventory { gap: 3px; padding: 4px; }
+  .gear-slot { width: 24px; height: 24px; font-size: 14px; }
 }
 
 /* Corner close button for dismissable modals (e.g. character profile). */
 .modal-close {
-  position: absolute; top: 6px; right: 8px;
+  position: absolute; top: 8px; right: 10px; z-index: 3;
   width: 28px; height: 28px;
   display: flex; align-items: center; justify-content: center;
-  font-family: var(--ff-body); font-size: 16px; line-height: 1;
+  font-size: 15px;
   color: var(--c-parchment-dim);
   border-radius: var(--r-sm); cursor: pointer;
   transition: color 120ms ease, background 120ms ease;
 }
-.modal-close:hover { color: var(--c-parchment); background: rgba(255,255,255,0.08); }
+.modal-close:hover { color: var(--c-gold-hi); background: rgba(201, 162, 63, 0.14); }
+@media (pointer: coarse) { .modal-close { width: 44px; height: 44px; top: 2px; right: 2px; } }
 
 /* ── Character profile (paper-doll + aggregate stats + set bonuses) ──────────── */
 .modal-panel--character { width: min(760px, 94vw); max-width: min(760px, 94vw); position: relative; }
@@ -676,36 +1053,38 @@
   position: relative;
   width: 104px; text-align: center;
   padding: var(--s-2) var(--s-1);
-  border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent);
-  border-radius: var(--r-sm);
-  background: var(--c-stone-900);
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  background: rgba(14, 11, 7, 0.9);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 62%, transparent);
+  clip-path: var(--chamfer-xs);
+  transition: box-shadow 120ms ease;
 }
 .char-slot:not(.char-slot--empty) { cursor: help; }
 .char-slot--empty { opacity: 0.45; }
-.char-slot__glyph { font-size: clamp(20px, 4vw, 26px); }
+.char-slot__glyph { font-size: clamp(22px, 4vw, 28px); color: var(--accent); display: flex; }
 .char-slot__slot {
-  font-family: var(--ff-body); font-size: 9px; text-transform: uppercase;
-  letter-spacing: 0.08em; color: var(--c-parchment-faint);
+  font-family: var(--ff-display); font-size: 9px; text-transform: uppercase;
+  letter-spacing: 0.1em; color: var(--c-parchment-faint);
 }
 .char-slot__name {
   font-family: var(--ff-body); font-size: 11px; color: var(--c-parchment);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
 }
-.char-slot:hover { border-color: color-mix(in srgb, var(--accent) 90%, transparent); }
+.char-slot:hover { box-shadow: inset 0 0 0 1px var(--accent), 0 0 12px -2px var(--accent); }
 
 /* Shared detail pane — filled on hover/tap of a gear cell. Inside the panel, so
    it never clips against the modal edge (the old floating tooltip did). */
 .char-detail {
   --accent: var(--c-iron);
   min-height: 84px;
-  padding: var(--s-2) var(--s-3); border-radius: var(--r-sm);
-  background: rgba(0,0,0,0.25);
-  border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
-  border-left: 3px solid color-mix(in srgb, var(--accent) 80%, transparent);
+  padding: var(--s-2) var(--s-3);
+  background: rgba(0, 0, 0, 0.3);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--accent) 85%, transparent);
 }
 .char-detail__hint { font-family: var(--ff-body); font-size: var(--fs-100); font-style: italic; color: var(--c-parchment-faint); }
 .char-detail__slot {
-  font-family: var(--ff-body); font-size: 9px; font-weight: 800;
+  font-family: var(--ff-display); font-size: 9px; font-weight: 700;
   text-transform: uppercase; letter-spacing: 0.1em; color: var(--c-parchment-faint);
 }
 .char-detail__name {
@@ -718,20 +1097,24 @@
 .char-stats {
   display: grid; grid-template-columns: 1fr 1fr; gap: 4px var(--s-3);
   padding: var(--s-2) var(--s-3);
-  border-radius: var(--r-sm);
-  background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(0, 0, 0, 0.3);
+  box-shadow: inset 0 0 0 1px rgba(201, 162, 63, 0.16);
 }
 .char-stat { display: flex; justify-content: space-between; gap: var(--s-2); }
 .char-stat__label { font-family: var(--ff-body); font-size: var(--fs-100); color: var(--c-parchment-dim); }
-.char-stat__value { font-family: var(--ff-display); font-weight: 700; font-size: var(--fs-100); color: var(--c-parchment); }
+.char-stat__value {
+  font-family: var(--ff-display); font-weight: 700; font-size: var(--fs-100);
+  color: var(--c-parchment); font-variant-numeric: tabular-nums;
+}
 
 .char-sets {
-  padding: var(--s-2) var(--s-3); border-radius: var(--r-sm);
-  background: rgba(40, 30, 10, 0.35); border: 1px solid color-mix(in srgb, var(--c-gold) 35%, transparent);
+  padding: var(--s-2) var(--s-3);
+  background: rgba(40, 30, 10, 0.35);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c-gold) 38%, transparent);
 }
 .char-sets__title {
   font-family: var(--ff-display); font-weight: 700; font-size: var(--fs-200);
-  color: var(--c-gold); margin-bottom: var(--s-1);
+  color: var(--c-gold); margin-bottom: var(--s-1); letter-spacing: 0.08em;
 }
 .char-set { margin-top: var(--s-1); }
 .char-set__name { font-family: var(--ff-display); font-weight: 700; font-size: var(--fs-100); color: var(--c-parchment); }
@@ -745,7 +1128,7 @@
   .char-stats { grid-template-columns: 1fr; }
 }
 
-/* ── Full-screen menu / screen ───────────────────────────── */
+/* ── Full-screen menu / screen ───────────────────────────────── */
 .screen {
   position: absolute; inset: 0;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -766,16 +1149,19 @@
   font-size: clamp(14px, 3vw, 24px); letter-spacing: 0.4em; text-transform: uppercase;
   color: var(--c-moss); margin-top: calc(-1 * var(--s-2));
 }
-.screen__label { font-family: var(--ff-body); font-weight: 800; letter-spacing: 0.2em; text-transform: uppercase; color: var(--c-moss); font-size: var(--fs-100); }
+.screen__label { font-family: var(--ff-display); font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; color: var(--c-moss); font-size: var(--fs-100); }
 .screen__row { display: flex; gap: var(--s-2); align-items: center; }
 .gfx-btn {
-  font-family: var(--ff-body); font-weight: 800; font-size: var(--fs-100); letter-spacing: 0.08em;
-  padding: var(--s-1) var(--s-3); border-radius: var(--r-sm); cursor: pointer;
-  border: 2px solid #5a5a66; background: #1a1822; color: #9a9aae;
+  font-family: var(--ff-display); font-weight: 700; font-size: var(--fs-100); letter-spacing: 0.1em;
+  padding: var(--s-1) var(--s-3); cursor: pointer;
+  clip-path: var(--chamfer-xs);
+  border: 1px solid var(--c-iron); background: rgba(20, 17, 12, 0.9); color: var(--c-parchment-faint);
+  transition: color 120ms ease, border-color 120ms ease;
 }
+.gfx-btn:hover { color: var(--c-parchment); border-color: var(--c-gold-lo); }
 .gfx-btn--active { border-color: var(--c-gold-hi); background: #4a3a18; color: var(--c-gold-hi); }
 
-/* ── Run summary panel (game over) ───────────────────────── */
+/* ── Run summary panel (game over) ───────────────────────────── */
 .summary-panel {
   width: min(440px, 92vw);
   padding: var(--s-4);
@@ -783,18 +1169,29 @@
 }
 .summary-header {
   font-family: var(--ff-display); font-weight: 700; font-size: var(--fs-300);
-  letter-spacing: 0.12em; text-transform: uppercase; color: var(--c-gold-hi);
+  letter-spacing: 0.14em; text-transform: uppercase; color: var(--c-gold-hi);
   text-align: center; margin-bottom: var(--s-1);
 }
 .summary-row {
   display: flex; justify-content: space-between; gap: var(--s-3);
   font-family: var(--ff-body); font-size: var(--fs-200); color: var(--c-parchment);
+  font-variant-numeric: tabular-nums;
 }
 .summary-row > span:first-child { color: var(--c-parchment-dim); }
 .summary-loadout {
-  font-family: var(--ff-body); font-size: var(--fs-100); color: var(--c-parchment-dim);
-  text-align: center; margin-top: var(--s-2); line-height: 1.5;
+  display: flex; flex-wrap: wrap; gap: var(--s-2);
+  justify-content: center; align-items: center;
+  margin-top: var(--s-2);
 }
+.summary-power {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px var(--s-2);
+  font-family: var(--ff-body); font-size: var(--fs-100); color: var(--c-parchment);
+  background: rgba(0, 0, 0, 0.35);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent, var(--c-gold)) 55%, transparent);
+  clip-path: var(--chamfer-xs);
+}
+.summary-power .icon { font-size: 1.15em; color: var(--accent, var(--c-gold)); }
 .screen__buttons { display: flex; gap: var(--s-3); flex-wrap: wrap; justify-content: center; margin-top: var(--s-2); }
 
 /* ── Co-op (M4-12): 2-column game-over ─────────────────────── */
@@ -805,26 +1202,40 @@
 .summary-columns { display: flex; gap: var(--s-3); flex-wrap: wrap; justify-content: center; }
 .summary-panel--col { width: min(320px, 92vw); }
 
-/* ── Leaderboard overlay + game-over submit row ──────────── */
+/* ── Leaderboard overlay ─────────────────────────────────────
+   A real 4-column grid. The old version padded strings and rendered them in
+   Courier New — the one typeface in the build that belongs to no other screen. */
 .modal-panel--leaderboard { width: min(460px, 92vw); }
 .lb-header,
 .lb-row {
-  font-family: 'Courier New', monospace;
+  display: grid;
+  grid-template-columns: 3.2rem 1fr 3.5rem 4.2rem;
+  gap: var(--s-2);
+  align-items: baseline;
+  font-family: var(--ff-body);
   font-size: var(--fs-200);
-  white-space: pre;            /* preserve monospace column padding */
-  text-align: center;
+  font-variant-numeric: tabular-nums;
+  padding: var(--s-1) var(--s-2);
 }
-.lb-header { color: var(--c-gold-hi); font-weight: 700; border-bottom: 1px solid var(--c-gold-lo); padding-bottom: var(--s-2); }
+.lb-header {
+  font-family: var(--ff-display); font-weight: 700; font-size: var(--fs-100);
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--c-gold-hi);
+  border-bottom: 1px solid var(--c-gold-lo);
+  padding-bottom: var(--s-2);
+}
 .lb-list { display: flex; flex-direction: column; gap: 2px; max-height: 50vh; overflow-y: auto; }
-.lb-row { color: var(--c-parchment); padding: var(--s-1) var(--s-2); border-radius: var(--r-sm); }
-.lb-row:nth-child(even) { background: rgba(255, 255, 255, 0.04); }
-.lb-row--top { color: var(--c-gold-hi); }
+.lb-row { color: var(--c-parchment); }
+.lb-row:nth-child(even) { background: rgba(255, 255, 255, 0.035); }
+.lb-row--top { color: var(--c-gold-hi); font-weight: 700; }
+.lb-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb-num { text-align: right; }
 
-/* ── Co-op lobby ─────────────────────────────────────────── */
+/* ── Co-op lobby ─────────────────────────────────────────────── */
 .modal-panel--coop { width: min(520px, 92vw); }
 .coop-code-row { display: flex; gap: var(--s-2); align-items: center; justify-content: center; flex-wrap: wrap; }
 .coop-code {
-  font-family: 'Courier New', monospace;
+  font-family: var(--ff-display);
   font-weight: 700;
   font-size: clamp(32px, 9vw, 52px);
   line-height: 1.1;
@@ -837,8 +1248,7 @@
   cursor: text;
   padding: var(--s-1) var(--s-3);
   border: 1px dashed var(--c-gold-lo);
-  border-radius: var(--r-sm);
-  background: var(--c-stone-900);
+  background: rgba(14, 11, 7, 0.9);
 }
 .coop-copy-btn { font-size: var(--fs-200); padding: var(--s-2) var(--s-3); }
 @keyframes coop-wait-pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
@@ -854,7 +1264,7 @@
 .coop-join-row { display: flex; gap: var(--s-2); justify-content: center; align-items: stretch; flex-wrap: wrap; }
 .coop-code-input {
   width: min(200px, 56vw);
-  font-family: 'Courier New', monospace;
+  font-family: var(--ff-display);
   font-weight: 700;
   font-size: var(--fs-400);
   text-align: center;
@@ -863,14 +1273,13 @@
   text-transform: uppercase;
 }
 
-/* ── Leaderboard submit row ──────────────────────────────── */
+/* ── Leaderboard submit row ──────────────────────────────────── */
 .lb-submit { display: flex; gap: var(--s-2); justify-content: center; align-items: stretch; flex-wrap: wrap; margin-top: var(--s-2); }
 .lb-name-input {
   width: min(220px, 60vw);
   padding: var(--s-2) var(--s-3);
-  border: 2px solid var(--c-gold-lo);
-  border-radius: var(--r-sm);
-  background: var(--c-stone-900);
+  border: 1px solid var(--c-gold-lo);
+  background: rgba(14, 11, 7, 0.92);
   color: var(--c-parchment);
   font-family: var(--ff-body);
   font-size: var(--fs-200);
@@ -879,41 +1288,76 @@
 .lb-name-input::placeholder { color: var(--c-parchment-faint); }
 .lb-name-input:focus { border-color: var(--c-gold-hi); }
 .lb-name-input--err { border-color: var(--c-blood); }
-.btn--disabled { opacity: 0.55; pointer-events: none; }
 
-/* ── Gold pill ─────────────────────────────────────────────── */
-.pill--gold {
-  --accent: var(--c-gold);
-  color: var(--c-gold-hi);
-  letter-spacing: 0.06em;
+/* ── Pause screen ────────────────────────────────────────────
+   Was Arial + inline styles — the only screen in the build not speaking the
+   game's typeface. Now a forged panel like every other modal state. */
+.pause-screen {
+  position: fixed; inset: 0; z-index: 9000;
+  display: none;
+  align-items: center; justify-content: center;
+  background: rgba(4, 3, 6, 0.78);
+  backdrop-filter: blur(3px);
 }
-.pill--gold .pill__txt { color: #ffd84a; }
+.pause-screen--open { display: flex; }
+.pause-panel {
+  width: min(360px, 88vw);
+  padding: var(--s-6) var(--s-4) var(--s-4);
+  display: flex; flex-direction: column; align-items: stretch; gap: var(--s-3);
+  text-align: center;
+}
+.pause-title {
+  font-family: var(--ff-display); font-weight: 700;
+  font-size: clamp(24px, 5vw, 38px); letter-spacing: 0.2em; text-transform: uppercase;
+  color: var(--c-gold-hi); text-shadow: 0 2px 6px #000;
+}
+.pause-hint {
+  font-family: var(--ff-body); font-size: var(--fs-200);
+  color: var(--c-parchment-faint); margin-top: calc(-1 * var(--s-2)); margin-bottom: var(--s-2);
+}
+.pause-panel .btn { align-self: stretch; }
 
-/* ── Horn button (next-wave during shopping phase) ────────────
-   Centered bottom, above the two bottom clusters (which hug the
-   bottom edge). 118 px of clearance keeps it above the tallest
-   bottom cluster (two-row power+item stack ≈ 90 px on desktop).
-   On portrait phones the clusters can grow taller — bump to 110px
-   from the bottom so it never overlaps the slot rows.            */
+/* ── Horn button (next wave during the shopping phase) ────────
+   Centred bottom, above the two bottom clusters (which hug the bottom edge).
+   118 px of clearance keeps it above the tallest bottom cluster (two-row
+   power+item stack ≈ 90 px on desktop). On portrait phones the clusters can
+   grow taller — bump to 110px from the bottom so it never overlaps them. */
 .hud__horn {
   position: absolute;
   bottom: 118px;
   left: 50%;
   transform: translateX(-50%);
+  display: flex; align-items: center; gap: var(--s-2);
   padding: var(--s-2) 20px;
   cursor: pointer;
   pointer-events: auto;
   white-space: nowrap;
+  color: #ffd84a;
+  transition: filter 130ms ease;
 }
+.hud__horn:hover { filter: var(--lift) brightness(1.2); }
+.hud__horn .icon { font-size: var(--fs-400); }
 .hud__horn-label {
   font-family: var(--ff-display);
   font-weight: 700;
   font-size: var(--fs-300);
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: #ffd84a;
   text-shadow: 0 1px 2px #000;
 }
+@keyframes horn-call { 0%, 100% { filter: var(--lift); } 50% { filter: var(--lift) brightness(1.3); } }
+.hud__horn { animation: horn-call 2.2s ease-in-out infinite; }
 @media (pointer: coarse) {
-  .hud__horn { bottom: 110px; padding: var(--s-3) 20px; min-height: 44px; display: flex; align-items: center; }
+  .hud__horn { bottom: 110px; padding: var(--s-3) 20px; min-height: 44px; }
+}
+
+/* ── Reduced motion ──────────────────────────────────────────
+   Damage flashes, the low-HP breathe and the banner slide are motion the
+   player never asked for. Collapse them to their end state — every one of
+   these has a colour/shape channel too, so no information is lost. */
+@media (prefers-reduced-motion: reduce) {
+  .meter--danger, .meter--hit, .medallion--up, .slot--ready, .ult--fire,
+  .hud__purse--gain, .coop-wait, .hud__horn { animation: none; }
+  .hud__banner--show { animation: none; opacity: 1; }
+  .meter__ghost, .meter--xp .meter__fill { transition: none; }
 }

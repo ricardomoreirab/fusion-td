@@ -87,11 +87,24 @@ worker/           Cloudflare Worker + Room Durable Object (blind WS relay)
 
 ### Survivors UI — migrated to **DOM** (in `src/ui/`)
 The HUD and overlays were migrated off Babylon-GUI to DOM (see `docs/superpowers/plans/2026-05-29-dom-ui-foundation-and-hud.md`). The live UI is:
-- `src/ui/hud/Hud.ts` (class `Hud`) — **THE in-game HUD**. HP pill, wave pill, **run-stats pill (`⏱ mm:ss · ☠ kills`)**, **level pill (`LV n` + XP-progress fill)**, gold pill, 4 power-slot icons with cooldown sweeps, 4-item row, ultimate buttons, low-HP vignette. Built from `src/ui/primitives/` (`Pill`, `IconSlot`), styled by `src/ui/styles/components.css`; pill text via `src/ui/format.ts`.
+- `src/ui/hud/Hud.ts` (class `Hud`) — **THE in-game HUD**, composed as **three zones inside one flex `.hud__topbar`** (never absolutely positioned — see the layout invariant below):
+  - top-left *vitals*: level medallion + segmented HP meter (damage-lag ghost) + thin arcane XP rail, with the equipment strip beneath;
+  - top-centre *objective* plate: wave · goblins left · run clock · kills, divided by engraved rules, plus the transient event banner (`showBanner`);
+  - top-right: gold purse + pause.
+  Bottom-left holds the 4 power slots over the run-item row; bottom-right the ultimates. Built from `src/ui/primitives/` (`Meter`, `IconSlot`, `Frame`, `Button`, `Card`, `Modal`), styled by `src/ui/styles/components.css`; numbers via `src/ui/format.ts`.
+- `src/ui/icons.ts` — **the authored SVG icon set and the UI's only glyph source.** ~50 engraved-line icons on a 24×24 viewBox using `currentColor`. Gameplay data tables (`ItemCatalog`, `PowerDefinitions`, `UltimateDefinitions`) still carry legacy emoji strings; `iconForGlyph()` / `glyphEl()` map those to authored icons so the catalogues never had to change. **Do not put emoji in the UI** — they render as platform-coloured stickers over the forged-bronze chrome and were removed wholesale.
+- `src/ui/elementMeta.ts` — element/tier → icon + colour for the HUD, power choice and replace-slot prompt. Colours re-export the canonical `survivors/ElementColors.ELEMENT_HEX`; these three surfaces each used to keep their own copy.
 - `src/ui/overlays/ChampionSelect.ts` — 3-card champion picker.
 - `src/ui/overlays/PowerChoice.ts` — 3-card slow-mo orb pickup choice; subtitles show damage + cooldown delta.
 - `src/ui/overlays/ReplaceSlot.ts` — secondary slot-replacement prompt.
-- `src/ui/overlays/Leaderboard.ts` — shared leaderboard modal.
+- `src/ui/overlays/Leaderboard.ts` — shared leaderboard modal (a 4-column CSS grid; the old `Courier New` string-padded version is gone).
+- `src/shared/ui/PauseScreen.ts` — pause overlay, styled by `.pause-screen`/`.pause-panel` in components.css (it used to be Arial + inline `cssText`).
+
+**UI design system (`src/ui/styles/`).** `tokens.css` fixes five colour ROLES and the whole interface obeys them: bronze/gold = chrome + currency, blood = health/danger, arcane = XP/fusion, moss = positive, parchment = text. Anything outside them (the old `#5fb0e8` XP blue, `#9aa4b0` stat grey) reads as another game's UI and was removed. Chrome is built from `--rim-bronze` + `--fill-plate` painted as two backgrounds (border-box / padding-box) so a `clip-path` chamfer cuts rim and fill as one plate.
+
+**Two CSS invariants that bite:**
+1. **`clip-path` clips outer `box-shadow`s away.** Chamfered plates get their separation from the bright meadow via `filter: var(--lift)` (a `drop-shadow` pair), never an outer box-shadow.
+2. **The top bar must stay a flex row.** Absolutely-positioned zones look identical on desktop and drive the objective plate straight through the vitals cluster on a phone. The flanks are `flex: 1 1 0; min-width: min-content`, which centres the plate on screen while never shrinking into their own content; below 560px the plate wraps to its own row.
 
 Still under `src/survivors/`:
 - `src/survivors/ui/SurvivorsJoystick.ts` — virtual joystick (mobile).
@@ -101,6 +114,7 @@ Still under `src/survivors/`:
 **Progression:** attributes grow automatically via the **XP/leveling system** (`src/survivors/LevelSystem.ts`) — each level grants +1% to every attribute except crit chance (which stays +0.5%/level) (cap level 100). It **replaced the gold Armory shop**; `src/ui/overlays/Shop.ts` was deleted.
 
 > The legacy Babylon-GUI `src/survivors/ui/{HeroHud,ChampionSelectOverlay,PowerChoiceOverlay,ReplaceSlotOverlay}.ts` were **deleted** (superseded by the DOM versions above). Don't resurrect them — edit `src/ui/**`.
+> `src/ui/primitives/Pill.ts` was **deleted** in the 2026-07-25 premium UI pass — the HP/XP pills became `Meter.ts` and the wave/stats/gold pills became the objective plate and purse.
 
 ### Shared cross-state UI (in `src/shared/ui/`)
 - `HudStyle.ts` — pill + frame factories, press/flash/pulse helpers.
@@ -166,7 +180,7 @@ recompiles affected materials on demand (a one-frame cost; prewarm if it matters
 
 ## Tests
 
-Vitest is wired for **pure-logic** modules (no WebGL; SceneHost is headless and suites drive it with `tick(dt)`). Tests live under `tests/*.spec.ts` — currently ~65 spec files (~522 tests) covering player stats/items, power slots/fusions/status model, the engine/three layer (primitives, particles, tween, math), and the co-op/net stack (protocol round-trips, snapshot binary + delta codecs, connection FSM, reconciliation, damage routing, transports).
+Vitest is wired for **pure-logic** modules (no WebGL; SceneHost is headless and suites drive it with `tick(dt)`). Tests live under `tests/*.spec.ts` — currently 66 spec files (599 tests) covering player stats/items, power slots/fusions/status model, the engine/three layer (primitives, particles, tween, math), and the co-op/net stack (protocol round-trips, snapshot binary + delta codecs, connection FSM, reconciliation, damage routing, transports).
 
 ## Balance (current)
 

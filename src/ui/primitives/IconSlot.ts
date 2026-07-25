@@ -1,35 +1,53 @@
 import { el } from '../dom';
+import { iconEl, IconName } from '../icons';
 
 export interface IconSlotController {
   root: HTMLDivElement;
-  setIcon(glyph: string, color: string): void;
+  setIcon(name: IconName, color: string): void;
   setAccent(color: string): void;
   setEmpty(isEmpty: boolean): void;
-  /** Cooldown sweep 0..1 (1 = fully masked / just fired). */
+  /** Cooldown 0..1 (1 = just fired, 0 = ready). */
   setCooldown(frac: number): void;
   setLevel(level: number): void;
   /** Trigger the ready-pulse FX (cooldown just completed). */
   pulseReady(): void;
 }
 
-/** A square power/item slot: icon, level badge, top-down cooldown mask. */
+/**
+ * A square power/item/ultimate socket: authored icon, stack badge, and a
+ * radial cooldown — a darkening wedge plus a bright rim arc, the language
+ * every action game uses, rather than the old top-down window-blind wipe.
+ *
+ * Both cooldown layers read the same `--cd` custom property, so a refresh is
+ * one style write instead of two.
+ */
 export function makeIconSlot(extraClass = ''): IconSlotController {
-  const root = el('div', { class: `slot frame frame--lite${extraClass ? ' ' + extraClass : ''}` });
+  const root = el('div', { class: `slot${extraClass ? ' ' + extraClass : ''}` });
   const icon = el('div', { class: 'slot__icon' });
   const level = el('div', { class: 'slot__level' });
-  const cd = el('div', { class: 'slot__cd' });
-  root.append(icon, level, cd);
+  root.append(
+    icon,
+    level,
+    el('div', { class: 'slot__cd' }),
+    el('div', { class: 'slot__ring' }),
+  );
 
   let curLevel = -1;
+  let curIcon: IconName | null = null;
   return {
     root,
-    setIcon(glyph, color) {
-      if (icon.textContent !== glyph) icon.textContent = glyph;
+    setIcon(name, color) {
+      if (curIcon !== name) {
+        curIcon = name;
+        icon.replaceChildren(iconEl(name));
+      }
       icon.style.color = color;
     },
     setAccent(color) { root.style.setProperty('--accent', color); },
     setEmpty(isEmpty) { root.classList.toggle('slot--empty', isEmpty); },
-    setCooldown(frac) { cd.style.height = `${Math.max(0, Math.min(1, frac)) * 100}%`; },
+    setCooldown(frac) {
+      root.style.setProperty('--cd', `${Math.max(0, Math.min(1, frac))}`);
+    },
     setLevel(lv) {
       if (lv === curLevel) return;
       curLevel = lv;

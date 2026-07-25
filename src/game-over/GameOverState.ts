@@ -3,8 +3,10 @@ import { GameState } from '../engine/GameState';
 import { tryHaptic } from '../shared/ui/HudStyle';
 import { GameUI } from '../ui/GameUI';
 import { el } from '../ui/dom';
-import { makeButton } from '../ui/primitives/Button';
+import { makeButton, setButtonLabel } from '../ui/primitives/Button';
 import { makeFrame } from '../ui/primitives/Frame';
+import { glyphEl, iconEl } from '../ui/icons';
+import { TIER_COLOR } from '../ui/elementMeta';
 import { GameSettings } from '../shared/GameSettings';
 import { submitScore } from '../survivors/Leaderboard';
 import { LeaderboardOverlay } from '../ui/overlays/Leaderboard';
@@ -102,7 +104,7 @@ export class GameOverState implements GameState {
                 addRow('Time Survived', timeStr);
                 addRow('Enemies Slain', s.kills);
                 addRow('XP Earned', s.goldCollected);
-                panel.appendChild(el('div', { class: 'summary-loadout', text: this.loadoutString(s.finalLoadout) }));
+                panel.appendChild(this.buildLoadout(s.finalLoadout));
                 screen.appendChild(panel);
             }
         } else {
@@ -139,11 +141,25 @@ export class GameOverState implements GameState {
         overlay.appendChild(screen);
     }
 
-    private loadoutString(loadout: { name: string; level: number; icon: string; tier?: string }[]): string {
-        const tierBadge = (t?: string) => (t === 'ultimate' ? '✪ ' : t === 'fusion' ? '✦ ' : '');
-        return loadout.length > 0
-            ? loadout.map(p => `${tierBadge(p.tier)}${p.icon} ${p.name} Lv${p.level}`).join('  ')
-            : '(no powers)';
+    /** The final loadout as a row of accented power chips. Was one long
+        concatenated string of emoji, which wrapped mid-power on narrow panels. */
+    private buildLoadout(loadout: { name: string; level: number; icon: string; tier?: string }[]): HTMLElement {
+        const row = el('div', { class: 'summary-loadout' });
+        if (loadout.length === 0) {
+            row.appendChild(el('div', { class: 'char-detail__hint', text: 'No powers claimed' }));
+            return row;
+        }
+        for (const p of loadout) {
+            const chip = el('div', { class: 'summary-power' });
+            const tier = p.tier === 'ultimate' || p.tier === 'fusion' ? p.tier : null;
+            if (tier) chip.style.setProperty('--accent', TIER_COLOR[tier]);
+            chip.append(
+                tier ? iconEl(tier === 'ultimate' ? 'ultimate' : 'fusion') : glyphEl(p.icon),
+                el('span', { text: `${p.name} Lv${p.level}` }),
+            );
+            row.appendChild(chip);
+        }
+        return row;
     }
 
     /** Co-op (M4-12): one summary column for a single hero. */
@@ -162,7 +178,7 @@ export class GameOverState implements GameState {
         addRow('Level', h.level);
         addRow('Enemies Slain', h.kills);
         addRow('XP Earned', h.xp);
-        panel.appendChild(el('div', { class: 'summary-loadout', text: this.loadoutString(h.loadout) }));
+        panel.appendChild(this.buildLoadout(h.loadout));
         return panel;
     }
 
@@ -185,7 +201,7 @@ export class GameOverState implements GameState {
 
         let busy = false;
         const submitBtn = makeButton({
-            label: '🏆 Submit Score',
+            label: 'Submit Score',
             variant: 'forged',
             onClick: () => {
                 if (busy) return;
@@ -197,7 +213,7 @@ export class GameOverState implements GameState {
                 }
                 busy = true;
                 GameSettings.setLeaderboardName(name);
-                submitBtn.textContent = 'Submitting…';
+                setButtonLabel(submitBtn, 'Submitting…');
                 submitBtn.classList.add('btn--disabled');
                 void submitScore(summary, name).then((result) => {
                     if (!this.gameUI) return; // screen exited mid-submit — nodes detached
@@ -212,7 +228,7 @@ export class GameOverState implements GameState {
                     } else {
                         busy = false;
                         submitBtn.classList.remove('btn--disabled');
-                        submitBtn.textContent = 'Failed — Tap to Retry';
+                        setButtonLabel(submitBtn, 'Failed — Tap to Retry');
                     }
                 });
             },
