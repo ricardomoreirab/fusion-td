@@ -1,5 +1,15 @@
 /* Forged Fantasy design tokens. Palette drawn from index.html's loading
-   screen + the in-game element colors. */
+   screen + the in-game element colors.
+
+   Colour ROLES are fixed and the whole interface obeys them, so a player can
+   read state by hue alone without learning a legend:
+     bronze/gold  = chrome, currency
+     blood        = health, danger
+     arcane       = experience, fusion, "power gained"
+     moss         = safe / positive / confirmation
+     parchment    = text
+   Anything outside those five (the old #5fb0e8 XP blue, the #9aa4b0 stat grey)
+   read as another game's UI pasted onto this one and is gone. */
 :root {
   /* ── Color: structure ── */
   --c-void: #07050a;
@@ -11,9 +21,14 @@
   --c-gold: #c9a23f;
   --c-gold-hi: #f3da8e;
   --c-gold-lo: #7a5f24;
+  --c-gold-deep: #4a3714;
   --c-blood: #c8302a;
+  --c-blood-hi: #ef5a45;
   --c-blood-deep: #6a1812;
   --c-moss: #88a070;
+  --c-arcane: #a463ff;
+  --c-arcane-hi: #d3aeff;
+  --c-arcane-deep: #3b2160;
   --c-parchment: #ece0c8;
   --c-parchment-dim: #b8a888;
   --c-parchment-faint: #8a7868;
@@ -52,6 +67,22 @@
   --fs-500: clamp(16px, 3vw, 22px);
   --fs-600: clamp(20px, 4vw, 30px);
 
+  /* ── Material: forged bronze ──────────────────────────────────────────
+     The rim is painted as a background layer on border-box and the fill on
+     padding-box, so a chamfer clip-path cuts through rim AND fill as one
+     solid plate. `border-image` can't do that, and a real `border-color`
+     can't hold a gradient. */
+  --rim-bronze: linear-gradient(158deg,
+    var(--c-gold-hi) 0%, var(--c-gold) 34%, var(--c-gold-lo) 68%, var(--c-gold-deep) 100%);
+  --fill-plate: linear-gradient(180deg,
+    rgba(40, 32, 20, 0.93) 0%, rgba(18, 14, 9, 0.95) 52%, rgba(8, 6, 4, 0.96) 100%);
+  --fill-socket: linear-gradient(180deg, rgba(9, 7, 4, 0.88), rgba(5, 4, 2, 0.92));
+
+  /* Aged-metal grain. A flat CSS gradient reads as plastic; this fractal-noise
+     tile (inline SVG, no network) at low opacity gives the chrome a hammered
+     surface that survives being scaled. */
+  --tex-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23g)'/%3E%3C/svg%3E");
+
   /* ── Bevel / shadow recipes ── */
   --bevel-ornate:
     inset 0 1px 0 var(--c-gold-hi),
@@ -61,15 +92,19 @@
   --bevel-lite:
     inset 0 1px 0 rgba(243, 218, 142, 0.25),
     0 2px 6px rgba(0, 0, 0, 0.5);
-  /* Forged-chrome bevel: 1px inner highlight (top) + darker inset shadow
-     (bottom/sides) reading as a beveled metal edge around the bronze border,
-     plus the outer drop shadow that lifts HUD chrome off the field. */
+  /* Forged-chrome bevel: inner highlight along the top edge, darker inset
+     toward the bottom — the light reading of a hammered rim. There is no outer
+     shadow here on purpose: `clip-path` clips outer box-shadows away, so plate
+     separation comes from --lift (a drop-shadow filter) instead. */
   --bevel-chrome:
-    inset 0 1px 0 rgba(255, 236, 190, 0.30),
-    inset 0 -2px 3px rgba(0, 0, 0, 0.55),
-    0 2px 6px rgba(0, 0, 0, 0.55);
-  /* Small chamfered corners on pill/slot/button chrome — a cheap "forged
-     plate" tell that reads at HUD scale without extra draw cost. */
+    inset 0 1px 0 rgba(255, 236, 190, 0.34),
+    inset 0 -2px 3px rgba(0, 0, 0, 0.6),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.45);
+  /* Lift chrome off a bright field. `filter` survives clip-path; box-shadow doesn't. */
+  --lift: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.55)) drop-shadow(0 5px 12px rgba(0, 0, 0, 0.45));
+  --lift-sm: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+
+  /* Chamfered corners — a cheap "forged plate" tell that reads at HUD scale. */
   --chamfer-sm: polygon(
     6px 0, calc(100% - 6px) 0, 100% 6px,
     100% calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%,
@@ -80,11 +115,17 @@
     100% calc(100% - 4px), calc(100% - 4px) 100%, 4px 100%,
     0 calc(100% - 4px), 0 4px
   );
+  --chamfer-lg: polygon(
+    12px 0, calc(100% - 12px) 0, 100% 12px,
+    100% calc(100% - 12px), calc(100% - 12px) 100%, 12px 100%,
+    0 calc(100% - 12px), 0 12px
+  );
 
   /* ── HUD sizing (fluid, landscape) ── */
-  --hud-slot: clamp(32px, 6vw, 44px);
-  --hud-ult: clamp(40px, 8vw, 58px);
+  --hud-slot: clamp(34px, 6vw, 46px);
+  --hud-ult: clamp(42px, 8vw, 58px);
   --hud-pad: clamp(8px, 1.6vw, 14px);
+  --hud-meter-w: clamp(148px, 21vw, 236px);
 
   /* ── Z layers (within #ui-root) ── */
   --z-hud: 10;

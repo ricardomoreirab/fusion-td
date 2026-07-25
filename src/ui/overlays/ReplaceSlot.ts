@@ -2,24 +2,8 @@ import { makeModal, ModalController } from '../primitives/Modal';
 import { makeCard } from '../primitives/Card';
 import { makeButton } from '../primitives/Button';
 import { el } from '../dom';
+import { elementColor, elementIcon } from '../elementMeta';
 import { PowerSlot } from '../../survivors/powers/PowerSlotManager';
-
-// ─── Element glyph/color maps (mirrors PowerChoice + legacy) ─────────────────
-const ELEMENT_GLYPH: Record<string, string> = {
-    fire:     '🔥',
-    ice:      '◆',
-    arcane:   '◉',
-    physical: '➤',
-    storm:    '⚡',
-};
-
-const ELEMENT_COLOR: Record<string, string> = {
-    fire:     '#ff6030',
-    ice:      '#30cfff',
-    arcane:   '#b050ff',
-    physical: '#e0e0e0',
-    storm:    '#ffe040',
-};
 
 export class ReplaceSlotOverlay {
     private modal: ModalController | null = null;
@@ -43,14 +27,11 @@ export class ReplaceSlotOverlay {
         currentSlots.forEach((slot, i) => {
             if (!slot) return;
 
-            const elemColor = ELEMENT_COLOR[slot.def.element] ?? '#aaa';
-            const glyph     = ELEMENT_GLYPH[slot.def.element] ?? '?';
-
             const card = makeCard({
                 name:     slot.def.name,
                 subtitle: `Level ${slot.state.level}`,
-                glyph,
-                accent:   elemColor,
+                icon:     elementIcon(slot.def.element),
+                accent:   elementColor(slot.def.element),
                 onClick: () => {
                     this.close();
                     onPick(i);

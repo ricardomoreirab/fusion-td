@@ -137,7 +137,8 @@ export class MenuState implements GameState {
 
         // Leaderboard button — opens the shared modal over the menu.
         screen.appendChild(makeButton({
-            label: '🏆 Leaderboard',
+            label: 'Leaderboard',
+            icon: 'trophy',
             variant: 'ghost',
             onClick: () => {
                 if (this.lbOpen) return; // guard against stacking panels on rapid taps

@@ -464,6 +464,16 @@ export class Game {
     }
 
     /**
+     * Late-wave performance trim, heaviest lever: cap the render resolution.
+     * Every post pass is per-pixel, so on a HiDPI display the default ratio of 2
+     * pushes ~6.4 MP through the bloom mip chain each frame. Render-quality
+     * only - gameplay untouched.
+     */
+    public setResolutionScale(maxPixelRatio: number): void {
+        this.rendererHost?.setResolutionScale(maxPixelRatio);
+    }
+
+    /**
      * Clean up the scene by disposing all meshes and resources.
      * Called when transitioning between states to ensure a clean slate.
      * Objects flagged userData.persistent (global lights, ortho camera)

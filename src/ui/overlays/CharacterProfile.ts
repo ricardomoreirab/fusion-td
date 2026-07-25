@@ -2,7 +2,8 @@ import { makeModal, ModalController } from '../primitives/Modal';
 import { el } from '../dom';
 import { onTap } from '../interaction';
 import { EquipSlot, Rarity, RARITY_COLOR } from '../../survivors/items/ItemTypes';
-import { SLOT_LABEL, SLOT_GLYPH } from './slotMeta';
+import { SLOT_LABEL, SLOT_ICON } from './slotMeta';
+import { iconEl, glyphEl } from '../icons';
 
 /** One equipment slot's display state (shared by the HUD strip + this profile). */
 export interface GearSlotVM {
@@ -46,11 +47,11 @@ export class CharacterProfile {
         this.closeSilently();
         const modal = makeModal({ title: 'Character', panelClass: 'modal-panel--character' });
 
-        // Close affordances: an ✕ button + click on the scrim outside the panel.
+        // Close affordances: a close button + click on the scrim outside the panel.
         const closeBtn = el('div', {
-            class: 'modal-close interactive', text: '✕',
+            class: 'modal-close interactive',
             attrs: { role: 'button', 'aria-label': 'Close' },
-        });
+        }, [iconEl('close')]);
         onTap(closeBtn, () => this.close());
         modal.panel.appendChild(closeBtn);
         modal.root.addEventListener('click', (e) => { if (e.target === modal.root) this.close(); });
@@ -104,7 +105,7 @@ export class CharacterProfile {
         const cell = el('div', { class: `char-slot${slot.name ? '' : ' char-slot--empty'}` });
         if (slot.rarity) cell.style.setProperty('--accent', RARITY_COLOR[slot.rarity]);
         cell.append(
-            el('div', { class: 'char-slot__glyph', text: slot.glyph ?? SLOT_GLYPH[slot.slot] }),
+            el('div', { class: 'char-slot__glyph' }, [slot.glyph ? glyphEl(slot.glyph) : iconEl(SLOT_ICON[slot.slot])]),
             el('div', { class: 'char-slot__slot', text: SLOT_LABEL[slot.slot] }),
             el('div', { class: 'char-slot__name', text: slot.name ?? '—' }),
         );

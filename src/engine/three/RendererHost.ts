@@ -1,15 +1,21 @@
 /**
  * RendererHost - the browser-side half of the engine: WebGLRenderer +
- * the postprocessing composer (FXAA + bloom + emissive-only selective
- * bloom = Babylon DefaultRenderingPipeline + GlowLayer parity).
+ * the postprocessing composer (bloom + ACES tone mapping + FXAA).
  *
  * Owns nothing about the frame LOOP - Game keeps its single permanent
  * loop and calls render(dt). Context-loss events are surfaced as plain
  * callbacks for Game's recovery/watchdog wiring.
  *
- * Glow contract: meshes marked via markGlowing() (LowPolyMaterial) enable
- * GLOW_LAYER on their layer mask; the SelectiveBloomEffect blooms exactly
- * that layer, replicating Babylon GlowLayer's emissive-only glow.
+ * Glow contract: the chain is HDR (half-float) end to end, so anything whose
+ * emissive pushes it past the bloom threshold blooms on its own. That is the
+ * whole mechanism - there is no second, selective pass.
+ *
+ * There USED to be one: a SelectiveBloomEffect over GLOW_LAYER, ported from
+ * Babylon's GlowLayer. It cost a FULL EXTRA SCENE RENDER every frame (the
+ * effect re-renders the scene through a layer-filtered camera), which measured
+ * at ~40% of all render-thread CPU once a horde was on the field - to make loot
+ * orbs glow, the only thing that ever called markGlowing(). Emissive over the
+ * bloom threshold gets the same read for free. Do not reintroduce it.
  */
 
 import { Camera, HalfFloatType, PCFShadowMap, Scene, WebGLRenderer } from 'three';
@@ -19,12 +25,12 @@ import {
     EffectPass,
     FXAAEffect,
     RenderPass,
-    SelectiveBloomEffect,
     ToneMappingEffect,
     ToneMappingMode,
 } from 'postprocessing';
 
-/** Layer index reserved for emissive-glow meshes (Babylon GlowLayer parity). */
+/** Layer index formerly blooms-only; kept so markGlowing() stays a meaningful
+ *  tag for "this material is authored bright enough to bloom". */
 export const GLOW_LAYER = 11;
 
 export class RendererHost {
@@ -32,10 +38,9 @@ export class RendererHost {
 
     private readonly composer: EffectComposer;
     private readonly bloom: BloomEffect;
-    private readonly glow: SelectiveBloomEffect;
 
     private baseBloomIntensity = 1;
-    private baseGlowIntensity = 0.4;
+    private maxPixelRatio = 2;
 
     public onContextLost: (() => void) | null = null;
     public onContextRestored: (() => void) | null = null;
@@ -63,14 +68,6 @@ export class RendererHost {
             intensity: this.baseBloomIntensity,
             mipmapBlur: true,
         });
-        this.glow = new SelectiveBloomEffect(scene, camera, {
-            luminanceThreshold: 0,
-            intensity: this.baseGlowIntensity,
-            mipmapBlur: true,
-        });
-        this.glow.ignoreBackground = true;
-        this.glow.selection.layer = GLOW_LAYER;
-
         // ACES filmic tone mapping: the HDR half-float chain would otherwise
         // hit the screen linearly, which reads flat and washed out (the
         // Babylon-era "full bright" look). ACES deepens shadow tones and rolls
@@ -79,7 +76,7 @@ export class RendererHost {
         // screen-space corner darkening (tried 0.55, then 0.35) reads as a
         // "halo of shadow" ellipse stamped on top of the game, not as focus.
         const toneMapping = new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC });
-        this.composer.addPass(new EffectPass(camera, this.bloom, this.glow, toneMapping, new FXAAEffect()));
+        this.composer.addPass(new EffectPass(camera, this.bloom, toneMapping, new FXAAEffect()));
 
         canvas.addEventListener('webglcontextlost', event => {
             event.preventDefault(); // required by the WebGL spec for restoration
@@ -100,7 +97,7 @@ export class RendererHost {
     }
 
     public resize(width: number, height: number): void {
-        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.maxPixelRatio));
         this.renderer.setSize(width, height, false);
         this.composer.setSize(width, height);
     }
@@ -108,7 +105,17 @@ export class RendererHost {
     /** Late-wave quality ratchet (Babylon setPostFxReduced parity). */
     public setPostFxReduced(reduced: boolean): void {
         this.bloom.intensity = reduced ? this.baseBloomIntensity * 0.5 : this.baseBloomIntensity;
-        this.glow.intensity = reduced ? this.baseGlowIntensity * 0.5 : this.baseGlowIntensity;
+    }
+
+    /**
+     * Resolution scale for the whole chain. The post passes are per-pixel, so on
+     * a HiDPI display the default ratio of 2 puts ~6.4 MP through the bloom
+     * mip chain every frame; 1.5 is ~44% fewer pixels for a difference FXAA
+     * largely absorbs. Clamped to something still legible.
+     */
+    public setResolutionScale(maxPixelRatio: number): void {
+        this.maxPixelRatio = Math.max(0.75, Math.min(maxPixelRatio, 2));
+        this.resize(this.canvas.clientWidth, this.canvas.clientHeight);
     }
 
     public configureBloom(threshold: number, intensity: number): void {

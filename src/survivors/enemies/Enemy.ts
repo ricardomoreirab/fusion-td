@@ -254,6 +254,75 @@ export class Enemy {
      *  freeze longer than the last. */
     protected glbInstance: ContainerInstance | null = null;
 
+    /** False while EnemyManager's off-screen cull has this enemy parked. */
+    private _renderActive = true;
+
+    /** Parent the model root was detached from while parked, so it can go back
+     *  exactly where it was. Null whenever the enemy is attached. */
+    private _cullDetachedFrom: Object3D | null = null;
+
+    /**
+     * Radius (world units) of the sphere the off-screen cull tests against the
+     * camera frustum. Deliberately generous — a false "visible" costs nothing,
+     * a false "hidden" pops in view. Bosses/elites widen it via their scale.
+     */
+    public cullRadius = 2.5;
+
+    /**
+     * True when this enemy casts into the key light's shadow map. Such an enemy
+     * can be outside the camera frustum and still throw a shadow into frame, so
+     * the cull pads its test radius rather than testing the silhouette alone.
+     * A full exemption would be useless in practice — every enemy spawned before
+     * the wave-5 shadow cutoff is a caster.
+     */
+    public castsShadow = false;
+
+    /** Whether the renderer is currently walking/drawing this enemy. */
+    public get isRenderActive(): boolean {
+        return this._renderActive;
+    }
+
+    /**
+     * Renderer-side gate driven by EnemyManager's off-screen cull. Gameplay is
+     * untouched — the enemy keeps moving, taking damage and ticking status; this
+     * only stops the renderer from walking its ~30-node skinned subtree (which
+     * it does once per render pass, several times per displayed frame) and drops
+     * the skeleton evaluation to a low-rate tier.
+     */
+    public setRenderActive(active: boolean): void {
+        if (this._renderActive === active) return;
+        this._renderActive = active;
+
+        if (this.mesh && !isMeshDisposed(this.mesh)) {
+            // visible=false is what makes the renderer's projectObject skip the
+            // subtree. It does NOT skip scene.updateMatrixWorld, which recurses
+            // through every child unconditionally (matrixWorldAutoUpdate only
+            // suppresses the multiply, not the walk) — so a parked enemy is
+            // detached outright. A skinned enemy is ~30 nodes; at horde scale
+            // that walk is milliseconds of pure CPU every frame.
+            this.mesh.visible = active;
+            if (active) {
+                if (this._cullDetachedFrom) {
+                    this._cullDetachedFrom.add(this.mesh);
+                    this._cullDetachedFrom = null;
+                }
+            } else if (this.mesh.parent) {
+                this._cullDetachedFrom = this.mesh.parent;
+                this.mesh.removeFromParent();
+            }
+        }
+        const setVisible = (m: Object3D | null): void => {
+            if (m && !isMeshDisposed(m)) m.visible = active;
+        };
+        setVisible(this.healthBarMesh);
+        setVisible(this.healthBarBackgroundMesh);
+        setVisible(this.healthBarOutlineMesh);
+        for (const seg of this.barSegmentMeshes) setVisible(seg);
+        setVisible(this.barLabelMesh);
+
+        this.glbInstance?.setAnimationLod(active ? 'full' : 'reduced');
+    }
+
     // ── Guest-side network visuals (co-op) ──────────────────────────────────
     // These drive a render-only enemy from host snapshots. They are SEPARATE from
     // each subclass's host-side anim fields (glbWalkAnim/glbCurrentAnim/…) because
@@ -784,8 +853,12 @@ export class Enemy {
                 }
             }
 
-            // Update health bar
-            if (this.healthBarMesh && !isMeshDisposed(this.healthBarMesh) &&
+            // Update health bar. Bars live in world space as separate scene
+            // children, so a culled enemy's bar would be re-placed and
+            // re-billboarded every frame for nothing; setRenderActive(true)
+            // is followed by this running again on the very next frame.
+            if (this._renderActive &&
+                this.healthBarMesh && !isMeshDisposed(this.healthBarMesh) &&
                 this.healthBarBackgroundMesh && !isMeshDisposed(this.healthBarBackgroundMesh)) {
                 this.updateHealthBar();
             }
@@ -1435,6 +1508,11 @@ export class Enemy {
      * build — the same invariant holds here.
      */
     protected _releaseMeshAndAnimations(): void {
+        // Drop the parked-parent reference before anything is torn down: a mesh
+        // released while the off-screen cull had it detached must not leave a
+        // dangling handle that a later setRenderActive would re-add.
+        this._cullDetachedFrom = null;
+        this._renderActive = true;
         // Stop every AnimGroup the GLB instantiation cloned for this enemy;
         // glbInstance.dispose() below fully disposes them (and the mixer).
         for (const ag of this.glbAnimationGroups) {

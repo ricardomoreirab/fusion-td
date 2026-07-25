@@ -10,8 +10,9 @@ import { fetchTop } from '../../survivors/Leaderboard';
  * Construct with the GameUI overlay layer as parent; `show()` fetches + displays,
  * `close()` tears it down. When the owning state exits it disposes the GameUI
  * (and with it this modal, a child of the overlay layer), so there is no leak.
- * Columns are monospace-aligned via string padding — simplest robust approach
- * for variable-length names.
+ * Columns are a real CSS grid: the previous version padded strings and set them
+ * in Courier New, the one typeface in the build belonging to no other screen,
+ * and a long name still pushed the wave/time columns out of alignment.
  */
 export class LeaderboardOverlay {
     private modal: ModalController | null = null;
@@ -26,7 +27,7 @@ export class LeaderboardOverlay {
         const modal = makeModal({ title: 'Leaderboard', panelClass: 'modal-panel--leaderboard' });
         this.modal = modal;
 
-        const header = el('div', { class: 'lb-header', text: this.formatRow('#', 'NAME', 'WAVE', 'TIME') });
+        const header = this.buildRow('lb-header', '#', 'Name', 'Wave', 'Time');
         header.style.display = 'none';
         const status = el('div', { class: 'modal-subtitle', text: 'Loading…' });
         const list = el('div', { class: 'lb-list' });
@@ -44,10 +45,10 @@ export class LeaderboardOverlay {
         status.remove();
         header.style.display = '';
         for (const e of entries) {
-            list.appendChild(el('div', {
-                class: e.rank <= 3 ? 'lb-row lb-row--top' : 'lb-row',
-                text: this.formatRow(`#${e.rank}`, this.clip(e.name), `${e.wave}`, this.time(e.timeSec)),
-            }));
+            list.appendChild(this.buildRow(
+                e.rank <= 3 ? 'lb-row lb-row--top' : 'lb-row',
+                `#${e.rank}`, e.name, `${e.wave}`, this.time(e.timeSec),
+            ));
         }
     }
 
@@ -56,12 +57,15 @@ export class LeaderboardOverlay {
         if (this.modal) { this.modal.dispose(); this.modal = null; }
     }
 
-    private formatRow(rank: string, name: string, wave: string, time: string): string {
-        return `${rank.padEnd(4)}${name.padEnd(14)}${wave.padStart(5)}${time.padStart(8)}`;
-    }
-
-    private clip(name: string): string {
-        return name.length > 13 ? name.slice(0, 12) + '…' : name;
+    /** One grid row. The name cell ellipsises in CSS, so an over-long entry
+        can never push the wave/time columns out of alignment. */
+    private buildRow(cls: string, rank: string, name: string, wave: string, time: string): HTMLDivElement {
+        return el('div', { class: cls }, [
+            el('span', { class: 'lb-rank', text: rank }),
+            el('span', { class: 'lb-name', text: name, attrs: { title: name } }),
+            el('span', { class: 'lb-num', text: wave }),
+            el('span', { class: 'lb-num', text: time }),
+        ]);
     }
 
     private time(sec: number): string {

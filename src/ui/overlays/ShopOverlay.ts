@@ -2,6 +2,7 @@ import { makeModal, ModalController } from '../primitives/Modal';
 import { makeButton } from '../primitives/Button';
 import { el } from '../dom';
 import { onTap } from '../interaction';
+import { iconEl, glyphEl } from '../icons';
 import { ItemDef, RARITY_COLOR } from '../../survivors/items/ItemTypes';
 import { GRIBBLE_NAME } from '../../survivors/shop/GribbleBarks';
 import { SLOT_LABEL } from './slotMeta';
@@ -125,7 +126,7 @@ export class ShopOverlay {
             onClick: () => this.callbacks?.onUpgrade(),
         });
         const battle = makeButton({
-            label: '⚔ To battle!', variant: 'forged', class: 'shop-battle',
+            label: 'To battle!', icon: 'swords', variant: 'forged', class: 'shop-battle',
             onClick: () => { this.callbacks?.onBattle(); },
         });
         modal.body.appendChild(el('div', { class: 'shop-footer' }, [this.rerollBtn, this.upgradeBtn, battle]));
@@ -140,7 +141,7 @@ export class ShopOverlay {
     public refresh(vm: ShopVM): void {
         if (!this.modal) return;
         this.setQuip(vm.quip);
-        this.goldEl!.textContent = `🪙 ${vm.gold}`;
+        this.goldEl!.replaceChildren(iconEl('coin'), el('span', { text: `${vm.gold}` }));
 
         this.gridEl!.replaceChildren();
         vm.cards.forEach((card, index) => {
@@ -152,10 +153,10 @@ export class ShopOverlay {
             for (const p of vm.potions) this.potionRowEl.appendChild(this.buildPotionCard(p));
         }
 
-        this.rerollBtn!.textContent = `🎲 Reroll (${vm.rerollCost}g)`;
+        this.rerollBtn!.replaceChildren(iconEl('dice'), el('span', { text: `Reroll (${vm.rerollCost}g)` }));
         this.rerollBtn!.classList.toggle('shop-reroll--poor', !vm.rerollAffordable);
-        this.shopLevelEl!.textContent = `Shop +${vm.shopLevel}`;
-        this.upgradeBtn!.textContent = `⬆ Upgrade → +${vm.shopLevel + 1} (${vm.upgradeCost}g)`;
+        this.shopLevelEl!.replaceChildren(iconEl('anvil'), el('span', { text: `Shop +${vm.shopLevel}` }));
+        this.upgradeBtn!.replaceChildren(iconEl('anvil'), el('span', { text: `Upgrade → +${vm.shopLevel + 1} (${vm.upgradeCost}g)` }));
         this.upgradeBtn!.classList.toggle('shop-upgrade--poor', !vm.upgradeAffordable);
     }
 
@@ -173,7 +174,7 @@ export class ShopOverlay {
         root.style.setProperty('--accent', RARITY_COLOR[card.def.rarity]);
         root.append(
             el('div', { class: 'shop-card__kind', text: `${card.def.rarity} · ${SLOT_LABEL[card.def.slot]}` }),
-            el('div', { class: 'shop-card__emblem', text: card.def.glyph }),
+            el('div', { class: 'shop-card__emblem' }, [glyphEl(card.def.glyph)]),
             el('div', { class: 'shop-card__name', text: card.def.name }),
         );
         if (card.itemLevel > 0) {
@@ -190,7 +191,9 @@ export class ShopOverlay {
         }
 
         root.appendChild(el('div', { class: 'shop-card__flavor', text: card.def.flavor }));
-        root.appendChild(el('div', { class: 'shop-card__price', text: card.sold ? 'SOLD' : `🪙 ${card.price}` }));
+        root.appendChild(card.sold
+            ? el('div', { class: 'shop-card__price', text: 'SOLD' })
+            : el('div', { class: 'shop-card__price' }, [iconEl('coin'), el('span', { text: `${card.price}` })]));
 
         // Comparison vs the currently-equipped piece — an OVERLAY shown on hover
         // (pointer-events:none, absolute inset) so the card layout never changes.
@@ -208,10 +211,12 @@ export class ShopOverlay {
                 + (p.active ? ' shop-potion--active' : ''),
         });
         root.append(
-            el('div', { class: 'shop-potion__glyph', text: p.glyph }),
+            el('div', { class: 'shop-potion__glyph' }, [glyphEl(p.glyph)]),
             el('div', { class: 'shop-potion__name', text: p.name }),
             el('div', { class: 'shop-potion__desc', text: p.desc }),
-            el('div', { class: 'shop-potion__price', text: p.active ? 'ACTIVE' : `🪙 ${p.price}` }),
+            p.active
+                ? el('div', { class: 'shop-potion__price', text: 'ACTIVE' })
+                : el('div', { class: 'shop-potion__price' }, [iconEl('coin'), el('span', { text: `${p.price}` })]),
         );
         if (!p.active) onTap(root, () => this.callbacks?.onBuyPotion(p.id));
         return root;

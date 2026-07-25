@@ -1,5 +1,6 @@
 import { makeModal, ModalController } from '../primitives/Modal';
 import { makeCard } from '../primitives/Card';
+import { IconName } from '../icons';
 import { el } from '../dom';
 
 export interface ChampionOption {
@@ -10,20 +11,19 @@ export interface ChampionOption {
     color: string;
 }
 
-// Class glyphs by champion type — unicode that renders well in DOM
-// 'barbarian' → 🪓, 'ranger' → 🏹, 'mage' → 🔮, fallback to a star
-const CLASS_GLYPH: Record<string, string> = {
-    barbarian: '🪓',
-    ranger:    '🏹',
-    mage:      '🔮',
-    warrior:   '⚔',
-    archer:    '🏹',
-    wizard:    '🔮',
-    rogue:     '✦',
+/** Class emblems from the authored icon set (was 🪓 / 🏹 / 🔮). */
+const CLASS_ICON: Record<string, IconName> = {
+    barbarian: 'axe',
+    ranger:    'bow',
+    mage:      'orb',
+    warrior:   'swords',
+    archer:    'bow',
+    wizard:    'orb',
+    rogue:     'spear',
 };
 
-function getClassGlyph(type: string): string {
-    return CLASS_GLYPH[type.toLowerCase()] ?? '★';
+function getClassIcon(type: string): IconName {
+    return CLASS_ICON[type.toLowerCase()] ?? 'star';
 }
 
 export class ChampionSelectOverlay {
@@ -44,7 +44,7 @@ export class ChampionSelectOverlay {
             const card = makeCard({
                 name: opt.name,
                 subtitle: opt.summary,
-                glyph: getClassGlyph(opt.type),
+                icon: getClassIcon(opt.type),
                 accent: opt.color,
                 kind: opt.startingPower,
                 onClick: () => {

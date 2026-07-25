@@ -1,4 +1,4 @@
-import { Vector3, type Light, type Mesh } from 'three';
+import { Frustum, Matrix4, Sphere, Vector3, type Camera, type Light, type Mesh } from 'three';
 import { Game } from '../../engine/Game';
 import { Enemy, resetDeathBurstBudget } from './Enemy';
 import { type TargetProvider, pickNearestAlive } from './nearestTarget';
@@ -74,6 +74,23 @@ export class EnemyManager {
      *  this manager only flags the mesh trees. Enabled by setShadowGenerators
      *  receiving at least one non-null light. */
     private shadowsEnabled = false;
+    // ── Off-screen render cull ────────────────────────────────────────────────
+    // Enemies spawn on a ring well outside the camera's framing and walk in, so
+    // most of a large horde is off-screen at any moment. THREE frustum-culls
+    // DRAWING on its own, but it still walks every node of every enemy (a skinned
+    // GLB is ~30 of them) once per render pass, and their skeletons are posed by
+    // the animation bus regardless of visibility. Parking the off-screen ones is
+    // what makes horde scale affordable — see Enemy.setRenderActive.
+    private cullCamera: Camera | null = null;
+    /** Extra cull radius for shadow casters — how far outside the frame an enemy
+     *  can stand and still land a shadow inside it. KEY_DIR is (0.63 horizontal,
+     *  0.78 vertical), so a silhouette throws ~0.8 units of shadow per unit of
+     *  its height; 4 covers even a boss with room to spare. */
+    private static readonly SHADOW_CULL_MARGIN = 4;
+    private readonly _cullFrustum = new Frustum();
+    private readonly _cullMatrix = new Matrix4();
+    private readonly _cullSphere = new Sphere(new Vector3(), 1);
+
     /** Preloaded GLB containers per enemy type. Passed in by SurvivorsGameplayState
      *  after load completes. spawnSurvivorsEnemy stages the asset on the matching enemy
      *  class's static pendingAsset slot before constructing the instance. */
@@ -380,6 +397,53 @@ export class EnemyManager {
      *  scene (no renderList pruning needed on enemy disposal). */
     public setShadowGenerators(lights: (Light | null)[]): void {
         this.shadowsEnabled = lights.some(l => l !== null);
+        if (this.shadowsEnabled) return;
+        // Shadows off (the wave-5 horde-scale cutoff): clear the casting flag on
+        // everything already alive so the off-screen cull stops padding their
+        // test radius. Exactly the waves where the horde is biggest.
+        for (const enemy of this.enemies) {
+            enemy.castsShadow = false;
+            const mesh = (enemy as unknown as { mesh: Mesh | null }).mesh;
+            mesh?.traverse(node => {
+                if ((node as Mesh).isMesh) node.castShadow = false;
+            });
+        }
+    }
+
+    /**
+     * Camera the off-screen cull tests against. Until this is set the cull is
+     * inert and every enemy renders — single-player, co-op and the headless
+     * tests all behave exactly as before.
+     */
+    public setCullCamera(camera: Camera | null): void {
+        this.cullCamera = camera;
+        if (!camera) for (const e of this.enemies) e.setRenderActive(true);
+    }
+
+    /**
+     * Park every enemy the camera cannot see. Runs once per frame over the live
+     * list; the per-enemy test is a sphere-vs-frustum check against a radius
+     * deliberately padded so a near-miss renders rather than pops.
+     */
+    private _cullOffscreen(): void {
+        const camera = this.cullCamera;
+        if (!camera) return;
+
+        camera.updateMatrixWorld();
+        this._cullMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+        this._cullFrustum.setFromProjectionMatrix(this._cullMatrix);
+
+        for (const enemy of this.enemies) {
+            const p = enemy.getPosition();
+            this._cullSphere.center.set(p.x, p.y + 1, p.z);
+            // Shadow casters get a padded radius: the key light is high and its
+            // map only spans ±42 around the hero, so anything that could throw a
+            // shadow into frame is within a short reach of the frustum edge.
+            this._cullSphere.radius = enemy.castsShadow
+                ? enemy.cullRadius + EnemyManager.SHADOW_CULL_MARGIN
+                : enemy.cullRadius;
+            enemy.setRenderActive(this._cullFrustum.intersectsSphere(this._cullSphere));
+        }
     }
 
     /** Internal helper — flags the enemy's whole mesh tree as shadow casters.
@@ -391,6 +455,9 @@ export class EnemyManager {
         mesh.traverse(node => {
             if ((node as Mesh).isMesh) node.castShadow = true;
         });
+        // Exempts it from the off-screen cull — the shadow frustum is far wider
+        // than the camera's, so hiding it would drop a shadow that is in frame.
+        enemy.castsShadow = true;
     }
 
     /**
@@ -738,6 +805,10 @@ export class EnemyManager {
             }
         }
 
+        // After movement, so the cull tests this frame's positions against the
+        // camera the renderer is about to use.
+        this._cullOffscreen();
+
         // Advance lingering corpses (death animation + linger); release finished ones.
         for (let i = this.corpses.length - 1; i >= 0; i--) {
             const corpse = this.corpses[i];
@@ -754,6 +825,10 @@ export class EnemyManager {
      *  die()). Caps the corpse count so a mass kill can't accumulate skinned meshes +
      *  death-clip animatables — past the cap the oldest corpse is released immediately. */
     private _beginCorpse(enemy: Enemy): void {
+        // Corpses leave `enemies[]`, so the cull stops maintaining them — restore
+        // rendering or one that died off-screen would stay invisible if the
+        // camera later panned onto it. Bounded by MAX_CORPSES.
+        enemy.setRenderActive(true);
         if (!enemy.isCorpse()) {
             // Defensive: died without a corpse phase — release immediately.
             enemy.dispose();

@@ -1,6 +1,6 @@
 import { makeModal, ModalController } from '../primitives/Modal';
 import { makeCard } from '../primitives/Card';
-import { makeButton } from '../primitives/Button';
+import { makeButton, setButtonLabel } from '../primitives/Button';
 import { el } from '../dom';
 import { onTap } from '../interaction';
 import type { RoomService } from '../../net/RoomService';
@@ -97,7 +97,7 @@ export class CoopLobbyOverlay {
         choices.appendChild(makeCard({
             name: 'Host Game',
             subtitle: 'Create a room and share\nthe code with a friend',
-            glyph: '🏰',
+            icon: 'keep',
             accent: '#c9a23f',
             kind: 'host',
             onClick: () => this.startHosting(),
@@ -105,8 +105,8 @@ export class CoopLobbyOverlay {
         choices.appendChild(makeCard({
             name: 'Join Game',
             subtitle: 'Enter the 6-letter code\nyour friend shared',
-            glyph: '🤝',
-            accent: '#5fb0e8',
+            icon: 'pact',
+            accent: '#88a070',
             kind: 'join',
             onClick: () => this.renderJoin(),
         }));
@@ -153,8 +153,8 @@ export class CoopLobbyOverlay {
             class: 'coop-copy-btn',
             onClick: () => {
                 void navigator.clipboard?.writeText(code).then(() => {
-                    copyBtn.textContent = 'Copied!';
-                    setTimeout(() => { if (myGen === this.gen) copyBtn.textContent = 'Copy'; }, 1200);
+                    setButtonLabel(copyBtn, 'Copied!');
+                    setTimeout(() => { if (myGen === this.gen) setButtonLabel(copyBtn, 'Copy'); }, 1200);
                 }).catch(() => { /* clipboard unavailable — the code text is selectable */ });
             },
         });

@@ -444,6 +444,10 @@ export class SurvivorsGameplayState implements GameState {
     // enough that the per-caster shadow-map cost outweighs the visual detail. The
     // hero keeps its directional shadow. Idempotent guard so we only flip once.
     private static readonly ENEMY_SHADOW_CUTOFF_WAVE = 5;
+
+    /** Pixel-ratio cap applied by perf-trim level 3. 1.5 is ~44% fewer pixels
+     *  than the HiDPI default of 2 for a difference FXAA largely absorbs. */
+    private static readonly TRIMMED_PIXEL_RATIO = 1.5;
     private enemyShadowsDisabled = false;
     // Per-run env/sky GPU resources — tracked so exit() can dispose them.
     // cleanupScene() only frees meshes/particles/ADT textures, so these cube
@@ -979,6 +983,10 @@ export class SurvivorsGameplayState implements GameState {
         // Infinite map: arenaRadius=Infinity disables EnemyManager's interior
         // clamp; the spawn ring is the SPAWN_RING_RADIUS constant now.
         this.enemyManager.configureSurvivorsMode(this._heroProviders, Infinity);
+        // Most of a horde sits outside the framing on the spawn ring; this lets
+        // EnemyManager park those so the renderer stops walking their skinned
+        // subtrees and their skeletons drop to a low-rate animation tier.
+        this.enemyManager.setCullCamera(this.heroController.getCamera());
 
         // Hand over enemy GLB assets so EnemyManager.spawnSurvivorsEnemy can stage them
         // on the per-class pendingAsset slots before construction. Loaded lazily (await
@@ -2788,6 +2796,9 @@ export class SurvivorsGameplayState implements GameState {
         this.waveManager?.dispose();
         this.waveManager = null;
 
+        // Drop the borrowed hero camera before the manager goes — the cull must
+        // never outlive the run's camera.
+        this.enemyManager?.setCullCamera(null);
         this.enemyManager?.dispose();
         this.enemyManager = null;
 
@@ -2903,9 +2914,11 @@ export class SurvivorsGameplayState implements GameState {
         clearMaterialCache();
         clearProjectilePools();
 
-        // Restore the post-fx baseline if the late-wave quality trim engaged
-        // this run (the pipeline + glow layer are persistent, Game-owned).
+        // Restore the render-quality baseline if the late-wave trim engaged this
+        // run (the pipeline is persistent, Game-owned, so it would otherwise
+        // carry a trimmed run's settings into the next one).
         if (this._perfTrimLevel > 0) this.game.setPostFxReduced(false);
+        if (this._perfTrimLevel >= 3) this.game.setResolutionScale(2);
         this._perfTrimLevel = 0;
         this._fpsEma = 60;
 
@@ -4501,14 +4514,21 @@ export class SurvivorsGameplayState implements GameState {
      *  (cheap) adjustments land during the breather, not mid-combat. Reset in
      *  exit() via game.setPostFxReduced(false). */
     private maybeTrimPerformance(clearedWave: number): void {
-        if (this._fpsEma >= 42 || this._perfTrimLevel >= 2) return;
+        if (this._fpsEma >= 42 || this._perfTrimLevel >= 3) return;
         this._perfTrimLevel++;
+        const at = `wave ${clearedWave} cleared at ≈${Math.round(this._fpsEma)} fps →`;
         if (this._perfTrimLevel === 1) {
             this.game.setPostFxReduced(true);
-            console.info(`[perf-trim] wave ${clearedWave} cleared at ≈${Math.round(this._fpsEma)} fps → reduced post-fx (level 1)`);
-        } else {
+            console.info(`[perf-trim] ${at} reduced post-fx (level 1)`);
+        } else if (this._perfTrimLevel === 2) {
             this.world?.setShadowInterval(3);
-            console.info(`[perf-trim] wave ${clearedWave} cleared at ≈${Math.round(this._fpsEma)} fps → shadow map every 3rd frame (level 2)`);
+            console.info(`[perf-trim] ${at} shadow map every 3rd frame (level 2)`);
+        } else {
+            // Still sagging with post-fx and shadows already trimmed: the
+            // remaining cost is per-pixel, so cut the pixels. FXAA absorbs most
+            // of the difference on a HiDPI panel.
+            this.game.setResolutionScale(SurvivorsGameplayState.TRIMMED_PIXEL_RATIO);
+            console.info(`[perf-trim] ${at} render scale ${SurvivorsGameplayState.TRIMMED_PIXEL_RATIO}× (level 3)`);
         }
     }
 

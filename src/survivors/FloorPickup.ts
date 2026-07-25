@@ -46,8 +46,12 @@ export class FloorPickup {
             // (bob/spin/scale act on the whole flask).
             this.mesh = createSphere('floorPickup_heal', { diameter: 0.62, segments: 10 }, scene);
             this.mesh.scale.set(1, 1.15, 1);
+            // Emissive is authored ABOVE 1 on purpose: the chain is HDR and the
+            // bloom pass only picks up what clears its luminance threshold, so
+            // "this glows" is expressed as over-range emissive rather than by
+            // tagging it into a second, selective bloom pass.
             this.mesh.material = getCachedMaterial('floorPickupMat_heal', m => {
-                m.emissive.setRGB(1.0, 0.22, 0.38); // glowing red liquid
+                m.emissive.setRGB(2.6, 0.57, 0.99); // glowing red liquid
                 m.color.setRGB(0.25, 0.03, 0.08);
             });
             const neck = createCylinder('floorPickup_healNeck',
@@ -71,7 +75,7 @@ export class FloorPickup {
         } else {
             this.mesh = createTorus('floorPickup_magnet', { diameter: 0.85, thickness: 0.14, tessellation: 20 }, scene);
             this.mesh.material = getCachedMaterial('floorPickupMat_magnet', m => {
-                m.emissive.setRGB(1.0, 0.8, 0.2);
+                m.emissive.setRGB(2.6, 2.08, 0.52);
                 m.color.setRGB(0.25, 0.18, 0.02);
             });
             // Three small orbiting chips read as "attracted metal fragments"
@@ -80,7 +84,7 @@ export class FloorPickup {
             for (let i = 0; i < 3; i++) {
                 const chip = createSphere(`floorPickup_magnetChip${i}`, { diameter: 0.12, segments: 6 });
                 chip.material = getCachedMaterial('floorPickupMat_magnetChip', m => {
-                    m.emissive.setRGB(1.0, 0.9, 0.5);
+                    m.emissive.setRGB(2.6, 2.34, 1.3);
                     m.color.setRGB(0.3, 0.24, 0.05);
                 });
                 markGlowing(chip);
@@ -97,7 +101,7 @@ export class FloorPickup {
             { diameterTop: 0.14, diameterBottom: 0.3, height: 3.2, tessellation: 8 });
         beacon.position.y = 1.4;
         beacon.material = getCachedMaterial(`floorPickupBeaconMat_${kind}`, m => {
-            m.emissive.setRGB(r[0], r[1], r[2]);
+            m.emissive.setRGB(r[0] * 2.4, r[1] * 2.4, r[2] * 2.4);
             m.color.set(0, 0, 0);
             m.transparent = true;
             m.opacity = 0.4;
