@@ -11,6 +11,19 @@
   filter: var(--lift-sm);
 }
 
+/* ── Baked item art ──────────────────────────────────────────
+   256px WebP renders of the Tripo source models (see tools/item-icons/).
+   Sized in `em` exactly like `.icon` so it drops into every glyph slot the
+   SVG family already fills; items without baked art keep the SVG fallback. */
+.item-art {
+  width: 1em;
+  height: 1em;
+  display: block;
+  flex: 0 0 auto;
+  object-fit: contain;
+  filter: var(--lift-sm);
+}
+
 /* ── Forged plate ────────────────────────────────────────────
    THE HUD chrome primitive. Bronze rim + smoky fill painted as two background
    layers (border-box / padding-box) so the chamfer cuts both as one plate,
@@ -896,6 +909,18 @@
   padding-right: 2.4em;
 }
 .shop-card__emblem { font-size: clamp(22px, 4vw, 28px); line-height: 1.35; color: var(--accent); display: flex; }
+/* A rendered item earns far more room than a line glyph, and a rarity-tinted
+   pedestal glow behind it ties the art back to the card's accent. */
+.shop-card__emblem:has(.item-art) {
+  font-size: clamp(46px, 9vw, 62px);
+  align-self: center;
+  margin: 2px 0 1px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 58%,
+    color-mix(in srgb, var(--accent) 34%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 10%, transparent) 46%,
+    transparent 70%);
+}
 .shop-card__name {
   font-family: var(--ff-display); font-weight: 700; font-size: var(--fs-200);
   color: var(--c-parchment); margin-bottom: var(--s-1);
@@ -1021,10 +1046,14 @@
   color: rgba(216, 180, 96, 0.62);
 }
 .gear-slot__glyph { display: flex; font-size: 1em; line-height: 1; }
+/* The strip cell is 30px of chrome — the art fills it edge to edge, unlike the
+   engraved glyphs which need the surrounding breathing room. */
+.gear-slot__glyph .item-art { width: 26px; height: 26px; }
 
 @media (max-width: 720px) {
   .hud__inventory { gap: 3px; padding: 4px; }
   .gear-slot { width: 24px; height: 24px; font-size: 14px; }
+  .gear-slot__glyph .item-art { width: 21px; height: 21px; }
 }
 
 /* Corner close button for dismissable modals (e.g. character profile). */
@@ -1062,6 +1091,7 @@
 .char-slot:not(.char-slot--empty) { cursor: help; }
 .char-slot--empty { opacity: 0.45; }
 .char-slot__glyph { font-size: clamp(22px, 4vw, 28px); color: var(--accent); display: flex; }
+.char-slot__glyph:has(.item-art) { font-size: clamp(34px, 6vw, 44px); }
 .char-slot__slot {
   font-family: var(--ff-display); font-size: 9px; text-transform: uppercase;
   letter-spacing: 0.1em; color: var(--c-parchment-faint);

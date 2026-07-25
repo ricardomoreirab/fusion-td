@@ -1,0 +1,38 @@
+{
+  "task_id": "12495f38-4c68-4a9e-a5d1-4eafc5dfc028",
+  "type": "text_to_model",
+  "status": "success",
+  "input": {
+    "prompt": "pair of swift ranger boots with small feathered wings at the ankles, pale leather, silver wing clasps, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+    "negative_prompt": "text, watermark, logo, ground plane, base, pedestal, stand, mannequin, multiple objects, human figure, hands, scene, background",
+    "model_version": "v3.1-20260211",
+    "texture": true,
+    "pbr": true,
+    "texture_quality": "detailed",
+    "texture_alignment": "geometry",
+    "export_uv": true,
+    "geometry_quality": "detailed"
+  },
+  "output": {
+    "pbr_model": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/12495f38-4c68-4a9e-a5d1-4eafc5dfc028/tripo_pbr_model_12495f38-4c68-4a9e-a5d1-4eafc5dfc028.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMTI0OTVmMzgtNGM2OC00YTllLWE1ZDEtNGVhZmM1ZGZjMDI4L3RyaXBvX3Bicl9tb2RlbF8xMjQ5NWYzOC00YzY4LTRhOWUtYTVkMS00ZWFmYzVkZmMwMjguZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=qT9D0KpJRG1z3sRM9laLwMNTacWvYMCiakfMLApjg3KihyeW8P~O9GTB-K2egl0Ka-0tJ1vs356o5Q6Ngxwv1D8iY~5LZeK-HVUiKN01fOfcpUbgf55EgNt04EL8fxVhbgldhAZjYKHxsVRaELzN-jU4i8LvKKTMqe8PaxKsHDrDfD05RD3l7tNgnpXC1NBjdVgfgC6rlh7IBr5k8Ai3nVcZVpY~Y2jP8K7lflLNrdEEHDj0zlNqvNrWvGRxFAM0b6TJG3cB7uyN6W43trkruktNoTRxd~gWgmNSgIoFf7hinH3vfOPD1BeB2M2c5vJK5TM9qAaBvi9dkyF3SBvJ4g__",
+    "generated_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/12495f38-4c68-4a9e-a5d1-4eafc5dfc028/text2image_12495f38-4c68-4a9e-a5d1-4eafc5dfc028.jpeg?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMTI0OTVmMzgtNGM2OC00YTllLWE1ZDEtNGVhZmM1ZGZjMDI4L3RleHQyaW1hZ2VfMTI0OTVmMzgtNGM2OC00YTllLWE1ZDEtNGVhZmM1ZGZjMDI4LmpwZWciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=Tg7H-uTc4FTDqUs9sab3jjjFR9tbyWSIXLkmctpw9b8IckWRAYKGbh1rWWiGNZUHmg~JnC6qG6imuURoutcBu72r-vg4Ygbleof5GSIfHngpDif6AyAAIkZg25wP0HSym~DMlKCsYn0FTpM1QXuXE6iAWZLKbuPYBVubIpEVfwUc15Hm8bjwV1NHhaqyW5tuiWF7FpgqNpVnfZc9BPdi17KpDm7y6P-OBiBfyVko-BxFAv218u5HBYa3I2m90Vf0Ng4GXmHhOgwegrx-qui4pD7cJAmEJWTPT3oKYtBoT4fuvBjGV3AgyGheDQ0WQwaHlE2QJP3PFalEc795sgwl9w__",
+    "rendered_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/12495f38-4c68-4a9e-a5d1-4eafc5dfc028/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMTI0OTVmMzgtNGM2OC00YTllLWE1ZDEtNGVhZmM1ZGZjMDI4L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=mSZTJOsHEBzZacYCDMaMhXrNwjMKMFYwyivqVE~8NUEqqgqGXlmGG0bz7njZF-KwxTqSUcH0L6UiFV-D9Cb3cruq-RFupjmF9Zj0i3wefDbcZFDMflcUD~rRP7W2KbPmqlCtAReraW5J6oDn4Ov19BlvEI9Gy2XE5elnIIEe9q11Lj5Zi6nM1sXd4pqpuGL5qcs~bKZvG0Im3ieymdwaemFIFB-hr4rZr8GqInJUBUeVLz8VT9IPWJHfTv3fkI-pxJ01tsC~tkvFGuLGebiM1j0Va4maYXYC771gtZ1fM2r~K5NPkEIDrjyTO~eoopCbw2v2p8wv6tS0P9yV3u2jWw__"
+  },
+  "progress": 100,
+  "create_time": 1785017684,
+  "consumed_credit": 50,
+  "prompt": "pair of swift ranger boots with small feathered wings at the ankles, pale leather, silver wing clasps, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+  "thumbnail": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/12495f38-4c68-4a9e-a5d1-4eafc5dfc028/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMTI0OTVmMzgtNGM2OC00YTllLWE1ZDEtNGVhZmM1ZGZjMDI4L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=mSZTJOsHEBzZacYCDMaMhXrNwjMKMFYwyivqVE~8NUEqqgqGXlmGG0bz7njZF-KwxTqSUcH0L6UiFV-D9Cb3cruq-RFupjmF9Zj0i3wefDbcZFDMflcUD~rRP7W2KbPmqlCtAReraW5J6oDn4Ov19BlvEI9Gy2XE5elnIIEe9q11Lj5Zi6nM1sXd4pqpuGL5qcs~bKZvG0Im3ieymdwaemFIFB-hr4rZr8GqInJUBUeVLz8VT9IPWJHfTv3fkI-pxJ01tsC~tkvFGuLGebiM1j0Va4maYXYC771gtZ1fM2r~K5NPkEIDrjyTO~eoopCbw2v2p8wv6tS0P9yV3u2jWw__",
+  "queuing_num": -1,
+  "running_left_time": -1,
+  "result": {
+    "pbr_model": {
+      "type": "glb",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/12495f38-4c68-4a9e-a5d1-4eafc5dfc028/tripo_pbr_model_12495f38-4c68-4a9e-a5d1-4eafc5dfc028.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMTI0OTVmMzgtNGM2OC00YTllLWE1ZDEtNGVhZmM1ZGZjMDI4L3RyaXBvX3Bicl9tb2RlbF8xMjQ5NWYzOC00YzY4LTRhOWUtYTVkMS00ZWFmYzVkZmMwMjguZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=qT9D0KpJRG1z3sRM9laLwMNTacWvYMCiakfMLApjg3KihyeW8P~O9GTB-K2egl0Ka-0tJ1vs356o5Q6Ngxwv1D8iY~5LZeK-HVUiKN01fOfcpUbgf55EgNt04EL8fxVhbgldhAZjYKHxsVRaELzN-jU4i8LvKKTMqe8PaxKsHDrDfD05RD3l7tNgnpXC1NBjdVgfgC6rlh7IBr5k8Ai3nVcZVpY~Y2jP8K7lflLNrdEEHDj0zlNqvNrWvGRxFAM0b6TJG3cB7uyN6W43trkruktNoTRxd~gWgmNSgIoFf7hinH3vfOPD1BeB2M2c5vJK5TM9qAaBvi9dkyF3SBvJ4g__"
+    },
+    "rendered_image": {
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/12495f38-4c68-4a9e-a5d1-4eafc5dfc028/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMTI0OTVmMzgtNGM2OC00YTllLWE1ZDEtNGVhZmM1ZGZjMDI4L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=mSZTJOsHEBzZacYCDMaMhXrNwjMKMFYwyivqVE~8NUEqqgqGXlmGG0bz7njZF-KwxTqSUcH0L6UiFV-D9Cb3cruq-RFupjmF9Zj0i3wefDbcZFDMflcUD~rRP7W2KbPmqlCtAReraW5J6oDn4Ov19BlvEI9Gy2XE5elnIIEe9q11Lj5Zi6nM1sXd4pqpuGL5qcs~bKZvG0Im3ieymdwaemFIFB-hr4rZr8GqInJUBUeVLz8VT9IPWJHfTv3fkI-pxJ01tsC~tkvFGuLGebiM1j0Va4maYXYC771gtZ1fM2r~K5NPkEIDrjyTO~eoopCbw2v2p8wv6tS0P9yV3u2jWw__",
+      "type": "webp"
+    }
+  }
+}

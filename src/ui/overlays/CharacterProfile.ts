@@ -3,11 +3,14 @@ import { el } from '../dom';
 import { onTap } from '../interaction';
 import { EquipSlot, Rarity, RARITY_COLOR } from '../../survivors/items/ItemTypes';
 import { SLOT_LABEL, SLOT_ICON } from './slotMeta';
-import { iconEl, glyphEl } from '../icons';
+import { iconEl } from '../icons';
+import { itemArtEl } from '../itemArt';
 
 /** One equipment slot's display state (shared by the HUD strip + this profile). */
 export interface GearSlotVM {
     slot: EquipSlot;
+    /** Catalogue id of the equipped piece — drives the baked-art lookup. */
+    id: string | null;
     name: string | null;
     glyph: string | null;
     rarity: Rarity | null;
@@ -105,7 +108,9 @@ export class CharacterProfile {
         const cell = el('div', { class: `char-slot${slot.name ? '' : ' char-slot--empty'}` });
         if (slot.rarity) cell.style.setProperty('--accent', RARITY_COLOR[slot.rarity]);
         cell.append(
-            el('div', { class: 'char-slot__glyph' }, [slot.glyph ? glyphEl(slot.glyph) : iconEl(SLOT_ICON[slot.slot])]),
+            el('div', { class: 'char-slot__glyph' }, [
+                slot.glyph ? itemArtEl(slot.id, slot.glyph, slot.name ?? '') : iconEl(SLOT_ICON[slot.slot]),
+            ]),
             el('div', { class: 'char-slot__slot', text: SLOT_LABEL[slot.slot] }),
             el('div', { class: 'char-slot__name', text: slot.name ?? '—' }),
         );

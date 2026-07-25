@@ -1,0 +1,38 @@
+{
+  "task_id": "36451520-cb20-468f-a950-15ebb643c826",
+  "type": "text_to_model",
+  "status": "success",
+  "input": {
+    "prompt": "pair of black mage boots whose soles dissolve into a swallowing void, purple accretion ring at the ankles, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+    "negative_prompt": "text, watermark, logo, ground plane, base, pedestal, stand, mannequin, multiple objects, human figure, hands, scene, background",
+    "model_version": "v3.1-20260211",
+    "texture": true,
+    "pbr": true,
+    "texture_quality": "detailed",
+    "texture_alignment": "geometry",
+    "export_uv": true,
+    "geometry_quality": "detailed"
+  },
+  "output": {
+    "pbr_model": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/36451520-cb20-468f-a950-15ebb643c826/tripo_pbr_model_36451520-cb20-468f-a950-15ebb643c826.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMzY0NTE1MjAtY2IyMC00NjhmLWE5NTAtMTVlYmI2NDNjODI2L3RyaXBvX3Bicl9tb2RlbF8zNjQ1MTUyMC1jYjIwLTQ2OGYtYTk1MC0xNWViYjY0M2M4MjYuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=vvKbjrX-~zoDjt~r53ZmfYL66DMFwjG3nDPROWXdgCbajY2JDGlPLF88AKif5lYYfoW7S3qmqCVGaQRTj9ggFx8CqqFKEdn11l1~eLpjYj0p72lFDiaCRywZk~D5SVwKfp6TsV3JRH1-f6bWZBj2M0rEDbXnk0Z3h~DXtItNTx4ieYNuU4FkkOQkNxBKo4f4E1GZj1Yg49kWvvr4eKL619aJn4ru8aYNjP4Ml22wZkHZr66yG-dw5V0QfD96lMpRjfpPmSXJytkCeDtgk5Bv0HfoMk4EK02Psjw8yvmMo-2zPlBgsQU7LO-TvfGNW3ANA6uUzbj49i2pxwExsjShQA__",
+    "generated_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/36451520-cb20-468f-a950-15ebb643c826/text2image_36451520-cb20-468f-a950-15ebb643c826.jpeg?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMzY0NTE1MjAtY2IyMC00NjhmLWE5NTAtMTVlYmI2NDNjODI2L3RleHQyaW1hZ2VfMzY0NTE1MjAtY2IyMC00NjhmLWE5NTAtMTVlYmI2NDNjODI2LmpwZWciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=gWKGmjVGrn9Q~Yxr3RTCE5lyApJb0PBw3Q2DhoF7cR78FQMA0pjZTX-ycp~RnkxA89nyjIzbOGEGLC~RXEy5I-ctZ~RwZ1jdGPMVTsapQBvTEUkVMIWBOA27b4kzRLR1i1NKfwGYCMBHPD9Fxo-Hdm5vd~cy~QSE8dtouky5stHG1842EO9Q6gIOynzqU7AVwBLmEnUbSLX00ojPEPSk2W2KRYDrrgcu8xslUZSUrLbM6bksH4JAKk6rPCDy1qj7PsNQKKqvdeccCtnWYk9t2XeFdoApq4I6xFYL~iH5Nj06Cx6FkjrTmLS1d1ZpnIM-pguJSGAYWXnRYx0Yo2aJpg__",
+    "rendered_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/36451520-cb20-468f-a950-15ebb643c826/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMzY0NTE1MjAtY2IyMC00NjhmLWE5NTAtMTVlYmI2NDNjODI2L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=pYdlYLjY0AKHGzLaZMmy0JYTvE5Maqp-ZmaL0KeNK4-JMkBEMDwOITutUDcEtHODK36U18cCCmu~W9Ks-W4Q0Nrjyv4exUIE0uHeYnvU-QKPs6fRr3F6SKWqhBicvm3qY5D-4MUdjTF5k7-KWraes9cracwutcOHN-BJoJgqwQ7TCXN8WiHZpVWsJRcz8CcFBf351Mt8m9yrFUBiGli2LCrHuiWHU5KG2Sz2iolLFw8D62IeOTvJ9y0e2aKDdVVVpY7YKTn3n2VZIJp0q5TyeQh3smsqJb-SBzHAkquj8kQs19725S9jKfWvp4U1b2ZssoCX-OB3mwHLea-vo3HAWA__"
+  },
+  "progress": 100,
+  "create_time": 1785018207,
+  "consumed_credit": 50,
+  "prompt": "pair of black mage boots whose soles dissolve into a swallowing void, purple accretion ring at the ankles, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+  "thumbnail": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/36451520-cb20-468f-a950-15ebb643c826/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMzY0NTE1MjAtY2IyMC00NjhmLWE5NTAtMTVlYmI2NDNjODI2L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=pYdlYLjY0AKHGzLaZMmy0JYTvE5Maqp-ZmaL0KeNK4-JMkBEMDwOITutUDcEtHODK36U18cCCmu~W9Ks-W4Q0Nrjyv4exUIE0uHeYnvU-QKPs6fRr3F6SKWqhBicvm3qY5D-4MUdjTF5k7-KWraes9cracwutcOHN-BJoJgqwQ7TCXN8WiHZpVWsJRcz8CcFBf351Mt8m9yrFUBiGli2LCrHuiWHU5KG2Sz2iolLFw8D62IeOTvJ9y0e2aKDdVVVpY7YKTn3n2VZIJp0q5TyeQh3smsqJb-SBzHAkquj8kQs19725S9jKfWvp4U1b2ZssoCX-OB3mwHLea-vo3HAWA__",
+  "queuing_num": -1,
+  "running_left_time": -1,
+  "result": {
+    "pbr_model": {
+      "type": "glb",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/36451520-cb20-468f-a950-15ebb643c826/tripo_pbr_model_36451520-cb20-468f-a950-15ebb643c826.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMzY0NTE1MjAtY2IyMC00NjhmLWE5NTAtMTVlYmI2NDNjODI2L3RyaXBvX3Bicl9tb2RlbF8zNjQ1MTUyMC1jYjIwLTQ2OGYtYTk1MC0xNWViYjY0M2M4MjYuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=vvKbjrX-~zoDjt~r53ZmfYL66DMFwjG3nDPROWXdgCbajY2JDGlPLF88AKif5lYYfoW7S3qmqCVGaQRTj9ggFx8CqqFKEdn11l1~eLpjYj0p72lFDiaCRywZk~D5SVwKfp6TsV3JRH1-f6bWZBj2M0rEDbXnk0Z3h~DXtItNTx4ieYNuU4FkkOQkNxBKo4f4E1GZj1Yg49kWvvr4eKL619aJn4ru8aYNjP4Ml22wZkHZr66yG-dw5V0QfD96lMpRjfpPmSXJytkCeDtgk5Bv0HfoMk4EK02Psjw8yvmMo-2zPlBgsQU7LO-TvfGNW3ANA6uUzbj49i2pxwExsjShQA__"
+    },
+    "rendered_image": {
+      "type": "webp",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/36451520-cb20-468f-a950-15ebb643c826/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMzY0NTE1MjAtY2IyMC00NjhmLWE5NTAtMTVlYmI2NDNjODI2L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=pYdlYLjY0AKHGzLaZMmy0JYTvE5Maqp-ZmaL0KeNK4-JMkBEMDwOITutUDcEtHODK36U18cCCmu~W9Ks-W4Q0Nrjyv4exUIE0uHeYnvU-QKPs6fRr3F6SKWqhBicvm3qY5D-4MUdjTF5k7-KWraes9cracwutcOHN-BJoJgqwQ7TCXN8WiHZpVWsJRcz8CcFBf351Mt8m9yrFUBiGli2LCrHuiWHU5KG2Sz2iolLFw8D62IeOTvJ9y0e2aKDdVVVpY7YKTn3n2VZIJp0q5TyeQh3smsqJb-SBzHAkquj8kQs19725S9jKfWvp4U1b2ZssoCX-OB3mwHLea-vo3HAWA__"
+    }
+  }
+}

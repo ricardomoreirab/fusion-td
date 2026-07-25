@@ -1,0 +1,38 @@
+{
+  "task_id": "d5eeda7b-63d7-4ee2-8483-a5b47d13c06f",
+  "type": "text_to_model",
+  "status": "success",
+  "input": {
+    "prompt": "slender ranger recurve longbow, pale storm-wood limbs, wind-etched silver filigree, taut sinew string, faint white static arcing at the limb tips, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+    "negative_prompt": "text, watermark, logo, ground plane, base, pedestal, stand, mannequin, multiple objects, human figure, hands, scene, background",
+    "model_version": "v3.1-20260211",
+    "texture": true,
+    "pbr": true,
+    "texture_quality": "detailed",
+    "texture_alignment": "geometry",
+    "export_uv": true,
+    "geometry_quality": "detailed"
+  },
+  "output": {
+    "pbr_model": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/d5eeda7b-63d7-4ee2-8483-a5b47d13c06f/tripo_pbr_model_d5eeda7b-63d7-4ee2-8483-a5b47d13c06f.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZDVlZWRhN2ItNjNkNy00ZWUyLTg0ODMtYTViNDdkMTNjMDZmL3RyaXBvX3Bicl9tb2RlbF9kNWVlZGE3Yi02M2Q3LTRlZTItODQ4My1hNWI0N2QxM2MwNmYuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=tob9qc0-bHkdZ1ugNy3bQ4tC09dGCxnZDFZNb0G0fvs8orTIAEWxJTe1TXKHtWFw0hZqVpgiuEtca6HVlF35N8AJXGotVbx6cm7owWASbj0B3zllFx~zTC3BWTYA4mwzlADSSD~1o2ewqtk1K93HXxcgb7vOOd7PP5wbvxxU31okZI5NlEMLWn3s2rmS4z1670so8msjJgEmUawGbBFoSJBrLVyHHyA9W2RBC1QciYkjYnQnQsNQrzYKYgKVQFvF79Ekzn0WY~TQMPeHdOgReYRU3Q267Tp7GjL78gqwnHnRylvEFHNWDEW4zpxpmNCr7GP4qfVneVDBlf6Xy2D3DQ__",
+    "generated_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/d5eeda7b-63d7-4ee2-8483-a5b47d13c06f/text2image_d5eeda7b-63d7-4ee2-8483-a5b47d13c06f.jpeg?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZDVlZWRhN2ItNjNkNy00ZWUyLTg0ODMtYTViNDdkMTNjMDZmL3RleHQyaW1hZ2VfZDVlZWRhN2ItNjNkNy00ZWUyLTg0ODMtYTViNDdkMTNjMDZmLmpwZWciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=pKMXIgSIt-U8rscT8yJDBhsPtjZscBI~dro4RkarvX-eymKysOMz5nI8kG7BnP~RbaqNiRQ2aBCjcm5ZluHL6MHfkAZ~iLlrn1nLHcPbxjiXNKdsG~Z0-sBCH-xM0qT19n~CRz8Zo2bBWjcnc41JgCD2YfQVYICDUg8eAML7eqZJoCiiNm7Bb6JYgPV1Sm7Wy0LCNPLJP8aGjr8gEm24gdc0-ZznbkaixdZJp0wzDEuKBG~9v4pFTUvYN17uPYw9SfAsQ4mN6ai0OmXVmPxCIWavDb2Eilh2XsaqStsGoEI3AL7Io9D8vd4EpFY9E7kCZ6mbV-yQ7rd6LBYlHWLGKQ__",
+    "rendered_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/d5eeda7b-63d7-4ee2-8483-a5b47d13c06f/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZDVlZWRhN2ItNjNkNy00ZWUyLTg0ODMtYTViNDdkMTNjMDZmL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=t1aNXfEVDVDCtTIDFxQUuGRP4EL4Unwag-YF0mgggNsL~ZfUhsih3WHIwm40G6keGMnTFAQzCAB3XsFM3Td4Gra0xZ5aj9FWwj-twghbstEDKq9BoaOLReOrdJvsps3MC8P5AFtpT2v-TVUenp-BDlAcadDPOEiJRrSdgYyy~2jRrBLsHR1z4HHntizp2p1aIg8gKuvp6NKx4R3rB8FGL~JBD08XeLF0OwdlIA8Xykt-M4faB1iTOV~fZhDqtowkdomby7UO7SBtcN0p4sM0xkKFLF5AvIKFtiPXwXGdg-svPgSyUTH-oN9l3lRxRhSSMs7Tk74FfAGZa5SQ-JUqmw__"
+  },
+  "progress": 100,
+  "create_time": 1785017253,
+  "consumed_credit": 50,
+  "prompt": "slender ranger recurve longbow, pale storm-wood limbs, wind-etched silver filigree, taut sinew string, faint white static arcing at the limb tips, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+  "thumbnail": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/d5eeda7b-63d7-4ee2-8483-a5b47d13c06f/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZDVlZWRhN2ItNjNkNy00ZWUyLTg0ODMtYTViNDdkMTNjMDZmL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=t1aNXfEVDVDCtTIDFxQUuGRP4EL4Unwag-YF0mgggNsL~ZfUhsih3WHIwm40G6keGMnTFAQzCAB3XsFM3Td4Gra0xZ5aj9FWwj-twghbstEDKq9BoaOLReOrdJvsps3MC8P5AFtpT2v-TVUenp-BDlAcadDPOEiJRrSdgYyy~2jRrBLsHR1z4HHntizp2p1aIg8gKuvp6NKx4R3rB8FGL~JBD08XeLF0OwdlIA8Xykt-M4faB1iTOV~fZhDqtowkdomby7UO7SBtcN0p4sM0xkKFLF5AvIKFtiPXwXGdg-svPgSyUTH-oN9l3lRxRhSSMs7Tk74FfAGZa5SQ-JUqmw__",
+  "queuing_num": -1,
+  "running_left_time": -1,
+  "result": {
+    "pbr_model": {
+      "type": "glb",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/d5eeda7b-63d7-4ee2-8483-a5b47d13c06f/tripo_pbr_model_d5eeda7b-63d7-4ee2-8483-a5b47d13c06f.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZDVlZWRhN2ItNjNkNy00ZWUyLTg0ODMtYTViNDdkMTNjMDZmL3RyaXBvX3Bicl9tb2RlbF9kNWVlZGE3Yi02M2Q3LTRlZTItODQ4My1hNWI0N2QxM2MwNmYuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=tob9qc0-bHkdZ1ugNy3bQ4tC09dGCxnZDFZNb0G0fvs8orTIAEWxJTe1TXKHtWFw0hZqVpgiuEtca6HVlF35N8AJXGotVbx6cm7owWASbj0B3zllFx~zTC3BWTYA4mwzlADSSD~1o2ewqtk1K93HXxcgb7vOOd7PP5wbvxxU31okZI5NlEMLWn3s2rmS4z1670so8msjJgEmUawGbBFoSJBrLVyHHyA9W2RBC1QciYkjYnQnQsNQrzYKYgKVQFvF79Ekzn0WY~TQMPeHdOgReYRU3Q267Tp7GjL78gqwnHnRylvEFHNWDEW4zpxpmNCr7GP4qfVneVDBlf6Xy2D3DQ__"
+    },
+    "rendered_image": {
+      "type": "webp",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/d5eeda7b-63d7-4ee2-8483-a5b47d13c06f/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZDVlZWRhN2ItNjNkNy00ZWUyLTg0ODMtYTViNDdkMTNjMDZmL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=t1aNXfEVDVDCtTIDFxQUuGRP4EL4Unwag-YF0mgggNsL~ZfUhsih3WHIwm40G6keGMnTFAQzCAB3XsFM3Td4Gra0xZ5aj9FWwj-twghbstEDKq9BoaOLReOrdJvsps3MC8P5AFtpT2v-TVUenp-BDlAcadDPOEiJRrSdgYyy~2jRrBLsHR1z4HHntizp2p1aIg8gKuvp6NKx4R3rB8FGL~JBD08XeLF0OwdlIA8Xykt-M4faB1iTOV~fZhDqtowkdomby7UO7SBtcN0p4sM0xkKFLF5AvIKFtiPXwXGdg-svPgSyUTH-oN9l3lRxRhSSMs7Tk74FfAGZa5SQ-JUqmw__"
+    }
+  }
+}

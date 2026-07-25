@@ -1,0 +1,38 @@
+{
+  "task_id": "f261e258-4b32-4afd-a6a7-865895c262ce",
+  "type": "text_to_model",
+  "status": "success",
+  "input": {
+    "prompt": "colossal two-handed warhammer, cracked obsidian head veined with molten orange fissures, rune-banded haft, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+    "negative_prompt": "text, watermark, logo, ground plane, base, pedestal, stand, mannequin, multiple objects, human figure, hands, scene, background",
+    "model_version": "v3.1-20260211",
+    "texture": true,
+    "pbr": true,
+    "texture_quality": "detailed",
+    "texture_alignment": "geometry",
+    "export_uv": true,
+    "geometry_quality": "detailed"
+  },
+  "output": {
+    "pbr_model": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/f261e258-4b32-4afd-a6a7-865895c262ce/tripo_pbr_model_f261e258-4b32-4afd-a6a7-865895c262ce.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZjI2MWUyNTgtNGIzMi00YWZkLWE2YTctODY1ODk1YzI2MmNlL3RyaXBvX3Bicl9tb2RlbF9mMjYxZTI1OC00YjMyLTRhZmQtYTZhNy04NjU4OTVjMjYyY2UuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=fOF4qxK~73j55gxozfmrUwPLoMplU7szoD6nhL9k458RrwznvJQsuHeclvfQZXG1EoO4jfzpoKIsDSvUbqt94nJ32AJESM5UsOOt3KgB1T3byiNkoc7iB-68xpYwOFQH0MsHbMXu3nVy0uMy-bjXEU9RC4tdr4Ycjfaz1CXhopJ2~hJ1O~5aw8UgmhAPA1odCXZEVmmKZt3qx31SbHf7c0DhQ~h0ueMXcot4GoVYcHxQd9EGXmIcJsPBNbVRKGXDU4DUjp6HAFUpQrJBkCCEVFyXqWh6gyNEpIE3uLgxQEAsY2qXLIFIsZ-tFZT6~bSGbrkJqNrjm1-fHzUNq11vRw__",
+    "generated_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/f261e258-4b32-4afd-a6a7-865895c262ce/text2image_f261e258-4b32-4afd-a6a7-865895c262ce.jpeg?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZjI2MWUyNTgtNGIzMi00YWZkLWE2YTctODY1ODk1YzI2MmNlL3RleHQyaW1hZ2VfZjI2MWUyNTgtNGIzMi00YWZkLWE2YTctODY1ODk1YzI2MmNlLmpwZWciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=qdhiYdE8cW3PH2IS9My2Jc3rz2t2PcYEnV5TO0gg626gR0H2WTEAk3g5bSpoqSG3vX3ggIOExNziBJDBRucSVU2GNh8zL9t9rmyOrygmU~8H8LBG-75pspmmwHK2eSWb~S4DW6jyZrCgLciTKY0MYAvEUuWKy54LwZ7P9oMnyacjDxAxk81gfS-y1dguYSGGzcASOylUswWvBTsZ2mcrL7zHfGWGAKbsUcX5zmKAk5Js0rsh9gJmY2kpVjgij6PUZb3aUD8r0oC0JnSEyY0EIYCWJ3qUJqxM~iI9vUWDdYw~SiQd8NODXv68XTuC-6kMrv2cZesg8gLlyhKq63jKuw__",
+    "rendered_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/f261e258-4b32-4afd-a6a7-865895c262ce/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZjI2MWUyNTgtNGIzMi00YWZkLWE2YTctODY1ODk1YzI2MmNlL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=fKnrxLnt~qo89uly7qBx7Brgjeaa8BQ3i34A3AHLtel7FZ2TBr8LGkVVGfxs0g-uWVXLhm6ChCDaY85~KGVf6VmOJdTHByfemSNBqG1sqdC0dyjTtSiUqkKtoAU-iAHHtrg26Zh~rtJq6yL~k1ycvbFD-wjVBxKs9dMzppmUpZyLFVi55wmKdJkBC0udXpXHcerUj26kz3RdZi9Ba9tN75SSBIjrqWS-aBTnNvw9wpvz9tItc2A8vwQUdF9LZ9br8pfbZw9bmWHB3dviXTY4Iza8yUrWKxVfa1IYLE7NQBevALH2-pRZUf9TWvoNXQ7-I7aDC5QdiBgi7BIrbswV2A__"
+  },
+  "progress": 100,
+  "create_time": 1785018327,
+  "consumed_credit": 50,
+  "prompt": "colossal two-handed warhammer, cracked obsidian head veined with molten orange fissures, rune-banded haft, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+  "thumbnail": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/f261e258-4b32-4afd-a6a7-865895c262ce/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZjI2MWUyNTgtNGIzMi00YWZkLWE2YTctODY1ODk1YzI2MmNlL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=fKnrxLnt~qo89uly7qBx7Brgjeaa8BQ3i34A3AHLtel7FZ2TBr8LGkVVGfxs0g-uWVXLhm6ChCDaY85~KGVf6VmOJdTHByfemSNBqG1sqdC0dyjTtSiUqkKtoAU-iAHHtrg26Zh~rtJq6yL~k1ycvbFD-wjVBxKs9dMzppmUpZyLFVi55wmKdJkBC0udXpXHcerUj26kz3RdZi9Ba9tN75SSBIjrqWS-aBTnNvw9wpvz9tItc2A8vwQUdF9LZ9br8pfbZw9bmWHB3dviXTY4Iza8yUrWKxVfa1IYLE7NQBevALH2-pRZUf9TWvoNXQ7-I7aDC5QdiBgi7BIrbswV2A__",
+  "queuing_num": -1,
+  "running_left_time": -1,
+  "result": {
+    "pbr_model": {
+      "type": "glb",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/f261e258-4b32-4afd-a6a7-865895c262ce/tripo_pbr_model_f261e258-4b32-4afd-a6a7-865895c262ce.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZjI2MWUyNTgtNGIzMi00YWZkLWE2YTctODY1ODk1YzI2MmNlL3RyaXBvX3Bicl9tb2RlbF9mMjYxZTI1OC00YjMyLTRhZmQtYTZhNy04NjU4OTVjMjYyY2UuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=fOF4qxK~73j55gxozfmrUwPLoMplU7szoD6nhL9k458RrwznvJQsuHeclvfQZXG1EoO4jfzpoKIsDSvUbqt94nJ32AJESM5UsOOt3KgB1T3byiNkoc7iB-68xpYwOFQH0MsHbMXu3nVy0uMy-bjXEU9RC4tdr4Ycjfaz1CXhopJ2~hJ1O~5aw8UgmhAPA1odCXZEVmmKZt3qx31SbHf7c0DhQ~h0ueMXcot4GoVYcHxQd9EGXmIcJsPBNbVRKGXDU4DUjp6HAFUpQrJBkCCEVFyXqWh6gyNEpIE3uLgxQEAsY2qXLIFIsZ-tFZT6~bSGbrkJqNrjm1-fHzUNq11vRw__"
+    },
+    "rendered_image": {
+      "type": "webp",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/f261e258-4b32-4afd-a6a7-865895c262ce/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZjI2MWUyNTgtNGIzMi00YWZkLWE2YTctODY1ODk1YzI2MmNlL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=fKnrxLnt~qo89uly7qBx7Brgjeaa8BQ3i34A3AHLtel7FZ2TBr8LGkVVGfxs0g-uWVXLhm6ChCDaY85~KGVf6VmOJdTHByfemSNBqG1sqdC0dyjTtSiUqkKtoAU-iAHHtrg26Zh~rtJq6yL~k1ycvbFD-wjVBxKs9dMzppmUpZyLFVi55wmKdJkBC0udXpXHcerUj26kz3RdZi9Ba9tN75SSBIjrqWS-aBTnNvw9wpvz9tItc2A8vwQUdF9LZ9br8pfbZw9bmWHB3dviXTY4Iza8yUrWKxVfa1IYLE7NQBevALH2-pRZUf9TWvoNXQ7-I7aDC5QdiBgi7BIrbswV2A__"
+    }
+  }
+}

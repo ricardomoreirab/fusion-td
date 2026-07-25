@@ -1,0 +1,38 @@
+{
+  "task_id": "cb4b9de7-cd0b-4a13-b947-2f963b29f728",
+  "type": "text_to_model",
+  "status": "success",
+  "input": {
+    "prompt": "oiled dark-green hooded ranger raincloak, water beading on the waxed cloth, buckled leather chest strap, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+    "negative_prompt": "text, watermark, logo, ground plane, base, pedestal, stand, mannequin, multiple objects, human figure, hands, scene, background",
+    "model_version": "v3.1-20260211",
+    "texture": true,
+    "pbr": true,
+    "texture_quality": "detailed",
+    "texture_alignment": "geometry",
+    "export_uv": true,
+    "geometry_quality": "detailed"
+  },
+  "output": {
+    "pbr_model": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/cb4b9de7-cd0b-4a13-b947-2f963b29f728/tripo_pbr_model_cb4b9de7-cd0b-4a13-b947-2f963b29f728.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvY2I0YjlkZTctY2QwYi00YTEzLWI5NDctMmY5NjNiMjlmNzI4L3RyaXBvX3Bicl9tb2RlbF9jYjRiOWRlNy1jZDBiLTRhMTMtYjk0Ny0yZjk2M2IyOWY3MjguZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=qdW8K2TWNho51-hrvdRTPNUUpJjNRFe3gQt1GmXLCXLe8YhOkz1v~nRaUm6xc6NAKnZz~egxl782cdINKQjQkEQl1PC6Dd8vxeqC3Stha7eY9F2QfXCzh5brEyWpKLv2502GE4wDE1IS6MVA0jmJuINNget2faJd8N1ahoSvf8cKfFi4sZUoyRp4jMXtZZxC79lCDhvr2yPH2vMAGsf-aSQXgrD~zuCj31OD7SyHKj0ntF6gcoeRAjPRqsbyczRtQ7p7bS2uiZDOZO52f7b9R-Y9bp5kiC5Somqx5816S1YHFZxxRzAAR9F5ZLJvbEfSPD-lWCPy9uvW2v5Ht62Clg__",
+    "generated_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/cb4b9de7-cd0b-4a13-b947-2f963b29f728/text2image_cb4b9de7-cd0b-4a13-b947-2f963b29f728.jpeg?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvY2I0YjlkZTctY2QwYi00YTEzLWI5NDctMmY5NjNiMjlmNzI4L3RleHQyaW1hZ2VfY2I0YjlkZTctY2QwYi00YTEzLWI5NDctMmY5NjNiMjlmNzI4LmpwZWciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=a7n6AlcPhZYP75i2iWLhhqcgTG52MFnN9eveZIR18Ck5H7dOdO7mDvQHz0pr1Gj4dV7bAjPR9DcJE89e8IlfL9f1-ezusGWBmYuq4q2hDEvIWxuOFvGLAk5ICe6~1kZPa2wPeVj79J4pgIbwdHbOujFGdSuigW4AN7VoaPZrfLNfzaRSF8bycIVCi3otsVsXtwxNeyJoaamqKZurah1e3rEGnu6SIr6w~dF1ACYayJLsGaODnO6NajHq6gcV8O7WAvIoNQdpA7700Xsxk559R3qqEZQMCjV7ElwhkGhBbY~OxtBMUsEMy9b9ZAahWq2m5Su8YeF0cEEQIrMsYigaDg__",
+    "rendered_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/cb4b9de7-cd0b-4a13-b947-2f963b29f728/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvY2I0YjlkZTctY2QwYi00YTEzLWI5NDctMmY5NjNiMjlmNzI4L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=nWtQ-thw1ZI~JfdZ2FvpQEvgHtTt-1GcyWKVs3GCqho1XYV7QUjpOW6OAr3oHJEyNr2DbNg2uhsmiOAWDNpJmzpIL2~Hxs9dgbjeC4THsjpB6h1jJlRKRa8aJI3A4KaUVVoVbg7lk-s-Bf-GmYq~ycD5BRwQ3Qfvuh8v7fQtWfXDf~oXkka7~GXeHYVlZGSl-4lo2jZBS15ky6i09iLYDlJ~fz7ibyVsf8dCGVizyq8ZG8L7PZtPAW7Wtd5tgtZEo5Id2a7lkGsua12Z28-J7ZVhWCyMpbgOr76d0ff0WK6DK8KuEsjdlSUjPpR3dDYiSOUXSssrZqVLU9oLQRBaRg__"
+  },
+  "progress": 100,
+  "create_time": 1785018043,
+  "consumed_credit": 50,
+  "prompt": "oiled dark-green hooded ranger raincloak, water beading on the waxed cloth, buckled leather chest strap, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+  "thumbnail": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/cb4b9de7-cd0b-4a13-b947-2f963b29f728/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvY2I0YjlkZTctY2QwYi00YTEzLWI5NDctMmY5NjNiMjlmNzI4L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=nWtQ-thw1ZI~JfdZ2FvpQEvgHtTt-1GcyWKVs3GCqho1XYV7QUjpOW6OAr3oHJEyNr2DbNg2uhsmiOAWDNpJmzpIL2~Hxs9dgbjeC4THsjpB6h1jJlRKRa8aJI3A4KaUVVoVbg7lk-s-Bf-GmYq~ycD5BRwQ3Qfvuh8v7fQtWfXDf~oXkka7~GXeHYVlZGSl-4lo2jZBS15ky6i09iLYDlJ~fz7ibyVsf8dCGVizyq8ZG8L7PZtPAW7Wtd5tgtZEo5Id2a7lkGsua12Z28-J7ZVhWCyMpbgOr76d0ff0WK6DK8KuEsjdlSUjPpR3dDYiSOUXSssrZqVLU9oLQRBaRg__",
+  "queuing_num": -1,
+  "running_left_time": -1,
+  "result": {
+    "pbr_model": {
+      "type": "glb",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/cb4b9de7-cd0b-4a13-b947-2f963b29f728/tripo_pbr_model_cb4b9de7-cd0b-4a13-b947-2f963b29f728.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvY2I0YjlkZTctY2QwYi00YTEzLWI5NDctMmY5NjNiMjlmNzI4L3RyaXBvX3Bicl9tb2RlbF9jYjRiOWRlNy1jZDBiLTRhMTMtYjk0Ny0yZjk2M2IyOWY3MjguZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=qdW8K2TWNho51-hrvdRTPNUUpJjNRFe3gQt1GmXLCXLe8YhOkz1v~nRaUm6xc6NAKnZz~egxl782cdINKQjQkEQl1PC6Dd8vxeqC3Stha7eY9F2QfXCzh5brEyWpKLv2502GE4wDE1IS6MVA0jmJuINNget2faJd8N1ahoSvf8cKfFi4sZUoyRp4jMXtZZxC79lCDhvr2yPH2vMAGsf-aSQXgrD~zuCj31OD7SyHKj0ntF6gcoeRAjPRqsbyczRtQ7p7bS2uiZDOZO52f7b9R-Y9bp5kiC5Somqx5816S1YHFZxxRzAAR9F5ZLJvbEfSPD-lWCPy9uvW2v5Ht62Clg__"
+    },
+    "rendered_image": {
+      "type": "webp",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/cb4b9de7-cd0b-4a13-b947-2f963b29f728/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvY2I0YjlkZTctY2QwYi00YTEzLWI5NDctMmY5NjNiMjlmNzI4L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=nWtQ-thw1ZI~JfdZ2FvpQEvgHtTt-1GcyWKVs3GCqho1XYV7QUjpOW6OAr3oHJEyNr2DbNg2uhsmiOAWDNpJmzpIL2~Hxs9dgbjeC4THsjpB6h1jJlRKRa8aJI3A4KaUVVoVbg7lk-s-Bf-GmYq~ycD5BRwQ3Qfvuh8v7fQtWfXDf~oXkka7~GXeHYVlZGSl-4lo2jZBS15ky6i09iLYDlJ~fz7ibyVsf8dCGVizyq8ZG8L7PZtPAW7Wtd5tgtZEo5Id2a7lkGsua12Z28-J7ZVhWCyMpbgOr76d0ff0WK6DK8KuEsjdlSUjPpR3dDYiSOUXSssrZqVLU9oLQRBaRg__"
+    }
+  }
+}

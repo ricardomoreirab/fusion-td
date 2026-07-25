@@ -1,0 +1,38 @@
+{
+  "task_id": "3f94ebf4-38d2-488e-9886-bc0dec58a755",
+  "type": "text_to_model",
+  "status": "success",
+  "input": {
+    "prompt": "dark void scepter, black three-pronged crown holding a collapsing purple singularity, star-flecked shaft, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+    "negative_prompt": "text, watermark, logo, ground plane, base, pedestal, stand, mannequin, multiple objects, human figure, hands, scene, background",
+    "model_version": "v3.1-20260211",
+    "texture": true,
+    "pbr": true,
+    "texture_quality": "detailed",
+    "texture_alignment": "geometry",
+    "export_uv": true,
+    "geometry_quality": "detailed"
+  },
+  "output": {
+    "pbr_model": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/3f94ebf4-38d2-488e-9886-bc0dec58a755/tripo_pbr_model_3f94ebf4-38d2-488e-9886-bc0dec58a755.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvM2Y5NGViZjQtMzhkMi00ODhlLTk4ODYtYmMwZGVjNThhNzU1L3RyaXBvX3Bicl9tb2RlbF8zZjk0ZWJmNC0zOGQyLTQ4OGUtOTg4Ni1iYzBkZWM1OGE3NTUuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=fCfWXjX6bzKAHTE8H-E6zaaOff8D3BThVVzGf115zU5islSZnNOyxuoO7so95-lsCglcDoN~FxeOcAlEuFkx9OEdcvC-Pjmq1CFrYTYDvbgAqJKX9clpKXGFox6evv7Q0pwxqcBuKH26yVUhdu4MO4kOBk-Ywi9jyKaenCKu116Ws-rv442TGBMhtUt5lnARgSBRAxbxVEiSViMyYDdZIeB-waFnDy9iKw55Nanx78cBEQkP-2hk8HoZUH1NIBNJnlHRj5EZiTkrFcK5o4lYc3gMwLQYo7mg27kDBugo~ffjg~35PnQZSQuI-y19PWKzNM667KqcrD6LA6wVYFAfQw__",
+    "generated_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/3f94ebf4-38d2-488e-9886-bc0dec58a755/text2image_3f94ebf4-38d2-488e-9886-bc0dec58a755.jpeg?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvM2Y5NGViZjQtMzhkMi00ODhlLTk4ODYtYmMwZGVjNThhNzU1L3RleHQyaW1hZ2VfM2Y5NGViZjQtMzhkMi00ODhlLTk4ODYtYmMwZGVjNThhNzU1LmpwZWciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=SHAFxVbeFPZELxgVyKjX~5cuNYBOsE7ysMSAOiDQJqiXW-3uOSPQKDgfopW0iirGI8Sr9~oFNE-kPNMUEkZZF5nOdxf7mo9TGSFpzRSiutHnwVN18A-jnsnK3hjisU1rJ7RnU0iiSnIzngBHPQwVCUxkeu6upWhUcCDBiBclqi-52Sq9eRc2GQN~hbgZ0GoIDCoCPPlN17k-YfBAA6qUtKBreHgAD8DEZUaoqNWFq9yNaVZ31n4ntGdtuSOongFDM7ldhQvHaKgD-ZhisjuK0bScS2ZJ-PpMM3wMucuprPgh3~mXJLg9PJXgsX7P~aPFfxxQeUH2mgoO8wQzFhdYbg__",
+    "rendered_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/3f94ebf4-38d2-488e-9886-bc0dec58a755/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvM2Y5NGViZjQtMzhkMi00ODhlLTk4ODYtYmMwZGVjNThhNzU1L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=tmSF0rWqJ~kf4BVlOscnFSC9G98nbGt1OSd3XyUH~2ugR1uJrT4Xw9EIblvm7rn4IPXMBNobncgx3UNT96tE7OfHhbrG~0NvlaK8X7mUXh2fAlkRDK9Lla5P05xqVnO-UH9P9--t-B71Wk18Rt9TGy9xSh6C7nMWK66ewWCQT3VYeXpC68Z~p-wOg8qfwDizfzv4Pm8eLxLYQYzQtlRZn4ppcpqszwOJOOwgYssxZc-urWJLXFWCngz3zKYwZvUCvTpSHhD7ijr0KC8DOfRW~gnIo99ps-r2EHL-sDgQkZsn9bV7x5CvW00iO5-l6oMS-VBSXhBEib6bac63dtBAvA__"
+  },
+  "progress": 100,
+  "create_time": 1785018213,
+  "consumed_credit": 50,
+  "prompt": "dark void scepter, black three-pronged crown holding a collapsing purple singularity, star-flecked shaft, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+  "thumbnail": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/3f94ebf4-38d2-488e-9886-bc0dec58a755/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvM2Y5NGViZjQtMzhkMi00ODhlLTk4ODYtYmMwZGVjNThhNzU1L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=tmSF0rWqJ~kf4BVlOscnFSC9G98nbGt1OSd3XyUH~2ugR1uJrT4Xw9EIblvm7rn4IPXMBNobncgx3UNT96tE7OfHhbrG~0NvlaK8X7mUXh2fAlkRDK9Lla5P05xqVnO-UH9P9--t-B71Wk18Rt9TGy9xSh6C7nMWK66ewWCQT3VYeXpC68Z~p-wOg8qfwDizfzv4Pm8eLxLYQYzQtlRZn4ppcpqszwOJOOwgYssxZc-urWJLXFWCngz3zKYwZvUCvTpSHhD7ijr0KC8DOfRW~gnIo99ps-r2EHL-sDgQkZsn9bV7x5CvW00iO5-l6oMS-VBSXhBEib6bac63dtBAvA__",
+  "queuing_num": -1,
+  "running_left_time": -1,
+  "result": {
+    "pbr_model": {
+      "type": "glb",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/3f94ebf4-38d2-488e-9886-bc0dec58a755/tripo_pbr_model_3f94ebf4-38d2-488e-9886-bc0dec58a755.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvM2Y5NGViZjQtMzhkMi00ODhlLTk4ODYtYmMwZGVjNThhNzU1L3RyaXBvX3Bicl9tb2RlbF8zZjk0ZWJmNC0zOGQyLTQ4OGUtOTg4Ni1iYzBkZWM1OGE3NTUuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=fCfWXjX6bzKAHTE8H-E6zaaOff8D3BThVVzGf115zU5islSZnNOyxuoO7so95-lsCglcDoN~FxeOcAlEuFkx9OEdcvC-Pjmq1CFrYTYDvbgAqJKX9clpKXGFox6evv7Q0pwxqcBuKH26yVUhdu4MO4kOBk-Ywi9jyKaenCKu116Ws-rv442TGBMhtUt5lnARgSBRAxbxVEiSViMyYDdZIeB-waFnDy9iKw55Nanx78cBEQkP-2hk8HoZUH1NIBNJnlHRj5EZiTkrFcK5o4lYc3gMwLQYo7mg27kDBugo~ffjg~35PnQZSQuI-y19PWKzNM667KqcrD6LA6wVYFAfQw__"
+    },
+    "rendered_image": {
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/3f94ebf4-38d2-488e-9886-bc0dec58a755/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvM2Y5NGViZjQtMzhkMi00ODhlLTk4ODYtYmMwZGVjNThhNzU1L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=tmSF0rWqJ~kf4BVlOscnFSC9G98nbGt1OSd3XyUH~2ugR1uJrT4Xw9EIblvm7rn4IPXMBNobncgx3UNT96tE7OfHhbrG~0NvlaK8X7mUXh2fAlkRDK9Lla5P05xqVnO-UH9P9--t-B71Wk18Rt9TGy9xSh6C7nMWK66ewWCQT3VYeXpC68Z~p-wOg8qfwDizfzv4Pm8eLxLYQYzQtlRZn4ppcpqszwOJOOwgYssxZc-urWJLXFWCngz3zKYwZvUCvTpSHhD7ijr0KC8DOfRW~gnIo99ps-r2EHL-sDgQkZsn9bV7x5CvW00iO5-l6oMS-VBSXhBEib6bac63dtBAvA__",
+      "type": "webp"
+    }
+  }
+}

@@ -46,6 +46,7 @@ import { Equipment, priceFor, sellValueOf } from './items/Equipment';
 import { foldEquipmentStats, newEquipFoldTracker, EquipFoldTracker } from './items/foldEquipmentStats';
 import { ITEM_CATALOG, ITEM_SETS, setById } from './items/ItemCatalog';
 import { ItemDef, EQUIP_SLOTS, MythicFxConfig } from './items/ItemTypes';
+import { itemArtIds } from '../ui/itemArt';
 import { ItemEffectRuntime, EffectContext, EffectEnemy } from './items/ItemEffectRuntime';
 import { RageGlow, spawnExpandingRing, spawnTrail } from './items/ItemFx';
 import { describeMods, EFFECT_TEXT } from './items/describeMods';
@@ -1374,6 +1375,21 @@ export class SurvivorsGameplayState implements GameState {
             this.testFusions = getFusionsForClass(this.currentChampionType);
             this.testFusionIndex = 0;
             if (this.heroController) this.heroController.debugInvulnerable = true; // survive the stress horde
+        }
+
+        // DEV ?shopdemo[=id,id,…] → open Gribble's shop straight away, stocked with
+        // the named catalogue items (default: every item that has baked art). The
+        // item-icon set is reviewed here instead of by playing to a wave clear.
+        const shopDemo = typeof window !== 'undefined'
+            ? new URLSearchParams(window.location.search).get('shopdemo') : null;
+        if (shopDemo !== null) {
+            const wanted = shopDemo ? shopDemo.split(',') : itemArtIds();
+            const stock = wanted.map(id => ITEM_CATALOG.find(d => d.id === id)).filter((d): d is ItemDef => !!d);
+            if (stock.length) {
+                this.currentStock = stock;
+                this.playerStats?.addGold(99999);
+                this.openShop();
+            }
         }
 
         // Off-screen enemy indicators (all tiers)
@@ -4104,6 +4120,7 @@ export class SurvivorsGameplayState implements GameState {
             const item = eq?.get(slot) ?? null;
             return {
                 slot,
+                id: item?.def.id ?? null,
                 name: item?.def.name ?? null,
                 glyph: item?.def.glyph ?? null,
                 rarity: item?.def.rarity ?? null,

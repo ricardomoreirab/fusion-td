@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Item icon bake</title>
+<style>
+  body { margin: 0; background: #14100c; color: #e8dcc8; font: 13px/1.5 ui-monospace, monospace; padding: 20px; }
+  #log { white-space: pre; }
+  #strip { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 18px; }
+  .sheet-row { flex: 1 0 100%; border-top: 1px solid #3a2c1c; padding-top: 8px; }
+  .sheet-row h3 { margin: 0 0 6px; font-size: 13px; color: #e8c98a; font-weight: 400; }
+  .sheet-cells { display: flex; gap: 10px; flex-wrap: wrap; }
+  #strip figure { margin: 0; text-align: center; width: 148px; }
+  /* Card-like backdrop so contrast is judged the way the shop will show it. */
+  #strip img { width: 128px; height: 128px; background: #241b14; border: 1px solid #6b4f2a; border-radius: 6px; }
+  figcaption { font-size: 11px; color: #a8907a; margin-top: 4px; word-break: break-all; }
+</style>
+<div id="log">booting…</div>
+<div id="strip"></div>
+
+<script type="importmap">
+{ "imports": { "three": "/vendor/three/build/three.module.js", "three/addons/": "/vendor/three/examples/jsm/" } }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+// Supersample then progressively halve — a straight 256px render aliases the
+// thin hard-surface edges (axe teeth, rivets) these models are full of.
+const SUPER = 1024;
+const OUT = 256;
+
+const logEl = document.getElementById('log');
+const strip = document.getElementById('strip');
+const log = (m) => { logEl.textContent = m; };
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+renderer.setSize(SUPER, SUPER, false);
+renderer.setClearColor(0x000000, 0);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;   // matches the game's post chain
+renderer.toneMappingExposure = 1.0;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+// Metal without an environment renders black; RoomEnvironment gives the iron
+// and bronze something to reflect.
+const pmrem = new THREE.PMREMGenerator(renderer);
+const envRT = pmrem.fromScene(new RoomEnvironment(), 0.04);
+
+const scene = new THREE.Scene();
+scene.environment = envRT.texture;
+
+// Three-point rig: warm key from upper front-left, cool fill from lower right,
+// hot rim from behind to lift the silhouette off a dark card.
+const key = new THREE.DirectionalLight(0xfff1d8, 3.6); key.position.set(-2.4, 3.2, 2.6);
+const fill = new THREE.DirectionalLight(0x9db6d8, 1.35); fill.position.set(2.8, -1.0, 1.6);
+const rim = new THREE.DirectionalLight(0xffcf92, 2.8); rim.position.set(1.2, 2.0, -3.0);
+const amb = new THREE.HemisphereLight(0x7d8fb5, 0x2a1e15, 1.0);
+scene.add(key, fill, rim, amb);
+
+const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 100);
+const loader = new GLTFLoader();
+
+/** Fixed 3/4 icon viewpoint: azimuth right-of-front, tilted down. */
+const AZIMUTH = THREE.MathUtils.degToRad(35);
+const ELEVATION = THREE.MathUtils.degToRad(24);
+
+/** Tight-fit the ortho frustum to the model's 8 bbox corners in camera space,
+ *  so an elongated axe fills the frame as well as a compact helmet does. */
+function frameObject(root, zoom) {
+  const box = new THREE.Box3().setFromObject(root);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  const radius = size.length();
+
+  const dir = new THREE.Vector3(
+    Math.cos(ELEVATION) * Math.sin(AZIMUTH),
+    Math.sin(ELEVATION),
+    Math.cos(ELEVATION) * Math.cos(AZIMUTH),
+  );
+  camera.position.copy(center).addScaledVector(dir, radius * 2 + 1);
+  camera.lookAt(center);
+  camera.updateMatrixWorld();
+
+  const inv = camera.matrixWorldInverse;
+  let maxX = 0, maxY = 0;
+  for (let i = 0; i < 8; i++) {
+    const c = new THREE.Vector3(
+      i & 1 ? box.max.x : box.min.x,
+      i & 2 ? box.max.y : box.min.y,
+      i & 4 ? box.max.z : box.min.z,
+    ).applyMatrix4(inv);
+    maxX = Math.max(maxX, Math.abs(c.x));
+    maxY = Math.max(maxY, Math.abs(c.y));
+  }
+  const half = Math.max(maxX, maxY) * (1 / (zoom ?? 0.9));
+  camera.left = -half; camera.right = half; camera.top = half; camera.bottom = -half;
+  camera.near = 0.01; camera.far = radius * 6 + 10;
+  camera.updateProjectionMatrix();
+}
+
+/** Progressive 2× halving to OUT — one big downscale step smears detail. */
+function downsample(source) {
+  let cur = source;
+  for (let s = SUPER / 2; s >= OUT; s /= 2) {
+    const c = document.createElement('canvas');
+    c.width = c.height = s;
+    const ctx = c.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(cur, 0, 0, s, s);
+    cur = c;
+  }
+  return cur;
+}
+
+/** Load one GLB and park it under a pivot. Separate from rendering so the
+ *  contact sheet pays the (57 MB) load once per item, not once per yaw. */
+async function loadModel(entry) {
+  const gltf = await loader.loadAsync(entry.glb);
+  const root = gltf.scene;
+
+  // Tripo pivots are centred-bbox with arbitrary facing — recentre, then apply
+  // the per-item orientation from framing.json.
+  root.updateMatrixWorld(true);
+  const pre = new THREE.Box3().setFromObject(root);
+  root.position.sub(pre.getCenter(new THREE.Vector3()));
+
+  const pivot = new THREE.Group();
+  pivot.add(root);
+  scene.add(pivot);
+  return {
+    pivot,
+    dispose() {
+      scene.remove(pivot);
+      root.traverse(o => {
+        if (!o.isMesh) return;
+        o.geometry.dispose();
+        for (const m of [o.material].flat()) {
+          for (const k of Object.keys(m)) if (m[k]?.isTexture) m[k].dispose();
+          m.dispose();
+        }
+      });
+    },
+  };
+}
+
+/** Render the parked model at one orientation and return the WebP blob. */
+async function renderOne(pivot, entry) {
+  pivot.rotation.set(
+    THREE.MathUtils.degToRad(entry.pitch ?? 0),
+    THREE.MathUtils.degToRad(entry.yaw ?? 0),
+    THREE.MathUtils.degToRad(entry.roll ?? 0),
+  );
+  pivot.updateMatrixWorld(true);
+
+  renderer.toneMappingExposure = entry.exposure ?? 1.15;
+  frameObject(pivot, entry.zoom);
+  renderer.render(scene, camera);
+
+  const small = downsample(renderer.domElement);
+  return new Promise(r => small.toBlob(r, 'image/webp', 0.92));
+}
+
+function addThumb(row, blob, caption) {
+  const fig = document.createElement('figure');
+  const img = document.createElement('img');
+  img.src = URL.createObjectURL(blob);
+  fig.append(img, Object.assign(document.createElement('figcaption'), { textContent: caption }));
+  (row ?? strip).appendChild(fig);
+}
+
+async function bake(entry) {
+  const model = await loadModel(entry);
+  const blob = await renderOne(model.pivot, entry);
+  await fetch(`/save/${entry.id}`, { method: 'POST', body: blob });
+  addThumb(null, blob, entry.id);
+  model.dispose();
+  return blob.size;
+}
+
+/** `?sheet` renders a yaw strip per item instead of baking — orientation of a
+ *  Tripo output is arbitrary, and eyeballing 8 candidates at once beats
+ *  guessing one value per re-bake. Pick a yaw, put it in framing.json. */
+async function contactSheet(entries) {
+  const YAWS = [-135, -90, -45, 0, 45, 90, 135, 180];
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    log(`contact sheet ${i + 1}/${entries.length} — ${entry.id}…`);
+    // One row per item: a flat wrap interleaves items mid-row and makes the
+    // sheet unreadable once there are more than a couple of items.
+    const row = document.createElement('div');
+    row.className = 'sheet-row';
+    row.appendChild(Object.assign(document.createElement('h3'), { textContent: entry.id }));
+    const cells = document.createElement('div');
+    cells.className = 'sheet-cells';
+    row.appendChild(cells);
+    strip.appendChild(row);
+
+    const model = await loadModel(entry);
+    for (const yaw of YAWS) {
+      addThumb(cells, await renderOne(model.pivot, { ...entry, yaw }), `${yaw}`);
+    }
+    model.dispose();
+  }
+  // Release the port too — the strip is already in the DOM as blob URLs, and a
+  // server left listening blocks the next bake run.
+  await fetch('/done', { method: 'POST' });
+  log(`contact sheet: ${entries.length} item(s) × ${YAWS.length} yaws. Pick one per item → framing.json`);
+}
+
+const params = new URL(location.href).searchParams;
+const entries = await (await fetch('/manifest.json')).json();
+const only = params.get('only')?.split(',').filter(Boolean);
+const selected = only ? entries.filter(e => only.includes(e.id)) : entries;
+
+// A Tripo PBR GLB is ~57 MB with 4K textures; loading a few dozen in one
+// document exhausts memory and the tab dies mid-run. Explicit disposal is not
+// enough, so each item gets a FRESH DOCUMENT: bake one, then reload. Failures
+// are remembered in sessionStorage so a bad model can't loop forever.
+const FAILED = new Set(JSON.parse(sessionStorage.getItem('bakeFailed') ?? '[]'));
+
+if (params.has('sheet')) {
+  await contactSheet(selected);
+} else if (!selected.length) {
+  log('no source GLBs found under art-source/items/');
+} else {
+  const pending = selected.filter(e => !e.baked && !FAILED.has(e.id));
+  const nth = selected.length - pending.length + 1;
+  if (!pending.length) {
+    await fetch('/done', { method: 'POST' });
+    const failedList = [...FAILED];
+    log(`done — ${selected.length - failedList.length}/${selected.length} baked. Server stopped.`
+      + (failedList.length ? `\nFAILED: ${failedList.join(', ')}` : ''));
+    sessionStorage.removeItem('bakeFailed');
+  } else {
+    const entry = pending[0];
+    log(`baking ${nth}/${selected.length} — ${entry.id}…`);
+    try {
+      await bake(entry);
+    } catch (err) {
+      console.error(entry.id, err);
+      FAILED.add(entry.id);
+      sessionStorage.setItem('bakeFailed', JSON.stringify([...FAILED]));
+    }
+    location.reload();
+  }
+}
+</script>

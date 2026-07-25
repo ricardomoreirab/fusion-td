@@ -1,0 +1,38 @@
+{
+  "task_id": "1436d7dd-bc4b-4dae-ba80-3bd620510973",
+  "type": "text_to_model",
+  "status": "success",
+  "input": {
+    "prompt": "heavy black iron sigil medallion, crossed executioner axes over a skull, blood-red enamel inlay, short chain, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+    "negative_prompt": "text, watermark, logo, ground plane, base, pedestal, stand, mannequin, multiple objects, human figure, hands, scene, background",
+    "model_version": "v3.1-20260211",
+    "texture": true,
+    "pbr": true,
+    "texture_quality": "detailed",
+    "texture_alignment": "geometry",
+    "export_uv": true,
+    "geometry_quality": "detailed"
+  },
+  "output": {
+    "pbr_model": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/1436d7dd-bc4b-4dae-ba80-3bd620510973/tripo_pbr_model_1436d7dd-bc4b-4dae-ba80-3bd620510973.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMTQzNmQ3ZGQtYmM0Yi00ZGFlLWJhODAtM2JkNjIwNTEwOTczL3RyaXBvX3Bicl9tb2RlbF8xNDM2ZDdkZC1iYzRiLTRkYWUtYmE4MC0zYmQ2MjA1MTA5NzMuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=QWvf58WKUPZYzKf5T4~On5gw02Q3suGL5UvKN9dw9SQdS0k2lzl1hzdbB69Urs5l2PePgPdcvUo~iNPI6nIkN8NnxgK8C4I48bjPyWQI~~gGV~S7AnbFl85kPsjgFsaUbHyT12AjbGJfo9gQot6gDETVqs5q7jVDy8SVZWYlFRuIAr5MJDEiObev5vsoPKizeyv2i~AtYupCSsV2RgItfSQbOHN0xNps~tmAweuIaRgvtaEp9EHr7~nFVJ8AM3TNrVWT2B1OR3MrqnJl-HqKHlzMc53Hjoy7zDV~7QKZDM7OqrJiwWt6MxhquJqC7F7jVSfcE-I0UBzSr1D-Qd4HjQ__",
+    "generated_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/1436d7dd-bc4b-4dae-ba80-3bd620510973/text2image_1436d7dd-bc4b-4dae-ba80-3bd620510973.jpeg?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMTQzNmQ3ZGQtYmM0Yi00ZGFlLWJhODAtM2JkNjIwNTEwOTczL3RleHQyaW1hZ2VfMTQzNmQ3ZGQtYmM0Yi00ZGFlLWJhODAtM2JkNjIwNTEwOTczLmpwZWciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=cAQ~fqYsHhnEI5SlK88SZkT5Cf6FIqemKV~ItGSSu3pB-0aQsnzQcelCWmatn2DzIP3HekUiiZKPHxKvWpPNch5LjETP96vjWNTmf2b6E95jn4D4xSjBDowQ898614B8zRj6-hN6W-mozqOOHEV8KHb1b-XAMn4F255AKTTyH6L2T1hUQSge6U9idJz2Zr7hxDzPmmwdWEBtL45IHqwPCE8pcw8x6rkLTnsG9Lpge5LQ-crnrNV9FIRK8zPa0llDwPp6NWSJDq~sr8RMIAXvdGon4wbpRsT64cHd1x4vXym9f6MI8S1YuulguJlbUTZTzey6TwX0OztB6sBdgZaE8Q__",
+    "rendered_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/1436d7dd-bc4b-4dae-ba80-3bd620510973/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMTQzNmQ3ZGQtYmM0Yi00ZGFlLWJhODAtM2JkNjIwNTEwOTczL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=QE75H2voGSw59zHWimq4GVsMJN89oCDn1s8AOQNpk1o03dh5vlJK96jflnQSRSdMtHjLOD5vkiozLUzisyt1bOnr4IW3-xUwjiKdpJ0V0X8PCDjSgYwBEEx1mJ4WuYu1Z0Szzyj28bZv4aLqBHLQdfV92uwVBq4heLOnlBTXmP35edHhTFviUSnZnOcHy0LCTceQa263AlEG27qCHnWova~L1wbjTt0zaVOGaan6iVIezTjRyaFupVhTztGs~4-oxBltOAlZ~mrAb4VuNIAU~GdYSP00sAlPGzAsY67~U8KyaEvsicS693UDEUzc~C7BI49ec6NUbQukLfkxcsYThQ__"
+  },
+  "progress": 100,
+  "create_time": 1785018272,
+  "consumed_credit": 50,
+  "prompt": "heavy black iron sigil medallion, crossed executioner axes over a skull, blood-red enamel inlay, short chain, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+  "thumbnail": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/1436d7dd-bc4b-4dae-ba80-3bd620510973/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMTQzNmQ3ZGQtYmM0Yi00ZGFlLWJhODAtM2JkNjIwNTEwOTczL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=QE75H2voGSw59zHWimq4GVsMJN89oCDn1s8AOQNpk1o03dh5vlJK96jflnQSRSdMtHjLOD5vkiozLUzisyt1bOnr4IW3-xUwjiKdpJ0V0X8PCDjSgYwBEEx1mJ4WuYu1Z0Szzyj28bZv4aLqBHLQdfV92uwVBq4heLOnlBTXmP35edHhTFviUSnZnOcHy0LCTceQa263AlEG27qCHnWova~L1wbjTt0zaVOGaan6iVIezTjRyaFupVhTztGs~4-oxBltOAlZ~mrAb4VuNIAU~GdYSP00sAlPGzAsY67~U8KyaEvsicS693UDEUzc~C7BI49ec6NUbQukLfkxcsYThQ__",
+  "queuing_num": -1,
+  "running_left_time": -1,
+  "result": {
+    "pbr_model": {
+      "type": "glb",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/1436d7dd-bc4b-4dae-ba80-3bd620510973/tripo_pbr_model_1436d7dd-bc4b-4dae-ba80-3bd620510973.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMTQzNmQ3ZGQtYmM0Yi00ZGFlLWJhODAtM2JkNjIwNTEwOTczL3RyaXBvX3Bicl9tb2RlbF8xNDM2ZDdkZC1iYzRiLTRkYWUtYmE4MC0zYmQ2MjA1MTA5NzMuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=QWvf58WKUPZYzKf5T4~On5gw02Q3suGL5UvKN9dw9SQdS0k2lzl1hzdbB69Urs5l2PePgPdcvUo~iNPI6nIkN8NnxgK8C4I48bjPyWQI~~gGV~S7AnbFl85kPsjgFsaUbHyT12AjbGJfo9gQot6gDETVqs5q7jVDy8SVZWYlFRuIAr5MJDEiObev5vsoPKizeyv2i~AtYupCSsV2RgItfSQbOHN0xNps~tmAweuIaRgvtaEp9EHr7~nFVJ8AM3TNrVWT2B1OR3MrqnJl-HqKHlzMc53Hjoy7zDV~7QKZDM7OqrJiwWt6MxhquJqC7F7jVSfcE-I0UBzSr1D-Qd4HjQ__"
+    },
+    "rendered_image": {
+      "type": "webp",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/1436d7dd-bc4b-4dae-ba80-3bd620510973/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMTQzNmQ3ZGQtYmM0Yi00ZGFlLWJhODAtM2JkNjIwNTEwOTczL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=QE75H2voGSw59zHWimq4GVsMJN89oCDn1s8AOQNpk1o03dh5vlJK96jflnQSRSdMtHjLOD5vkiozLUzisyt1bOnr4IW3-xUwjiKdpJ0V0X8PCDjSgYwBEEx1mJ4WuYu1Z0Szzyj28bZv4aLqBHLQdfV92uwVBq4heLOnlBTXmP35edHhTFviUSnZnOcHy0LCTceQa263AlEG27qCHnWova~L1wbjTt0zaVOGaan6iVIezTjRyaFupVhTztGs~4-oxBltOAlZ~mrAb4VuNIAU~GdYSP00sAlPGzAsY67~U8KyaEvsicS693UDEUzc~C7BI49ec6NUbQukLfkxcsYThQ__"
+    }
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "task_id": "0ed3c5aa-bff0-41da-aef3-82f7d641c330",
+  "type": "text_to_model",
+  "status": "success",
+  "input": {
+    "prompt": "arcane wooden staff, spiral-carved shaft, crowned with concentric floating stone rings orbiting a glowing violet core, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+    "negative_prompt": "text, watermark, logo, ground plane, base, pedestal, stand, mannequin, multiple objects, human figure, hands, scene, background",
+    "model_version": "v3.1-20260211",
+    "texture": true,
+    "pbr": true,
+    "texture_quality": "detailed",
+    "texture_alignment": "geometry",
+    "export_uv": true,
+    "geometry_quality": "detailed"
+  },
+  "output": {
+    "pbr_model": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/0ed3c5aa-bff0-41da-aef3-82f7d641c330/tripo_pbr_model_0ed3c5aa-bff0-41da-aef3-82f7d641c330.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMGVkM2M1YWEtYmZmMC00MWRhLWFlZjMtODJmN2Q2NDFjMzMwL3RyaXBvX3Bicl9tb2RlbF8wZWQzYzVhYS1iZmYwLTQxZGEtYWVmMy04MmY3ZDY0MWMzMzAuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=Ct-exefYcf7edhmJp7RejNbTqCn-LdNIorFxgJ2Y77NB5s0mBvxs5jcMhQ6jpqsWrnscbLiksTfEvakP4merky-QZWITV2~dYr5yOxLUBTkJTKP-gbTKXcBqXr7jZpHdwJtBOKp-ay6pdTeMdF5vNrX7ZmpnQFq1Y-m15-0TsxZ0Yg793oH~ZpDVtwfu2xzg1~a3xq2vvWU1PriEyLLtPOQycvy3MqEbMkjsADDbW7-FVwXOO6ZbB7Y488ArP38wzfmu~ZogwZqM7OypSO5EC8WNzR8afm20phrkqFtHJL7lTVM~hPjEHCwat3K~ia-lR8nuyB1ERt8lki7wUF7HrQ__",
+    "generated_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/0ed3c5aa-bff0-41da-aef3-82f7d641c330/text2image_0ed3c5aa-bff0-41da-aef3-82f7d641c330.jpeg?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMGVkM2M1YWEtYmZmMC00MWRhLWFlZjMtODJmN2Q2NDFjMzMwL3RleHQyaW1hZ2VfMGVkM2M1YWEtYmZmMC00MWRhLWFlZjMtODJmN2Q2NDFjMzMwLmpwZWciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=F4JOntZvxMl5u~omHddP4LuaHiLOL~hydDKo3atEF9Wbt0B6xdHGrvIWwRtBpLM~SNR2w32jfP4iYfbHLqrqx4MvKTCF0LNGQdcbocMncFjKqhOboqDZComCJGiB4wROeVfk0U-FlxYmJfOAr1eDHdzU3r8jLQMwI5biPhyOGiDN-zizWOC0rtmWymgLdiZA1Jg1mfkxwxlA8yWWwu8AE~4kxQUeY8eK8FA3dqB6g0BCNUNgFVzfjxp6K4YB9GP01NNszcGGIdz6hzN~X-b2PnKS1gxfpbNYqsx6z2~nmVGeBVaZepjwQHvo80W-NawQq5OS8NJ8qW6cjXOCXT~ZIQ__",
+    "rendered_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/0ed3c5aa-bff0-41da-aef3-82f7d641c330/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMGVkM2M1YWEtYmZmMC00MWRhLWFlZjMtODJmN2Q2NDFjMzMwL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=gNSPHhMdsHEWkOP-3FRwvcek4KajZB6pcisR9gD~CIDvbXmRGXNoeATTKTDN8~qOpy1z2FRPTFi3-8gis-RT1bgoIiSp3aNhm5ISU045~asF-UtB2sML0j7bVaD2Irrw2wvXl8ILYfmvLdJmm5NmU8O4EFnZORHYSpI-3TR8MKF5ttm-BYnTELx0FfWqThOvirpJwbSRC359f0C3DHv3-9wZem3woXm18BE9A6cCUmsjr7XWCHCu02jbJdUu48sYrCZiEazSQeckV5BSihvcPFBhIQt9UxMX7wBtA~PzR82EliIALbnDOZ-4PdVupyjurp5bnDhXnKLuEri6mECKwg__"
+  },
+  "progress": 100,
+  "create_time": 1785017254,
+  "consumed_credit": 50,
+  "prompt": "arcane wooden staff, spiral-carved shaft, crowned with concentric floating stone rings orbiting a glowing violet core, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+  "thumbnail": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/0ed3c5aa-bff0-41da-aef3-82f7d641c330/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMGVkM2M1YWEtYmZmMC00MWRhLWFlZjMtODJmN2Q2NDFjMzMwL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=gNSPHhMdsHEWkOP-3FRwvcek4KajZB6pcisR9gD~CIDvbXmRGXNoeATTKTDN8~qOpy1z2FRPTFi3-8gis-RT1bgoIiSp3aNhm5ISU045~asF-UtB2sML0j7bVaD2Irrw2wvXl8ILYfmvLdJmm5NmU8O4EFnZORHYSpI-3TR8MKF5ttm-BYnTELx0FfWqThOvirpJwbSRC359f0C3DHv3-9wZem3woXm18BE9A6cCUmsjr7XWCHCu02jbJdUu48sYrCZiEazSQeckV5BSihvcPFBhIQt9UxMX7wBtA~PzR82EliIALbnDOZ-4PdVupyjurp5bnDhXnKLuEri6mECKwg__",
+  "queuing_num": -1,
+  "running_left_time": -1,
+  "result": {
+    "pbr_model": {
+      "type": "glb",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/0ed3c5aa-bff0-41da-aef3-82f7d641c330/tripo_pbr_model_0ed3c5aa-bff0-41da-aef3-82f7d641c330.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMGVkM2M1YWEtYmZmMC00MWRhLWFlZjMtODJmN2Q2NDFjMzMwL3RyaXBvX3Bicl9tb2RlbF8wZWQzYzVhYS1iZmYwLTQxZGEtYWVmMy04MmY3ZDY0MWMzMzAuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=Ct-exefYcf7edhmJp7RejNbTqCn-LdNIorFxgJ2Y77NB5s0mBvxs5jcMhQ6jpqsWrnscbLiksTfEvakP4merky-QZWITV2~dYr5yOxLUBTkJTKP-gbTKXcBqXr7jZpHdwJtBOKp-ay6pdTeMdF5vNrX7ZmpnQFq1Y-m15-0TsxZ0Yg793oH~ZpDVtwfu2xzg1~a3xq2vvWU1PriEyLLtPOQycvy3MqEbMkjsADDbW7-FVwXOO6ZbB7Y488ArP38wzfmu~ZogwZqM7OypSO5EC8WNzR8afm20phrkqFtHJL7lTVM~hPjEHCwat3K~ia-lR8nuyB1ERt8lki7wUF7HrQ__"
+    },
+    "rendered_image": {
+      "type": "webp",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/0ed3c5aa-bff0-41da-aef3-82f7d641c330/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMGVkM2M1YWEtYmZmMC00MWRhLWFlZjMtODJmN2Q2NDFjMzMwL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=gNSPHhMdsHEWkOP-3FRwvcek4KajZB6pcisR9gD~CIDvbXmRGXNoeATTKTDN8~qOpy1z2FRPTFi3-8gis-RT1bgoIiSp3aNhm5ISU045~asF-UtB2sML0j7bVaD2Irrw2wvXl8ILYfmvLdJmm5NmU8O4EFnZORHYSpI-3TR8MKF5ttm-BYnTELx0FfWqThOvirpJwbSRC359f0C3DHv3-9wZem3woXm18BE9A6cCUmsjr7XWCHCu02jbJdUu48sYrCZiEazSQeckV5BSihvcPFBhIQt9UxMX7wBtA~PzR82EliIALbnDOZ-4PdVupyjurp5bnDhXnKLuEri6mECKwg__"
+    }
+  }
+}

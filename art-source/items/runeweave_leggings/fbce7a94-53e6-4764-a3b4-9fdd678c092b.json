@@ -1,0 +1,38 @@
+{
+  "task_id": "fbce7a94-53e6-4764-a3b4-9fdd678c092b",
+  "type": "text_to_model",
+  "status": "success",
+  "input": {
+    "prompt": "mage leggings of deep indigo cloth, glowing violet rune embroidery down the seams, leather belt with hanging rune tags, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+    "negative_prompt": "text, watermark, logo, ground plane, base, pedestal, stand, mannequin, multiple objects, human figure, hands, scene, background",
+    "model_version": "v3.1-20260211",
+    "texture": true,
+    "pbr": true,
+    "texture_quality": "detailed",
+    "texture_alignment": "geometry",
+    "export_uv": true,
+    "geometry_quality": "detailed"
+  },
+  "output": {
+    "pbr_model": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/fbce7a94-53e6-4764-a3b4-9fdd678c092b/tripo_pbr_model_fbce7a94-53e6-4764-a3b4-9fdd678c092b.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZmJjZTdhOTQtNTNlNi00NzY0LWEzYjQtOWZkZDY3OGMwOTJiL3RyaXBvX3Bicl9tb2RlbF9mYmNlN2E5NC01M2U2LTQ3NjQtYTNiNC05ZmRkNjc4YzA5MmIuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=h-mOyTHeWz9qzG7GPnh0FsVHRJE9lJHZ8ptQ26g22IUiMUTRzTRx2cGlUwJOjHVSpoQfmZj-lq7CnZr5PT1HZOjlOLTyYApJqeldcpgL5v9E4OCmUelgKHnXqkzPi-aDlPGDRux2EU82jGsFKc69TvAN~kLtfJJsA~twalG8iC0VBJ6jGd9VHeVBpVeO34AH6PV6kZXSFp80XCtb2sa3-HWZk3VLKkGSAAx~LZNQ8pu4-2LPRCHRwavqe~O3zHMtuba6Kw4890~ZRlV2hxUZmC0bS1-dLC22Ec65il~Cj1AcuzWTg6eXqe3ScVDLYGyNQmMhy4Rcrp740Lz87VRBtg__",
+    "generated_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/fbce7a94-53e6-4764-a3b4-9fdd678c092b/text2image_fbce7a94-53e6-4764-a3b4-9fdd678c092b.jpeg?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZmJjZTdhOTQtNTNlNi00NzY0LWEzYjQtOWZkZDY3OGMwOTJiL3RleHQyaW1hZ2VfZmJjZTdhOTQtNTNlNi00NzY0LWEzYjQtOWZkZDY3OGMwOTJiLmpwZWciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=JSydqy5BrC8YKfN2DZctcXj3f1~MpgzHZAoivUDZ969Kwh-wpeLZPNADhdjO5OSJ0LxTmh0AkXJxVvl-Rh8JA615ON07OUjXjpRDEcABHA8Ln48a3glVK3leJKPUAd3w5bPErrSfn7AhTij2Wv5cKRsJwC-HlUZ1kk5~baeCdZBehs~cQkgjkYdx8~7OI4mfhBGiI16Ru8FoLDwqgWnhbXBDqU9P6s6TCrp2la1hyv75vO1iYVkObmzk8D1FS8lDsZoLCP~fbkMuRx9iFgtTB1r2KAYwwqi32Od816z8fO7Zej1xwPgizIaI0qhvQ04h3dq9X~7pCgPXxNBNYY8dQQ__",
+    "rendered_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/fbce7a94-53e6-4764-a3b4-9fdd678c092b/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZmJjZTdhOTQtNTNlNi00NzY0LWEzYjQtOWZkZDY3OGMwOTJiL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=mIgdETnedCK5SmhWAPmtF3ip9DeGKltsGDYM7FSOx6I1tz~dlldVVuM613V1G0t9NSCTECSLsPpdJHFNQlTm1idI8vMfLuE85anMTNZL~wRviYNylV0Nu5cXCKEXaI6e9zJxUm7ednU-HhUyQBFhTuvRy~YvVJ-1FrIzOeyfePlYpThzQUXbTGpm58iv62suck~cMhM3dc~CrvKEK7uZxUoQh5T5qJjVhTR21yI6ROYsij7PmepoSSYfk5keZ-m-lQOxbffbFRWIArsNKWK1EQTL3ZESR~dZJM3H6fKW9qE-Ke~3uydI-4mcG3laTOUW--S~Cq6p4WM87JQ-IZIcaA__"
+  },
+  "progress": 100,
+  "create_time": 1785017433,
+  "consumed_credit": 50,
+  "prompt": "mage leggings of deep indigo cloth, glowing violet rune embroidery down the seams, leather belt with hanging rune tags, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+  "thumbnail": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/fbce7a94-53e6-4764-a3b4-9fdd678c092b/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZmJjZTdhOTQtNTNlNi00NzY0LWEzYjQtOWZkZDY3OGMwOTJiL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=mIgdETnedCK5SmhWAPmtF3ip9DeGKltsGDYM7FSOx6I1tz~dlldVVuM613V1G0t9NSCTECSLsPpdJHFNQlTm1idI8vMfLuE85anMTNZL~wRviYNylV0Nu5cXCKEXaI6e9zJxUm7ednU-HhUyQBFhTuvRy~YvVJ-1FrIzOeyfePlYpThzQUXbTGpm58iv62suck~cMhM3dc~CrvKEK7uZxUoQh5T5qJjVhTR21yI6ROYsij7PmepoSSYfk5keZ-m-lQOxbffbFRWIArsNKWK1EQTL3ZESR~dZJM3H6fKW9qE-Ke~3uydI-4mcG3laTOUW--S~Cq6p4WM87JQ-IZIcaA__",
+  "queuing_num": -1,
+  "running_left_time": -1,
+  "result": {
+    "pbr_model": {
+      "type": "glb",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/fbce7a94-53e6-4764-a3b4-9fdd678c092b/tripo_pbr_model_fbce7a94-53e6-4764-a3b4-9fdd678c092b.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZmJjZTdhOTQtNTNlNi00NzY0LWEzYjQtOWZkZDY3OGMwOTJiL3RyaXBvX3Bicl9tb2RlbF9mYmNlN2E5NC01M2U2LTQ3NjQtYTNiNC05ZmRkNjc4YzA5MmIuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=h-mOyTHeWz9qzG7GPnh0FsVHRJE9lJHZ8ptQ26g22IUiMUTRzTRx2cGlUwJOjHVSpoQfmZj-lq7CnZr5PT1HZOjlOLTyYApJqeldcpgL5v9E4OCmUelgKHnXqkzPi-aDlPGDRux2EU82jGsFKc69TvAN~kLtfJJsA~twalG8iC0VBJ6jGd9VHeVBpVeO34AH6PV6kZXSFp80XCtb2sa3-HWZk3VLKkGSAAx~LZNQ8pu4-2LPRCHRwavqe~O3zHMtuba6Kw4890~ZRlV2hxUZmC0bS1-dLC22Ec65il~Cj1AcuzWTg6eXqe3ScVDLYGyNQmMhy4Rcrp740Lz87VRBtg__"
+    },
+    "rendered_image": {
+      "type": "webp",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/fbce7a94-53e6-4764-a3b4-9fdd678c092b/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZmJjZTdhOTQtNTNlNi00NzY0LWEzYjQtOWZkZDY3OGMwOTJiL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=mIgdETnedCK5SmhWAPmtF3ip9DeGKltsGDYM7FSOx6I1tz~dlldVVuM613V1G0t9NSCTECSLsPpdJHFNQlTm1idI8vMfLuE85anMTNZL~wRviYNylV0Nu5cXCKEXaI6e9zJxUm7ednU-HhUyQBFhTuvRy~YvVJ-1FrIzOeyfePlYpThzQUXbTGpm58iv62suck~cMhM3dc~CrvKEK7uZxUoQh5T5qJjVhTR21yI6ROYsij7PmepoSSYfk5keZ-m-lQOxbffbFRWIArsNKWK1EQTL3ZESR~dZJM3H6fKW9qE-Ke~3uydI-4mcG3laTOUW--S~Cq6p4WM87JQ-IZIcaA__"
+    }
+  }
+}

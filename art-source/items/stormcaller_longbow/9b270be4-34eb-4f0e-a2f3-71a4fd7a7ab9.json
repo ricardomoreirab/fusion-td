@@ -1,0 +1,38 @@
+{
+  "task_id": "9b270be4-34eb-4f0e-a2f3-71a4fd7a7ab9",
+  "type": "text_to_model",
+  "status": "success",
+  "input": {
+    "prompt": "tall storm-forged longbow, dark blue-black limbs crackling with white lightning, cloud-etched silver inlay, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+    "negative_prompt": "text, watermark, logo, ground plane, base, pedestal, stand, mannequin, multiple objects, human figure, hands, scene, background",
+    "model_version": "v3.1-20260211",
+    "texture": true,
+    "pbr": true,
+    "texture_quality": "detailed",
+    "texture_alignment": "geometry",
+    "export_uv": true,
+    "geometry_quality": "detailed"
+  },
+  "output": {
+    "pbr_model": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/9b270be4-34eb-4f0e-a2f3-71a4fd7a7ab9/tripo_pbr_model_9b270be4-34eb-4f0e-a2f3-71a4fd7a7ab9.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvOWIyNzBiZTQtMzRlYi00ZjBlLWEyZjMtNzFhNGZkN2E3YWI5L3RyaXBvX3Bicl9tb2RlbF85YjI3MGJlNC0zNGViLTRmMGUtYTJmMy03MWE0ZmQ3YTdhYjkuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=ZjSVvC5AaGJuFKnWSz9xJ8~g5FLfvjphgb8vSR8uAB6qeYS~axrFjwPiFARS3MFEm-dfBP5hgINBI2~7LnnHCzutHXn3vIXtATBUqI6jv4P-ZiuKN6T9szARi4u0fV8P10Ii-DD3KoMTaLE9Tr1MyMR5PK3G7jsJn~DsTWQ8Ozco4NDZPRty7Jex1Pb4Ti-ULHBCF23IGAcuniZP3vLMu7I23H4cmLznnRajdLHPkra1AU2FmGva28fDpyjuHyiS7hMucIHzh7dztLQNUVhico8TdbRKrWW1g8NISo5N8zoII1xYpR1UYPbgawv8LnryjTjKVeZCEvi1be~KwOSBPw__",
+    "generated_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/9b270be4-34eb-4f0e-a2f3-71a4fd7a7ab9/text2image_9b270be4-34eb-4f0e-a2f3-71a4fd7a7ab9.jpeg?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvOWIyNzBiZTQtMzRlYi00ZjBlLWEyZjMtNzFhNGZkN2E3YWI5L3RleHQyaW1hZ2VfOWIyNzBiZTQtMzRlYi00ZjBlLWEyZjMtNzFhNGZkN2E3YWI5LmpwZWciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=MNCC8co~cMsbZVj0pzh2uJLsx-M8bRXp38HyZOT1TUIPZuFEuXjDLzxMl~Ariqqicb32RN1zUKZRE6Po7ABoEUlttd487ShOSgPCitMGHIdQqMrg64r9nl0K~Pu7PVr4rNYH1l9gZUHeiZRP7JdUZN2c6b-kPadznMZMoG~~uF730uotH~0cZnZLYMUK7FYlKgTDne6UxNsxZPRzocF6aWC6uoProJS2BcKPfVp0xzBd0BcZUyyDXrYxlPktqf413YTxyt5kV83Puj9SqLWChpVLHQA4qiJmTOmS~YHRjvLZeI1suYTnKKdqPtMKJx6-9PN2bNogJxiLtB2PCtNJ1w__",
+    "rendered_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/9b270be4-34eb-4f0e-a2f3-71a4fd7a7ab9/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvOWIyNzBiZTQtMzRlYi00ZjBlLWEyZjMtNzFhNGZkN2E3YWI5L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=HijKwBDn-oVscnFuBRyQcivvIMpRO7QvPEVXPyFa6Y78~KF2pfOoa8TqzbEzazdH-gmARcLfmq5CBDco3xIJJIxAp4H2e~It8pNHJYit-IeElb57mdaW0vHqeKLBNjzP1~sIfGxSG5o04f9ismBF9YpLTc3qxQdTFwrtQStBvOIevq0TcUwAclHeBVztFQlEjV1Lo-VNAQbZijd-t5FE5DS9MiJ8lWPQyUzZMQCxCDM~gucbuCsfAuLV1rU470c4FtKIXHu18-0PvxfdCsms9bGbD0qAZtY7kBQfm57zPqIe9tYTdys1o4M~Y5fq1DcTNH47vFCow3wY13PLsfT7FA__"
+  },
+  "progress": 100,
+  "create_time": 1785018117,
+  "consumed_credit": 50,
+  "prompt": "tall storm-forged longbow, dark blue-black limbs crackling with white lightning, cloud-etched silver inlay, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+  "thumbnail": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/9b270be4-34eb-4f0e-a2f3-71a4fd7a7ab9/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvOWIyNzBiZTQtMzRlYi00ZjBlLWEyZjMtNzFhNGZkN2E3YWI5L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=HijKwBDn-oVscnFuBRyQcivvIMpRO7QvPEVXPyFa6Y78~KF2pfOoa8TqzbEzazdH-gmARcLfmq5CBDco3xIJJIxAp4H2e~It8pNHJYit-IeElb57mdaW0vHqeKLBNjzP1~sIfGxSG5o04f9ismBF9YpLTc3qxQdTFwrtQStBvOIevq0TcUwAclHeBVztFQlEjV1Lo-VNAQbZijd-t5FE5DS9MiJ8lWPQyUzZMQCxCDM~gucbuCsfAuLV1rU470c4FtKIXHu18-0PvxfdCsms9bGbD0qAZtY7kBQfm57zPqIe9tYTdys1o4M~Y5fq1DcTNH47vFCow3wY13PLsfT7FA__",
+  "queuing_num": -1,
+  "running_left_time": -1,
+  "result": {
+    "pbr_model": {
+      "type": "glb",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/9b270be4-34eb-4f0e-a2f3-71a4fd7a7ab9/tripo_pbr_model_9b270be4-34eb-4f0e-a2f3-71a4fd7a7ab9.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvOWIyNzBiZTQtMzRlYi00ZjBlLWEyZjMtNzFhNGZkN2E3YWI5L3RyaXBvX3Bicl9tb2RlbF85YjI3MGJlNC0zNGViLTRmMGUtYTJmMy03MWE0ZmQ3YTdhYjkuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=ZjSVvC5AaGJuFKnWSz9xJ8~g5FLfvjphgb8vSR8uAB6qeYS~axrFjwPiFARS3MFEm-dfBP5hgINBI2~7LnnHCzutHXn3vIXtATBUqI6jv4P-ZiuKN6T9szARi4u0fV8P10Ii-DD3KoMTaLE9Tr1MyMR5PK3G7jsJn~DsTWQ8Ozco4NDZPRty7Jex1Pb4Ti-ULHBCF23IGAcuniZP3vLMu7I23H4cmLznnRajdLHPkra1AU2FmGva28fDpyjuHyiS7hMucIHzh7dztLQNUVhico8TdbRKrWW1g8NISo5N8zoII1xYpR1UYPbgawv8LnryjTjKVeZCEvi1be~KwOSBPw__"
+    },
+    "rendered_image": {
+      "type": "webp",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/9b270be4-34eb-4f0e-a2f3-71a4fd7a7ab9/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvOWIyNzBiZTQtMzRlYi00ZjBlLWEyZjMtNzFhNGZkN2E3YWI5L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=HijKwBDn-oVscnFuBRyQcivvIMpRO7QvPEVXPyFa6Y78~KF2pfOoa8TqzbEzazdH-gmARcLfmq5CBDco3xIJJIxAp4H2e~It8pNHJYit-IeElb57mdaW0vHqeKLBNjzP1~sIfGxSG5o04f9ismBF9YpLTc3qxQdTFwrtQStBvOIevq0TcUwAclHeBVztFQlEjV1Lo-VNAQbZijd-t5FE5DS9MiJ8lWPQyUzZMQCxCDM~gucbuCsfAuLV1rU470c4FtKIXHu18-0PvxfdCsms9bGbD0qAZtY7kBQfm57zPqIe9tYTdys1o4M~Y5fq1DcTNH47vFCow3wY13PLsfT7FA__"
+    }
+  }
+}

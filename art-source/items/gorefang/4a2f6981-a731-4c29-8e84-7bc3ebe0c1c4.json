@@ -1,0 +1,38 @@
+{
+  "task_id": "4a2f6981-a731-4c29-8e84-7bc3ebe0c1c4",
+  "type": "text_to_model",
+  "status": "success",
+  "input": {
+    "prompt": "game-ready fantasy barbarian war axe, single brutal cleaver blade with jagged fang-like teeth notched along the cutting edge, dark pitted iron blade with dried blood staining, bone-and-leather-wrapped haft, small tusk trophies lashed below the head, strong readable silhouette, stylized hand-painted fantasy game art, PBR materials, isolated single object floating, no ground plane, no pedestal, no text",
+    "negative_prompt": "text, watermark, ground plane, base, pedestal, stand, multiple objects, human figure, hands",
+    "model_version": "v3.1-20260211",
+    "texture": true,
+    "pbr": true,
+    "texture_quality": "detailed",
+    "texture_alignment": "geometry",
+    "export_uv": true,
+    "geometry_quality": "detailed"
+  },
+  "output": {
+    "pbr_model": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/4a2f6981-a731-4c29-8e84-7bc3ebe0c1c4/tripo_pbr_model_4a2f6981-a731-4c29-8e84-7bc3ebe0c1c4.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvNGEyZjY5ODEtYTczMS00YzI5LThlODQtN2JjM2ViZTBjMWM0L3RyaXBvX3Bicl9tb2RlbF80YTJmNjk4MS1hNzMxLTRjMjktOGU4NC03YmMzZWJlMGMxYzQuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=FO1KJAKZunAixpFaG~oHKaU5gbs6lj8s7dUnA48ZNr9Bxv1yGTt2w-bdiS9XI9ayGLM0rSM1UQ~iKEjnmU~6PlmWm6HgHwz5H7o4-hQhhywnjfg9Y-43BWXU9rLPXm~x3glyPd73lco1~llp2VhlR9ZQ6fLv3IAzOC~BMVxLOJViAjBLRah7jB2l4PXjBScYqKIBJTMyGvo0hPZLEhlBapQ72eESlFGpyQ5lfprG6gZkmMafwsrhukxPHNWhr~SgiJU7xLSEvsmcL8rwpY~JR1iJ6-72nE5aRylxVwa4QqYqaS~NCzXoPJHZBDQAmNRm8Zx5NVOOMA7LggUz63Pm3Q__",
+    "generated_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/4a2f6981-a731-4c29-8e84-7bc3ebe0c1c4/text2image_4a2f6981-a731-4c29-8e84-7bc3ebe0c1c4.jpeg?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvNGEyZjY5ODEtYTczMS00YzI5LThlODQtN2JjM2ViZTBjMWM0L3RleHQyaW1hZ2VfNGEyZjY5ODEtYTczMS00YzI5LThlODQtN2JjM2ViZTBjMWM0LmpwZWciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=W55aVf9QF~aQbcXmki3uoBJcbNkEWoF2~PQghmbKpG3aTPBnPP3~o56qHLypBa4jmoUPZQwmh2eeF6HSYXLLKY0Ri2uBSZ282t50GoSYq2fxPgWlp9YN3qtJ4MqX9qZMMzQVchpuTjtR2mR69xe2MsaT6WedHdo3MJBfcfvXto9jFvV7ApP8MZr6U2rBnLYdnMxNdiHaFPg1JRYruyVRKl~EKzvzejvgUVRRkS754FB4X8EcZrsWTduTHRDzW4vkAJ7d~Np1MpG0NZ9vsGg6YNnMuwTNsJb19yhfczpCsO1xXTCMlJQM1JGUyMy0WVAxbBppKKwSMLoD7ohJZD-lsA__",
+    "rendered_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/4a2f6981-a731-4c29-8e84-7bc3ebe0c1c4/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvNGEyZjY5ODEtYTczMS00YzI5LThlODQtN2JjM2ViZTBjMWM0L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=pzumgddqzAAUS4HfUpwK2khbrdHHBza605Kpa5TWFzaLfwr88vTIEGRZKemPf4nTopp2Q7TeWxMV0k016M5XiNefLneJx~yLY9FwYTSn01oSOdvQ2gQ27Yu7atgKMvlElRJEEdVPnzYL~mTiTfxvuubrR3ABEUZs~TXM~gvtFXeBpSCNar7Qr9RNTVYL4vrtL9HAWhiNgyOcB6NwwYtPlyZLADIm6gTWK3vA2F0uPdHerMSG6Gwbe7YQwTDvrKSdUhwSDUnnZAwK-18UztccmMApIMsWqtBiSuDDYKC~GVG-X2RejTWhm8tgK9ZhhmJ98jWRlJmbUhnrf4y3x1a-VQ__"
+  },
+  "progress": 100,
+  "create_time": 1785016167,
+  "consumed_credit": 50,
+  "prompt": "game-ready fantasy barbarian war axe, single brutal cleaver blade with jagged fang-like teeth notched along the cutting edge, dark pitted iron blade with dried blood staining, bone-and-leather-wrapped haft, small tusk trophies lashed below the head, strong readable silhouette, stylized hand-painted fantasy game art, PBR materials, isolated single object floating, no ground plane, no pedestal, no text",
+  "thumbnail": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/4a2f6981-a731-4c29-8e84-7bc3ebe0c1c4/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvNGEyZjY5ODEtYTczMS00YzI5LThlODQtN2JjM2ViZTBjMWM0L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=pzumgddqzAAUS4HfUpwK2khbrdHHBza605Kpa5TWFzaLfwr88vTIEGRZKemPf4nTopp2Q7TeWxMV0k016M5XiNefLneJx~yLY9FwYTSn01oSOdvQ2gQ27Yu7atgKMvlElRJEEdVPnzYL~mTiTfxvuubrR3ABEUZs~TXM~gvtFXeBpSCNar7Qr9RNTVYL4vrtL9HAWhiNgyOcB6NwwYtPlyZLADIm6gTWK3vA2F0uPdHerMSG6Gwbe7YQwTDvrKSdUhwSDUnnZAwK-18UztccmMApIMsWqtBiSuDDYKC~GVG-X2RejTWhm8tgK9ZhhmJ98jWRlJmbUhnrf4y3x1a-VQ__",
+  "queuing_num": -1,
+  "running_left_time": -1,
+  "result": {
+    "pbr_model": {
+      "type": "glb",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/4a2f6981-a731-4c29-8e84-7bc3ebe0c1c4/tripo_pbr_model_4a2f6981-a731-4c29-8e84-7bc3ebe0c1c4.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvNGEyZjY5ODEtYTczMS00YzI5LThlODQtN2JjM2ViZTBjMWM0L3RyaXBvX3Bicl9tb2RlbF80YTJmNjk4MS1hNzMxLTRjMjktOGU4NC03YmMzZWJlMGMxYzQuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=FO1KJAKZunAixpFaG~oHKaU5gbs6lj8s7dUnA48ZNr9Bxv1yGTt2w-bdiS9XI9ayGLM0rSM1UQ~iKEjnmU~6PlmWm6HgHwz5H7o4-hQhhywnjfg9Y-43BWXU9rLPXm~x3glyPd73lco1~llp2VhlR9ZQ6fLv3IAzOC~BMVxLOJViAjBLRah7jB2l4PXjBScYqKIBJTMyGvo0hPZLEhlBapQ72eESlFGpyQ5lfprG6gZkmMafwsrhukxPHNWhr~SgiJU7xLSEvsmcL8rwpY~JR1iJ6-72nE5aRylxVwa4QqYqaS~NCzXoPJHZBDQAmNRm8Zx5NVOOMA7LggUz63Pm3Q__"
+    },
+    "rendered_image": {
+      "type": "webp",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/4a2f6981-a731-4c29-8e84-7bc3ebe0c1c4/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvNGEyZjY5ODEtYTczMS00YzI5LThlODQtN2JjM2ViZTBjMWM0L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=pzumgddqzAAUS4HfUpwK2khbrdHHBza605Kpa5TWFzaLfwr88vTIEGRZKemPf4nTopp2Q7TeWxMV0k016M5XiNefLneJx~yLY9FwYTSn01oSOdvQ2gQ27Yu7atgKMvlElRJEEdVPnzYL~mTiTfxvuubrR3ABEUZs~TXM~gvtFXeBpSCNar7Qr9RNTVYL4vrtL9HAWhiNgyOcB6NwwYtPlyZLADIm6gTWK3vA2F0uPdHerMSG6Gwbe7YQwTDvrKSdUhwSDUnnZAwK-18UztccmMApIMsWqtBiSuDDYKC~GVG-X2RejTWhm8tgK9ZhhmJ98jWRlJmbUhnrf4y3x1a-VQ__"
+    }
+  }
+}

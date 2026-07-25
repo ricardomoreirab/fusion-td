@@ -1,0 +1,31 @@
+{
+  "_comment": "Per-item icon framing. yaw/pitch/roll are degrees applied to the model before the fixed 3/4 camera; zoom is the fraction of the frame the model fills (0.9 default); exposure multiplies ACES exposure (1.15 default). Tripo output facing is arbitrary — run the bake page with ?sheet (optionally &only=id,id) to render a yaw strip per item and pick from it. Items not listed here bake at the defaults, which is fine for roughly radial shapes (helmets, orbs, medallions); elongated items (bows, axes, staves) almost always need a yaw or they render edge-on.",
+  "gorefang": {
+    "yaw": -45,
+    "zoom": 0.96
+  },
+  "skullcage_of_rage": {
+    "yaw": -90,
+    "zoom": 0.92
+  },
+  "stormpiercer": {
+    "yaw": 90,
+    "zoom": 0.94
+  },
+  "comet_driver": {
+    "yaw": 90,
+    "zoom": 0.94
+  },
+  "hawkeye_hood": {
+    "yaw": -45,
+    "zoom": 0.92
+  },
+  "ribcage_bulwark": {
+    "yaw": -45,
+    "zoom": 0.92
+  },
+  "treads_of_the_event_horizon": {
+    "yaw": -45,
+    "zoom": 0.9
+  }
+}

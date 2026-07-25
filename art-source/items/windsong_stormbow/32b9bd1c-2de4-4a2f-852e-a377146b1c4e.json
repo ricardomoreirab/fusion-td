@@ -1,0 +1,38 @@
+{
+  "task_id": "32b9bd1c-2de4-4a2f-852e-a377146b1c4e",
+  "type": "text_to_model",
+  "status": "success",
+  "input": {
+    "prompt": "mythic storm longbow wreathed in bright cyan wind ribbons and lightning, silver-white limbs, feathered limb tips, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+    "negative_prompt": "text, watermark, logo, ground plane, base, pedestal, stand, mannequin, multiple objects, human figure, hands, scene, background",
+    "model_version": "v3.1-20260211",
+    "texture": true,
+    "pbr": true,
+    "texture_quality": "detailed",
+    "texture_alignment": "geometry",
+    "export_uv": true,
+    "geometry_quality": "detailed"
+  },
+  "output": {
+    "pbr_model": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/32b9bd1c-2de4-4a2f-852e-a377146b1c4e/tripo_pbr_model_32b9bd1c-2de4-4a2f-852e-a377146b1c4e.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMzJiOWJkMWMtMmRlNC00YTJmLTg1MmUtYTM3NzE0NmIxYzRlL3RyaXBvX3Bicl9tb2RlbF8zMmI5YmQxYy0yZGU0LTRhMmYtODUyZS1hMzc3MTQ2YjFjNGUuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=Zj1lB7O9SCmPzDLR~Yn97zkUEgobfPcL7Fk7hYgmi1t5Wjt1Q~TZeN5MPqcCiPq-hIWazn9mjG1npaoY5xaZHVbyWwJou4qe-bjnF8gVaHl3AZh~xzOj3cs9jwrNxEClvme8KE-fpUUthBAwRF6HTTNolgMH4cUmmO60DngKWWzeO8OVkaHMaYGYG2JU3r0Dht4h5S5fuGz37YtVifuuhepl2GSfc-BaTw-8yMidrFkobObiX1tneGwaoIAeyEYF5WNbg9YbENg-hfSXrXF3ZBSq7Xr4M5aCEqyI78X550lmhJO4OQTNXFeiljPpAATM87QShGZrQLtiNKvEbXc3hw__",
+    "generated_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/32b9bd1c-2de4-4a2f-852e-a377146b1c4e/text2image_32b9bd1c-2de4-4a2f-852e-a377146b1c4e.jpeg?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMzJiOWJkMWMtMmRlNC00YTJmLTg1MmUtYTM3NzE0NmIxYzRlL3RleHQyaW1hZ2VfMzJiOWJkMWMtMmRlNC00YTJmLTg1MmUtYTM3NzE0NmIxYzRlLmpwZWciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=U0PWIVi9xa2mxyYiaBGz6lwKLMk80V9Tts2JroovD06AmMHchOnEEGCMwGOAj2kd~HizuRO6yq2~DVNWvBQvkmvxEZ8mkMcZOEJFAoFEKHqnDpC5u0zpV38EKQL721pJxpU9opllOo69H6ZTQW-gtEeX9s-sWOKrqRQv7WKYVmlxOEIaRmJPdJ25FPdkXQ~T1Yumohp7TGZysmun74zKYBoVRa4y5w-8aAimVCgmA5hsUByOqxK8c4Z9rh0osxPX7ywYLeKg8Su5zA-a-eus62jiJzHUWA8dnLsMfEP1~O1v7UTyGAwRB-aD2gimolDtpMNLFYQgoFGGAXsMRto44A__",
+    "rendered_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/32b9bd1c-2de4-4a2f-852e-a377146b1c4e/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMzJiOWJkMWMtMmRlNC00YTJmLTg1MmUtYTM3NzE0NmIxYzRlL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=SzkB4f5TvqFtOVLTT~QFGWWYJZfrfi90TWRED-YriNTw3PgHWwppNumiCj~QOsBMUH-qBexkxTT3O6gpjhB4wiLd9atWgxpumwRxFPDW0kxlUMcKUb1ZaSZr7y0MGJJrL68VPg87U~yCNUW85vvdY9nVmK7Ri~43JPAcyf4qif7-ew5q~qNv5h20Bz9e5BcGcnkrVfNSViFjIR3p~IS9sYmGofKTlBQpp8TTCarxJmxCb~3BMgoM8MDk9Q6ar3y6XvD06WwYCVfsQ~PKiiqcmvspVD2LViVF8PbPihyTUqx5T3oI9x1DTT9E6bxX2HawiKKBVMrTm-4AWKkJU2r~QA__"
+  },
+  "progress": 100,
+  "create_time": 1785017684,
+  "consumed_credit": 50,
+  "prompt": "mythic storm longbow wreathed in bright cyan wind ribbons and lightning, silver-white limbs, feathered limb tips, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+  "thumbnail": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/32b9bd1c-2de4-4a2f-852e-a377146b1c4e/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMzJiOWJkMWMtMmRlNC00YTJmLTg1MmUtYTM3NzE0NmIxYzRlL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=SzkB4f5TvqFtOVLTT~QFGWWYJZfrfi90TWRED-YriNTw3PgHWwppNumiCj~QOsBMUH-qBexkxTT3O6gpjhB4wiLd9atWgxpumwRxFPDW0kxlUMcKUb1ZaSZr7y0MGJJrL68VPg87U~yCNUW85vvdY9nVmK7Ri~43JPAcyf4qif7-ew5q~qNv5h20Bz9e5BcGcnkrVfNSViFjIR3p~IS9sYmGofKTlBQpp8TTCarxJmxCb~3BMgoM8MDk9Q6ar3y6XvD06WwYCVfsQ~PKiiqcmvspVD2LViVF8PbPihyTUqx5T3oI9x1DTT9E6bxX2HawiKKBVMrTm-4AWKkJU2r~QA__",
+  "queuing_num": -1,
+  "running_left_time": -1,
+  "result": {
+    "pbr_model": {
+      "type": "glb",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/32b9bd1c-2de4-4a2f-852e-a377146b1c4e/tripo_pbr_model_32b9bd1c-2de4-4a2f-852e-a377146b1c4e.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMzJiOWJkMWMtMmRlNC00YTJmLTg1MmUtYTM3NzE0NmIxYzRlL3RyaXBvX3Bicl9tb2RlbF8zMmI5YmQxYy0yZGU0LTRhMmYtODUyZS1hMzc3MTQ2YjFjNGUuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=Zj1lB7O9SCmPzDLR~Yn97zkUEgobfPcL7Fk7hYgmi1t5Wjt1Q~TZeN5MPqcCiPq-hIWazn9mjG1npaoY5xaZHVbyWwJou4qe-bjnF8gVaHl3AZh~xzOj3cs9jwrNxEClvme8KE-fpUUthBAwRF6HTTNolgMH4cUmmO60DngKWWzeO8OVkaHMaYGYG2JU3r0Dht4h5S5fuGz37YtVifuuhepl2GSfc-BaTw-8yMidrFkobObiX1tneGwaoIAeyEYF5WNbg9YbENg-hfSXrXF3ZBSq7Xr4M5aCEqyI78X550lmhJO4OQTNXFeiljPpAATM87QShGZrQLtiNKvEbXc3hw__"
+    },
+    "rendered_image": {
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/32b9bd1c-2de4-4a2f-852e-a377146b1c4e/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMzJiOWJkMWMtMmRlNC00YTJmLTg1MmUtYTM3NzE0NmIxYzRlL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=SzkB4f5TvqFtOVLTT~QFGWWYJZfrfi90TWRED-YriNTw3PgHWwppNumiCj~QOsBMUH-qBexkxTT3O6gpjhB4wiLd9atWgxpumwRxFPDW0kxlUMcKUb1ZaSZr7y0MGJJrL68VPg87U~yCNUW85vvdY9nVmK7Ri~43JPAcyf4qif7-ew5q~qNv5h20Bz9e5BcGcnkrVfNSViFjIR3p~IS9sYmGofKTlBQpp8TTCarxJmxCb~3BMgoM8MDk9Q6ar3y6XvD06WwYCVfsQ~PKiiqcmvspVD2LViVF8PbPihyTUqx5T3oI9x1DTT9E6bxX2HawiKKBVMrTm-4AWKkJU2r~QA__",
+      "type": "webp"
+    }
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "task_id": "f08311c6-e320-49f8-a233-48dd0691ad83",
+  "type": "text_to_model",
+  "status": "success",
+  "input": {
+    "prompt": "large iridescent feather talisman bound to a silver ring, wind-curled barbs, pale blue-green sheen, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+    "negative_prompt": "text, watermark, logo, ground plane, base, pedestal, stand, mannequin, multiple objects, human figure, hands, scene, background",
+    "model_version": "v3.1-20260211",
+    "texture": true,
+    "pbr": true,
+    "texture_quality": "detailed",
+    "texture_alignment": "geometry",
+    "export_uv": true,
+    "geometry_quality": "detailed"
+  },
+  "output": {
+    "pbr_model": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/f08311c6-e320-49f8-a233-48dd0691ad83/tripo_pbr_model_f08311c6-e320-49f8-a233-48dd0691ad83.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZjA4MzExYzYtZTMyMC00OWY4LWEyMzMtNDhkZDA2OTFhZDgzL3RyaXBvX3Bicl9tb2RlbF9mMDgzMTFjNi1lMzIwLTQ5ZjgtYTIzMy00OGRkMDY5MWFkODMuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=CTki3vONPiUKkv~iKXefBf-J~i0rywsZDBU4zNmCL25Tft~In2mOLL1ZwEvR6b3-8BuBqkh6nnAJjxlLcjc-vmlGjGDZxWpFD1PfrNfNPg~QQ7j1InYfZ6giemkjJ335x6DBJLVNKtOqe1uuZwbXdmGSdW2TcutMOJOFn9FxUbyG2TCOHjupJ1DFP~hN-ZOKGJn0TTibqYM6JVx1EZlooXEm4Q4r8~Bt4wdDzXoRiM~6PUSwUYMfXT5uIL-sHX6I7QumUaXB5wZ98T0ze-xmv9IdtkFIzKR1LHOAs5~65cktMi5Z0APScI6hJnKhoViI~WDHwYsgd18AtIlHCOcVRw__",
+    "generated_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/f08311c6-e320-49f8-a233-48dd0691ad83/text2image_f08311c6-e320-49f8-a233-48dd0691ad83.jpeg?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZjA4MzExYzYtZTMyMC00OWY4LWEyMzMtNDhkZDA2OTFhZDgzL3RleHQyaW1hZ2VfZjA4MzExYzYtZTMyMC00OWY4LWEyMzMtNDhkZDA2OTFhZDgzLmpwZWciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=wAyBVpW-wet1o0oFg64Co8XxKTGDYuWai-ZlGcxSLcZ0-JTogH4heofioIuKxE~5LXIN2kxaaWx1N0zwZEEIWUDM3h6ZP8h5ohGDuQGuq4PjJZ2vURTWhlSk-LHL0w0fXSEFNdaWC45-Ec81~NKBnq2YX9qZiOAnIwWd0-6dJjI3yV3cCiU5dVu5nj-lHC8zrVFxH2kuTEfH5QjtKBa8o6K9-RFT5yi2zOPRcJnysWGhg1N1jbYwP~Du9Je-RYiRYTUbezIpC1MJOlyf21MNtSgzFxfuzYwHdVPlcfHUrK8FF1WKcGNGaKCYOGN8hMen~GQMsAp5t3ntvezfayUn0A__",
+    "rendered_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/f08311c6-e320-49f8-a233-48dd0691ad83/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZjA4MzExYzYtZTMyMC00OWY4LWEyMzMtNDhkZDA2OTFhZDgzL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=pjWYrsCRl7DkKfzxoQHzJ-clQn0Ll4f8HqKZ2YGjUAWeKmVMS1h12sZOtZSx2-oFG1EShKmpthKtLvZ4AV6njCEi3opGrdwfY8P7LAGeDWtr7Pc62bbXaaduubn~C0H2p8UyKesdHutKzY90bJ9VFiYZQtxJKehmTsafJTQkWUeZ0PWcyrdif5XYu8Ny78Qg5199VdPm9AXO04xxAAINenA0Mb4RZvSGnzrP0NUxd7qO7lnEF0DK4ZGrDus6LFJy8B9x~fFCEkFrmE8XMLkL~C6SK-VRiqUQDLlz~2locDLpos5Q9Ct~AuMh7MN-otAJMMTfrQiX6Fw0Zf-YvhyVpA__"
+  },
+  "progress": 100,
+  "create_time": 1785017253,
+  "consumed_credit": 50,
+  "prompt": "large iridescent feather talisman bound to a silver ring, wind-curled barbs, pale blue-green sheen, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+  "thumbnail": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/f08311c6-e320-49f8-a233-48dd0691ad83/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZjA4MzExYzYtZTMyMC00OWY4LWEyMzMtNDhkZDA2OTFhZDgzL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=pjWYrsCRl7DkKfzxoQHzJ-clQn0Ll4f8HqKZ2YGjUAWeKmVMS1h12sZOtZSx2-oFG1EShKmpthKtLvZ4AV6njCEi3opGrdwfY8P7LAGeDWtr7Pc62bbXaaduubn~C0H2p8UyKesdHutKzY90bJ9VFiYZQtxJKehmTsafJTQkWUeZ0PWcyrdif5XYu8Ny78Qg5199VdPm9AXO04xxAAINenA0Mb4RZvSGnzrP0NUxd7qO7lnEF0DK4ZGrDus6LFJy8B9x~fFCEkFrmE8XMLkL~C6SK-VRiqUQDLlz~2locDLpos5Q9Ct~AuMh7MN-otAJMMTfrQiX6Fw0Zf-YvhyVpA__",
+  "queuing_num": -1,
+  "running_left_time": -1,
+  "result": {
+    "pbr_model": {
+      "type": "glb",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/f08311c6-e320-49f8-a233-48dd0691ad83/tripo_pbr_model_f08311c6-e320-49f8-a233-48dd0691ad83.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZjA4MzExYzYtZTMyMC00OWY4LWEyMzMtNDhkZDA2OTFhZDgzL3RyaXBvX3Bicl9tb2RlbF9mMDgzMTFjNi1lMzIwLTQ5ZjgtYTIzMy00OGRkMDY5MWFkODMuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=CTki3vONPiUKkv~iKXefBf-J~i0rywsZDBU4zNmCL25Tft~In2mOLL1ZwEvR6b3-8BuBqkh6nnAJjxlLcjc-vmlGjGDZxWpFD1PfrNfNPg~QQ7j1InYfZ6giemkjJ335x6DBJLVNKtOqe1uuZwbXdmGSdW2TcutMOJOFn9FxUbyG2TCOHjupJ1DFP~hN-ZOKGJn0TTibqYM6JVx1EZlooXEm4Q4r8~Bt4wdDzXoRiM~6PUSwUYMfXT5uIL-sHX6I7QumUaXB5wZ98T0ze-xmv9IdtkFIzKR1LHOAs5~65cktMi5Z0APScI6hJnKhoViI~WDHwYsgd18AtIlHCOcVRw__"
+    },
+    "rendered_image": {
+      "type": "webp",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/f08311c6-e320-49f8-a233-48dd0691ad83/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZjA4MzExYzYtZTMyMC00OWY4LWEyMzMtNDhkZDA2OTFhZDgzL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=pjWYrsCRl7DkKfzxoQHzJ-clQn0Ll4f8HqKZ2YGjUAWeKmVMS1h12sZOtZSx2-oFG1EShKmpthKtLvZ4AV6njCEi3opGrdwfY8P7LAGeDWtr7Pc62bbXaaduubn~C0H2p8UyKesdHutKzY90bJ9VFiYZQtxJKehmTsafJTQkWUeZ0PWcyrdif5XYu8Ny78Qg5199VdPm9AXO04xxAAINenA0Mb4RZvSGnzrP0NUxd7qO7lnEF0DK4ZGrDus6LFJy8B9x~fFCEkFrmE8XMLkL~C6SK-VRiqUQDLlz~2locDLpos5Q9Ct~AuMh7MN-otAJMMTfrQiX6Fw0Zf-YvhyVpA__"
+    }
+  }
+}

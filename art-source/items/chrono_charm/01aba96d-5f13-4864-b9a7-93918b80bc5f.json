@@ -1,0 +1,38 @@
+{
+  "task_id": "01aba96d-5f13-4864-b9a7-93918b80bc5f",
+  "type": "text_to_model",
+  "status": "success",
+  "input": {
+    "prompt": "ornate brass pocket hourglass charm, golden sand suspended mid-fall, clockwork gears set into the frame, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+    "negative_prompt": "text, watermark, logo, ground plane, base, pedestal, stand, mannequin, multiple objects, human figure, hands, scene, background",
+    "model_version": "v3.1-20260211",
+    "texture": true,
+    "pbr": true,
+    "texture_quality": "detailed",
+    "texture_alignment": "geometry",
+    "export_uv": true,
+    "geometry_quality": "detailed"
+  },
+  "output": {
+    "pbr_model": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/01aba96d-5f13-4864-b9a7-93918b80bc5f/tripo_pbr_model_01aba96d-5f13-4864-b9a7-93918b80bc5f.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMDFhYmE5NmQtNWYxMy00ODY0LWI5YTctOTM5MThiODBiYzVmL3RyaXBvX3Bicl9tb2RlbF8wMWFiYTk2ZC01ZjEzLTQ4NjQtYjlhNy05MzkxOGI4MGJjNWYuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=f5JrXMJ5FJc-9QrU0PrH~cGD5IeDvze2t1VhZ0DHoYMvOdrdD92tseRCcVidWeVsiV7sO00BrXBTvnvJKkLNKobtvtqO1Y15tU94YhMMhgA9TUl2LkpMq5DJZ4bE8dLNMX1lE~PZVrsjhox7ZyXpqp2mGCo9jMK9AEgklDPD4ur6JQAXUbu3E3XLv65uv39cf1PunMXdBOUXV3Rvl4~AcjUN3jGwLAh8MOyC5reCiWm-j9yg5V73cV4RW4CVlPbOMndcOcXMzTnF~xpzAg9Uos3iEi~OOgnPfu1xZCbajOC~9amf5esRjhb1Cd~pEeWQUm2lY2GnbsoFTSaKN0wvDg__",
+    "generated_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/01aba96d-5f13-4864-b9a7-93918b80bc5f/text2image_01aba96d-5f13-4864-b9a7-93918b80bc5f.jpeg?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMDFhYmE5NmQtNWYxMy00ODY0LWI5YTctOTM5MThiODBiYzVmL3RleHQyaW1hZ2VfMDFhYmE5NmQtNWYxMy00ODY0LWI5YTctOTM5MThiODBiYzVmLmpwZWciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=qiXyZqk5fVzaPfYGxDWuHXEmbt71xZfDboPxC8TPXFZMFrHJfZApmZENMeKA9ow20tJ~u9RrCrKvVeTnfRIIqpFH5vNcaVFZPDwQh~S5e7cXmtY60tOpks7qzzFweOBxn1fEqQppr7JzVkq1hA39Je0LhTYDg6uXtGGj6AxbqVYxeYsEJWW9zV-R8wrAqoa0ZWrJiwIsGPXTbqt6-8wrfkEPLx~kSGDAIBAc0SejWEUTtllR6Myl7INPpDpWmcdeMecI9hYGiwa9-YFgp5S7IOOFyN9jE046B-d8IIpK7vGf2DY-kRJqHXXfAL0bpyQ3qo~HNnlCe~qrRHt1SJJpPw__",
+    "rendered_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/01aba96d-5f13-4864-b9a7-93918b80bc5f/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMDFhYmE5NmQtNWYxMy00ODY0LWI5YTctOTM5MThiODBiYzVmL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=XFvNkax8ZMHR6pE12aVBCVszw8CZ0WTjae6oiHJ0UxT-MQJeoQGDFay9~K~U-vRd8Jg5rVKZdIQW47sAkp3eTRVq26KT7LZzNtbbgiroRyBpD4ZyiRYadFVWypjrUf1hnW8mif4rgyyAwS1qFiwmAQmtfzNkuq9~22GoBKBfoxd3pF4xz8eb3w~dcrBNTPdfth9amMaz~D4NbXuXgQFMdBHDJo5FjkRUiOVYVtWQ4E9BzIUXrFO-vnjhdX321hlfJ3A6GC39xoRiNL77Nfw2~3cYgVcn3Fan-bzULAIfCdCvAGgHIlCqrYJayQmLHueK~KVge0hqFyaaQGJDcrzaQg__"
+  },
+  "progress": 100,
+  "create_time": 1785018357,
+  "consumed_credit": 50,
+  "prompt": "ornate brass pocket hourglass charm, golden sand suspended mid-fall, clockwork gears set into the frame, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+  "thumbnail": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/01aba96d-5f13-4864-b9a7-93918b80bc5f/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMDFhYmE5NmQtNWYxMy00ODY0LWI5YTctOTM5MThiODBiYzVmL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=XFvNkax8ZMHR6pE12aVBCVszw8CZ0WTjae6oiHJ0UxT-MQJeoQGDFay9~K~U-vRd8Jg5rVKZdIQW47sAkp3eTRVq26KT7LZzNtbbgiroRyBpD4ZyiRYadFVWypjrUf1hnW8mif4rgyyAwS1qFiwmAQmtfzNkuq9~22GoBKBfoxd3pF4xz8eb3w~dcrBNTPdfth9amMaz~D4NbXuXgQFMdBHDJo5FjkRUiOVYVtWQ4E9BzIUXrFO-vnjhdX321hlfJ3A6GC39xoRiNL77Nfw2~3cYgVcn3Fan-bzULAIfCdCvAGgHIlCqrYJayQmLHueK~KVge0hqFyaaQGJDcrzaQg__",
+  "queuing_num": -1,
+  "running_left_time": -1,
+  "result": {
+    "pbr_model": {
+      "type": "glb",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/01aba96d-5f13-4864-b9a7-93918b80bc5f/tripo_pbr_model_01aba96d-5f13-4864-b9a7-93918b80bc5f.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMDFhYmE5NmQtNWYxMy00ODY0LWI5YTctOTM5MThiODBiYzVmL3RyaXBvX3Bicl9tb2RlbF8wMWFiYTk2ZC01ZjEzLTQ4NjQtYjlhNy05MzkxOGI4MGJjNWYuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=f5JrXMJ5FJc-9QrU0PrH~cGD5IeDvze2t1VhZ0DHoYMvOdrdD92tseRCcVidWeVsiV7sO00BrXBTvnvJKkLNKobtvtqO1Y15tU94YhMMhgA9TUl2LkpMq5DJZ4bE8dLNMX1lE~PZVrsjhox7ZyXpqp2mGCo9jMK9AEgklDPD4ur6JQAXUbu3E3XLv65uv39cf1PunMXdBOUXV3Rvl4~AcjUN3jGwLAh8MOyC5reCiWm-j9yg5V73cV4RW4CVlPbOMndcOcXMzTnF~xpzAg9Uos3iEi~OOgnPfu1xZCbajOC~9amf5esRjhb1Cd~pEeWQUm2lY2GnbsoFTSaKN0wvDg__"
+    },
+    "rendered_image": {
+      "type": "webp",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/01aba96d-5f13-4864-b9a7-93918b80bc5f/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMDFhYmE5NmQtNWYxMy00ODY0LWI5YTctOTM5MThiODBiYzVmL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=XFvNkax8ZMHR6pE12aVBCVszw8CZ0WTjae6oiHJ0UxT-MQJeoQGDFay9~K~U-vRd8Jg5rVKZdIQW47sAkp3eTRVq26KT7LZzNtbbgiroRyBpD4ZyiRYadFVWypjrUf1hnW8mif4rgyyAwS1qFiwmAQmtfzNkuq9~22GoBKBfoxd3pF4xz8eb3w~dcrBNTPdfth9amMaz~D4NbXuXgQFMdBHDJo5FjkRUiOVYVtWQ4E9BzIUXrFO-vnjhdX321hlfJ3A6GC39xoRiNL77Nfw2~3cYgVcn3Fan-bzULAIfCdCvAGgHIlCqrYJayQmLHueK~KVge0hqFyaaQGJDcrzaQg__"
+    }
+  }
+}

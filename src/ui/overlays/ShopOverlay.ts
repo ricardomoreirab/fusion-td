@@ -3,6 +3,7 @@ import { makeButton } from '../primitives/Button';
 import { el } from '../dom';
 import { onTap } from '../interaction';
 import { iconEl, glyphEl } from '../icons';
+import { itemArtEl } from '../itemArt';
 import { ItemDef, RARITY_COLOR } from '../../survivors/items/ItemTypes';
 import { GRIBBLE_NAME } from '../../survivors/shop/GribbleBarks';
 import { SLOT_LABEL } from './slotMeta';
@@ -174,7 +175,7 @@ export class ShopOverlay {
         root.style.setProperty('--accent', RARITY_COLOR[card.def.rarity]);
         root.append(
             el('div', { class: 'shop-card__kind', text: `${card.def.rarity} · ${SLOT_LABEL[card.def.slot]}` }),
-            el('div', { class: 'shop-card__emblem' }, [glyphEl(card.def.glyph)]),
+            el('div', { class: 'shop-card__emblem' }, [itemArtEl(card.def.id, card.def.glyph, card.def.name)]),
             el('div', { class: 'shop-card__name', text: card.def.name }),
         );
         if (card.itemLevel > 0) {

@@ -6,7 +6,8 @@ import { RunItems, ItemId } from '../../survivors/RunItems';
 import { el } from '../dom';
 import { makeMeter, MeterController } from '../primitives/Meter';
 import { makeIconSlot, IconSlotController } from '../primitives/IconSlot';
-import { iconEl, iconForGlyph, IconName, setIcon } from '../icons';
+import { iconEl, IconName, setIcon } from '../icons';
+import { itemArtEl } from '../itemArt';
 import { elementColor, elementIcon, POWER_ICON, TIER_COLOR, TIER_ICON } from '../elementMeta';
 import { flashClass, onTap } from '../interaction';
 import {
@@ -518,7 +519,9 @@ export class Hud {
       cell.style.setProperty('--accent', filled && s.rarity ? RARITY_COLOR[s.rarity] : '#8a6d35');
       const glyph = cell.firstElementChild;
       if (glyph) {
-        glyph.replaceChildren(iconEl(s.glyph ? iconForGlyph(s.glyph) : SLOT_ICON[s.slot]));
+        glyph.replaceChildren(s.glyph
+          ? itemArtEl(s.id, s.glyph, s.name ?? '')
+          : iconEl(SLOT_ICON[s.slot]));
       }
       cell.title = filled ? `${s.name}` : `${s.slot} (empty)`;
     }

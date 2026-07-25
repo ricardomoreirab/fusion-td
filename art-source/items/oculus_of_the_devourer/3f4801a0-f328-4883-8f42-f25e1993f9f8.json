@@ -1,0 +1,38 @@
+{
+  "task_id": "3f4801a0-f328-4883-8f42-f25e1993f9f8",
+  "type": "text_to_model",
+  "status": "success",
+  "input": {
+    "prompt": "floating dark orb containing a single vast open eye with a purple iris, ringed by small orbiting shards, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+    "negative_prompt": "text, watermark, logo, ground plane, base, pedestal, stand, mannequin, multiple objects, human figure, hands, scene, background",
+    "model_version": "v3.1-20260211",
+    "texture": true,
+    "pbr": true,
+    "texture_quality": "detailed",
+    "texture_alignment": "geometry",
+    "export_uv": true,
+    "geometry_quality": "detailed"
+  },
+  "output": {
+    "pbr_model": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/3f4801a0-f328-4883-8f42-f25e1993f9f8/tripo_pbr_model_3f4801a0-f328-4883-8f42-f25e1993f9f8.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvM2Y0ODAxYTAtZjMyOC00ODgzLThmNDItZjI1ZTE5OTNmOWY4L3RyaXBvX3Bicl9tb2RlbF8zZjQ4MDFhMC1mMzI4LTQ4ODMtOGY0Mi1mMjVlMTk5M2Y5ZjguZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=SYmKFSVvbV69UV~Ib6eKK0zhWXu2VewIs~H847IHni1GoifZPbF3rw9HG1UQrRpPSQaVKt851f4uqocZPvs6470l5OAgoajyeBNCJEWtlHQWR073bEpdqc86IiN2DBlUhaDxprZmoBY0YDkJLfzeyKoLA6wzVDLi0F-8HZJu8Srq3txLEu~AtUwDhXh81FVyf~acoUNUbajwaVW9fUuOWS9a9hR9Ro9pmMWxYb9KbVHLLrrWw0vtrOd9S94zQQUGKWLYb4-pS8eFVfu9MmNTvO88t3njOP6nUtl0BU5ZNNoKwgHbz-5GDaA9BgTeQfh2NfNlVHbJZDMGLbww3zqRDg__",
+    "generated_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/3f4801a0-f328-4883-8f42-f25e1993f9f8/text2image_3f4801a0-f328-4883-8f42-f25e1993f9f8.jpeg?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvM2Y0ODAxYTAtZjMyOC00ODgzLThmNDItZjI1ZTE5OTNmOWY4L3RleHQyaW1hZ2VfM2Y0ODAxYTAtZjMyOC00ODgzLThmNDItZjI1ZTE5OTNmOWY4LmpwZWciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=S~WCUXX9N7N-DcmbK6akDoqVXhP0B2O7Z4tHqmosIbbqw-HRFejhz8BxqPCiMS7mXzXFYIKJPpXzWjXOiMrSSlmQEBpeIhbpjCC0u4rqIV2~f00yl1XulbXuuGSfU8x29UjpogSWtm-SSrP8lM42S8vVUL1X4jV5qUWjI24awl~Ofvwc7kVuWz2nCqlIPNMdHjuGxwoQ0XbbXWduUY2NnGlNsKCp7FPG5iUwzgeP9xqSGgRqB4c-BLGgo1wpMwCk8tABKrA07YWa2CzaB5ck-iiOjHlHlMm7oSL7JNw4CsNShGx-dioBlu01APWinpyIuUzL8RExUxwSkZQ28SnTHg__",
+    "rendered_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/3f4801a0-f328-4883-8f42-f25e1993f9f8/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvM2Y0ODAxYTAtZjMyOC00ODgzLThmNDItZjI1ZTE5OTNmOWY4L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=hodp055A5gL6FIF6UjPs6rFNFLLAZ-tDmCjCpugoymtYSDOWbU7dgNYJ5CyDLVo5wufZAXtRyTaa98x8XlgkMDcXcVeqtdefCrX7TacfFQlCsdRnaiKKQPxdsC4v135lYBbVJrTLY4ugkim~O0KL4WNwcsr01O~NmhlMVGhTon1Iiclqye2~oDWSOaQybt67MCq36sP29WU5QVFDmMBWJGf6t9ij1yl4Z47EzCMT8ADLG639p92P4PbXS4eakAYnKKguAWdYkyq4Hp90lw43FWoWddL7MEXSCkJ1M1QxySCc4h~abt6lkAwYDTsMHtgz0uTElTOlI-LdKE5CnUYOmA__"
+  },
+  "progress": 100,
+  "create_time": 1785017923,
+  "consumed_credit": 50,
+  "prompt": "floating dark orb containing a single vast open eye with a purple iris, ringed by small orbiting shards, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+  "thumbnail": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/3f4801a0-f328-4883-8f42-f25e1993f9f8/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvM2Y0ODAxYTAtZjMyOC00ODgzLThmNDItZjI1ZTE5OTNmOWY4L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=hodp055A5gL6FIF6UjPs6rFNFLLAZ-tDmCjCpugoymtYSDOWbU7dgNYJ5CyDLVo5wufZAXtRyTaa98x8XlgkMDcXcVeqtdefCrX7TacfFQlCsdRnaiKKQPxdsC4v135lYBbVJrTLY4ugkim~O0KL4WNwcsr01O~NmhlMVGhTon1Iiclqye2~oDWSOaQybt67MCq36sP29WU5QVFDmMBWJGf6t9ij1yl4Z47EzCMT8ADLG639p92P4PbXS4eakAYnKKguAWdYkyq4Hp90lw43FWoWddL7MEXSCkJ1M1QxySCc4h~abt6lkAwYDTsMHtgz0uTElTOlI-LdKE5CnUYOmA__",
+  "queuing_num": -1,
+  "running_left_time": -1,
+  "result": {
+    "pbr_model": {
+      "type": "glb",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/3f4801a0-f328-4883-8f42-f25e1993f9f8/tripo_pbr_model_3f4801a0-f328-4883-8f42-f25e1993f9f8.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvM2Y0ODAxYTAtZjMyOC00ODgzLThmNDItZjI1ZTE5OTNmOWY4L3RyaXBvX3Bicl9tb2RlbF8zZjQ4MDFhMC1mMzI4LTQ4ODMtOGY0Mi1mMjVlMTk5M2Y5ZjguZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=SYmKFSVvbV69UV~Ib6eKK0zhWXu2VewIs~H847IHni1GoifZPbF3rw9HG1UQrRpPSQaVKt851f4uqocZPvs6470l5OAgoajyeBNCJEWtlHQWR073bEpdqc86IiN2DBlUhaDxprZmoBY0YDkJLfzeyKoLA6wzVDLi0F-8HZJu8Srq3txLEu~AtUwDhXh81FVyf~acoUNUbajwaVW9fUuOWS9a9hR9Ro9pmMWxYb9KbVHLLrrWw0vtrOd9S94zQQUGKWLYb4-pS8eFVfu9MmNTvO88t3njOP6nUtl0BU5ZNNoKwgHbz-5GDaA9BgTeQfh2NfNlVHbJZDMGLbww3zqRDg__"
+    },
+    "rendered_image": {
+      "type": "webp",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/3f4801a0-f328-4883-8f42-f25e1993f9f8/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvM2Y0ODAxYTAtZjMyOC00ODgzLThmNDItZjI1ZTE5OTNmOWY4L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=hodp055A5gL6FIF6UjPs6rFNFLLAZ-tDmCjCpugoymtYSDOWbU7dgNYJ5CyDLVo5wufZAXtRyTaa98x8XlgkMDcXcVeqtdefCrX7TacfFQlCsdRnaiKKQPxdsC4v135lYBbVJrTLY4ugkim~O0KL4WNwcsr01O~NmhlMVGhTon1Iiclqye2~oDWSOaQybt67MCq36sP29WU5QVFDmMBWJGf6t9ij1yl4Z47EzCMT8ADLG639p92P4PbXS4eakAYnKKguAWdYkyq4Hp90lw43FWoWddL7MEXSCkJ1M1QxySCc4h~abt6lkAwYDTsMHtgz0uTElTOlI-LdKE5CnUYOmA__"
+    }
+  }
+}

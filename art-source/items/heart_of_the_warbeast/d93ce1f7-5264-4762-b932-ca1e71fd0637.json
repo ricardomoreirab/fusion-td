@@ -1,0 +1,38 @@
+{
+  "task_id": "d93ce1f7-5264-4762-b932-ca1e71fd0637",
+  "type": "text_to_model",
+  "status": "success",
+  "input": {
+    "prompt": "a still-beating armored beast heart caged in riveted iron bands, red glow between the bars, sinew and chain, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+    "negative_prompt": "text, watermark, logo, ground plane, base, pedestal, stand, mannequin, multiple objects, human figure, hands, scene, background",
+    "model_version": "v3.1-20260211",
+    "texture": true,
+    "pbr": true,
+    "texture_quality": "detailed",
+    "texture_alignment": "geometry",
+    "export_uv": true,
+    "geometry_quality": "detailed"
+  },
+  "output": {
+    "pbr_model": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/d93ce1f7-5264-4762-b932-ca1e71fd0637/tripo_pbr_model_d93ce1f7-5264-4762-b932-ca1e71fd0637.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZDkzY2UxZjctNTI2NC00NzYyLWI5MzItY2ExZTcxZmQwNjM3L3RyaXBvX3Bicl9tb2RlbF9kOTNjZTFmNy01MjY0LTQ3NjItYjkzMi1jYTFlNzFmZDA2MzcuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=HYlodM8H3YLPA8OLdZSq6cSbwY1NwTF5WH4WK1ATdNJAfORKAcHe99IxMkbwTEhnm~n6FZTlVKI~Ye2f6O2CM3~6T0cFyX5rBeluPLtvpY~U3blSHaod1KgPojzNIB5F8Tpb-KRMmtuz0YdQY0O3ilc4kJ0Kbr7KhvAH2ldwU1wQ1QAbLpDrdxIJLRDkknipv0DGDMZU-GjinFqrDV4TXnQbf6LtlxKk2WX8G0f6~Vy8gg6iCDc5bvSID5oGO256ml6Vw1LeHp6HKEypAxmA-eL49B8He~qeNBg7y5W17fj6OSsj9Bb8zoauIeoiD2ArjDE9KJu4D0WZ3j4oO4IiWQ__",
+    "generated_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/d93ce1f7-5264-4762-b932-ca1e71fd0637/text2image_d93ce1f7-5264-4762-b932-ca1e71fd0637.jpeg?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZDkzY2UxZjctNTI2NC00NzYyLWI5MzItY2ExZTcxZmQwNjM3L3RleHQyaW1hZ2VfZDkzY2UxZjctNTI2NC00NzYyLWI5MzItY2ExZTcxZmQwNjM3LmpwZWciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=WhiJ7QdkJrxa1o2Wlfuho7Ie5PT41W4nWI3xyV1jF1~8lGy2LzHbfiSZN3OQhDIWxD4t9-Ddun6RtRwqy5zqJL~YlsYdr8nfizmnHcy2fXGLJPufD-OPf8icqCVUPsanMMuhgkPqoFny9M2Acw4gkAzSsCK974vWASor6SgSV~zfPoUS3UHJuzDDgDCDcYsojLAv2VhgrtJdfDFEXCGZmIwnJQl4RLdBBx976RIZXDMEJ1qiK5GDt0ixEi~jcoi7o2fCLEC9mbNTpzq5awWbckBpJ6TxDiCz6pZUL8ahHRWHy5oWVrmfuam8kSEYoTVXtgZqoS3V8ZkcVdERuFtNFA__",
+    "rendered_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/d93ce1f7-5264-4762-b932-ca1e71fd0637/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZDkzY2UxZjctNTI2NC00NzYyLWI5MzItY2ExZTcxZmQwNjM3L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=TTf6yJjAIWqyJJV8QLAhRpicY4XiDgQasvAtOeCGnzoNf45iUm7kgF43YPyC2Aw41EgHyPjjUhp2WkHx5imG~uFimVqJV4lcURuxbmrm-7zKkENXIAYYIYIk~F1KcpcRObJZ3mBcEOEXvUwrc38fxuXocW~Ub~3lzukiPqq5cefxolB8RBJX2XD4pNFzlQreLHVFoHZAnW1PXgzGga5qnYx9ZTL4ZjGMvhhmNliM6surGLcSxCoEOoS5hoxvhSFli3P~IackTp-YkjhbXLmpB0cSPTyUB308amjBII6gcHOSy-bTMkVlBnfh4fpikEA3IstbevLJTw2V4QrkoCfmpw__"
+  },
+  "progress": 100,
+  "create_time": 1785017854,
+  "consumed_credit": 50,
+  "prompt": "a still-beating armored beast heart caged in riveted iron bands, red glow between the bars, sinew and chain, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+  "thumbnail": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/d93ce1f7-5264-4762-b932-ca1e71fd0637/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZDkzY2UxZjctNTI2NC00NzYyLWI5MzItY2ExZTcxZmQwNjM3L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=TTf6yJjAIWqyJJV8QLAhRpicY4XiDgQasvAtOeCGnzoNf45iUm7kgF43YPyC2Aw41EgHyPjjUhp2WkHx5imG~uFimVqJV4lcURuxbmrm-7zKkENXIAYYIYIk~F1KcpcRObJZ3mBcEOEXvUwrc38fxuXocW~Ub~3lzukiPqq5cefxolB8RBJX2XD4pNFzlQreLHVFoHZAnW1PXgzGga5qnYx9ZTL4ZjGMvhhmNliM6surGLcSxCoEOoS5hoxvhSFli3P~IackTp-YkjhbXLmpB0cSPTyUB308amjBII6gcHOSy-bTMkVlBnfh4fpikEA3IstbevLJTw2V4QrkoCfmpw__",
+  "queuing_num": -1,
+  "running_left_time": -1,
+  "result": {
+    "pbr_model": {
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/d93ce1f7-5264-4762-b932-ca1e71fd0637/tripo_pbr_model_d93ce1f7-5264-4762-b932-ca1e71fd0637.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZDkzY2UxZjctNTI2NC00NzYyLWI5MzItY2ExZTcxZmQwNjM3L3RyaXBvX3Bicl9tb2RlbF9kOTNjZTFmNy01MjY0LTQ3NjItYjkzMi1jYTFlNzFmZDA2MzcuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=HYlodM8H3YLPA8OLdZSq6cSbwY1NwTF5WH4WK1ATdNJAfORKAcHe99IxMkbwTEhnm~n6FZTlVKI~Ye2f6O2CM3~6T0cFyX5rBeluPLtvpY~U3blSHaod1KgPojzNIB5F8Tpb-KRMmtuz0YdQY0O3ilc4kJ0Kbr7KhvAH2ldwU1wQ1QAbLpDrdxIJLRDkknipv0DGDMZU-GjinFqrDV4TXnQbf6LtlxKk2WX8G0f6~Vy8gg6iCDc5bvSID5oGO256ml6Vw1LeHp6HKEypAxmA-eL49B8He~qeNBg7y5W17fj6OSsj9Bb8zoauIeoiD2ArjDE9KJu4D0WZ3j4oO4IiWQ__",
+      "type": "glb"
+    },
+    "rendered_image": {
+      "type": "webp",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/d93ce1f7-5264-4762-b932-ca1e71fd0637/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZDkzY2UxZjctNTI2NC00NzYyLWI5MzItY2ExZTcxZmQwNjM3L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=TTf6yJjAIWqyJJV8QLAhRpicY4XiDgQasvAtOeCGnzoNf45iUm7kgF43YPyC2Aw41EgHyPjjUhp2WkHx5imG~uFimVqJV4lcURuxbmrm-7zKkENXIAYYIYIk~F1KcpcRObJZ3mBcEOEXvUwrc38fxuXocW~Ub~3lzukiPqq5cefxolB8RBJX2XD4pNFzlQreLHVFoHZAnW1PXgzGga5qnYx9ZTL4ZjGMvhhmNliM6surGLcSxCoEOoS5hoxvhSFli3P~IackTp-YkjhbXLmpB0cSPTyUB308amjBII6gcHOSy-bTMkVlBnfh4fpikEA3IstbevLJTw2V4QrkoCfmpw__"
+    }
+  }
+}

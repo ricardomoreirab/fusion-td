@@ -1,0 +1,38 @@
+{
+  "task_id": "f6bd2fce-e72f-42dc-9e0f-ee5a99fcedbd",
+  "type": "text_to_model",
+  "status": "success",
+  "input": {
+    "prompt": "barbarian chest breastplate, heavy blood-red forged iron cuirass, hammered bronze rivets, deep scarred battle damage, thick leather strapping, coarse fur trim across the shoulders, chest piece only with hollow interior, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+    "negative_prompt": "text, watermark, logo, ground plane, base, pedestal, stand, mannequin, multiple objects, human figure, hands, scene, background",
+    "model_version": "v3.1-20260211",
+    "texture": true,
+    "pbr": true,
+    "texture_quality": "detailed",
+    "texture_alignment": "geometry",
+    "export_uv": true,
+    "geometry_quality": "detailed"
+  },
+  "output": {
+    "pbr_model": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/f6bd2fce-e72f-42dc-9e0f-ee5a99fcedbd/tripo_pbr_model_f6bd2fce-e72f-42dc-9e0f-ee5a99fcedbd.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZjZiZDJmY2UtZTcyZi00MmRjLTllMGYtZWU1YTk5ZmNlZGJkL3RyaXBvX3Bicl9tb2RlbF9mNmJkMmZjZS1lNzJmLTQyZGMtOWUwZi1lZTVhOTlmY2VkYmQuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=b~EYMCfVq6y83dEiFBCwvkGsrnLihnIKvh6saKIWqy1NEzzD6Qiqf-1R5M8Ak9VBYpy-UwevnjFbUj1PHe5hVupibkB29-CH2QHN1NUtVy7f5VwA~iswiokHakZej3s1KMRMUH-tHngVH-CtkdSvyV4KORYWwuLM~ogEAeUQfKhuqqeoswDMkVktIJERA84Sg5cC~7ZqoleBE3BnZrYQvMaNCcHrM-6zO0-OO46ER12ziCyKpEJXx8n4r3A8fD91~HqPXAGNxrn1kkwe1sy-5~qrjezuAUsELWEKjpfGfI455SwDmNz~jvfD8KVW6AqqtZEoEwDjPqAgtIfUUWL3~w__",
+    "generated_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/f6bd2fce-e72f-42dc-9e0f-ee5a99fcedbd/text2image_f6bd2fce-e72f-42dc-9e0f-ee5a99fcedbd.jpeg?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZjZiZDJmY2UtZTcyZi00MmRjLTllMGYtZWU1YTk5ZmNlZGJkL3RleHQyaW1hZ2VfZjZiZDJmY2UtZTcyZi00MmRjLTllMGYtZWU1YTk5ZmNlZGJkLmpwZWciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=G96sL3S4~xtRhoBHx8MeImxqIKj7m6w7WBBz-t79hVYqi7ywEqK2bbY0L9xT1GVWQ45WUnAeo42sJ4qAT9NVbBv3Bb7Ud-SdNT1hrhp0eeu-4kci8BIlAHvys17daJeTkYKs8h3kdJx9YEyw-hQIK3M6qbGkaiwmkaKG0JZHVjmcTPJe4yAZOPAR4BOTMBTnkDdh3JTwqNh-~KcbBKLAT55w1NBBrcH9~eOiSbK~H8xiPAr83KwDBjgTsB3f8wnP4gM1rYYkjFpEXeA2RyZEWTe3mZBAZaosrKDY1BXAM4wXma2EBXBjdG4PNoyeVboAwsWuV3nnjeldGde6RORjeg__",
+    "rendered_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/f6bd2fce-e72f-42dc-9e0f-ee5a99fcedbd/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZjZiZDJmY2UtZTcyZi00MmRjLTllMGYtZWU1YTk5ZmNlZGJkL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=BgRE1ytUu2b7OmR60A1t9QImx0kPnLzsAU1-VGPKvN5H2d25x3aPz3~2oK9SY4wsx3~Q21H~hzLexYw8VmjEtdcWlGEPTKHYLhvcbNARSqxOCwZ5umrMU~D0DotcDqP2UfAZDLfOV7Lx0qG3kMlMSQfm8SiuB4CTy-rt0uv9E7qMu41FSSeUGVaw5YzBz~u92CyQUQ6EMDrIaLXb1mGV-Sf6R1mC2n15YFdHSQ6ViasdiXoQL3D5WIM~9qh0SmTDrlCi8hmLKo09navaN2sLAg~~LRhHooIv1Q28Tnb21ZyKU9x6kOIuRA4ojpSRH1OoMtBAzVMcbkTqEFHMeVtIDg__"
+  },
+  "progress": 100,
+  "create_time": 1785017253,
+  "consumed_credit": 50,
+  "prompt": "barbarian chest breastplate, heavy blood-red forged iron cuirass, hammered bronze rivets, deep scarred battle damage, thick leather strapping, coarse fur trim across the shoulders, chest piece only with hollow interior, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+  "thumbnail": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/f6bd2fce-e72f-42dc-9e0f-ee5a99fcedbd/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZjZiZDJmY2UtZTcyZi00MmRjLTllMGYtZWU1YTk5ZmNlZGJkL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=BgRE1ytUu2b7OmR60A1t9QImx0kPnLzsAU1-VGPKvN5H2d25x3aPz3~2oK9SY4wsx3~Q21H~hzLexYw8VmjEtdcWlGEPTKHYLhvcbNARSqxOCwZ5umrMU~D0DotcDqP2UfAZDLfOV7Lx0qG3kMlMSQfm8SiuB4CTy-rt0uv9E7qMu41FSSeUGVaw5YzBz~u92CyQUQ6EMDrIaLXb1mGV-Sf6R1mC2n15YFdHSQ6ViasdiXoQL3D5WIM~9qh0SmTDrlCi8hmLKo09navaN2sLAg~~LRhHooIv1Q28Tnb21ZyKU9x6kOIuRA4ojpSRH1OoMtBAzVMcbkTqEFHMeVtIDg__",
+  "queuing_num": -1,
+  "running_left_time": -1,
+  "result": {
+    "pbr_model": {
+      "type": "glb",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/f6bd2fce-e72f-42dc-9e0f-ee5a99fcedbd/tripo_pbr_model_f6bd2fce-e72f-42dc-9e0f-ee5a99fcedbd.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZjZiZDJmY2UtZTcyZi00MmRjLTllMGYtZWU1YTk5ZmNlZGJkL3RyaXBvX3Bicl9tb2RlbF9mNmJkMmZjZS1lNzJmLTQyZGMtOWUwZi1lZTVhOTlmY2VkYmQuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=b~EYMCfVq6y83dEiFBCwvkGsrnLihnIKvh6saKIWqy1NEzzD6Qiqf-1R5M8Ak9VBYpy-UwevnjFbUj1PHe5hVupibkB29-CH2QHN1NUtVy7f5VwA~iswiokHakZej3s1KMRMUH-tHngVH-CtkdSvyV4KORYWwuLM~ogEAeUQfKhuqqeoswDMkVktIJERA84Sg5cC~7ZqoleBE3BnZrYQvMaNCcHrM-6zO0-OO46ER12ziCyKpEJXx8n4r3A8fD91~HqPXAGNxrn1kkwe1sy-5~qrjezuAUsELWEKjpfGfI455SwDmNz~jvfD8KVW6AqqtZEoEwDjPqAgtIfUUWL3~w__"
+    },
+    "rendered_image": {
+      "type": "webp",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/f6bd2fce-e72f-42dc-9e0f-ee5a99fcedbd/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZjZiZDJmY2UtZTcyZi00MmRjLTllMGYtZWU1YTk5ZmNlZGJkL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=BgRE1ytUu2b7OmR60A1t9QImx0kPnLzsAU1-VGPKvN5H2d25x3aPz3~2oK9SY4wsx3~Q21H~hzLexYw8VmjEtdcWlGEPTKHYLhvcbNARSqxOCwZ5umrMU~D0DotcDqP2UfAZDLfOV7Lx0qG3kMlMSQfm8SiuB4CTy-rt0uv9E7qMu41FSSeUGVaw5YzBz~u92CyQUQ6EMDrIaLXb1mGV-Sf6R1mC2n15YFdHSQ6ViasdiXoQL3D5WIM~9qh0SmTDrlCi8hmLKo09navaN2sLAg~~LRhHooIv1Q28Tnb21ZyKU9x6kOIuRA4ojpSRH1OoMtBAzVMcbkTqEFHMeVtIDg__"
+    }
+  }
+}
