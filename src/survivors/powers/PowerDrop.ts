@@ -50,8 +50,12 @@ export class PowerDrop {
         this.mesh = createSphere('powerOrb_' + element, { diameter: 0.7, segments: 5 }, scene);
         this.mesh.position.copy(position);
         this.mesh.position.y = 0.7;
+        // Emissive is authored ABOVE 1 on purpose: the chain is HDR and the bloom
+        // pass only lifts what clears its luminance threshold, so "this glows" is
+        // expressed as over-range emissive rather than by tagging the mesh into a
+        // second, selective bloom pass (see RendererHost).
         this.mesh.material = getCachedMaterial('powerOrbMat_' + element, m => {
-            m.emissive.copy(col);
+            m.emissive.copy(col).multiplyScalar(2.6);
         });
         markGlowing(this.mesh);
 
@@ -59,7 +63,7 @@ export class PowerDrop {
         this.ring = createTorus('powerOrbRing_' + element, { diameter: 1.1, thickness: 0.06, tessellation: 24 });
         this.ring.rotation.x = Math.PI / 2.6;
         this.ring.material = getCachedMaterial('powerOrbRingMat_' + element, m => {
-            m.emissive.copy(col).multiplyScalar(1.4);
+            m.emissive.copy(col).multiplyScalar(3.0);
             m.color.set(0, 0, 0);
         });
         markGlowing(this.ring);
@@ -71,7 +75,7 @@ export class PowerDrop {
             { diameterTop: 0.16, diameterBottom: 0.34, height: 3.6, tessellation: 8 });
         beacon.position.y = 1.6;
         beacon.material = getCachedMaterial('powerOrbBeaconMat_' + element, m => {
-            m.emissive.copy(col).multiplyScalar(1.1);
+            m.emissive.copy(col).multiplyScalar(2.4);
             m.color.set(0, 0, 0);
             m.transparent = true;
             m.opacity = 0.42;

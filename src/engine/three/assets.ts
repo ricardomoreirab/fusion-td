@@ -23,11 +23,33 @@ import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js
 import { AnimGroup } from './AnimGroup';
 import type { SceneHost, UpdateToken } from './SceneHost';
 
+/**
+ * Per-instance animation budget tier.
+ *   full    - mixer.update every frame (on-screen entities).
+ *   reduced - mixer.update at REDUCED_ANIM_HZ, folding the skipped frames into
+ *             one larger step so the clip never drifts out of phase.
+ *   off     - frozen pose; the elapsed time is still carried so resuming does
+ *             not lose the clip's position.
+ */
+export type AnimationLod = 'full' | 'reduced' | 'off';
+
+/** Update rate of the `reduced` tier. Off-screen skeletons are never sampled by
+ *  the renderer, so their only visible artefact is the pose they resume on. */
+const REDUCED_ANIM_HZ = 10;
+const REDUCED_ANIM_STEP = 1 / REDUCED_ANIM_HZ;
+
 export interface ContainerInstance {
     /** Cloned model root - parent this wherever the entity lives. */
     root: Group;
     animationGroups: AnimGroup[];
     mixer: AnimationMixer;
+    /**
+     * Throttle this instance's skeleton evaluation. At horde scale mixer.update
+     * is the dominant per-entity CPU cost and it runs regardless of visibility -
+     * the renderer's frustum culling only skips DRAWING, never posing. Owners
+     * that know an entity is off-screen should drop it to 'reduced'.
+     */
+    setAnimationLod(lod: AnimationLod): void;
     dispose(): void;
 }
 
@@ -64,13 +86,23 @@ export class GlbContainer {
 
         const mixer = new AnimationMixer(root);
         const animationGroups = this.gltf.animations.map(clip => new AnimGroup(mixer, clip));
-        const tickToken: UpdateToken = host.onAnimUpdate.add(h => mixer.update(h.deltaSeconds));
+
+        let lod: AnimationLod = 'full';
+        let carried = 0;
+        const tickToken: UpdateToken = host.onAnimUpdate.add(h => {
+            carried += h.deltaSeconds;
+            if (lod === 'off') return;
+            if (lod === 'reduced' && carried < REDUCED_ANIM_STEP) return;
+            mixer.update(carried);
+            carried = 0;
+        });
 
         let disposed = false;
         return {
             root,
             animationGroups,
             mixer,
+            setAnimationLod: (next: AnimationLod) => { lod = next; },
             dispose: () => {
                 if (disposed) return;
                 disposed = true;

@@ -91,6 +91,16 @@ class UpdateBus {
 export class SceneHost {
     public readonly scene = new Scene();
 
+    constructor() {
+        // THREE refreshes world matrices at the top of EVERY renderer.render()
+        // call. The post-processing chain issues several per displayed frame, so
+        // the whole graph (thousands of nodes once a horde is on the field) was
+        // being walked and re-multiplied that many times for one image. Own the
+        // pass instead: tick() runs it exactly once, at the same point in the
+        // frame THREE would have.
+        this.scene.matrixWorldAutoUpdate = false;
+    }
+
     /** Seconds elapsed since the previous tick - Babylon's engine.getDeltaTime()/1000. */
     public deltaSeconds = 0;
 
@@ -128,6 +138,12 @@ export class SceneHost {
         if (this._particlesNeedCompact) {
             this._compactParticleSystems();
         }
+
+        // The single world-matrix pass for this frame (see the constructor).
+        // Deliberately LAST: this is exactly where THREE used to run it - at the
+        // top of the first render() - so everything that reads a world matrix
+        // sees the same values it saw before.
+        this.scene.updateMatrixWorld();
     }
 
     public registerParticleSystem(ps: SceneParticleSystem): void {
