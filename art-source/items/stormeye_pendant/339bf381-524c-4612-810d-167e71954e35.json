@@ -1,0 +1,38 @@
+{
+  "task_id": "339bf381-524c-4612-810d-167e71954e35",
+  "type": "text_to_model",
+  "status": "success",
+  "input": {
+    "prompt": "silver pendant holding a swirling storm-cloud gem with a bright lightning eye at its centre, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+    "negative_prompt": "text, watermark, logo, ground plane, base, pedestal, stand, mannequin, multiple objects, human figure, hands, scene, background",
+    "model_version": "v3.1-20260211",
+    "texture": true,
+    "pbr": true,
+    "texture_quality": "detailed",
+    "texture_alignment": "geometry",
+    "export_uv": true,
+    "geometry_quality": "detailed"
+  },
+  "output": {
+    "pbr_model": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/339bf381-524c-4612-810d-167e71954e35/tripo_pbr_model_339bf381-524c-4612-810d-167e71954e35.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMzM5YmYzODEtNTI0Yy00NjEyLTgxMGQtMTY3ZTcxOTU0ZTM1L3RyaXBvX3Bicl9tb2RlbF8zMzliZjM4MS01MjRjLTQ2MTItODEwZC0xNjdlNzE5NTRlMzUuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=PZ18LpYpwipqwM-m0ZF~cUkM7ueHGrp5UsJEq-~uTHdwrQcgn7YQR~mgPgozXa98McTCEx-sRSPiWQuXF1SxuhzNy6RhRhk9Howw-O7EVd4VCmyJJYB6d2R1b588CA5BwCCXtfQH04~6Rg4V8y9Ugp41DWNBxslab1ZDpyaWn~h2LnZ5UF5GUM53G2aMbdfWTXsLwrgprFg5t0UwCEd3kC9WxHjge75Kt19a4vCSs4F1YC8Q4poa57~EgCKIp33t5CI0z-hlS5drz5iQ6iJpbuNG0QOgzcwZPtvvnerHLOM~7BYLxMDISJ-T8FToDYzk1NZaGbmOvgGqOsJc65EYMA__",
+    "generated_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/339bf381-524c-4612-810d-167e71954e35/text2image_339bf381-524c-4612-810d-167e71954e35.jpeg?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMzM5YmYzODEtNTI0Yy00NjEyLTgxMGQtMTY3ZTcxOTU0ZTM1L3RleHQyaW1hZ2VfMzM5YmYzODEtNTI0Yy00NjEyLTgxMGQtMTY3ZTcxOTU0ZTM1LmpwZWciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=eM6GIW6R2UXJAxHw0FfO4FivdZAQ46aPb7sw78Jfa1SuFhdq-d~NENAMFTuiOPycLlJxZHh~nWNL-aqZDNO3LcSrT~dY5Drc9ibJF20XH~WIB6xwkOPs4ASk1ypzKYQ2WoqWOErlH8RIbPlreRrY-7-iRhPwDWUFFxknYgDGTaAjCD6IykGF2V-9M9boNQm~ZBpxMmNHmF1EGv0hJyUgzUA2yPWsBKBh7GBC8wfwGGLKza1LynqMLNm~PG07rN63d8iN-b2aW8pJ9sxOTmSLR9U6IgBev-m2RBHEOc0eu2aSJ5JVu5okvDPisG4cPNgLSAhI9truGJgeU~rrTAc2wA__",
+    "rendered_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/339bf381-524c-4612-810d-167e71954e35/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMzM5YmYzODEtNTI0Yy00NjEyLTgxMGQtMTY3ZTcxOTU0ZTM1L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=ZbSZIHKqDpDt-kaVENjaDWqEdSu~fj6ZCBkpnEErVl82SyCnrninI75AzvVU65gp1ATAz2uclcDSXe4AzehyWlBdQSHHOLd0-~QtSfIBm7VlD9ect-omrvjz-1pWO1zLF836eMe1aIl0DEd9eiunf42rnYj1ZYqd-T9Osbp5Z94uDhpTitykvVeXVmaj-R62rQ~iEVTdyjoXHf9E2gVWXl~QYzT1Sjf1xUrJmuKrEeWWMv8aBD2~hHj85DZwn8dqQppNTZfYXteyBoWxAzk-bwTEAHfpCXq4uFj3RIs~qvU9pHiWWH33oI~B5nNBBY5u1USi184tABEAYBqLy7bNiQ__"
+  },
+  "progress": 100,
+  "create_time": 1785018165,
+  "consumed_credit": 50,
+  "prompt": "silver pendant holding a swirling storm-cloud gem with a bright lightning eye at its centre, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+  "thumbnail": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/339bf381-524c-4612-810d-167e71954e35/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMzM5YmYzODEtNTI0Yy00NjEyLTgxMGQtMTY3ZTcxOTU0ZTM1L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=ZbSZIHKqDpDt-kaVENjaDWqEdSu~fj6ZCBkpnEErVl82SyCnrninI75AzvVU65gp1ATAz2uclcDSXe4AzehyWlBdQSHHOLd0-~QtSfIBm7VlD9ect-omrvjz-1pWO1zLF836eMe1aIl0DEd9eiunf42rnYj1ZYqd-T9Osbp5Z94uDhpTitykvVeXVmaj-R62rQ~iEVTdyjoXHf9E2gVWXl~QYzT1Sjf1xUrJmuKrEeWWMv8aBD2~hHj85DZwn8dqQppNTZfYXteyBoWxAzk-bwTEAHfpCXq4uFj3RIs~qvU9pHiWWH33oI~B5nNBBY5u1USi184tABEAYBqLy7bNiQ__",
+  "queuing_num": -1,
+  "running_left_time": -1,
+  "result": {
+    "pbr_model": {
+      "type": "glb",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/339bf381-524c-4612-810d-167e71954e35/tripo_pbr_model_339bf381-524c-4612-810d-167e71954e35.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMzM5YmYzODEtNTI0Yy00NjEyLTgxMGQtMTY3ZTcxOTU0ZTM1L3RyaXBvX3Bicl9tb2RlbF8zMzliZjM4MS01MjRjLTQ2MTItODEwZC0xNjdlNzE5NTRlMzUuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=PZ18LpYpwipqwM-m0ZF~cUkM7ueHGrp5UsJEq-~uTHdwrQcgn7YQR~mgPgozXa98McTCEx-sRSPiWQuXF1SxuhzNy6RhRhk9Howw-O7EVd4VCmyJJYB6d2R1b588CA5BwCCXtfQH04~6Rg4V8y9Ugp41DWNBxslab1ZDpyaWn~h2LnZ5UF5GUM53G2aMbdfWTXsLwrgprFg5t0UwCEd3kC9WxHjge75Kt19a4vCSs4F1YC8Q4poa57~EgCKIp33t5CI0z-hlS5drz5iQ6iJpbuNG0QOgzcwZPtvvnerHLOM~7BYLxMDISJ-T8FToDYzk1NZaGbmOvgGqOsJc65EYMA__"
+    },
+    "rendered_image": {
+      "type": "webp",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/339bf381-524c-4612-810d-167e71954e35/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMzM5YmYzODEtNTI0Yy00NjEyLTgxMGQtMTY3ZTcxOTU0ZTM1L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=ZbSZIHKqDpDt-kaVENjaDWqEdSu~fj6ZCBkpnEErVl82SyCnrninI75AzvVU65gp1ATAz2uclcDSXe4AzehyWlBdQSHHOLd0-~QtSfIBm7VlD9ect-omrvjz-1pWO1zLF836eMe1aIl0DEd9eiunf42rnYj1ZYqd-T9Osbp5Z94uDhpTitykvVeXVmaj-R62rQ~iEVTdyjoXHf9E2gVWXl~QYzT1Sjf1xUrJmuKrEeWWMv8aBD2~hHj85DZwn8dqQppNTZfYXteyBoWxAzk-bwTEAHfpCXq4uFj3RIs~qvU9pHiWWH33oI~B5nNBBY5u1USi184tABEAYBqLy7bNiQ__"
+    }
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "task_id": "b4ae38fb-fff7-4959-8a71-d610c42257f6",
+  "type": "text_to_model",
+  "status": "success",
+  "input": {
+    "prompt": "flowing dark cosmic mage leggings, drifting nebula patterns, small orbiting rune motes, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+    "negative_prompt": "text, watermark, logo, ground plane, base, pedestal, stand, mannequin, multiple objects, human figure, hands, scene, background",
+    "model_version": "v3.1-20260211",
+    "texture": true,
+    "pbr": true,
+    "texture_quality": "detailed",
+    "texture_alignment": "geometry",
+    "export_uv": true,
+    "geometry_quality": "detailed"
+  },
+  "output": {
+    "pbr_model": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/b4ae38fb-fff7-4959-8a71-d610c42257f6/tripo_pbr_model_b4ae38fb-fff7-4959-8a71-d610c42257f6.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvYjRhZTM4ZmItZmZmNy00OTU5LThhNzEtZDYxMGM0MjI1N2Y2L3RyaXBvX3Bicl9tb2RlbF9iNGFlMzhmYi1mZmY3LTQ5NTktOGE3MS1kNjEwYzQyMjU3ZjYuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=ATBW5piJl61DcSPWMs6yRsobREf6sLXsWBBrZo1rhKOYCkXrOsUdIGXElRk7kpHsDF6nq5oH2y8SoWXOPr6KDKUZano6VFZeJItRuTXf3aWcy4uOdTiGVhqgbtnbwozDabaDusFH6-BRbu-AGek41cCz16FTdKkIfefvvT84jMTJRlM3tBbBM7slhHQD02qQpsQuw5VuJ2c16kURynw9B0mwqCBYdjahFDWBXd4q5gKbEBJwXGB-iY6EEcyHFITxQdGZnZHm6GJb8CV~7r1gEFzkBiKgU-~m2rRKeuRCBTCcHKDjeKfrLXCqKL4M7fjMqJk31PFvAYqiw5X4qE6HvQ__",
+    "generated_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/b4ae38fb-fff7-4959-8a71-d610c42257f6/text2image_b4ae38fb-fff7-4959-8a71-d610c42257f6.jpeg?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvYjRhZTM4ZmItZmZmNy00OTU5LThhNzEtZDYxMGM0MjI1N2Y2L3RleHQyaW1hZ2VfYjRhZTM4ZmItZmZmNy00OTU5LThhNzEtZDYxMGM0MjI1N2Y2LmpwZWciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=FQZKd5xiB58K1~4njIsZoLvXzc-n7kKcpkXuzyKyw6tW9GNXLhLMxAHncWPAah0-eHyl7CpFTR0u66OEDvGIASH-koHjCoNduUzXfQ7N1--mHoaQEoakvORlH8tgJEdodY9MRVP2sBWoShwz1zS2nMMWPCIYizFmT8JkqBPkg2HdIP8hlCfdL-5vgLTixBVvzBrr8AaPlTADwU89NZayHhMw6~d7-pprceokxNdtqYzJULLR6RidutBoWb5miYWYfewoPeDXD0KmJiNnk5o75BiTuDnczMz88VubY33v23zryaSrkjk-e0zaGnjlFrmAWcST3UoxgzMwbQFeFLVcLg__",
+    "rendered_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/b4ae38fb-fff7-4959-8a71-d610c42257f6/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvYjRhZTM4ZmItZmZmNy00OTU5LThhNzEtZDYxMGM0MjI1N2Y2L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=A941MlSVORP9VKs0S3ChpCLgc-Zj-ZvFQG4pxnYOcIKjouC1gcYDL9W9QtPX1ReUfcIyxfdXZm5R30yhQEPzMfuEckVk58U~SOLen3z-OxSAI3FkxJ6-RvPuEJRcKrIV7nF2cJkhYjgSkyuMKRmHWSkAIYlK6gYdYqjFbK2PF9RZL5s1lHlvG6qFhfmQvjqIbO2GUXa2c9yy46NPpMgxWe~zPjdSxdmsH45xur9uZAu3bwkCAXByigvJYIe5mg7AfPmKLbN3adbl1Rnk2TgggyInFmwXyeEVWkPpfemaKZfRiiyu6seuVpXIUOKiQKwuUf-4a5w0Cc9nIJgADrb~4g__"
+  },
+  "progress": 100,
+  "create_time": 1785017855,
+  "consumed_credit": 50,
+  "prompt": "flowing dark cosmic mage leggings, drifting nebula patterns, small orbiting rune motes, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+  "thumbnail": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/b4ae38fb-fff7-4959-8a71-d610c42257f6/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvYjRhZTM4ZmItZmZmNy00OTU5LThhNzEtZDYxMGM0MjI1N2Y2L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=A941MlSVORP9VKs0S3ChpCLgc-Zj-ZvFQG4pxnYOcIKjouC1gcYDL9W9QtPX1ReUfcIyxfdXZm5R30yhQEPzMfuEckVk58U~SOLen3z-OxSAI3FkxJ6-RvPuEJRcKrIV7nF2cJkhYjgSkyuMKRmHWSkAIYlK6gYdYqjFbK2PF9RZL5s1lHlvG6qFhfmQvjqIbO2GUXa2c9yy46NPpMgxWe~zPjdSxdmsH45xur9uZAu3bwkCAXByigvJYIe5mg7AfPmKLbN3adbl1Rnk2TgggyInFmwXyeEVWkPpfemaKZfRiiyu6seuVpXIUOKiQKwuUf-4a5w0Cc9nIJgADrb~4g__",
+  "queuing_num": -1,
+  "running_left_time": -1,
+  "result": {
+    "pbr_model": {
+      "type": "glb",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/b4ae38fb-fff7-4959-8a71-d610c42257f6/tripo_pbr_model_b4ae38fb-fff7-4959-8a71-d610c42257f6.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvYjRhZTM4ZmItZmZmNy00OTU5LThhNzEtZDYxMGM0MjI1N2Y2L3RyaXBvX3Bicl9tb2RlbF9iNGFlMzhmYi1mZmY3LTQ5NTktOGE3MS1kNjEwYzQyMjU3ZjYuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=ATBW5piJl61DcSPWMs6yRsobREf6sLXsWBBrZo1rhKOYCkXrOsUdIGXElRk7kpHsDF6nq5oH2y8SoWXOPr6KDKUZano6VFZeJItRuTXf3aWcy4uOdTiGVhqgbtnbwozDabaDusFH6-BRbu-AGek41cCz16FTdKkIfefvvT84jMTJRlM3tBbBM7slhHQD02qQpsQuw5VuJ2c16kURynw9B0mwqCBYdjahFDWBXd4q5gKbEBJwXGB-iY6EEcyHFITxQdGZnZHm6GJb8CV~7r1gEFzkBiKgU-~m2rRKeuRCBTCcHKDjeKfrLXCqKL4M7fjMqJk31PFvAYqiw5X4qE6HvQ__"
+    },
+    "rendered_image": {
+      "type": "webp",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/b4ae38fb-fff7-4959-8a71-d610c42257f6/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvYjRhZTM4ZmItZmZmNy00OTU5LThhNzEtZDYxMGM0MjI1N2Y2L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=A941MlSVORP9VKs0S3ChpCLgc-Zj-ZvFQG4pxnYOcIKjouC1gcYDL9W9QtPX1ReUfcIyxfdXZm5R30yhQEPzMfuEckVk58U~SOLen3z-OxSAI3FkxJ6-RvPuEJRcKrIV7nF2cJkhYjgSkyuMKRmHWSkAIYlK6gYdYqjFbK2PF9RZL5s1lHlvG6qFhfmQvjqIbO2GUXa2c9yy46NPpMgxWe~zPjdSxdmsH45xur9uZAu3bwkCAXByigvJYIe5mg7AfPmKLbN3adbl1Rnk2TgggyInFmwXyeEVWkPpfemaKZfRiiyu6seuVpXIUOKiQKwuUf-4a5w0Cc9nIJgADrb~4g__"
+    }
+  }
+}

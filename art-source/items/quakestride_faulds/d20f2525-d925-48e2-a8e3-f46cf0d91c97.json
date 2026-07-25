@@ -1,0 +1,38 @@
+{
+  "task_id": "d20f2525-d925-48e2-a8e3-f46cf0d91c97",
+  "type": "text_to_model",
+  "status": "success",
+  "input": {
+    "prompt": "heavy armored fauld skirt of overlapping iron plates, molten magma cracks glowing between the plates, volcanic rock crust, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+    "negative_prompt": "text, watermark, logo, ground plane, base, pedestal, stand, mannequin, multiple objects, human figure, hands, scene, background",
+    "model_version": "v3.1-20260211",
+    "texture": true,
+    "pbr": true,
+    "texture_quality": "detailed",
+    "texture_alignment": "geometry",
+    "export_uv": true,
+    "geometry_quality": "detailed"
+  },
+  "output": {
+    "pbr_model": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/d20f2525-d925-48e2-a8e3-f46cf0d91c97/tripo_pbr_model_d20f2525-d925-48e2-a8e3-f46cf0d91c97.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZDIwZjI1MjUtZDkyNS00OGUyLWE4ZTMtZjQ2Y2YwZDkxYzk3L3RyaXBvX3Bicl9tb2RlbF9kMjBmMjUyNS1kOTI1LTQ4ZTItYThlMy1mNDZjZjBkOTFjOTcuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=beOUQVMMsDvMIB86eQpGK9g~9GGknGkYUe3wS~8SwJ9CJTVPdbJ1nHoDJ1jvg9VTgWuGYkn6o50hBu~-qaiZbA3HRwU8qMi3mMWdR7f-N0L5AdoUmOV6CNER7RlaLKGDgxLbfO7mb~SmCo509Dm6FDnWEnBNT-byXRmDFeQqPjLrwmHRFKX7jO3qYVmLyx3zsW2qQelTqAzVnnqyXvGom9vSXPkKd0iW2mzbpoRvFVKmxA2Hfs-c1qZiaR3dOj1537liSvmXIAWO863d7eahrbVii9TnOi4QiyzOMbTTTsys7QBLSEL2J~P-4BgM1K6Hz6gk~f0voB6KO7q1k6ldZA__",
+    "generated_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/d20f2525-d925-48e2-a8e3-f46cf0d91c97/text2image_d20f2525-d925-48e2-a8e3-f46cf0d91c97.jpeg?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZDIwZjI1MjUtZDkyNS00OGUyLWE4ZTMtZjQ2Y2YwZDkxYzk3L3RleHQyaW1hZ2VfZDIwZjI1MjUtZDkyNS00OGUyLWE4ZTMtZjQ2Y2YwZDkxYzk3LmpwZWciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=WmPiopF3b6kmKwJTgJR5YsQvzhAu9EllVzVK2RiQVP-Iogxx7HC0z49z6ON9Mn-ZXvf5qLb3mf4Lynupd2gq9MHpvdwgGHp5qqGkh1DX2cS1IHlUjbY~IUSP99iPznNLpobfBmUXlcm6AMYZ41hqOFCWSZeJIhZ6SE41JnJUdyGX3tSlOQRAhirsfTISJ2hwVVEU4EPJO4xYQX3WCFfk5rZsaJu0Sgkvqh40UZ4Oy9adImJ4VNCCOLQno5HxxVktYlQWEWQlMn~0370DwX1KNZ7mq-ilUW7d4c6dxpCGqxrxR8KIYcdrqaMB45ovHS0R1czk65B4yz6tXcvCw59bVA__",
+    "rendered_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/d20f2525-d925-48e2-a8e3-f46cf0d91c97/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZDIwZjI1MjUtZDkyNS00OGUyLWE4ZTMtZjQ2Y2YwZDkxYzk3L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=J-r9JDjUIP5-BPL3WuiLuSWF8prS4VXxaenWF9Bbd2Rj3UM3vxX9ACApwWB6kIwlWozVfofu9V~y03qOZQmlROy7KWxrd1FKSLVeSCHwA6OyBe8rzh4zKdL5kAlOj1h2S9EIYs8tAu5FCrBSUcCOv81LYp-x6kUgqmtPB-zobw8iycU4oQ6hW6cfNhYrRM0Slzw1XV8NryEKY3DbVzR6WfLoLk9OI72SKt2jmUkEZqGflAxIdMl0cdgBjUS627MBA3Ue~8HhWJ7e5Rjpr8Fo7qNP7dZoyQLpgve4QoB3OxR9uQ0lOtDmtSguEfbiuFZnXnEVDiXVqC0tx9SM4g~2jg__"
+  },
+  "progress": 100,
+  "create_time": 1785017948,
+  "consumed_credit": 50,
+  "prompt": "heavy armored fauld skirt of overlapping iron plates, molten magma cracks glowing between the plates, volcanic rock crust, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+  "thumbnail": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/d20f2525-d925-48e2-a8e3-f46cf0d91c97/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZDIwZjI1MjUtZDkyNS00OGUyLWE4ZTMtZjQ2Y2YwZDkxYzk3L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=J-r9JDjUIP5-BPL3WuiLuSWF8prS4VXxaenWF9Bbd2Rj3UM3vxX9ACApwWB6kIwlWozVfofu9V~y03qOZQmlROy7KWxrd1FKSLVeSCHwA6OyBe8rzh4zKdL5kAlOj1h2S9EIYs8tAu5FCrBSUcCOv81LYp-x6kUgqmtPB-zobw8iycU4oQ6hW6cfNhYrRM0Slzw1XV8NryEKY3DbVzR6WfLoLk9OI72SKt2jmUkEZqGflAxIdMl0cdgBjUS627MBA3Ue~8HhWJ7e5Rjpr8Fo7qNP7dZoyQLpgve4QoB3OxR9uQ0lOtDmtSguEfbiuFZnXnEVDiXVqC0tx9SM4g~2jg__",
+  "queuing_num": -1,
+  "running_left_time": -1,
+  "result": {
+    "pbr_model": {
+      "type": "glb",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/d20f2525-d925-48e2-a8e3-f46cf0d91c97/tripo_pbr_model_d20f2525-d925-48e2-a8e3-f46cf0d91c97.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZDIwZjI1MjUtZDkyNS00OGUyLWE4ZTMtZjQ2Y2YwZDkxYzk3L3RyaXBvX3Bicl9tb2RlbF9kMjBmMjUyNS1kOTI1LTQ4ZTItYThlMy1mNDZjZjBkOTFjOTcuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=beOUQVMMsDvMIB86eQpGK9g~9GGknGkYUe3wS~8SwJ9CJTVPdbJ1nHoDJ1jvg9VTgWuGYkn6o50hBu~-qaiZbA3HRwU8qMi3mMWdR7f-N0L5AdoUmOV6CNER7RlaLKGDgxLbfO7mb~SmCo509Dm6FDnWEnBNT-byXRmDFeQqPjLrwmHRFKX7jO3qYVmLyx3zsW2qQelTqAzVnnqyXvGom9vSXPkKd0iW2mzbpoRvFVKmxA2Hfs-c1qZiaR3dOj1537liSvmXIAWO863d7eahrbVii9TnOi4QiyzOMbTTTsys7QBLSEL2J~P-4BgM1K6Hz6gk~f0voB6KO7q1k6ldZA__"
+    },
+    "rendered_image": {
+      "type": "webp",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/d20f2525-d925-48e2-a8e3-f46cf0d91c97/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZDIwZjI1MjUtZDkyNS00OGUyLWE4ZTMtZjQ2Y2YwZDkxYzk3L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=J-r9JDjUIP5-BPL3WuiLuSWF8prS4VXxaenWF9Bbd2Rj3UM3vxX9ACApwWB6kIwlWozVfofu9V~y03qOZQmlROy7KWxrd1FKSLVeSCHwA6OyBe8rzh4zKdL5kAlOj1h2S9EIYs8tAu5FCrBSUcCOv81LYp-x6kUgqmtPB-zobw8iycU4oQ6hW6cfNhYrRM0Slzw1XV8NryEKY3DbVzR6WfLoLk9OI72SKt2jmUkEZqGflAxIdMl0cdgBjUS627MBA3Ue~8HhWJ7e5Rjpr8Fo7qNP7dZoyQLpgve4QoB3OxR9uQ0lOtDmtSguEfbiuFZnXnEVDiXVqC0tx9SM4g~2jg__"
+    }
+  }
+}

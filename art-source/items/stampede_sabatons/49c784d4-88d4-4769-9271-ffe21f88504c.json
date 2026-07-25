@@ -1,0 +1,38 @@
+{
+  "task_id": "49c784d4-88d4-4769-9271-ffe21f88504c",
+  "type": "text_to_model",
+  "status": "success",
+  "input": {
+    "prompt": "pair of huge armored sabatons, bull-horn toe spikes, shaggy fur cuffs, cracked dry earth clinging to the soles, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+    "negative_prompt": "text, watermark, logo, ground plane, base, pedestal, stand, mannequin, multiple objects, human figure, hands, scene, background",
+    "model_version": "v3.1-20260211",
+    "texture": true,
+    "pbr": true,
+    "texture_quality": "detailed",
+    "texture_alignment": "geometry",
+    "export_uv": true,
+    "geometry_quality": "detailed"
+  },
+  "output": {
+    "pbr_model": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/49c784d4-88d4-4769-9271-ffe21f88504c/tripo_pbr_model_49c784d4-88d4-4769-9271-ffe21f88504c.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvNDljNzg0ZDQtODhkNC00NzY5LTkyNzEtZmZlMjFmODg1MDRjL3RyaXBvX3Bicl9tb2RlbF80OWM3ODRkNC04OGQ0LTQ3NjktOTI3MS1mZmUyMWY4ODUwNGMuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=oKVRDT55pdF3WccavSLW04YqsEwXlnXSCcyWc-Nr-LiiqBm-4ccW6AfdFDfheRJHo73VaQQcEjTlzqwByoeTRu9UZonuoZMWRrsFXsIgcnVfKUOLgUgNDYrbrPBQLC17smbQYlV2ZolRt0lXu3m5m7Gy~9mIfUudiC~wqA7gvP59je-n5PiyLV6ZWOrR33ig0v1KFlaQ~xWk0g6gzq7hvVts~AL95F~OO7kkipwyAhgYVIrIPVl7qcyEnLTO72V89YPC1WSeMf5O4TNgAuhcbQB6W8pahWbKHeLu0sY8DQr7HXSws4YJ7UgXy16QqwCRLVi6Mt8vayvzsMjhEgp5zA__",
+    "generated_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/49c784d4-88d4-4769-9271-ffe21f88504c/text2image_49c784d4-88d4-4769-9271-ffe21f88504c.jpeg?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvNDljNzg0ZDQtODhkNC00NzY5LTkyNzEtZmZlMjFmODg1MDRjL3RleHQyaW1hZ2VfNDljNzg0ZDQtODhkNC00NzY5LTkyNzEtZmZlMjFmODg1MDRjLmpwZWciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=S5yceeV6sRLpJSWWLppEZkxr7qT4WTWoTgjBmvrqMUGbT1vh~WcBos5v9lGjuoH7ZaVk-f3GUQR8tSeFu2HUbtc0WZmNNjxCnzEmFAg41GDJJFGhV7GRRo2rikiQUShNuqWxX9zV0fYMJNCsR0H7o~jxg8V5VH4k6fTERcn1uZf8fj5zjVZwefRYeGBdemLcj58DhvCAzoq5hWtMPKNBWPVmHeXfx3d1ZZxBIf~hdB-DSbehT8QX3CwSLFay2C3fBy9NhSqSK12g5MqqrLHrTkJ~ll4NNXrAqPpRwDdGQ~5Xi6u4-i0c-gXiELdPcjrVcdnMk51rLz3a17CVZ7SVEA__",
+    "rendered_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/49c784d4-88d4-4769-9271-ffe21f88504c/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvNDljNzg0ZDQtODhkNC00NzY5LTkyNzEtZmZlMjFmODg1MDRjL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=aOolmpmWVK9W8bZJtj5mrLHCi0TBCyIwvH-QNRoCZ51g8Wpw2lZyYWXEtpQSgxY18SFov3D~j6Ai3gwf65c9rwmf23V6LbKhjRlEYiD3DsT5a0S41g3eMEizUBlgRzGe0MoPXS35i-t5BaYad1Cnsyt0mNqeZ0n4o-cOy74TKRT~85fNjUdAdeTkBwH1Z9h3yw4-Lh4ByP5zXxBht0aN1eO8LdGel4WVhWgun6c2RPg5~jzjkzj1eiYd7h6nQ7sL4Tq5sno~fe94kr3Fk5DjUaW8PecsxT19ztcNioXoYeUUz1M5fOqvwiYLoJm81~ypDLwSxzgmJPYuzYtOIkNwhA__"
+  },
+  "progress": 100,
+  "create_time": 1785018050,
+  "consumed_credit": 50,
+  "prompt": "pair of huge armored sabatons, bull-horn toe spikes, shaggy fur cuffs, cracked dry earth clinging to the soles, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+  "thumbnail": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/49c784d4-88d4-4769-9271-ffe21f88504c/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvNDljNzg0ZDQtODhkNC00NzY5LTkyNzEtZmZlMjFmODg1MDRjL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=aOolmpmWVK9W8bZJtj5mrLHCi0TBCyIwvH-QNRoCZ51g8Wpw2lZyYWXEtpQSgxY18SFov3D~j6Ai3gwf65c9rwmf23V6LbKhjRlEYiD3DsT5a0S41g3eMEizUBlgRzGe0MoPXS35i-t5BaYad1Cnsyt0mNqeZ0n4o-cOy74TKRT~85fNjUdAdeTkBwH1Z9h3yw4-Lh4ByP5zXxBht0aN1eO8LdGel4WVhWgun6c2RPg5~jzjkzj1eiYd7h6nQ7sL4Tq5sno~fe94kr3Fk5DjUaW8PecsxT19ztcNioXoYeUUz1M5fOqvwiYLoJm81~ypDLwSxzgmJPYuzYtOIkNwhA__",
+  "queuing_num": -1,
+  "running_left_time": -1,
+  "result": {
+    "pbr_model": {
+      "type": "glb",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/49c784d4-88d4-4769-9271-ffe21f88504c/tripo_pbr_model_49c784d4-88d4-4769-9271-ffe21f88504c.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvNDljNzg0ZDQtODhkNC00NzY5LTkyNzEtZmZlMjFmODg1MDRjL3RyaXBvX3Bicl9tb2RlbF80OWM3ODRkNC04OGQ0LTQ3NjktOTI3MS1mZmUyMWY4ODUwNGMuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=oKVRDT55pdF3WccavSLW04YqsEwXlnXSCcyWc-Nr-LiiqBm-4ccW6AfdFDfheRJHo73VaQQcEjTlzqwByoeTRu9UZonuoZMWRrsFXsIgcnVfKUOLgUgNDYrbrPBQLC17smbQYlV2ZolRt0lXu3m5m7Gy~9mIfUudiC~wqA7gvP59je-n5PiyLV6ZWOrR33ig0v1KFlaQ~xWk0g6gzq7hvVts~AL95F~OO7kkipwyAhgYVIrIPVl7qcyEnLTO72V89YPC1WSeMf5O4TNgAuhcbQB6W8pahWbKHeLu0sY8DQr7HXSws4YJ7UgXy16QqwCRLVi6Mt8vayvzsMjhEgp5zA__"
+    },
+    "rendered_image": {
+      "type": "webp",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/49c784d4-88d4-4769-9271-ffe21f88504c/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvNDljNzg0ZDQtODhkNC00NzY5LTkyNzEtZmZlMjFmODg1MDRjL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=aOolmpmWVK9W8bZJtj5mrLHCi0TBCyIwvH-QNRoCZ51g8Wpw2lZyYWXEtpQSgxY18SFov3D~j6Ai3gwf65c9rwmf23V6LbKhjRlEYiD3DsT5a0S41g3eMEizUBlgRzGe0MoPXS35i-t5BaYad1Cnsyt0mNqeZ0n4o-cOy74TKRT~85fNjUdAdeTkBwH1Z9h3yw4-Lh4ByP5zXxBht0aN1eO8LdGel4WVhWgun6c2RPg5~jzjkzj1eiYd7h6nQ7sL4Tq5sno~fe94kr3Fk5DjUaW8PecsxT19ztcNioXoYeUUz1M5fOqvwiYLoJm81~ypDLwSxzgmJPYuzYtOIkNwhA__"
+    }
+  }
+}

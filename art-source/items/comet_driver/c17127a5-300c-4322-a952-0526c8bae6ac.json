@@ -1,0 +1,38 @@
+{
+  "task_id": "c17127a5-300c-4322-a952-0526c8bae6ac",
+  "type": "text_to_model",
+  "status": "success",
+  "input": {
+    "prompt": "ornate celestial longbow, dark starmetal limbs with comet-tail engravings, glowing blue-white ember at the grip, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+    "negative_prompt": "text, watermark, logo, ground plane, base, pedestal, stand, mannequin, multiple objects, human figure, hands, scene, background",
+    "model_version": "v3.1-20260211",
+    "texture": true,
+    "pbr": true,
+    "texture_quality": "detailed",
+    "texture_alignment": "geometry",
+    "export_uv": true,
+    "geometry_quality": "detailed"
+  },
+  "output": {
+    "pbr_model": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/c17127a5-300c-4322-a952-0526c8bae6ac/tripo_pbr_model_c17127a5-300c-4322-a952-0526c8bae6ac.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvYzE3MTI3YTUtMzAwYy00MzIyLWE5NTItMDUyNmM4YmFlNmFjL3RyaXBvX3Bicl9tb2RlbF9jMTcxMjdhNS0zMDBjLTQzMjItYTk1Mi0wNTI2YzhiYWU2YWMuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=Yi~r-POzbzVw8ev5G7zRzXt8i7-~uEg8Zlj4wA8tR7-gfJ5cEL5WCyg2QWozcXfaOen5QauACBPoy5NKLtwygZV5wtjLLEZ5ilOaWc-6qUFJxEeodeRoidULYYBBN9ccq2S0u~jLOdlSUS4C3POLrRF8MvnHbctV5tS0bujpLsGoUskNLZX2Lr2~TjaOo2-ypoldKfbq67IcVRrI~BRpGddn037LfqEkD6qed5S3Cp7WRX~acMjFTPprePX4W-0G-bpfk9BPXgfPBZgBvBmUrRvX~9N0k9K4~vO8u2faso0fXo6z~hxUSFLNw1N2tVnGCvPEB7atgoXybyPCyT8D1Q__",
+    "generated_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/c17127a5-300c-4322-a952-0526c8bae6ac/text2image_c17127a5-300c-4322-a952-0526c8bae6ac.jpeg?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvYzE3MTI3YTUtMzAwYy00MzIyLWE5NTItMDUyNmM4YmFlNmFjL3RleHQyaW1hZ2VfYzE3MTI3YTUtMzAwYy00MzIyLWE5NTItMDUyNmM4YmFlNmFjLmpwZWciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=OeGGSZQk8niD8DucguP9BuOLAI8HIowrHJ6zBK12cX~vhv6eNEsRDTJxV~OKWpYZBumrnrQ6gpEC6FPpHx7H0B169jkNCaj23jyXr4aktoy9yGw8lLON3~d9HTvWzHGEf10qKL8lJ6-jWpo0biD6fSq8v~0Bn9qTlxaAxLM~U7xpGlsZQrLmf6gZUfzrAo0L4A8Yz6lGJDZgBdhYkMvwJ7G2goGjfH75DOC~EgeAbhzhR4hW6iDUOhpntfbknFCoDD-sI1sHLNg2QVEH35QIlajD8ZBSQ9rlPqTpwLCo~rVNYQqL7tVusG1695fuj4vwuU9h8b15JWgLH90vhfZ1Ng__",
+    "rendered_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/c17127a5-300c-4322-a952-0526c8bae6ac/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvYzE3MTI3YTUtMzAwYy00MzIyLWE5NTItMDUyNmM4YmFlNmFjL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=UQa-8hhzvmCylKM9BUrdqRAKTHf~y~dXM6D32BzR17upyBWRKqOxOiAa1HN9JCRou0DBoPZM7of6C8nEDCvO2wJD61ZtK7WttXQzs~3ZeVJj1CCdjI1v9H7vdoauX5xAcs7rQjZgqH5UuanYItMgKEPHeFK24E5wQgGLfAcxRSu8imU3L9mEvtV4gk0Qb7QN5VX5irJpNp5qcixji~~GZBATAx3JWvRkt-iFC9hJpju-5Sw9Tfzy3FvZEdFaftFzRUesMuFdewnV6kPdHQooF4AoLNBz-YEcPSqKBmBYmvBCLFahHXAXG0dlt-SOXW4Duh4c60CMTe7NARTesZfbFw__"
+  },
+  "progress": 100,
+  "create_time": 1785018245,
+  "consumed_credit": 50,
+  "prompt": "ornate celestial longbow, dark starmetal limbs with comet-tail engravings, glowing blue-white ember at the grip, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+  "thumbnail": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/c17127a5-300c-4322-a952-0526c8bae6ac/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvYzE3MTI3YTUtMzAwYy00MzIyLWE5NTItMDUyNmM4YmFlNmFjL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=UQa-8hhzvmCylKM9BUrdqRAKTHf~y~dXM6D32BzR17upyBWRKqOxOiAa1HN9JCRou0DBoPZM7of6C8nEDCvO2wJD61ZtK7WttXQzs~3ZeVJj1CCdjI1v9H7vdoauX5xAcs7rQjZgqH5UuanYItMgKEPHeFK24E5wQgGLfAcxRSu8imU3L9mEvtV4gk0Qb7QN5VX5irJpNp5qcixji~~GZBATAx3JWvRkt-iFC9hJpju-5Sw9Tfzy3FvZEdFaftFzRUesMuFdewnV6kPdHQooF4AoLNBz-YEcPSqKBmBYmvBCLFahHXAXG0dlt-SOXW4Duh4c60CMTe7NARTesZfbFw__",
+  "queuing_num": -1,
+  "running_left_time": -1,
+  "result": {
+    "pbr_model": {
+      "type": "glb",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/c17127a5-300c-4322-a952-0526c8bae6ac/tripo_pbr_model_c17127a5-300c-4322-a952-0526c8bae6ac.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvYzE3MTI3YTUtMzAwYy00MzIyLWE5NTItMDUyNmM4YmFlNmFjL3RyaXBvX3Bicl9tb2RlbF9jMTcxMjdhNS0zMDBjLTQzMjItYTk1Mi0wNTI2YzhiYWU2YWMuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=Yi~r-POzbzVw8ev5G7zRzXt8i7-~uEg8Zlj4wA8tR7-gfJ5cEL5WCyg2QWozcXfaOen5QauACBPoy5NKLtwygZV5wtjLLEZ5ilOaWc-6qUFJxEeodeRoidULYYBBN9ccq2S0u~jLOdlSUS4C3POLrRF8MvnHbctV5tS0bujpLsGoUskNLZX2Lr2~TjaOo2-ypoldKfbq67IcVRrI~BRpGddn037LfqEkD6qed5S3Cp7WRX~acMjFTPprePX4W-0G-bpfk9BPXgfPBZgBvBmUrRvX~9N0k9K4~vO8u2faso0fXo6z~hxUSFLNw1N2tVnGCvPEB7atgoXybyPCyT8D1Q__"
+    },
+    "rendered_image": {
+      "type": "webp",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/c17127a5-300c-4322-a952-0526c8bae6ac/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvYzE3MTI3YTUtMzAwYy00MzIyLWE5NTItMDUyNmM4YmFlNmFjL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=UQa-8hhzvmCylKM9BUrdqRAKTHf~y~dXM6D32BzR17upyBWRKqOxOiAa1HN9JCRou0DBoPZM7of6C8nEDCvO2wJD61ZtK7WttXQzs~3ZeVJj1CCdjI1v9H7vdoauX5xAcs7rQjZgqH5UuanYItMgKEPHeFK24E5wQgGLfAcxRSu8imU3L9mEvtV4gk0Qb7QN5VX5irJpNp5qcixji~~GZBATAx3JWvRkt-iFC9hJpju-5Sw9Tfzy3FvZEdFaftFzRUesMuFdewnV6kPdHQooF4AoLNBz-YEcPSqKBmBYmvBCLFahHXAXG0dlt-SOXW4Duh4c60CMTe7NARTesZfbFw__"
+    }
+  }
+}

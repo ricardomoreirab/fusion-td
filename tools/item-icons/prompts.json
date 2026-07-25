@@ -1,0 +1,70 @@
+{
+  "_comment": "Tripo text-to-3D subject prompts, one per ITEM_CATALOG id. Each subject is composed with _style and _negative by generate.mjs. Subjects are authored from the item's name, slot and flavor line so the mesh reads as that specific item; _style is shared so all 51 belong to one visual family.",
+
+  "_style": "game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+
+  "_negative": "text, watermark, logo, ground plane, base, pedestal, stand, mannequin, multiple objects, human figure, hands, scene, background",
+
+  "items": {
+    "gorefang": "brutal barbarian war axe, single cleaver blade with jagged fang-like teeth notched along the cutting edge, dark pitted iron, dried blood staining, bone-and-leather-wrapped haft, small tusk trophies lashed below the head",
+    "skullcage_of_rage": "barbarian helmet, riveted dark iron cage-helm built around a bleached horned beast skull, heavy curved ram horns sweeping outward, blood-red war paint streaks, worn leather chin straps, helmet only with hollow interior",
+    "bloodforged_plate": "barbarian chest breastplate, heavy blood-red forged iron cuirass, hammered bronze rivets, deep scarred battle damage, thick leather strapping, coarse fur trim across the shoulders, chest piece only with hollow interior",
+
+    "stormpiercer": "slender ranger recurve longbow, pale storm-wood limbs, wind-etched silver filigree, taut sinew string, faint white static arcing at the limb tips",
+    "galeskimmers": "pair of light leather ranger boots, wind-swept feathered ankle wraps, soft green-grey suede, silver lace hooks",
+    "feather_of_the_zephyr": "large iridescent feather talisman bound to a silver ring, wind-curled barbs, pale blue-green sheen",
+
+    "staff_of_echoes": "arcane wooden staff, spiral-carved shaft, crowned with concentric floating stone rings orbiting a glowing violet core",
+    "mindcrown": "delicate silver mage circlet, spiral rune band across the brow, small violet gem at the centre",
+    "runeweave_leggings": "mage leggings of deep indigo cloth, glowing violet rune embroidery down the seams, leather belt with hanging rune tags",
+
+    "gribbles_lucky_coin": "fat golden goblin coin, crude grinning goblin face struck into the face, nicked worn edges, drilled hole with a leather thong",
+    "penny_pincher_loafers": "pair of scuffed brown leather goblin loafers, oversized brass buckles, curled pointed toes, coins wedged into the soles",
+    "greedhelm": "battered brass goblin helm, coin-slot visor, dented dome, gold coins riveted on as decoration",
+
+    "butchers_cleaver": "heavy rectangular butcher's cleaver, thick chipped steel blade, blood-stained wooden grip, iron rivets",
+    "worldsplitter": "colossal two-handed warhammer, cracked obsidian head veined with molten orange fissures, rune-banded haft",
+    "oakshot_bow": "simple rustic oak hunting bow, knotted natural wood grain, leather-wrapped grip, hemp string",
+    "comet_driver": "ornate celestial longbow, dark starmetal limbs with comet-tail engravings, glowing blue-white ember at the grip",
+    "apprentice_focus": "small crystal orb focus held in a simple bronze claw mount, faint blue inner glow, slightly scorched base",
+    "emberwand": "short blackened wand, ember-orange cracks glowing along the charred wood, small flame cupped at the tip",
+
+    "ironbrow_visor": "plain iron half-helm with a heavy brow visor, riveted band, scuffed grey steel",
+    "crown_of_focus": "golden pointed crown, tall arcane-blue gem at the front, engraved concentration runes",
+    "padded_jerkin": "simple quilted cloth jerkin, tan padded panels, leather ties at the front, hollow interior",
+    "troll_hide_vest": "rough green troll-hide vest, coarse stitched seams, bone toggles, patchy leathery hide, hollow interior",
+    "thornmail_hauberk": "dark chainmail hauberk bristling with outward-facing iron thorns, spiked shoulders, hollow interior",
+    "marchers_greaves": "pair of plain iron leg greaves, leather straps, road-worn scratches",
+    "juggernaut_legplates": "massive layered steel legplates, thick overlapping plates, heavy bronze knee spikes",
+    "sprintweave_boots": "pair of light woven cloth-and-leather running boots, laced tight, soft grey weave",
+    "comet_treads": "pair of sleek dark boots trailing tiny star sparkles, silver-blue trim, glowing sole seams",
+    "bloodvial": "small corked glass vial of dark red blood on a leather cord, brass cap, faint crimson glow",
+    "chrono_charm": "ornate brass pocket hourglass charm, golden sand suspended mid-fall, clockwork gears set into the frame",
+    "executioners_sigil": "heavy black iron sigil medallion, crossed executioner axes over a skull, blood-red enamel inlay, short chain",
+
+    "oathbreaker_maul": "enormous two-handed stone maul, fractured granite head bound in broken iron oath-chains, cracked glowing runes",
+    "browplate_of_the_titan": "massive stone-and-iron brow helm carved like a titan's face, heavy overhanging browplate, moss in the cracks",
+    "ribcage_bulwark": "chest armor built from a giant beast's bleached ribcage, iron bindings across the ribs, dark leather core",
+    "quakestride_faulds": "heavy armored fauld skirt of overlapping iron plates, molten magma cracks glowing between the plates, volcanic rock crust",
+    "stampede_sabatons": "pair of huge armored sabatons, bull-horn toe spikes, shaggy fur cuffs, cracked dry earth clinging to the soles",
+    "heart_of_the_warbeast": "a still-beating armored beast heart caged in riveted iron bands, red glow between the bars, sinew and chain",
+
+    "stormcaller_longbow": "tall storm-forged longbow, dark blue-black limbs crackling with white lightning, cloud-etched silver inlay",
+    "hawkeye_hood": "ranger's hood and half-mask shaped from hawk feathers with a beaked brow, brown-and-slate leather, sharp eye slit, hollow interior",
+    "stalkers_raincloak": "oiled dark-green hooded ranger raincloak, water beading on the waxed cloth, buckled leather chest strap",
+    "windstep_chaps": "light leather ranger leg chaps, wind-tattered fringe, slate-grey suede, silver buckles",
+    "galewalker_boots": "pair of swift ranger boots with small feathered wings at the ankles, pale leather, silver wing clasps",
+    "stormeye_pendant": "silver pendant holding a swirling storm-cloud gem with a bright lightning eye at its centre",
+
+    "voidcallers_scepter": "dark void scepter, black three-pronged crown holding a collapsing purple singularity, star-flecked shaft",
+    "circlet_of_the_ninth_truth": "thin dark-silver circlet of nine interlocking rune rings, faint violet glow between them",
+    "shroud_of_quiet_stars": "deep indigo mage robe woven with starlight, drifting constellations in the cloth, silver throat clasp",
+    "leggings_of_drifting_aeons": "flowing dark cosmic mage leggings, drifting nebula patterns, small orbiting rune motes",
+    "treads_of_the_event_horizon": "pair of black mage boots whose soles dissolve into a swallowing void, purple accretion ring at the ankles",
+    "oculus_of_the_devourer": "floating dark orb containing a single vast open eye with a purple iris, ringed by small orbiting shards",
+
+    "skullsplitter_apex": "monstrous mythic greataxe, twin curved blades erupting with red-orange embers, skull-shaped core at the haft, molten cracks through the metal",
+    "windsong_stormbow": "mythic storm longbow wreathed in bright cyan wind ribbons and lightning, silver-white limbs, feathered limb tips",
+    "nullbrand_devouring_staff": "mythic devouring staff, jagged black shaft crowned by a purple black-hole maw swallowing the light around it, violet energy motes"
+  }
+}

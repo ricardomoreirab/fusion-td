@@ -9,6 +9,8 @@
     "dev": "webpack serve --open",
     "deploy": "npm run build && wrangler deploy",
     "preview": "wrangler dev",
+    "icons:generate": "node tools/item-icons/generate.mjs",
+    "icons:items": "node tools/item-icons/serve.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },

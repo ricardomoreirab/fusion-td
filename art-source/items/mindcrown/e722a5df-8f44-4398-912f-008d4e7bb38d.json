@@ -1,0 +1,38 @@
+{
+  "task_id": "e722a5df-8f44-4398-912f-008d4e7bb38d",
+  "type": "text_to_model",
+  "status": "success",
+  "input": {
+    "prompt": "delicate silver mage circlet, spiral rune band across the brow, small violet gem at the centre, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+    "negative_prompt": "text, watermark, logo, ground plane, base, pedestal, stand, mannequin, multiple objects, human figure, hands, scene, background",
+    "model_version": "v3.1-20260211",
+    "texture": true,
+    "pbr": true,
+    "texture_quality": "detailed",
+    "texture_alignment": "geometry",
+    "export_uv": true,
+    "geometry_quality": "detailed"
+  },
+  "output": {
+    "pbr_model": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/e722a5df-8f44-4398-912f-008d4e7bb38d/tripo_pbr_model_e722a5df-8f44-4398-912f-008d4e7bb38d.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZTcyMmE1ZGYtOGY0NC00Mzk4LTkxMmYtMDA4ZDRlN2JiMzhkL3RyaXBvX3Bicl9tb2RlbF9lNzIyYTVkZi04ZjQ0LTQzOTgtOTEyZi0wMDhkNGU3YmIzOGQuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=ur04EF3tpeFHNxj6aFiqUOTULhV0WQrRbNZ~QdB~Sx8OnqRsv5da2~5cNoN6TVWwvDuoz0lNkHtdvwCztGb6R4Bo16dOYSOdtMqdHuSldtzt9jjQcgSmuCC7Z8onBY9yCfITXdTE3COw0yZejjjnUlBipacaNawvXpB4ql0o4ATNKtp8sQkyVgrzXWgE8MgaUSxsCWsoFmZ0pCcTShDCfY6~yukWWWFiYHRVYL7LqmLnPgyjRTmhQYVFze6obD8C-JjEMcCUSLWf-4LlFOWVAGOkQ9pnrgX00uuyVEkbCDW4qDsOMoTboCgGH4W3byPUiNjEyBihZdzVrnTodt51-Q__",
+    "generated_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/e722a5df-8f44-4398-912f-008d4e7bb38d/text2image_e722a5df-8f44-4398-912f-008d4e7bb38d.jpeg?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZTcyMmE1ZGYtOGY0NC00Mzk4LTkxMmYtMDA4ZDRlN2JiMzhkL3RleHQyaW1hZ2VfZTcyMmE1ZGYtOGY0NC00Mzk4LTkxMmYtMDA4ZDRlN2JiMzhkLmpwZWciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=KJuA2gJNH4HWcwXyFhl6gg1CF~LOlvC4osrUjo47FkUf-gOxMhQA5IEOwoo44Cbc9r1L21oNne0WhnR-47rhoIosHVTq4R-wojSt4GpnHX1Nok61Q2F~Fu7RRn01bJzE0nVcKMffU4aK9rUehO43W1dk6PNB0b7s-9~fGRhjVDjYH1rc7pteQD4-o9YzFgYC8HvXt95u6R6-k1JYQfIo0piehR~oPWtWwWiH0YYh~eDkcxrVizbTTH~no9h2jBgAPq1ftBNlPYCuqh8pcxbGuzliT8ztWGqVvsrDf~ECsF8-zAl6ZUbqauqzjgaQEBQ649Xf4Z73m7Ez3qVhWQVIBw__",
+    "rendered_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/e722a5df-8f44-4398-912f-008d4e7bb38d/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZTcyMmE1ZGYtOGY0NC00Mzk4LTkxMmYtMDA4ZDRlN2JiMzhkL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=ijEXKk-ZH3Ln~Tg~5-RWN-oQIgj5bFhRq66OnBOwL8sBWG6E4XAd65QxchrN-c690~1zez~ss5YC7y4hTVnCV9LXFhJc7XqItkHVJoyjJUFJJtj-PC6piK8Utb8~3KefFbt95oK-Hs86GMc60QZXVdS1iMpBpSc9qWwpDK2JMNiLFzYGRtLiEHuCIsNiNIkJu8GVHwU7POHVZUU6RoOolTB1D85jrh64H2KjRID9pj6IrQKVKmX09raHbk5Gy8G62rxCfXSiWndCirNXMCd8Q2T9ZWnX-S63iGj~AiJQbEblBMp3LRya67z~PqWA9sTMwNNFmsv5ylKE3TZfN6Vc4w__"
+  },
+  "progress": 100,
+  "create_time": 1785017254,
+  "consumed_credit": 50,
+  "prompt": "delicate silver mage circlet, spiral rune band across the brow, small violet gem at the centre, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+  "thumbnail": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/e722a5df-8f44-4398-912f-008d4e7bb38d/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZTcyMmE1ZGYtOGY0NC00Mzk4LTkxMmYtMDA4ZDRlN2JiMzhkL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=ijEXKk-ZH3Ln~Tg~5-RWN-oQIgj5bFhRq66OnBOwL8sBWG6E4XAd65QxchrN-c690~1zez~ss5YC7y4hTVnCV9LXFhJc7XqItkHVJoyjJUFJJtj-PC6piK8Utb8~3KefFbt95oK-Hs86GMc60QZXVdS1iMpBpSc9qWwpDK2JMNiLFzYGRtLiEHuCIsNiNIkJu8GVHwU7POHVZUU6RoOolTB1D85jrh64H2KjRID9pj6IrQKVKmX09raHbk5Gy8G62rxCfXSiWndCirNXMCd8Q2T9ZWnX-S63iGj~AiJQbEblBMp3LRya67z~PqWA9sTMwNNFmsv5ylKE3TZfN6Vc4w__",
+  "queuing_num": -1,
+  "running_left_time": -1,
+  "result": {
+    "pbr_model": {
+      "type": "glb",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/e722a5df-8f44-4398-912f-008d4e7bb38d/tripo_pbr_model_e722a5df-8f44-4398-912f-008d4e7bb38d.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZTcyMmE1ZGYtOGY0NC00Mzk4LTkxMmYtMDA4ZDRlN2JiMzhkL3RyaXBvX3Bicl9tb2RlbF9lNzIyYTVkZi04ZjQ0LTQzOTgtOTEyZi0wMDhkNGU3YmIzOGQuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=ur04EF3tpeFHNxj6aFiqUOTULhV0WQrRbNZ~QdB~Sx8OnqRsv5da2~5cNoN6TVWwvDuoz0lNkHtdvwCztGb6R4Bo16dOYSOdtMqdHuSldtzt9jjQcgSmuCC7Z8onBY9yCfITXdTE3COw0yZejjjnUlBipacaNawvXpB4ql0o4ATNKtp8sQkyVgrzXWgE8MgaUSxsCWsoFmZ0pCcTShDCfY6~yukWWWFiYHRVYL7LqmLnPgyjRTmhQYVFze6obD8C-JjEMcCUSLWf-4LlFOWVAGOkQ9pnrgX00uuyVEkbCDW4qDsOMoTboCgGH4W3byPUiNjEyBihZdzVrnTodt51-Q__"
+    },
+    "rendered_image": {
+      "type": "webp",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/e722a5df-8f44-4398-912f-008d4e7bb38d/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvZTcyMmE1ZGYtOGY0NC00Mzk4LTkxMmYtMDA4ZDRlN2JiMzhkL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=ijEXKk-ZH3Ln~Tg~5-RWN-oQIgj5bFhRq66OnBOwL8sBWG6E4XAd65QxchrN-c690~1zez~ss5YC7y4hTVnCV9LXFhJc7XqItkHVJoyjJUFJJtj-PC6piK8Utb8~3KefFbt95oK-Hs86GMc60QZXVdS1iMpBpSc9qWwpDK2JMNiLFzYGRtLiEHuCIsNiNIkJu8GVHwU7POHVZUU6RoOolTB1D85jrh64H2KjRID9pj6IrQKVKmX09raHbk5Gy8G62rxCfXSiWndCirNXMCd8Q2T9ZWnX-S63iGj~AiJQbEblBMp3LRya67z~PqWA9sTMwNNFmsv5ylKE3TZfN6Vc4w__"
+    }
+  }
+}

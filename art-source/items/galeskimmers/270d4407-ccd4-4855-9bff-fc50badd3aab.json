@@ -1,0 +1,38 @@
+{
+  "task_id": "270d4407-ccd4-4855-9bff-fc50badd3aab",
+  "type": "text_to_model",
+  "status": "success",
+  "input": {
+    "prompt": "pair of light leather ranger boots, wind-swept feathered ankle wraps, soft green-grey suede, silver lace hooks, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+    "negative_prompt": "text, watermark, logo, ground plane, base, pedestal, stand, mannequin, multiple objects, human figure, hands, scene, background",
+    "model_version": "v3.1-20260211",
+    "texture": true,
+    "pbr": true,
+    "texture_quality": "detailed",
+    "texture_alignment": "geometry",
+    "export_uv": true,
+    "geometry_quality": "detailed"
+  },
+  "output": {
+    "pbr_model": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/270d4407-ccd4-4855-9bff-fc50badd3aab/tripo_pbr_model_270d4407-ccd4-4855-9bff-fc50badd3aab.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMjcwZDQ0MDctY2NkNC00ODU1LTliZmYtZmM1MGJhZGQzYWFiL3RyaXBvX3Bicl9tb2RlbF8yNzBkNDQwNy1jY2Q0LTQ4NTUtOWJmZi1mYzUwYmFkZDNhYWIuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=DZ2A-r1U26a1hDH3gmdHBxtArSLmeGPaAFwHdzgTI6kN4F0PlYXFhAZHjVaP-SDCSjHTCV3q~tevQI8vEsoYaVCDj6TrygGqAulserZOf34BGVwIEx75EzUFPZCfZE0qw1RRZTreRwUIeg~nlVc-TxH8q0KxGb4Voo0IEcNeWw9wce4Vc4Zpzbz7ulpoVoiWaCY~6t1DOoh59VhEMwscldV8B81ZDirQX~zirLjVHFoH6Z9HnF~LHYisMKBN2MDAzQq~T6JCUn99VqgTRWniKjfyF7QwB6xTUJ8kd6bjtE9~MGaP1yHn3uq8SLH85rrNsEsoWvnktBDeZKBGYWJrOA__",
+    "generated_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/270d4407-ccd4-4855-9bff-fc50badd3aab/text2image_270d4407-ccd4-4855-9bff-fc50badd3aab.jpeg?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMjcwZDQ0MDctY2NkNC00ODU1LTliZmYtZmM1MGJhZGQzYWFiL3RleHQyaW1hZ2VfMjcwZDQ0MDctY2NkNC00ODU1LTliZmYtZmM1MGJhZGQzYWFiLmpwZWciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=Tu3kjVAkKAb5Yzhvq7RalWLDlIy0mzacok0PJkVn22c1mSq8552LAju~DY~XxljXJ20BfHWMLzgdg01V-~Y0i63EHCRuFa-i7lOYDVknQ9dJccZlwyyC~kIZjMlShnhLsYxRnebLwLSBSgiJfAPjWbc2uON1NtQX2M2m1OQFnboTDwQcSLnPrn4tfbSJ91hP6iTlsGW8BEddxipG5Hv9~rbWHlY28oKE6jVXafVhMFtRMbRMrEC4~8uc322rgbExtwNf9QnTg9ic1FwvcfUgJSlqXKoTFZcoiiNPUc63nUAYg5Sv6TxA72mWKaHTzzE4XAzn0UYGnGWWOTQpYHSgyg__",
+    "rendered_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/270d4407-ccd4-4855-9bff-fc50badd3aab/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMjcwZDQ0MDctY2NkNC00ODU1LTliZmYtZmM1MGJhZGQzYWFiL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=q0MQfKJb8xNV4wLJIE4gqCG-lqZxfzyZkLs9EsiCn9lKdkoyeTDao9uDtocgfVDxJw2RLjwaVJHyD6EdD8gfxmtuFA30TD9c36sz7VsELv-q7WkKPQeFHdWf81-nfwADmr4r2sz06gA14jqENFH5YJG~~~DUONv8izcf~xA1hseU87TdmFqNTKZeqS1ektSG4fyuVXffX58QP~m9NB0AV~7Wb7AD6kR8GF61uZCpM20~om05ePvV0NeIAUnVKX4pyG6Z8ttnblzRENlnOBVDSqaWbIasGTLCOcuTgbXzUT6K93xq8O2WaKqt0eCSrCmF5ZLZZkZIi7~UsH5tdhtALQ__"
+  },
+  "progress": 100,
+  "create_time": 1785017254,
+  "consumed_credit": 50,
+  "prompt": "pair of light leather ranger boots, wind-swept feathered ankle wraps, soft green-grey suede, silver lace hooks, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+  "thumbnail": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/270d4407-ccd4-4855-9bff-fc50badd3aab/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMjcwZDQ0MDctY2NkNC00ODU1LTliZmYtZmM1MGJhZGQzYWFiL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=q0MQfKJb8xNV4wLJIE4gqCG-lqZxfzyZkLs9EsiCn9lKdkoyeTDao9uDtocgfVDxJw2RLjwaVJHyD6EdD8gfxmtuFA30TD9c36sz7VsELv-q7WkKPQeFHdWf81-nfwADmr4r2sz06gA14jqENFH5YJG~~~DUONv8izcf~xA1hseU87TdmFqNTKZeqS1ektSG4fyuVXffX58QP~m9NB0AV~7Wb7AD6kR8GF61uZCpM20~om05ePvV0NeIAUnVKX4pyG6Z8ttnblzRENlnOBVDSqaWbIasGTLCOcuTgbXzUT6K93xq8O2WaKqt0eCSrCmF5ZLZZkZIi7~UsH5tdhtALQ__",
+  "queuing_num": -1,
+  "running_left_time": -1,
+  "result": {
+    "pbr_model": {
+      "type": "glb",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/270d4407-ccd4-4855-9bff-fc50badd3aab/tripo_pbr_model_270d4407-ccd4-4855-9bff-fc50badd3aab.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMjcwZDQ0MDctY2NkNC00ODU1LTliZmYtZmM1MGJhZGQzYWFiL3RyaXBvX3Bicl9tb2RlbF8yNzBkNDQwNy1jY2Q0LTQ4NTUtOWJmZi1mYzUwYmFkZDNhYWIuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=DZ2A-r1U26a1hDH3gmdHBxtArSLmeGPaAFwHdzgTI6kN4F0PlYXFhAZHjVaP-SDCSjHTCV3q~tevQI8vEsoYaVCDj6TrygGqAulserZOf34BGVwIEx75EzUFPZCfZE0qw1RRZTreRwUIeg~nlVc-TxH8q0KxGb4Voo0IEcNeWw9wce4Vc4Zpzbz7ulpoVoiWaCY~6t1DOoh59VhEMwscldV8B81ZDirQX~zirLjVHFoH6Z9HnF~LHYisMKBN2MDAzQq~T6JCUn99VqgTRWniKjfyF7QwB6xTUJ8kd6bjtE9~MGaP1yHn3uq8SLH85rrNsEsoWvnktBDeZKBGYWJrOA__"
+    },
+    "rendered_image": {
+      "type": "webp",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/270d4407-ccd4-4855-9bff-fc50badd3aab/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMjcwZDQ0MDctY2NkNC00ODU1LTliZmYtZmM1MGJhZGQzYWFiL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=q0MQfKJb8xNV4wLJIE4gqCG-lqZxfzyZkLs9EsiCn9lKdkoyeTDao9uDtocgfVDxJw2RLjwaVJHyD6EdD8gfxmtuFA30TD9c36sz7VsELv-q7WkKPQeFHdWf81-nfwADmr4r2sz06gA14jqENFH5YJG~~~DUONv8izcf~xA1hseU87TdmFqNTKZeqS1ektSG4fyuVXffX58QP~m9NB0AV~7Wb7AD6kR8GF61uZCpM20~om05ePvV0NeIAUnVKX4pyG6Z8ttnblzRENlnOBVDSqaWbIasGTLCOcuTgbXzUT6K93xq8O2WaKqt0eCSrCmF5ZLZZkZIi7~UsH5tdhtALQ__"
+    }
+  }
+}

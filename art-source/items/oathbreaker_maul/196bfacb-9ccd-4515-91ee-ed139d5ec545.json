@@ -1,0 +1,38 @@
+{
+  "task_id": "196bfacb-9ccd-4515-91ee-ed139d5ec545",
+  "type": "text_to_model",
+  "status": "success",
+  "input": {
+    "prompt": "enormous two-handed stone maul, fractured granite head bound in broken iron oath-chains, cracked glowing runes, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+    "negative_prompt": "text, watermark, logo, ground plane, base, pedestal, stand, mannequin, multiple objects, human figure, hands, scene, background",
+    "model_version": "v3.1-20260211",
+    "texture": true,
+    "pbr": true,
+    "texture_quality": "detailed",
+    "texture_alignment": "geometry",
+    "export_uv": true,
+    "geometry_quality": "detailed"
+  },
+  "output": {
+    "pbr_model": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/196bfacb-9ccd-4515-91ee-ed139d5ec545/tripo_pbr_model_196bfacb-9ccd-4515-91ee-ed139d5ec545.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMTk2YmZhY2ItOWNjZC00NTE1LTkxZWUtZWQxMzlkNWVjNTQ1L3RyaXBvX3Bicl9tb2RlbF8xOTZiZmFjYi05Y2NkLTQ1MTUtOTFlZS1lZDEzOWQ1ZWM1NDUuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=Z2b85z4r3qzL3tHSy9nmQo9yOEZh74ncGL4KoP7HVKK2cTaRlD1te4T8mLMMwRp8qv4s5KIWYTkQf1PVqXs6CExUAjLBcXrC9826onXoC7wT0nLrUpbK2qaampi-hu4pp9V8PnFjqP67l~mzwRmdpCyPYxDHZkbUqqdoIoexOz5fLU5UEfMB5mE0lfOUpKrgho~ovUveX4nzl2HPkzML6KogQ3Ab2nvDq-vDk~FwL6LLdFOFtrywh28feFcQ3ADfrQLcrH~N8zmWonGXKTuzfAiSzTroINNh65GsmiR9KPjxe8OM5It6xa5EWHu19odHc-XMXeUJYVK5v6nlqXX~1Q__",
+    "generated_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/196bfacb-9ccd-4515-91ee-ed139d5ec545/text2image_196bfacb-9ccd-4515-91ee-ed139d5ec545.jpeg?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMTk2YmZhY2ItOWNjZC00NTE1LTkxZWUtZWQxMzlkNWVjNTQ1L3RleHQyaW1hZ2VfMTk2YmZhY2ItOWNjZC00NTE1LTkxZWUtZWQxMzlkNWVjNTQ1LmpwZWciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=kOmNywWmIqLI5qO0uXRovfZ7E~DwAw0DRFJ5N564JArk2EoTYbLROeM42wXIBVVyO6t~nnLXMny-TCvY2kUs2RmB~AJEHfr8JzwmCRmThIquf4C9I-j~qWMeoedbbnIdwMr2cS3i0~tBIob6wGFY7EhpcaGT4qf0PpIL71KwO7-6bxert1STBIMcSyZ5jprdlYrYtk2s5ADNgh8XfwNniKjnwh0oXKj-zQA0FiumhOpXe1EjQ8cQQhAAfambXDw88JSpDUo40l9IsPj3hZAVH4T1c7s8BAQCP~3GzNrx-19wXOM4DAOda1TAfI89iIAwYvlTKNKmkx15cAFwajQv0g__",
+    "rendered_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/196bfacb-9ccd-4515-91ee-ed139d5ec545/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMTk2YmZhY2ItOWNjZC00NTE1LTkxZWUtZWQxMzlkNWVjNTQ1L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=df-NeP16LKeQ6vTTuc6LaF-XqYLXWJ-ewwXq5U6QEYPFJDdfkAmwOnZi3EwdOYneA~qK7nWteZu0J5IuVdlsobR6WSs55ti69MA4KRhrQnu0oFheijMMSgF7KsUlFWnU20UxFMmDK2hEhFNoOuMdULnPXSljXDUmbK951ngQbwKLOlw422tnlfoH-uht4UgbLR6QLiEsIy4PCx5Cg8BKiAVKv2Rlg0d6Xtj7Dqf0G4DQvPGUfsZUk1m4xyXm5dfwXIL1WLZ5w4QKaFsAa~i2Sq0NhPqCGThOqan8OkUzSxGgZ0mb6g50rXfJbJlDG0-1iZds0kabHKK9pN81Fuv7bw__"
+  },
+  "progress": 100,
+  "create_time": 1785017918,
+  "consumed_credit": 50,
+  "prompt": "enormous two-handed stone maul, fractured granite head bound in broken iron oath-chains, cracked glowing runes, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+  "thumbnail": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/196bfacb-9ccd-4515-91ee-ed139d5ec545/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMTk2YmZhY2ItOWNjZC00NTE1LTkxZWUtZWQxMzlkNWVjNTQ1L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=df-NeP16LKeQ6vTTuc6LaF-XqYLXWJ-ewwXq5U6QEYPFJDdfkAmwOnZi3EwdOYneA~qK7nWteZu0J5IuVdlsobR6WSs55ti69MA4KRhrQnu0oFheijMMSgF7KsUlFWnU20UxFMmDK2hEhFNoOuMdULnPXSljXDUmbK951ngQbwKLOlw422tnlfoH-uht4UgbLR6QLiEsIy4PCx5Cg8BKiAVKv2Rlg0d6Xtj7Dqf0G4DQvPGUfsZUk1m4xyXm5dfwXIL1WLZ5w4QKaFsAa~i2Sq0NhPqCGThOqan8OkUzSxGgZ0mb6g50rXfJbJlDG0-1iZds0kabHKK9pN81Fuv7bw__",
+  "queuing_num": -1,
+  "running_left_time": -1,
+  "result": {
+    "pbr_model": {
+      "type": "glb",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/196bfacb-9ccd-4515-91ee-ed139d5ec545/tripo_pbr_model_196bfacb-9ccd-4515-91ee-ed139d5ec545.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMTk2YmZhY2ItOWNjZC00NTE1LTkxZWUtZWQxMzlkNWVjNTQ1L3RyaXBvX3Bicl9tb2RlbF8xOTZiZmFjYi05Y2NkLTQ1MTUtOTFlZS1lZDEzOWQ1ZWM1NDUuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=Z2b85z4r3qzL3tHSy9nmQo9yOEZh74ncGL4KoP7HVKK2cTaRlD1te4T8mLMMwRp8qv4s5KIWYTkQf1PVqXs6CExUAjLBcXrC9826onXoC7wT0nLrUpbK2qaampi-hu4pp9V8PnFjqP67l~mzwRmdpCyPYxDHZkbUqqdoIoexOz5fLU5UEfMB5mE0lfOUpKrgho~ovUveX4nzl2HPkzML6KogQ3Ab2nvDq-vDk~FwL6LLdFOFtrywh28feFcQ3ADfrQLcrH~N8zmWonGXKTuzfAiSzTroINNh65GsmiR9KPjxe8OM5It6xa5EWHu19odHc-XMXeUJYVK5v6nlqXX~1Q__"
+    },
+    "rendered_image": {
+      "type": "webp",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/196bfacb-9ccd-4515-91ee-ed139d5ec545/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMTk2YmZhY2ItOWNjZC00NTE1LTkxZWUtZWQxMzlkNWVjNTQ1L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=df-NeP16LKeQ6vTTuc6LaF-XqYLXWJ-ewwXq5U6QEYPFJDdfkAmwOnZi3EwdOYneA~qK7nWteZu0J5IuVdlsobR6WSs55ti69MA4KRhrQnu0oFheijMMSgF7KsUlFWnU20UxFMmDK2hEhFNoOuMdULnPXSljXDUmbK951ngQbwKLOlw422tnlfoH-uht4UgbLR6QLiEsIy4PCx5Cg8BKiAVKv2Rlg0d6Xtj7Dqf0G4DQvPGUfsZUk1m4xyXm5dfwXIL1WLZ5w4QKaFsAa~i2Sq0NhPqCGThOqan8OkUzSxGgZ0mb6g50rXfJbJlDG0-1iZds0kabHKK9pN81Fuv7bw__"
+    }
+  }
+}

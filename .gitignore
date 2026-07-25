@@ -4,6 +4,14 @@ npm-debug.log
 yarn-debug.log
 yarn-error.log
 
+# Tripo source meshes — ~60 MB each, and the deployable artefact is the baked
+# icon under assets/items/icons/. The sibling .json keeps the task id so any
+# mesh can be re-downloaded (threejs_3d_asset.py download TASK_ID).
+art-source/**/*.glb
+# Tripo's intermediate concept render — 4+ MB per set and not an input to
+# anything; the .json task id plus prompts.json is what regeneration needs.
+art-source/**/*generated_image.jpeg
+
 # Build output
 dist/
 build/

@@ -1,0 +1,38 @@
+{
+  "task_id": "992f5fb8-b039-432e-a069-ebee0b2b7640",
+  "type": "text_to_model",
+  "status": "success",
+  "input": {
+    "prompt": "chest armor built from a giant beast's bleached ribcage, iron bindings across the ribs, dark leather core, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+    "negative_prompt": "text, watermark, logo, ground plane, base, pedestal, stand, mannequin, multiple objects, human figure, hands, scene, background",
+    "model_version": "v3.1-20260211",
+    "texture": true,
+    "pbr": true,
+    "texture_quality": "detailed",
+    "texture_alignment": "geometry",
+    "export_uv": true,
+    "geometry_quality": "detailed"
+  },
+  "output": {
+    "pbr_model": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/992f5fb8-b039-432e-a069-ebee0b2b7640/tripo_pbr_model_992f5fb8-b039-432e-a069-ebee0b2b7640.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvOTkyZjVmYjgtYjAzOS00MzJlLWEwNjktZWJlZTBiMmI3NjQwL3RyaXBvX3Bicl9tb2RlbF85OTJmNWZiOC1iMDM5LTQzMmUtYTA2OS1lYmVlMGIyYjc2NDAuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=ql~oMdZa18gwPsH33dv8S4CxeQ8oSuX6BhI~xqQXWQFmMeSObj-B4HvMnBoVBJI3H3nf-cXdQlmdoVGAOua4ikCCoFDmQ8DzdUuLZnCmIpX1oW5jfSSHahf9Jg4R1n~Kmkrj1cAWJRKSveiNe6wRRN2HxHBGwsWLiSxN~b7Cv7zpe8SzOlb7vZup1epttKIyt4F~HijMLMPUdGUUc-Ndgl00O74DW0i~B6uj9EftT4vW97CC6m~2bhvTTL0Oa0y06JEWSVrJtE26cWdWK20ZWQAkK54d8xN0U6L9lE88KNZ8kfQjs5WmAA26ONs0tzdMj7d~rOMWXGOkmjirOlkytQ__",
+    "generated_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/992f5fb8-b039-432e-a069-ebee0b2b7640/text2image_992f5fb8-b039-432e-a069-ebee0b2b7640.jpeg?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvOTkyZjVmYjgtYjAzOS00MzJlLWEwNjktZWJlZTBiMmI3NjQwL3RleHQyaW1hZ2VfOTkyZjVmYjgtYjAzOS00MzJlLWEwNjktZWJlZTBiMmI3NjQwLmpwZWciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=gJ899uAOsGMhSsnGCKma7IhOBXB2gtf8dDxQOHg2mCp4fW1uGuYdossGRFxBHTOujWUfBHOpouiOsnwilknF7uGbAVJhr4PotRRrPiT~qIv5ja0hUGEIxvAO6~QFVm63Ccn7~IjvXvHi9~JWh-tYWPHke0Zfa4eUt1GLI56WqFckpQj3f2OsdJ96YhewmNKAnOcOAJDuitRirzgkS1bdPwxqqkeW4YRBBaDCKd2jiad~1P6g037E9cEUGoPMzqgZthGWdhWlvTutuykmkCWID0xq7nPI2wsbYv-KpwK1nCPR0qo-3155k78c~f~JZVhZlxRB~yUYfDcyRRa5r9oDWA__",
+    "rendered_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/992f5fb8-b039-432e-a069-ebee0b2b7640/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvOTkyZjVmYjgtYjAzOS00MzJlLWEwNjktZWJlZTBiMmI3NjQwL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=drKjh7o~Dp~41RIGWttOJIRYBNQt3l8YjujNjE317Z-oBvlwExN5BiGzXY7uKvHX51~Hbk2tiUJo7Gj43ctepps-ZHO3qkw1heb8QbuGAkGhX6CChA2TGlFnaxIW0-6jPF-e8oph~JOGQmJKKk8NVqUM04UCLsoYkyNGZxv5WNhn02c7Z2ptVd78UC2E1FUwCo5jyiO5p1Z3LgFpJ5gI6qXjXA5RrptxFWPTW-hdjpv2FTFfJ5sRJjwkEvt0jMJC8grUq5Lbtz3dnLHZpFyW-VpmIV37xprbxGbcJUUB7xIcfKCniWUUxA-BtoNBTSkWAKtlFPiS1l4d9NMmDIc-Kg__"
+  },
+  "progress": 100,
+  "create_time": 1785017960,
+  "consumed_credit": 50,
+  "prompt": "chest armor built from a giant beast's bleached ribcage, iron bindings across the ribs, dark leather core, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+  "thumbnail": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/992f5fb8-b039-432e-a069-ebee0b2b7640/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvOTkyZjVmYjgtYjAzOS00MzJlLWEwNjktZWJlZTBiMmI3NjQwL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=drKjh7o~Dp~41RIGWttOJIRYBNQt3l8YjujNjE317Z-oBvlwExN5BiGzXY7uKvHX51~Hbk2tiUJo7Gj43ctepps-ZHO3qkw1heb8QbuGAkGhX6CChA2TGlFnaxIW0-6jPF-e8oph~JOGQmJKKk8NVqUM04UCLsoYkyNGZxv5WNhn02c7Z2ptVd78UC2E1FUwCo5jyiO5p1Z3LgFpJ5gI6qXjXA5RrptxFWPTW-hdjpv2FTFfJ5sRJjwkEvt0jMJC8grUq5Lbtz3dnLHZpFyW-VpmIV37xprbxGbcJUUB7xIcfKCniWUUxA-BtoNBTSkWAKtlFPiS1l4d9NMmDIc-Kg__",
+  "queuing_num": -1,
+  "running_left_time": -1,
+  "result": {
+    "pbr_model": {
+      "type": "glb",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/992f5fb8-b039-432e-a069-ebee0b2b7640/tripo_pbr_model_992f5fb8-b039-432e-a069-ebee0b2b7640.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvOTkyZjVmYjgtYjAzOS00MzJlLWEwNjktZWJlZTBiMmI3NjQwL3RyaXBvX3Bicl9tb2RlbF85OTJmNWZiOC1iMDM5LTQzMmUtYTA2OS1lYmVlMGIyYjc2NDAuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=ql~oMdZa18gwPsH33dv8S4CxeQ8oSuX6BhI~xqQXWQFmMeSObj-B4HvMnBoVBJI3H3nf-cXdQlmdoVGAOua4ikCCoFDmQ8DzdUuLZnCmIpX1oW5jfSSHahf9Jg4R1n~Kmkrj1cAWJRKSveiNe6wRRN2HxHBGwsWLiSxN~b7Cv7zpe8SzOlb7vZup1epttKIyt4F~HijMLMPUdGUUc-Ndgl00O74DW0i~B6uj9EftT4vW97CC6m~2bhvTTL0Oa0y06JEWSVrJtE26cWdWK20ZWQAkK54d8xN0U6L9lE88KNZ8kfQjs5WmAA26ONs0tzdMj7d~rOMWXGOkmjirOlkytQ__"
+    },
+    "rendered_image": {
+      "type": "webp",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/992f5fb8-b039-432e-a069-ebee0b2b7640/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvOTkyZjVmYjgtYjAzOS00MzJlLWEwNjktZWJlZTBiMmI3NjQwL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=drKjh7o~Dp~41RIGWttOJIRYBNQt3l8YjujNjE317Z-oBvlwExN5BiGzXY7uKvHX51~Hbk2tiUJo7Gj43ctepps-ZHO3qkw1heb8QbuGAkGhX6CChA2TGlFnaxIW0-6jPF-e8oph~JOGQmJKKk8NVqUM04UCLsoYkyNGZxv5WNhn02c7Z2ptVd78UC2E1FUwCo5jyiO5p1Z3LgFpJ5gI6qXjXA5RrptxFWPTW-hdjpv2FTFfJ5sRJjwkEvt0jMJC8grUq5Lbtz3dnLHZpFyW-VpmIV37xprbxGbcJUUB7xIcfKCniWUUxA-BtoNBTSkWAKtlFPiS1l4d9NMmDIc-Kg__"
+    }
+  }
+}

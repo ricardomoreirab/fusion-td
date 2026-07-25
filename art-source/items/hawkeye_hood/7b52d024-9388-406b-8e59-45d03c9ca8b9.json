@@ -1,0 +1,38 @@
+{
+  "task_id": "7b52d024-9388-406b-8e59-45d03c9ca8b9",
+  "type": "text_to_model",
+  "status": "success",
+  "input": {
+    "prompt": "ranger's hood and half-mask shaped from hawk feathers with a beaked brow, brown-and-slate leather, sharp eye slit, hollow interior, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+    "negative_prompt": "text, watermark, logo, ground plane, base, pedestal, stand, mannequin, multiple objects, human figure, hands, scene, background",
+    "model_version": "v3.1-20260211",
+    "texture": true,
+    "pbr": true,
+    "texture_quality": "detailed",
+    "texture_alignment": "geometry",
+    "export_uv": true,
+    "geometry_quality": "detailed"
+  },
+  "output": {
+    "pbr_model": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/7b52d024-9388-406b-8e59-45d03c9ca8b9/tripo_pbr_model_7b52d024-9388-406b-8e59-45d03c9ca8b9.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvN2I1MmQwMjQtOTM4OC00MDZiLThlNTktNDVkMDNjOWNhOGI5L3RyaXBvX3Bicl9tb2RlbF83YjUyZDAyNC05Mzg4LTQwNmItOGU1OS00NWQwM2M5Y2E4YjkuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=LkTSXDMC~1b995Qv1FmnqUcsLyd7XoGG6D~0ntg73gc8iahRcQlaxpPoxeF-iUUciMbTORpY0hOeOWgLCfKom9KMktPtjMYSQlgHS6oMQTx5Y0vMWy5JRxP4TOPbXv3gGyY3kYljzCcDzKepblI0kyCL0IlDcLTsPu-tt4WWmiuL3RmE79MdVtwqaDY0zUhzsxNhc1ocsf8ePFyFs1QnA94A4o8jXvADf4C3BNDnfy8sT2g7HoLTGPvncIDtxQqlbDho~KqBy0QxgV5nrVPbuBeGwLNUXSPJpd0MZ-KtTiR0sDjV6MJr8ox~DcySzVLTkoyzGOSScYknkpIDyawi8Q__",
+    "generated_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/7b52d024-9388-406b-8e59-45d03c9ca8b9/text2image_7b52d024-9388-406b-8e59-45d03c9ca8b9.jpeg?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvN2I1MmQwMjQtOTM4OC00MDZiLThlNTktNDVkMDNjOWNhOGI5L3RleHQyaW1hZ2VfN2I1MmQwMjQtOTM4OC00MDZiLThlNTktNDVkMDNjOWNhOGI5LmpwZWciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=GtfbPd-h6eK4orId81izwT28q7O-UMYaNBp3epZ77JLYw22eoncMZt7iYN~1rH-Xe~jCztaXGythWz2fiE6Ohoo9kfU31SZF5J00EQbRmO3w18xBDpijtvw1U-8~WEkm5PG22Nasy~K-Wf55Yn~VJ6WEP0FzeLRGqie4FvJ3YOS3sJdCHGFUIrDOfKckS0FR4NN7dtlvkoQ0HK2KctWfdVriClEUXYek4jolTkF8bE2WCqfRxZHW-wfIBkpUh9GNYMUh8WVnKEyLYy1Zq6cQhlC~YlcZ3W4uCRijn~lbMoyoeW6xCbjrIQkKA~Ifm4lkGszE9OPwbyYIQzP-wopGew__",
+    "rendered_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/7b52d024-9388-406b-8e59-45d03c9ca8b9/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvN2I1MmQwMjQtOTM4OC00MDZiLThlNTktNDVkMDNjOWNhOGI5L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=PktvDz82I3H1gS8TdV4icHcxyubCD6~YEIHzGMvPQvhpifuUsWdZu0q-AOcnEy5~3JQp7rpUsqmBDvvrnmqVQ8RboMl2ETt9LjFnslGKDvnxM11PVjpGj9mR43Xs~4RyX098aCu4hgkvKCnWpoyXDEW~aKphwl3WZes0ONUxhmln1hAdxswD2RZnuBregQeMTV0etaTTiQBoP97ifE3H7Y2o5YMSUAYkN9GWD5mx3lmZl53d-278b09YL7Y-sWBjld39vYJA9zFF4aWvlbEC5ZtcCqOJ4z-tepy424rbX71e~lFQMcBGRLg35WCCCM7nZbaU1qmtensAX97L1bHVhA__"
+  },
+  "progress": 100,
+  "create_time": 1785017830,
+  "consumed_credit": 50,
+  "prompt": "ranger's hood and half-mask shaped from hawk feathers with a beaked brow, brown-and-slate leather, sharp eye slit, hollow interior, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+  "thumbnail": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/7b52d024-9388-406b-8e59-45d03c9ca8b9/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvN2I1MmQwMjQtOTM4OC00MDZiLThlNTktNDVkMDNjOWNhOGI5L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=PktvDz82I3H1gS8TdV4icHcxyubCD6~YEIHzGMvPQvhpifuUsWdZu0q-AOcnEy5~3JQp7rpUsqmBDvvrnmqVQ8RboMl2ETt9LjFnslGKDvnxM11PVjpGj9mR43Xs~4RyX098aCu4hgkvKCnWpoyXDEW~aKphwl3WZes0ONUxhmln1hAdxswD2RZnuBregQeMTV0etaTTiQBoP97ifE3H7Y2o5YMSUAYkN9GWD5mx3lmZl53d-278b09YL7Y-sWBjld39vYJA9zFF4aWvlbEC5ZtcCqOJ4z-tepy424rbX71e~lFQMcBGRLg35WCCCM7nZbaU1qmtensAX97L1bHVhA__",
+  "queuing_num": -1,
+  "running_left_time": -1,
+  "result": {
+    "pbr_model": {
+      "type": "glb",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/7b52d024-9388-406b-8e59-45d03c9ca8b9/tripo_pbr_model_7b52d024-9388-406b-8e59-45d03c9ca8b9.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvN2I1MmQwMjQtOTM4OC00MDZiLThlNTktNDVkMDNjOWNhOGI5L3RyaXBvX3Bicl9tb2RlbF83YjUyZDAyNC05Mzg4LTQwNmItOGU1OS00NWQwM2M5Y2E4YjkuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=LkTSXDMC~1b995Qv1FmnqUcsLyd7XoGG6D~0ntg73gc8iahRcQlaxpPoxeF-iUUciMbTORpY0hOeOWgLCfKom9KMktPtjMYSQlgHS6oMQTx5Y0vMWy5JRxP4TOPbXv3gGyY3kYljzCcDzKepblI0kyCL0IlDcLTsPu-tt4WWmiuL3RmE79MdVtwqaDY0zUhzsxNhc1ocsf8ePFyFs1QnA94A4o8jXvADf4C3BNDnfy8sT2g7HoLTGPvncIDtxQqlbDho~KqBy0QxgV5nrVPbuBeGwLNUXSPJpd0MZ-KtTiR0sDjV6MJr8ox~DcySzVLTkoyzGOSScYknkpIDyawi8Q__"
+    },
+    "rendered_image": {
+      "type": "webp",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/7b52d024-9388-406b-8e59-45d03c9ca8b9/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvN2I1MmQwMjQtOTM4OC00MDZiLThlNTktNDVkMDNjOWNhOGI5L2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=PktvDz82I3H1gS8TdV4icHcxyubCD6~YEIHzGMvPQvhpifuUsWdZu0q-AOcnEy5~3JQp7rpUsqmBDvvrnmqVQ8RboMl2ETt9LjFnslGKDvnxM11PVjpGj9mR43Xs~4RyX098aCu4hgkvKCnWpoyXDEW~aKphwl3WZes0ONUxhmln1hAdxswD2RZnuBregQeMTV0etaTTiQBoP97ifE3H7Y2o5YMSUAYkN9GWD5mx3lmZl53d-278b09YL7Y-sWBjld39vYJA9zFF4aWvlbEC5ZtcCqOJ4z-tepy424rbX71e~lFQMcBGRLg35WCCCM7nZbaU1qmtensAX97L1bHVhA__"
+    }
+  }
+}

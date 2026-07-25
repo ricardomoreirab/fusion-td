@@ -1,0 +1,38 @@
+{
+  "task_id": "9c0a8394-97c1-4396-a93d-32c3ba3004db",
+  "type": "text_to_model",
+  "status": "success",
+  "input": {
+    "prompt": "thin dark-silver circlet of nine interlocking rune rings, faint violet glow between them, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+    "negative_prompt": "text, watermark, logo, ground plane, base, pedestal, stand, mannequin, multiple objects, human figure, hands, scene, background",
+    "model_version": "v3.1-20260211",
+    "texture": true,
+    "pbr": true,
+    "texture_quality": "detailed",
+    "texture_alignment": "geometry",
+    "export_uv": true,
+    "geometry_quality": "detailed"
+  },
+  "output": {
+    "pbr_model": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/9c0a8394-97c1-4396-a93d-32c3ba3004db/tripo_pbr_model_9c0a8394-97c1-4396-a93d-32c3ba3004db.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvOWMwYTgzOTQtOTdjMS00Mzk2LWE5M2QtMzJjM2JhMzAwNGRiL3RyaXBvX3Bicl9tb2RlbF85YzBhODM5NC05N2MxLTQzOTYtYTkzZC0zMmMzYmEzMDA0ZGIuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=vqgdPW3~jSs7uy1a8hiKCDdkGDGxTqHlUo20qR4AdaoZgdFINh0VsWabEKxLbXVbTyfZRVS~hPhab9uzCpTzlvSR-oUmJy0gMhNrkKpH36sa3gcZqJHS0JuawEsqvZPriNa5dNjAzrw~zCi-KlN4JpB~SMHwgY8hS0Jm4JIi9aLX0k7JN8ZdQc1-jdK8OJTiUyoOLsdFwv79DBTgVTCtgmFibtBliQBgiT91yFxgsAXyfSg9BpJPZ1dN9BxrSjmWHmbKPTyLTQGCiKJoonFvdrsPEdLciypxtnF3~ihzsWN-jzlT1w8CQC5pTMQPggvB6YdpH35fZ6UUOU-PmkKuLA__",
+    "generated_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/9c0a8394-97c1-4396-a93d-32c3ba3004db/text2image_9c0a8394-97c1-4396-a93d-32c3ba3004db.jpeg?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvOWMwYTgzOTQtOTdjMS00Mzk2LWE5M2QtMzJjM2JhMzAwNGRiL3RleHQyaW1hZ2VfOWMwYTgzOTQtOTdjMS00Mzk2LWE5M2QtMzJjM2JhMzAwNGRiLmpwZWciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=VsGBb5fgTmqdZMZs0ETaqlvZ75uJFxTrYRpWbD1IkKZsdxxqxeyveNm2vGv37pANcu8No-sQ8jOwO5S0CIOxx7P5yOFwqjhgC1V5z5aIR~bzBQ0lwUUTdKNQYRTskFqTHKJUsBNqFL~2B6W4mZscDA6birC2608urgIMN9yQDTHXfauXvvsc3htuf51mwO-HDthY95XcgHRxiDxoTw1rXW3kpvNBfYsH4ulzbgQ5wxO~yjfEY5OcHtYpsFhS0tJF83LBMR3Qw5jbS~FjOF0yfrIcWkrFbWscGBBEHSwxPatZ6N8geWgy6MEkVMjsKlpUS1gT0wWvzh2aT~P5vq3jNw__",
+    "rendered_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/9c0a8394-97c1-4396-a93d-32c3ba3004db/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvOWMwYTgzOTQtOTdjMS00Mzk2LWE5M2QtMzJjM2JhMzAwNGRiL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=J3oduKu44TTZsBRyp35BQ3A-Tjg7DMxAVgyIrxlpocxBNSSEXF9wpUyymT~gjZMQY8skXpi86Pvo9K-V-VfmPYQ9Rhgw9HqGTiXrz-NFqNEQrhJ5fiR3aIj2epmomjGYd3vi5Ackei-QKhh2kRxmmGt4rBIfnbLNpEPWsYD6SeLGT2nByfpO17NUGAs5poMZb-sur6JKLEKN0RvJsk8ciWkVFK-2SbV7PPpEnxFhc4G2XJggTB4~4GxQalRqgifZ4qKDEAdGf~vW2~ND782wRGPv3nh20FbjnpYZGo0WU9speLav1Ln3AI3PyFQ34GKjmxJG7JpVD~Dwx3PNH177rg__"
+  },
+  "progress": 100,
+  "create_time": 1785017684,
+  "consumed_credit": 50,
+  "prompt": "thin dark-silver circlet of nine interlocking rune rings, faint violet glow between them, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+  "thumbnail": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/9c0a8394-97c1-4396-a93d-32c3ba3004db/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvOWMwYTgzOTQtOTdjMS00Mzk2LWE5M2QtMzJjM2JhMzAwNGRiL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=J3oduKu44TTZsBRyp35BQ3A-Tjg7DMxAVgyIrxlpocxBNSSEXF9wpUyymT~gjZMQY8skXpi86Pvo9K-V-VfmPYQ9Rhgw9HqGTiXrz-NFqNEQrhJ5fiR3aIj2epmomjGYd3vi5Ackei-QKhh2kRxmmGt4rBIfnbLNpEPWsYD6SeLGT2nByfpO17NUGAs5poMZb-sur6JKLEKN0RvJsk8ciWkVFK-2SbV7PPpEnxFhc4G2XJggTB4~4GxQalRqgifZ4qKDEAdGf~vW2~ND782wRGPv3nh20FbjnpYZGo0WU9speLav1Ln3AI3PyFQ34GKjmxJG7JpVD~Dwx3PNH177rg__",
+  "queuing_num": -1,
+  "running_left_time": -1,
+  "result": {
+    "pbr_model": {
+      "type": "glb",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/9c0a8394-97c1-4396-a93d-32c3ba3004db/tripo_pbr_model_9c0a8394-97c1-4396-a93d-32c3ba3004db.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvOWMwYTgzOTQtOTdjMS00Mzk2LWE5M2QtMzJjM2JhMzAwNGRiL3RyaXBvX3Bicl9tb2RlbF85YzBhODM5NC05N2MxLTQzOTYtYTkzZC0zMmMzYmEzMDA0ZGIuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=vqgdPW3~jSs7uy1a8hiKCDdkGDGxTqHlUo20qR4AdaoZgdFINh0VsWabEKxLbXVbTyfZRVS~hPhab9uzCpTzlvSR-oUmJy0gMhNrkKpH36sa3gcZqJHS0JuawEsqvZPriNa5dNjAzrw~zCi-KlN4JpB~SMHwgY8hS0Jm4JIi9aLX0k7JN8ZdQc1-jdK8OJTiUyoOLsdFwv79DBTgVTCtgmFibtBliQBgiT91yFxgsAXyfSg9BpJPZ1dN9BxrSjmWHmbKPTyLTQGCiKJoonFvdrsPEdLciypxtnF3~ihzsWN-jzlT1w8CQC5pTMQPggvB6YdpH35fZ6UUOU-PmkKuLA__"
+    },
+    "rendered_image": {
+      "type": "webp",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/9c0a8394-97c1-4396-a93d-32c3ba3004db/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvOWMwYTgzOTQtOTdjMS00Mzk2LWE5M2QtMzJjM2JhMzAwNGRiL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=J3oduKu44TTZsBRyp35BQ3A-Tjg7DMxAVgyIrxlpocxBNSSEXF9wpUyymT~gjZMQY8skXpi86Pvo9K-V-VfmPYQ9Rhgw9HqGTiXrz-NFqNEQrhJ5fiR3aIj2epmomjGYd3vi5Ackei-QKhh2kRxmmGt4rBIfnbLNpEPWsYD6SeLGT2nByfpO17NUGAs5poMZb-sur6JKLEKN0RvJsk8ciWkVFK-2SbV7PPpEnxFhc4G2XJggTB4~4GxQalRqgifZ4qKDEAdGf~vW2~ND782wRGPv3nh20FbjnpYZGo0WU9speLav1Ln3AI3PyFQ34GKjmxJG7JpVD~Dwx3PNH177rg__"
+    }
+  }
+}

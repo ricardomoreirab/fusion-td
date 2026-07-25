@@ -1,0 +1,38 @@
+{
+  "task_id": "4846076f-7cff-4796-9cea-bdfab71397a2",
+  "type": "text_to_model",
+  "status": "success",
+  "input": {
+    "prompt": "deep indigo mage robe woven with starlight, drifting constellations in the cloth, silver throat clasp, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+    "negative_prompt": "text, watermark, logo, ground plane, base, pedestal, stand, mannequin, multiple objects, human figure, hands, scene, background",
+    "model_version": "v3.1-20260211",
+    "texture": true,
+    "pbr": true,
+    "texture_quality": "detailed",
+    "texture_alignment": "geometry",
+    "export_uv": true,
+    "geometry_quality": "detailed"
+  },
+  "output": {
+    "pbr_model": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/4846076f-7cff-4796-9cea-bdfab71397a2/tripo_pbr_model_4846076f-7cff-4796-9cea-bdfab71397a2.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvNDg0NjA3NmYtN2NmZi00Nzk2LTljZWEtYmRmYWI3MTM5N2EyL3RyaXBvX3Bicl9tb2RlbF80ODQ2MDc2Zi03Y2ZmLTQ3OTYtOWNlYS1iZGZhYjcxMzk3YTIuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=h4a--hrPEXnSn56WaPmxkNDRDB5n-5LNDrpdkrkoLET37peX-~T~Rx~XT5Ee1xDp4bYZSWOfnJo7GLI8jq-Rcnr8kdUd~83B~VdMf2Q6jEuvjJ7Q~nYkmtSY-xb4nJXCWff0mAOnohEJAU33NCwVgc~jkeAAFUOqamT3UMs9aLJb2iNxCPKfUn4EmwYgMOFzVgSVF5zaA2vZ7IZ1JOakVW20HKtkA7sQ~k3oOdDDzbn9X0evnUUa33PNLhYgqaWkgXT5P7~1wwPJ5Tw4ASqxuWUTIecDAUh908VLvmRiXJsx9gmpU~Ve4GX2EINO4sB0gh3uEieoJ5ip~bdDaWtdkg__",
+    "generated_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/4846076f-7cff-4796-9cea-bdfab71397a2/text2image_4846076f-7cff-4796-9cea-bdfab71397a2.jpeg?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvNDg0NjA3NmYtN2NmZi00Nzk2LTljZWEtYmRmYWI3MTM5N2EyL3RleHQyaW1hZ2VfNDg0NjA3NmYtN2NmZi00Nzk2LTljZWEtYmRmYWI3MTM5N2EyLmpwZWciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=n4cUYkV-NW3~aBbSiJhDR-bEZ7uk7OfuLnnhuCMSi8D1He2EqZ~0gIbj6t~aUZCMSaV~Wq3X1Cz-vBHQDL7KfdlNzeBxL--lvBvqWuuUERA6PANytPmULWTyZu-1~j1msYGtk4LR0-GWDCg1dCRI1yIzi44qf9txF-A7eAVfvYeFXbf2zjQ2-lzhgGnn4Rh78Vo2BSEOJo8-ZJe4J-R1NcHBJHUtYpydLOzhCLypyQUERR1iZlOkZhBNR1N~tU2GjTNhqOKDrs1lSEKnfOjOAlGp2avVmyDMH0kuIs2il7vJCilYRO-jWLaZtZjZHwWcuM8Fxqm1f9M~jjUMs0-j6Q__",
+    "rendered_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/4846076f-7cff-4796-9cea-bdfab71397a2/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvNDg0NjA3NmYtN2NmZi00Nzk2LTljZWEtYmRmYWI3MTM5N2EyL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=ammhu1RKcclHKc3Ee6PtLDc~A9A2eon9ybS13CP9s1zlsf1kGBpBi51q8~vZAJp1-mo6eZUydo8LeUHP6jtug0Td~lh8F2L-PwCQUrawCY2b82E2FtmDoKFH9WZErZljTQXgLf8rvR7DQoAxH2T28Z7aBafPFIm3AoPrw1--SLK-N-gg-N6IwBuu5IWHcglgx95yHpuF1xLSXnrEtirWgNHJLtuIOEhp9PbasTFRMCvjO1CmQJGt85ATP5P5pEeW5EHWWBoYSWVpDjmCt2g9vAGiJPRcZ~s5rSwYggi0BW3Jdwy6D8bx5MNrllTLhpNcVE2mG~2yElCAgfi9kO~2kQ__"
+  },
+  "progress": 100,
+  "create_time": 1785018043,
+  "consumed_credit": 50,
+  "prompt": "deep indigo mage robe woven with starlight, drifting constellations in the cloth, silver throat clasp, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+  "thumbnail": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/4846076f-7cff-4796-9cea-bdfab71397a2/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvNDg0NjA3NmYtN2NmZi00Nzk2LTljZWEtYmRmYWI3MTM5N2EyL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=ammhu1RKcclHKc3Ee6PtLDc~A9A2eon9ybS13CP9s1zlsf1kGBpBi51q8~vZAJp1-mo6eZUydo8LeUHP6jtug0Td~lh8F2L-PwCQUrawCY2b82E2FtmDoKFH9WZErZljTQXgLf8rvR7DQoAxH2T28Z7aBafPFIm3AoPrw1--SLK-N-gg-N6IwBuu5IWHcglgx95yHpuF1xLSXnrEtirWgNHJLtuIOEhp9PbasTFRMCvjO1CmQJGt85ATP5P5pEeW5EHWWBoYSWVpDjmCt2g9vAGiJPRcZ~s5rSwYggi0BW3Jdwy6D8bx5MNrllTLhpNcVE2mG~2yElCAgfi9kO~2kQ__",
+  "queuing_num": -1,
+  "running_left_time": -1,
+  "result": {
+    "pbr_model": {
+      "type": "glb",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/4846076f-7cff-4796-9cea-bdfab71397a2/tripo_pbr_model_4846076f-7cff-4796-9cea-bdfab71397a2.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvNDg0NjA3NmYtN2NmZi00Nzk2LTljZWEtYmRmYWI3MTM5N2EyL3RyaXBvX3Bicl9tb2RlbF80ODQ2MDc2Zi03Y2ZmLTQ3OTYtOWNlYS1iZGZhYjcxMzk3YTIuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=h4a--hrPEXnSn56WaPmxkNDRDB5n-5LNDrpdkrkoLET37peX-~T~Rx~XT5Ee1xDp4bYZSWOfnJo7GLI8jq-Rcnr8kdUd~83B~VdMf2Q6jEuvjJ7Q~nYkmtSY-xb4nJXCWff0mAOnohEJAU33NCwVgc~jkeAAFUOqamT3UMs9aLJb2iNxCPKfUn4EmwYgMOFzVgSVF5zaA2vZ7IZ1JOakVW20HKtkA7sQ~k3oOdDDzbn9X0evnUUa33PNLhYgqaWkgXT5P7~1wwPJ5Tw4ASqxuWUTIecDAUh908VLvmRiXJsx9gmpU~Ve4GX2EINO4sB0gh3uEieoJ5ip~bdDaWtdkg__"
+    },
+    "rendered_image": {
+      "type": "webp",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/4846076f-7cff-4796-9cea-bdfab71397a2/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvNDg0NjA3NmYtN2NmZi00Nzk2LTljZWEtYmRmYWI3MTM5N2EyL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=ammhu1RKcclHKc3Ee6PtLDc~A9A2eon9ybS13CP9s1zlsf1kGBpBi51q8~vZAJp1-mo6eZUydo8LeUHP6jtug0Td~lh8F2L-PwCQUrawCY2b82E2FtmDoKFH9WZErZljTQXgLf8rvR7DQoAxH2T28Z7aBafPFIm3AoPrw1--SLK-N-gg-N6IwBuu5IWHcglgx95yHpuF1xLSXnrEtirWgNHJLtuIOEhp9PbasTFRMCvjO1CmQJGt85ATP5P5pEeW5EHWWBoYSWVpDjmCt2g9vAGiJPRcZ~s5rSwYggi0BW3Jdwy6D8bx5MNrllTLhpNcVE2mG~2yElCAgfi9kO~2kQ__"
+    }
+  }
+}

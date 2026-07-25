@@ -1,0 +1,38 @@
+{
+  "task_id": "7a696b65-b620-4968-bf67-55d521c9043b",
+  "type": "text_to_model",
+  "status": "success",
+  "input": {
+    "prompt": "golden pointed crown, tall arcane-blue gem at the front, engraved concentration runes, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+    "negative_prompt": "text, watermark, logo, ground plane, base, pedestal, stand, mannequin, multiple objects, human figure, hands, scene, background",
+    "model_version": "v3.1-20260211",
+    "texture": true,
+    "pbr": true,
+    "texture_quality": "detailed",
+    "texture_alignment": "geometry",
+    "export_uv": true,
+    "geometry_quality": "detailed"
+  },
+  "output": {
+    "pbr_model": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/7a696b65-b620-4968-bf67-55d521c9043b/tripo_pbr_model_7a696b65-b620-4968-bf67-55d521c9043b.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvN2E2OTZiNjUtYjYyMC00OTY4LWJmNjctNTVkNTIxYzkwNDNiL3RyaXBvX3Bicl9tb2RlbF83YTY5NmI2NS1iNjIwLTQ5NjgtYmY2Ny01NWQ1MjFjOTA0M2IuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=RkfmwIxaITxE5exxLRmC-de7pmulxSuLfOkU7YYLprALhSeIpx4TFu54405Z9onEa90hE3NNvsqvqaMkT~7sFFIlEJxKv2PChX2J1LM1-yorgAd3jA7T30FNNKP2WrDufLvq6-rhSTVzrdb7xY83Zxxep8SJvOTdfCHPIDNzGJwT5zVC1UGiCfAkbGl7NIzTUv1Xo4oad9c9f1xWojKFafEgChWBc6WbmORtJ864O-fvNwRlSC~mqgS-yRLm7M3S-B6N-dHIHTC3KmQXsT-SA8qXNCsDPLE1nHVk3uVAxEN6kUu-UPTgqe0JmEwd8~Ups73Hl-lRdEJLlIX0ZnNL6Q__",
+    "generated_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/7a696b65-b620-4968-bf67-55d521c9043b/text2image_7a696b65-b620-4968-bf67-55d521c9043b.jpeg?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvN2E2OTZiNjUtYjYyMC00OTY4LWJmNjctNTVkNTIxYzkwNDNiL3RleHQyaW1hZ2VfN2E2OTZiNjUtYjYyMC00OTY4LWJmNjctNTVkNTIxYzkwNDNiLmpwZWciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=JM~b1cC3fiWLBP9glf9U20xULR9jO~7Pbd1FqSCVLVkx0hsxzBBqLOgxli7E36zkWuWa4cMgvHaLrrPFRk8WMfR57ny7Avye~oEKLq5rwjkPS1oOz~umlRzc5EkvyUt4ChutOfAj7hsavGAnOFpDF4xCT-CapZALcemN~0Tf-sa1chdZ80JVz3X1tClRHWhtGo18LBaD1WgQmVzkJWN~7iXPGFb0R9zTKeaFZVSLz-Ij-r9Q3uvGxsRmuiTluE12LhJhtZFtMYySMtptLO1AqytCY1DbWDxjtd4If6p7Z388bfR8qFYfnvBFM2VhwiIixPKQNgQugyUZ48xH231mCQ__",
+    "rendered_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/7a696b65-b620-4968-bf67-55d521c9043b/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvN2E2OTZiNjUtYjYyMC00OTY4LWJmNjctNTVkNTIxYzkwNDNiL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=TSpWAtPZeK0mBDmjRAQnEOPd7-McD2N93pe14SLOfo6~5gDaxdS2VDOm-mkBYOug~en91yeMaX5dhWVItMK5-HefnW8X5OYXSX3BsXtpXC5KOhbZ8dcMqM3RVNQmm7oNqseo8s8fnG-0ag2CBL5zxf5FJ4xizZB6yY-l603kSaKTxcdMbRZGlBc6nj-RF942Bi5IV8mChOjh9-2ioEkKxYQ6mrqATll8xLAk9xUatvUkmpWSqnaob~PvrehEDhh1~n~iXci4DuowLFScSvreEWvf1jLdLpQOY0K4bpkLOh9syjlh98AXQPJeOuEz0lZlVTLmjho~4DKTQqTOd4wA9w__"
+  },
+  "progress": 100,
+  "create_time": 1785018420,
+  "consumed_credit": 50,
+  "prompt": "golden pointed crown, tall arcane-blue gem at the front, engraved concentration runes, game-ready fantasy game item, strong readable silhouette, stylized hand-painted PBR materials, isolated single object floating, centred, no ground plane, no pedestal, no stand, no character, no text",
+  "thumbnail": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/7a696b65-b620-4968-bf67-55d521c9043b/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvN2E2OTZiNjUtYjYyMC00OTY4LWJmNjctNTVkNTIxYzkwNDNiL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=TSpWAtPZeK0mBDmjRAQnEOPd7-McD2N93pe14SLOfo6~5gDaxdS2VDOm-mkBYOug~en91yeMaX5dhWVItMK5-HefnW8X5OYXSX3BsXtpXC5KOhbZ8dcMqM3RVNQmm7oNqseo8s8fnG-0ag2CBL5zxf5FJ4xizZB6yY-l603kSaKTxcdMbRZGlBc6nj-RF942Bi5IV8mChOjh9-2ioEkKxYQ6mrqATll8xLAk9xUatvUkmpWSqnaob~PvrehEDhh1~n~iXci4DuowLFScSvreEWvf1jLdLpQOY0K4bpkLOh9syjlh98AXQPJeOuEz0lZlVTLmjho~4DKTQqTOd4wA9w__",
+  "queuing_num": -1,
+  "running_left_time": -1,
+  "result": {
+    "pbr_model": {
+      "type": "glb",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/7a696b65-b620-4968-bf67-55d521c9043b/tripo_pbr_model_7a696b65-b620-4968-bf67-55d521c9043b.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvN2E2OTZiNjUtYjYyMC00OTY4LWJmNjctNTVkNTIxYzkwNDNiL3RyaXBvX3Bicl9tb2RlbF83YTY5NmI2NS1iNjIwLTQ5NjgtYmY2Ny01NWQ1MjFjOTA0M2IuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=RkfmwIxaITxE5exxLRmC-de7pmulxSuLfOkU7YYLprALhSeIpx4TFu54405Z9onEa90hE3NNvsqvqaMkT~7sFFIlEJxKv2PChX2J1LM1-yorgAd3jA7T30FNNKP2WrDufLvq6-rhSTVzrdb7xY83Zxxep8SJvOTdfCHPIDNzGJwT5zVC1UGiCfAkbGl7NIzTUv1Xo4oad9c9f1xWojKFafEgChWBc6WbmORtJ864O-fvNwRlSC~mqgS-yRLm7M3S-B6N-dHIHTC3KmQXsT-SA8qXNCsDPLE1nHVk3uVAxEN6kUu-UPTgqe0JmEwd8~Ups73Hl-lRdEJLlIX0ZnNL6Q__"
+    },
+    "rendered_image": {
+      "type": "webp",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/7a696b65-b620-4968-bf67-55d521c9043b/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvN2E2OTZiNjUtYjYyMC00OTY4LWJmNjctNTVkNTIxYzkwNDNiL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=TSpWAtPZeK0mBDmjRAQnEOPd7-McD2N93pe14SLOfo6~5gDaxdS2VDOm-mkBYOug~en91yeMaX5dhWVItMK5-HefnW8X5OYXSX3BsXtpXC5KOhbZ8dcMqM3RVNQmm7oNqseo8s8fnG-0ag2CBL5zxf5FJ4xizZB6yY-l603kSaKTxcdMbRZGlBc6nj-RF942Bi5IV8mChOjh9-2ioEkKxYQ6mrqATll8xLAk9xUatvUkmpWSqnaob~PvrehEDhh1~n~iXci4DuowLFScSvreEWvf1jLdLpQOY0K4bpkLOh9syjlh98AXQPJeOuEz0lZlVTLmjho~4DKTQqTOd4wA9w__"
+    }
+  }
+}
