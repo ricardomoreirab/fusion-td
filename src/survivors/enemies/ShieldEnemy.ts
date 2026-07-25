@@ -700,7 +700,7 @@ export class ShieldEnemy extends Enemy {
         // Cap concurrent death-burst particle effects (mass-AoE-kill spike guard).
         // Past the cap, skip only the poof — the death sound still plays.
         if (!tryAcquireDeathBurst()) {
-            this.game.getAssetManager().playSound('enemyDeath');
+            this.game.getAssetManager().playSound('enemyDeathHeavy');
             return;
         }
 
@@ -733,7 +733,7 @@ export class ShieldEnemy extends Enemy {
         );
 
         // Play sound effect
-        this.game.getAssetManager().playSound('enemyDeath');
+        this.game.getAssetManager().playSound('enemyDeathHeavy');
 
         // Disposes once the burst's particles finish (autoDispose above);
         // this only wires the death-burst budget release into that disposal.

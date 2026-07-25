@@ -1,9 +1,8 @@
 import { Color, Mesh, Vector3 } from 'three';
-import type { SceneHost } from '../../engine/three/SceneHost';
+import type { SceneHost, UpdateToken } from '../../engine/three/SceneHost';
 import { createCylinder, createDisc, createSphere, createTorus, disposeMesh, isMeshDisposed } from '../../engine/three/primitives';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
-import { markGlowing } from '../../engine/rendering/LowPolyMaterial';
-import { curveDropAt } from '../globe/curvature';
+import { markGlowing, setMeshOpacity } from '../../engine/rendering/LowPolyMaterial';
 import { ELEMENT_COLOR as ELEMENT_COLORS } from '../ElementColors';
 
 export interface PowerDropOpts {
@@ -31,6 +30,8 @@ export class PowerDrop {
     private alive: boolean = true;
     private ageS = 0;
     private heroProvider: () => Vector3;
+    private scene: SceneHost;
+    private magnetized = false;
 
     constructor(
         scene: SceneHost,
@@ -39,6 +40,7 @@ export class PowerDrop {
         heroProvider: () => Vector3,
         opts: PowerDropOpts,
     ) {
+        this.scene = scene;
         this.element = element;
         this.opts = opts;
         this.heroProvider = heroProvider;
@@ -100,6 +102,7 @@ export class PowerDrop {
     public magnetize(): void {
         this.opts.magnetRadius = Infinity;
         this.opts.magnetSpeed = Math.max(this.opts.magnetSpeed, 18);
+        this.magnetized = true;
     }
 
     public update(deltaTime: number): void {
@@ -112,8 +115,7 @@ export class PowerDrop {
         const dist = Math.hypot(dx, dz);
 
         if (dist <= this.opts.pickupRadius) {
-            // Brief burst effect before disposal
-            this.playPickupFlash();
+            spawnPickupBurst(this.scene, this.mesh.position, this.element);
             this.opts.onPickup(this.element);
             this.dispose();
             return;
@@ -128,23 +130,15 @@ export class PowerDrop {
         // Idle spin + counter-spinning halo + bob.
         this.mesh.rotation.y += deltaTime * 1.8;
         this.ring.rotation.z -= deltaTime * 2.6;
-        this.mesh.position.y = 0.7 + Math.sin(this.ageS * 5) * 0.12
-            - curveDropAt(this.mesh.position.x, this.mesh.position.z); // render-only globe drop
-    }
+        this.mesh.position.y = 0.7 + Math.sin(this.ageS * 5) * 0.12;
 
-    /**
-     * Scale the orb up and boost emissive for ~200 ms before it disappears.
-     * The mesh will already be disposed by then; the short animation fires and forgets.
-     */
-    private playPickupFlash(): void {
-        const col = ELEMENT_COLORS[this.element as keyof typeof ELEMENT_COLORS] ?? new Color(1, 1, 1);
-        // Cache the flash material by element (bounded). A Math.random() name recompiled
-        // a shader per pickup. The cached material is shared — never disposed here.
-        this.mesh.material = getCachedMaterial(`orbFlash_${this.element}`, m => {
-            m.emissive.copy(col).multiplyScalar(2); // bright burst
-            m.color.set(0, 0, 0);                   // unlit look (Babylon disableLighting)
-        });
-        this.mesh.scale.setScalar(2.2);         // pop-out scale
+        // Magnetized attract cue: stretch the core toward the hero so the
+        // rush-in reads as a directed pull rather than a plain slide.
+        if (this.magnetized && dist > 0.001) {
+            const stretch = Math.min(1.8, 1 + 12 / Math.max(dist, 0.5));
+            this.mesh.scale.set(1, 1, stretch);
+            this.mesh.lookAt(heroPos.x, this.mesh.position.y, heroPos.z);
+        }
     }
 
     public dispose(): void {
@@ -153,4 +147,53 @@ export class PowerDrop {
             disposeMesh(this.mesh); // traverses the beacon/ring/glow children too
         }
     }
+}
+
+/**
+ * Standalone one-shot collect flash — an expanding emissive burst that
+ * outlives the orb mesh itself (the orb disposes the same frame it's
+ * collected, so animating the orb's own material/scale would never render).
+ * Cached material keyed by element; disposeMesh + setMeshOpacity keep the
+ * fade lifecycle audited like every other transient FX in this codebase.
+ */
+function spawnPickupBurst(scene: SceneHost, position: Vector3, element: string): void {
+    const col = ELEMENT_COLORS[element as keyof typeof ELEMENT_COLORS] ?? new Color(1, 1, 1);
+    const burst = createSphere('powerOrbBurst_' + element, { diameter: 0.9, segments: 8 }, scene);
+    burst.position.copy(position);
+    burst.material = getCachedMaterial(`orbBurstMat_${element}`, m => {
+        m.emissive.copy(col).multiplyScalar(2.4);
+        m.color.set(0, 0, 0);
+        m.transparent = true;
+        m.opacity = 0.9;
+        m.depthWrite = false;
+    });
+    markGlowing(burst);
+
+    const ring = createTorus('powerOrbBurstRing_' + element, { diameter: 0.5, thickness: 0.08, tessellation: 20 });
+    ring.rotation.x = Math.PI / 2.6;
+    ring.material = getCachedMaterial(`orbBurstRingMat_${element}`, m => {
+        m.emissive.copy(col).multiplyScalar(2);
+        m.color.set(0, 0, 0);
+        m.transparent = true;
+        m.opacity = 0.85;
+        m.depthWrite = false;
+    });
+    burst.add(ring);
+
+    const duration = 0.28;
+    let elapsed = 0;
+    let token: UpdateToken | null = null;
+    token = scene.onBeforeRender.add(() => {
+        elapsed += scene.deltaSeconds;
+        const t = Math.min(elapsed / duration, 1);
+        const s = 1 + t * 2.6;
+        burst.scale.setScalar(s);
+        setMeshOpacity(burst, 0.9 * (1 - t));
+        ring.scale.setScalar(1 + t * 3.2);
+        setMeshOpacity(ring, 0.85 * (1 - t));
+        if (t >= 1) {
+            disposeMesh(burst); // traverses the ring child too
+            scene.onBeforeRender.remove(token);
+        }
+    });
 }

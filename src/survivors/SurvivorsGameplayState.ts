@@ -9,14 +9,9 @@ import { GlbContainer, loadContainer } from '../engine/three/assets';
 import { createSphere, disposeMesh, isMeshDisposed } from '../engine/three/primitives';
 import { rgba } from '../engine/three/math';
 import { setMeshOpacity } from '../engine/rendering/LowPolyMaterial';
-import { GlobeGround } from './globe/GlobeGround';
-import { PropField } from './globe/PropField';
-import { GroundCoverField } from './globe/GroundCoverField';
 import { AmbientMotes } from './fx/AmbientMotes';
 import { spawnKillGems } from './fx/LootFx';
-import { GlobeSky } from './globe/GlobeSky';
-import { setCurveOrigin, clearCurveOrigin, curveDropAt } from './globe/curvature';
-import { GLOBE_RADIUS, GRASS_TILE_SIZE, GRASS_FAR_TILE_SIZE, GRASS_FAR_FADE_START, GRASS_FAR_FADE_END, FOG_START, FOG_END, FOG_COLOR_RGB } from './globe/constants';
+import { World } from './world/World';
 import { StatusEffect } from './GameTypes';
 import { FloorPickup, FloorPickupKind } from './FloorPickup';
 import { Champion } from './champions/Champion';
@@ -61,7 +56,6 @@ import { ShopOverlay, ShopVM, ShopCardVM } from '../ui/overlays/ShopOverlay';
 import { CharacterProfile, CharacterVM, GearSlotVM, CharStatVM, CharSetVM } from '../ui/overlays/CharacterProfile';
 import { pickBark } from './shop/GribbleBarks';
 import { DifficultyTuning } from './DifficultyTuning';
-import { createProceduralGrass } from '../engine/rendering/ProceduralGrass';
 import { GameSettings, bladeCountForQuality } from '../shared/GameSettings';
 import { clearMaterialCache, getCachedMaterial, getMaterialCacheSize } from '../engine/rendering/MaterialCache';
 import { clearProjectilePools } from '../engine/rendering/ProjectilePool';
@@ -297,9 +291,9 @@ function setChampionOpacity(champ: Champion | null, alpha: number): void {
 export class SurvivorsGameplayState implements GameState {
     private game: Game;
     private scene: SceneHost | null = null;
-    private map: GlobeGround | null = null;
-    private propField: PropField | null = null;
-    private groundCover: GroundCoverField | null = null;
+    /** The rebuilt scenario. Non-null unless ?world=old selects the legacy
+     *  globe system; the two are mutually exclusive and share no code. */
+    private world: World | null = null;
     private ambientMotes: AmbientMotes | null = null;
     // Previous-frame hero position — yields the travel direction the prop
     // recycler biases toward (zero displacement → full-circle placement).
@@ -429,25 +423,17 @@ export class SurvivorsGameplayState implements GameState {
      *  whole backlog of malformed fx drains at once). Reset in exit(). */
     private _fxDispatchWarned = false;
     private joystick: SurvivorsJoystick | null = null;
-    private grass: ReturnType<typeof createProceduralGrass> | null = null;
     /** Far-field grass layer — coarser blades covering out to the terrain cap
      *  rim (the isometric camera's telephoto lens magnifies that band). */
-    private grassFar: ReturnType<typeof createProceduralGrass> | null = null;
     private shadowSourceLight: DirectionalLight | null = null;
     /** Normalized key-light direction (Babylon's DirectionalLight direction vector)
      *  — drives the per-frame hero-follow of the shadow light position. */
-    private readonly _keyLightDir = new Vector3(-0.4, -1, -0.6).normalize();
     /** Directional shadow-map refresh throttle (Babylon shadowMap.refreshRate):
      *  the map re-renders every Nth frame (2 = every other frame; the late-wave
      *  perf trim raises it to 3). Driven in update() via shadow.needsUpdate. */
-    private _shadowRefreshInterval = 2;
-    private _shadowRefreshCounter = 0;
     /** Last hero-follow point applied to the shadow light/target this run —
      *  lets update() skip the position.set()/updateMatrixWorld() churn when
      *  the hero hasn't moved past the snap grid (e.g. idle or paused). */
-    private _lastShadowFollowX = Number.NaN;
-    private _lastShadowFollowY = Number.NaN;
-    private _lastShadowFollowZ = Number.NaN;
     /** Slow FPS EMA (~8s time constant) sampled across each wave — read at wave
      *  clear by maybeTrimPerformance to decide late-wave quality stepdowns. */
     private _fpsEma = 60;
@@ -462,7 +448,6 @@ export class SurvivorsGameplayState implements GameState {
     // Per-run env/sky GPU resources — tracked so exit() can dispose them.
     // cleanupScene() only frees meshes/particles/ADT textures, so these cube
     // textures + skybox material otherwise leak one set per run.
-    private globeSky: GlobeSky | null = null;
 
     // Gameplay systems
     private enemyManager: EnemyManager | null = null;
@@ -641,48 +626,32 @@ export class SurvivorsGameplayState implements GameState {
         // from its own uAmbient uniform).
         this.scene.scene.traverse(o => {
             if (o.name === 'light' && (o as HemisphereLight).isHemisphereLight) {
-                (o as HemisphereLight).intensity = SURVIVORS_HEMI_INTENSITY;
+                // The rebuilt world's Atmosphere owns the full light rig, hemi
+                // included. Leaving the persistent hemi hot as well stacked ~2.0
+                // of ambient on the scene, which flattened every surface and was
+                // the single biggest cause of the "washed out" look. exit()
+                // restores this to BASE_HEMI_INTENSITY either way.
+                (o as HemisphereLight).intensity = 0;
             }
         });
-        //
-        // Key light — warm directional from upper-left-front. Bumped to 0.9
-        // (was 0.5) so it's the dominant directional source giving real form
-        // and falloff after the SpotLight + ambient cuts below. Direction is
-        // encoded via light.target (kept on the hero in update()).
-        // 0.9 pre-ACES; raised for filmic midtone compression.
-        // Late-day sun: warmer + slightly hotter than the old noon key so the
-        // dusk-mauve sky (GlobeSky SKY_TINT / FOG_COLOR_RGB) reads as golden
-        // hour instead of overcast — verified against the ACES curve in-game.
-        const keyLight = new DirectionalLight(new Color(1.0, 0.74, 0.48), 1.45);
-        keyLight.name = 'survivorsKey';
-        keyLight.position.copy(this._keyLightDir).multiplyScalar(-40);
-        keyLight.target.position.set(0, 0, 0);
-        this.scene.scene.add(keyLight);
-        this.scene.scene.add(keyLight.target);
+        // The world owns its own key/fill/hemi rig, fog, terrain and props.
+        // Only the character IBL is set up here, because the PBR GLB heroes and
+        // enemies read scene.environment (the stylised scenery ignores it).
+        this.applyCharacterIbl();
+        this.world = new World(this.scene, {
+            quality: GameSettings.getGraphicsQuality(),
+            isMobile: (this.game.getCanvas().clientWidth || window.innerWidth) < 700,
+            shadowsEnabled: GameSettings.getGraphicsQuality() !== 'low',
+        });
+        // EnemyManager flags heavy spawns as casters against this light.
+        this.shadowSourceLight = this.world.getShadowLight();
 
-        // Cool back-fill from the opposite side (no shadows): separates the
-        // dark-textured GLB characters from the grass under ACES by rimming
-        // their shadow side with sky light. Kept below the 1.35 key so the
-        // warm key stays dominant and the scene doesn't flatten out.
-        const fillLight = new DirectionalLight(new Color(0.55, 0.65, 0.9), 1.0);
-        fillLight.name = 'survivorsFill';
-        fillLight.position.copy(this._keyLightDir).multiplyScalar(40);
-        fillLight.position.y = 25;
-        fillLight.target.position.set(0, 0, 0);
-        this.scene.scene.add(fillLight);
-        this.scene.scene.add(fillLight.target);
-        // Save for the shadow pass attached later.
-        this.shadowSourceLight = keyLight;
-
-        // Build base scene resources first
-        this.map = new GlobeGround(this.scene, this.game.getRendererHost().renderer);
-
-        // Layer on the ancient-ruins ambience: skybox, warm spot, env IBL, stone ground texture
-        this.applyRuinsAmbience();
-
-        // Create UI layer (DOM — the Babylon fullscreen ADT is gone; nothing drew to it)
         this.gameUI = new GameUI();
+        this.showChampionSelect();
+    }
 
+    /** Champion picker + GLB preloading. */
+    private showChampionSelect(): void {
         // Show champion select; actual run starts when player picks
         this.championSelect = new ChampionSelectOverlay(this.gameUI!.layer('overlay'));
         const championOptions: ChampionOption[] = [
@@ -733,7 +702,7 @@ export class SurvivorsGameplayState implements GameState {
 
     /** Initialize all gameplay systems and begin the run. Called once champion is chosen. */
     private async startRun(championType: string): Promise<void> {
-        if (!this.scene || !this.map) return;
+        if (!this.scene || !this.world) return;
 
         // Co-op M4: establish the local player's slot BEFORE any per-player system is
         // constructed below — the playerStats/heroController/… setters write into it.
@@ -1051,16 +1020,8 @@ export class SurvivorsGameplayState implements GameState {
         // allocations. Cleared in exit() so the menu / game-over states never
         // see calls from a stale run.
         this.damageNumbers = new DamageNumberManager(this.game);
-        // Infinite map: enemies render sunk by the globe curvature relative to
-        // the hero (render-only — gameplay positions stay flat).
-        Enemy.curveDropFn = curveDropAt;
-        // Horizon props: recycled low-poly decoration that drifts past as the
-        // hero runs — the motion cue that sells the rotating-globe illusion.
-        this.propField = new PropField(this.scene);
-        // Meadow dressing between hero and tree ring: instanced flowers,
-        // tufts, pebbles, mushrooms, logs (8 draw calls, recycled like props).
-        this.groundCover = new GroundCoverField(this.scene);
         // Drifting firefly/pollen motes hovering over the field around the hero.
+        // Scenario-independent: it follows the hero and reads under both cameras.
         const heroFollowMesh = (this.hero as unknown as { mesh: Object3D | null }).mesh;
         if (heroFollowMesh) this.ambientMotes = new AmbientMotes(this.scene, heroFollowMesh);
         Enemy.onDamageCallback = (position, damage, isCrit, element) => {
@@ -1122,6 +1083,9 @@ export class SurvivorsGameplayState implements GameState {
         // for the manual Q/E ultimates (AbilityManager → triggerSpecial /
         // playAbilityClip). The barbarian keeps the special swing for power casts.
         this.powerSlots.setOnCast((slot) => {
+            // One cast sound for every power. The audio layer's own retrigger
+            // throttle keeps a full four-slot autocast burst from stacking.
+            this.game.getAssetManager().playSound('powerCast');
             if (this.hero) {
                 if (this.hero.championType === 'barbarian') {
                     this.hero.triggerSpecial();
@@ -1444,7 +1408,14 @@ export class SurvivorsGameplayState implements GameState {
      *  spot light, and a tileable stone texture over the arena's central ground.
      *  All assets fetched from raw.githubusercontent.com (same as the playground)
      *  so we don't need to bundle them. */
-    private applyRuinsAmbience(): void {
+    /**
+     * Environment cube used purely as IBL for the PBR GLB characters.
+     *
+     * Split out of applyRuinsAmbience so the rebuilt world can reuse it: the
+     * low-poly/Phong scenery ignores scene.environment entirely, so this is the
+     * character-brightness knob and it is scenario-independent.
+     */
+    private applyCharacterIbl(): void {
         if (!this.scene) return;
         const host = this.scene;
         const envBase = 'https://raw.githubusercontent.com/CedricGuillemet/dump/master/starryassets/env/';
@@ -1472,149 +1443,8 @@ export class SurvivorsGameplayState implements GameState {
 
             this.envTexture = envTexture;
         }
-
-        // Gradient + stars sky dome (globe map): warm dusk band at the curved
-        // horizon fading to indigo overhead, so the space above the world's rim
-        // isn't a black void. The env cube above stays for IBL reflections only.
-        this.globeSky = new GlobeSky(host, this.game.isGpuUnavailable());
-
-        // ── Horizon distance fog ──────────────────────────────────────────────
-        // Blend the far ground cap + grass-fade seam into the sky's horizon band
-        // so the finite (square) terrain edge isn't visible when the camera is
-        // zoomed out. The menu/boot scene runs fog-free; survivors uses a
-        // perspective camera, so linear fog is safe here. fog.near/far are
-        // refreshed every frame in update() (shifted outward with zoom);
-        // exit() restores the fog-off default.
-        host.scene.fog = new Fog(
-            new Color(FOG_COLOR_RGB[0], FOG_COLOR_RGB[1], FOG_COLOR_RGB[2]),
-            FOG_START,
-            FOG_END,
-        );
-
-        // (Removed ruinsSpot SpotLight — it didn't cast shadows and was
-        // washing out the directional's shadows at world origin where the
-        // hero spawns. The hemispheric + directional combo gives the arena
-        // enough ambient by itself.)
-
-        // ── Directional shadow map ────────────────────────────────────────────
-        // Replaces the Babylon ShadowGenerator: casting is per-mesh (castShadow)
-        // and the map lives on the light. The ortho frustum is a fixed ±35-unit
-        // box that follows the hero every frame (see update()) — the world is a
-        // hero-centred treadmill, so the light must travel with it.
-        if (this.shadowSourceLight) {
-            const light = this.shadowSourceLight;
-            // Low preset turns shadow rendering off entirely (set from the
-            // main-menu graphics preset) — Babylon's scene.shadowsEnabled.
-            light.castShadow = GameSettings.getGraphicsQuality() !== 'low';
-            light.shadow.mapSize.set(1024, 1024);
-            const cam = light.shadow.camera;
-            cam.left = -35;
-            cam.right = 35;
-            cam.top = 35;
-            cam.bottom = -35;
-            cam.near = 1;
-            cam.far = 120;
-            cam.updateProjectionMatrix();
-            light.shadow.bias = -0.0008;
-            // refresh throttle: shadow map every other frame (top-down:
-            // imperceptible, ~halves shadow cost). update() drives needsUpdate.
-            light.shadow.autoUpdate = false;
-            light.shadow.needsUpdate = true;
-            this._shadowRefreshInterval = 2;
-            this._shadowRefreshCounter = 0;
-
-            host.scene.traverse(node => {
-                const m = node as Mesh;
-                if (m.isMesh && m.name.startsWith('arenaGround')) {
-                    m.receiveShadow = true;
-                }
-            });
-        }
-
-        // ── Grass blades ──────────────────────────────────────────────────────
-        // Texture-free, sampler-free shader → identical pipeline state on
-        // WebGL and WebGPU. Up to 32000 hardware-instanced blades (quality-
-        // tiered) with vertex lighting and a sin-based wind sway.
-        // Shadow receive: the grass fragment shader samples the directional
-        // light's shadow map directly (shadowLight) — only wired when the
-        // light actually casts (Low preset compiles without shadow code).
-        const grassShadowLight = this.shadowSourceLight?.castShadow ? this.shadowSourceLight : undefined;
-        this.grass = createProceduralGrass(host, {
-            tileSize: GRASS_TILE_SIZE,
-            curveRadius: GLOBE_RADIUS,
-            bladeCount: bladeCountForQuality(GameSettings.getGraphicsQuality()),
-            bladeWidth: 0.06,
-            bladeHeight: 0.45,
-            // Radial height-fade so the dense near tile tapers out in a CIRCLE
-            // (blades gone by its ±22 edge, square corners included) instead of
-            // ending in a hard square boundary against the sparser far layer.
-            // The far layer underneath provides continuous coverage past it.
-            // Fade starts at 10 (not 14): the wider band softens the density
-            // step against the far layer, which otherwise reads as a faint
-            // ring around the hero on the open field.
-            fadeStart: 10,
-            fadeEnd: 22,
-            directionalLight: this.shadowSourceLight ?? undefined,
-            shadowLight: grassShadowLight,
-            shadowDarkness: 0.4,
-            ambientColor: new Color(0.42, 0.50, 0.32),
-            colorRoot: new Color(0.18, 0.26, 0.10),
-            colorTip:  new Color(0.55, 0.78, 0.30),
-            colorDry:  new Color(0.72, 0.65, 0.32),
-            influencerRadius: 0.9,
-            influencerStrength: 0.55,
-        });
-
-        // Far-field layer: the same blade count as the near layer, but spread
-        // over the much larger ±100 tile so blades carpet the entire visible
-        // ground out past the cap edge (no bare-ground "square"). Wider blades
-        // (foreshortening at grazing angles keeps it reading dense). The fade
-        // now sits beyond the horizon, so it's never seen.
-        // LOD: 2 curve segments (12 verts vs 20 — curve detail is invisible at
-        // distance) and no influencer bend loop (characters never reach it),
-        // which together cut this layer's vertex cost to a fraction.
-        this.grassFar = createProceduralGrass(host, {
-            tileSize: GRASS_FAR_TILE_SIZE,
-            curveRadius: GLOBE_RADIUS,
-            bladeCount: bladeCountForQuality(GameSettings.getGraphicsQuality()) * 3,
-            bladeWidth: 0.12,
-            bladeHeight: 0.50,
-            bladeSegments: 2,
-            influencers: false,
-            fadeStart: GRASS_FAR_FADE_START,
-            fadeEnd: GRASS_FAR_FADE_END,
-            directionalLight: this.shadowSourceLight ?? undefined,
-            ambientColor: new Color(0.42, 0.50, 0.32),
-            colorRoot: new Color(0.18, 0.26, 0.10),
-            colorTip:  new Color(0.55, 0.78, 0.30),
-            colorDry:  new Color(0.72, 0.65, 0.32),
-        });
-
-
-
-        // ── Torch (point-light) shadow map ────────────────────────────────────
-        // Cube shadow map on the hero's torch so bosses + heavies cast a
-        // shadow pool around the hero. 512 cube = 6 × 512² render targets per
-        // frame — heavy, but the caster set is intentionally small (bosses,
-        // tanks, etc). Re-uses the pre-registered torch from Game.setupScene.
-        const torch = this.game.getHeroTorch();
-        torch.shadow.mapSize.set(512, 512);
-        torch.shadow.camera.near = 0.1;
-        torch.shadow.camera.far = 9;
-        torch.shadow.bias = 0.001;
-
-        // The torch is left dormant (intensity 0; enableTorch() is never called in
-        // the current design — see startRun). A shadow-casting point light renders
-        // a 6-face cube depth map EVERY frame for every flagged caster as long as
-        // castShadow is true — gated on castShadow, NOT intensity — so while the
-        // torch emits no light this is pure GPU waste (zero visible shadow),
-        // roughly doubling boss-wave shadow cost. Disable shadow casting until the
-        // torch is actually lit. NB: if Champion.enableTorch() is ever wired into a
-        // run, it must set heroTorch.castShadow = true to restore the shadow pool.
-        // TODO(phase F): torch self-shadow exclusion via layers (hero must not
-        // block its own light) — moot while the torch shadow stays off.
-        torch.castShadow = false;
     }
+
 
     // ── VS-style floor pickups ────────────────────────────────────────────────
     // Rare drops from regular kills: a heal orb (chunk of max HP back) and a
@@ -2936,7 +2766,6 @@ export class SurvivorsGameplayState implements GameState {
 
         Enemy.onDamageCallback = null;
         Enemy.onRewardCallback = null;
-        Enemy.curveDropFn = null; // globe drop off outside a run
         Enemy.onKillCallback = null;
         Enemy.onShatterCallback = null;
         Enemy.guestDamageRedirect = null; // M4-9: clear the guest damage redirect
@@ -3029,22 +2858,16 @@ export class SurvivorsGameplayState implements GameState {
         this.hero?.dispose();
         this.hero = null;
 
-        this.map?.dispose();
-        this.map = null;
-        this.propField?.dispose();
-        this.propField = null;
-        this.groundCover?.dispose();
-        this.groundCover = null;
+        // Stop every ambience bed before leaving. The menu restarts 'bgMusic'
+        // through playLoop directly, so a biome bed left running would stack
+        // underneath it instead of being replaced.
+        this.game.getAssetManager().stopAllAmbience();
+        this.world?.dispose();
+        this.world = null;
         this.ambientMotes?.dispose();
         this.ambientMotes = null;
         this._lastHeroX = 0;
         this._lastHeroZ = 0;
-        clearCurveOrigin(); // globe drop reads 0 everywhere until the next run
-
-        this.grass?.dispose();
-        this.grass = null;
-        this.grassFar?.dispose();
-        this.grassFar = null;
 
         // Restore Game.setupScene's fog-off default so the menu / game-over
         // (and any non-survivors flow) aren't left hazed by this run, and drop
@@ -3061,25 +2884,14 @@ export class SurvivorsGameplayState implements GameState {
             });
         }
 
-        // Dispose the per-run key light and env cube. Game.cleanupScene() removes
-        // the light from the scene graph but does not free its shadow-map render
-        // target — light.dispose() does; leaking one per run keeps a full shadow
-        // map alive, the dominant "later runs freeze worse" cost in the Babylon
-        // era. The env cube is a scene-level texture (not a material), so nothing
-        // else frees it.
-        if (this.shadowSourceLight) {
-            this.shadowSourceLight.target.removeFromParent();
-            this.shadowSourceLight.removeFromParent();
-            this.shadowSourceLight.dispose();
-            this.shadowSourceLight = null;
-        }
-        this._lastShadowFollowX = Number.NaN;
-        this._lastShadowFollowY = Number.NaN;
-        this._lastShadowFollowZ = Number.NaN;
+        // The key light belongs to the World's Atmosphere, which disposed it —
+        // and its shadow-map render target — inside world.dispose() above. This
+        // only drops our borrowed reference; disposing here would double-free.
+        this.shadowSourceLight = null;
+        // The env cube is a scene-level texture (not a material), so nothing else
+        // frees it.
         this.envTexture?.dispose();
         this.envTexture = null;
-        this.globeSky?.dispose();
-        this.globeSky = null;
 
         // Free the cross-run GPU resource pools. By now every survivors mesh that
         // referenced these (hero, enemies, drops, projectiles) has been disposed
@@ -3281,7 +3093,7 @@ export class SurvivorsGameplayState implements GameState {
                         g.mesh.position.x = pose.x;
                         g.mesh.position.z = pose.z;
                         // Render-only globe drop — gameplay pose stays flat.
-                        g.mesh.position.y = pose.y - curveDropAt(pose.x, pose.z);
+                        g.mesh.position.y = pose.y;
                         g.mesh.rotation.y = pose.ry; // network yaw, after update()
                     }
                 }
@@ -3317,110 +3129,23 @@ export class SurvivorsGameplayState implements GameState {
         }
         this.itemEffects?.tick(deltaTime);
 
-        // ── Infinite-map globe upkeep ──────────────────────────────────────
-        // Order matters: set the curve origin FIRST so every render-side
-        // curveDropAt() call this frame (enemies, drops, props) uses the
-        // hero's current position.
-        if (this.hero) {
+        // ── World upkeep ───────────────────────────────────────────────────
+        // One call: terrain, scatter, props and atmosphere are all driven from
+        // the hero position, the wave number and the camera's visible extent.
+        if (this.world && this.hero) {
             const hp = this.hero.getPosition();
-            setCurveOrigin(hp.x, hp.z);
-            this.map?.update(hp.x, hp.z);
-            // Sky dome follows the hero so a long run never walks out of it.
-            this.globeSky?.update(hp.x, hp.z, deltaTime);
-            // Directional shadow frustum is a fixed ±35-unit ortho box around
-            // the light — keep it centred on the hero (the world is a
-            // hero-centred treadmill). Snap the follow point to 0.5 u so the
-            // shadow texels don't shimmer as the hero moves. The light sits
-            // 40 units back along its (fixed) direction; the target rides the
-            // hero so the direction vector never changes.
-            if (this.shadowSourceLight) {
-                const light = this.shadowSourceLight;
-                const sx = Math.round(hp.x * 2) / 2;
-                const sz = Math.round(hp.z * 2) / 2;
-                const followEps = 1e-4;
-                if (
-                    Math.abs(sx - this._lastShadowFollowX) > followEps ||
-                    Math.abs(hp.y - this._lastShadowFollowY) > followEps ||
-                    Math.abs(sz - this._lastShadowFollowZ) > followEps
-                ) {
-                    this._lastShadowFollowX = sx;
-                    this._lastShadowFollowY = hp.y;
-                    this._lastShadowFollowZ = sz;
-                    light.position.set(sx, hp.y, sz).addScaledVector(this._keyLightDir, -40);
-                    light.target.position.set(sx, hp.y, sz);
-                    light.target.updateMatrixWorld();
-                }
-                // Shadow-map refresh throttle (Babylon shadowMap.refreshRate):
-                // re-render the map every Nth frame only.
-                if (light.castShadow) {
-                    this._shadowRefreshCounter++;
-                    if (this._shadowRefreshCounter >= this._shadowRefreshInterval) {
-                        this._shadowRefreshCounter = 0;
-                        light.shadow.needsUpdate = true;
-                    }
-                }
-            }
-            this.grass?.setHeroPos(hp); // grass treadmill recentre
-            this.grassFar?.setHeroPos(hp);
-            // Travel direction from frame-to-frame hero displacement (cheap,
-            // no new API): zero when stationary → recycle uses the full circle.
-            const pdx = hp.x - this._lastHeroX;
-            const pdz = hp.z - this._lastHeroZ;
+            this.world.update(
+                deltaTime,
+                hp.x,
+                hp.z,
+                this.waveManager?.getCurrentWave() ?? 1,
+                this.heroController?.getViewHalfDiagonal() ?? 39,
+            );
+            // Ambience follows the biome. setAmbience no-ops when already on the
+            // requested bed, so driving it per frame costs nothing.
+            this.game.getAssetManager().setAmbience(this.world.getAmbienceName());
             this._lastHeroX = hp.x;
             this._lastHeroZ = hp.z;
-            this.propField?.update(hp.x, hp.z, pdx, pdz);
-            this.groundCover?.update(hp.x, hp.z, pdx, pdz);
-        }
-
-        // Shift the distance-fog band outward by however far the camera has
-        // receded with zoom, so the hero + spawn ring stay crisp at every zoom
-        // and only the far horizon hazes. (Fog is camera-distance based; a fixed
-        // band would creep over the play area as you zoom out.) The grass shader
-        // mirrors scene.fog.near/far per frame, so both layers track this too.
-        const fog = this.scene?.scene.fog;
-        if (fog instanceof Fog) {
-            const fogShift = this.heroController?.getCameraDistanceFromDefault() ?? 0;
-            fog.near = FOG_START + fogShift;
-            fog.far = FOG_END + fogShift;
-        }
-
-        // Keep the procedural-grass shader's torch uniforms in sync with the
-        // real heroTorch PointLight. When the torch is off (intensity 0), the
-        // grass glow goes off too — previously it was always on regardless.
-        if (this.grass && this.hero) {
-            const torch = this.game.getHeroTorch();
-            if (torch.intensity > 0) {
-                // Mutate the pre-allocated torch-opts struct in place so we
-                // don't churn a fresh object every frame.
-                const opts = this._scratchTorchOpts;
-                opts.position.copy(this.hero.getPosition());
-                opts.color.copy(torch.color);
-                opts.intensity = TORCH_INTENSITY * (torch.intensity / 5.0);
-                opts.range = TORCH_RANGE;
-                this.grass.setTorch(opts);
-                this.grassFar?.setTorch(opts);
-            } else {
-                this.grass.setTorch(null);
-                this.grassFar?.setTorch(null);
-            }
-
-            // Character grass displacement: hero + nearest 7 enemies push
-            // surrounding blades outward as they move. Shader caps at 8,
-            // so we trim if more are alive nearby. Reuse the scratch array —
-            // setInfluencers reads the contents synchronously, so swapping the
-            // contents in-place each frame is safe.
-            const influencers = this._scratchInfluencers;
-            influencers.length = 0;
-            influencers.push(this.hero.getPosition());
-            if (this.enemyManager) {
-                const enemies = this.enemyManager.getEnemies();
-                for (let i = 0; i < enemies.length && influencers.length < 8; i++) {
-                    const ep = (enemies[i] as unknown as { position?: Vector3; getPosition?: () => Vector3 });
-                    const pos = ep.getPosition?.() ?? ep.position;
-                    if (pos) influencers.push(pos);
-                }
-            }
-            this.grass.setInfluencers(influencers);
         }
 
         _measure('hero');
@@ -4782,7 +4507,7 @@ export class SurvivorsGameplayState implements GameState {
             this.game.setPostFxReduced(true);
             console.info(`[perf-trim] wave ${clearedWave} cleared at ≈${Math.round(this._fpsEma)} fps → reduced post-fx (level 1)`);
         } else {
-            this._shadowRefreshInterval = 3;
+            this.world?.setShadowInterval(3);
             console.info(`[perf-trim] wave ${clearedWave} cleared at ≈${Math.round(this._fpsEma)} fps → shadow map every 3rd frame (level 2)`);
         }
     }

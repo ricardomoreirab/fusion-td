@@ -1,0 +1,37 @@
+{
+  "task_id": "cb13f78c-cdb6-405d-b5c4-081dcfa569b3",
+  "type": "text_to_model",
+  "status": "success",
+  "input": {
+    "prompt": "game-ready mossy standing stone cluster, three weathered grey granite menhirs of different heights leaning slightly, green moss and lichen patches on north faces, low-poly stylized game asset, PBR textures, strong readable silhouette, centered pivot at base, no text, no ground plane",
+    "model_version": "v3.1-20260211",
+    "texture": true,
+    "pbr": true,
+    "texture_quality": "detailed",
+    "texture_alignment": "geometry",
+    "export_uv": true,
+    "geometry_quality": "detailed"
+  },
+  "output": {
+    "pbr_model": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/cb13f78c-cdb6-405d-b5c4-081dcfa569b3/tripo_pbr_model_cb13f78c-cdb6-405d-b5c4-081dcfa569b3.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvY2IxM2Y3OGMtY2RiNi00MDVkLWI1YzQtMDgxZGNmYTU2OWIzL3RyaXBvX3Bicl9tb2RlbF9jYjEzZjc4Yy1jZGI2LTQwNWQtYjVjNC0wODFkY2ZhNTY5YjMuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=WhOUUrOyG-R30ek1HN9YQKK6XJg6LuNuHpWtJYriYEyehEOfzZKMVq1Z06nqRJxNEaDt0GmYL0mqg5vM9SQ3DDigKv2dTLKqQQoxFLaxarj1KHFzNkxbJji1gERijdHJhRl7IcUKo7QIKsqtLsFAVbNfzWVmAFC3Y5vuvE6FxfrYAXzq93X40ndnHJkKfCTYzUOHxyOby9aXprzz6acN3u5XyfpeSBBeZj7Gz2KxSpnJqFLL5-B9XUXtVufYIWbYrc9FclwnM9C8OjVhG9Q83w8UJ25UatjvjqfjHWk96xWSxoVZTH5ip~ODSXbWEO~eDP~-rfbhvOqbPlhEYKEk-g__",
+    "generated_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/cb13f78c-cdb6-405d-b5c4-081dcfa569b3/text2image_cb13f78c-cdb6-405d-b5c4-081dcfa569b3.jpeg?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvY2IxM2Y3OGMtY2RiNi00MDVkLWI1YzQtMDgxZGNmYTU2OWIzL3RleHQyaW1hZ2VfY2IxM2Y3OGMtY2RiNi00MDVkLWI1YzQtMDgxZGNmYTU2OWIzLmpwZWciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=eDQIQrZdVwDCnugky9iZAwXZ-i~3nfMPFDGvP9GLKF7I8jv6MuKTAYAuWvulFDkb16uSc5v6-s-HzpiO4Uq0EcaprGTomYhrCJwNjJW2szGj1AWvtKbeigH24Ey6~Dlj6VoZSsIpX7TU5v2TQbH6P8Heerc1L7Dd800TOBUS0-lV2cqONb95BMABBwUUZ4hXEQCrlXNSbfMQwO9IZa5dlOCHlFd-ojbZkZbHrMPkir091NN3nHm6pQX~BLgzZQ8E95~P258vkTJU~-jtzizAY1sAsokDffDPEzalTIJufcFkFqV8uY6xpzp~xjhqCvEGxU35mgaFCsUMWpRAIBDRAA__",
+    "rendered_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/cb13f78c-cdb6-405d-b5c4-081dcfa569b3/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvY2IxM2Y3OGMtY2RiNi00MDVkLWI1YzQtMDgxZGNmYTU2OWIzL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=jLXZeyOyDoXzs-Im3c2apu0-OP56M5lOBBQa378SdqTt0Rw1n~ZWiwDYpmdO~06QpAjCjh8XxR7GFVJC5L1sxLuRdNdx3ya3MNcspzRUceDLvhHsuEEsHl8lioCGkmSbgdlj29FfpzIGfbTwmp~7RHgIISIXJI0Q9ED-~b2WoLuHlTP07wHSmp4JQt04c1RYPUBdVU1KbF8oc3MHT-7zad0ZR0AulBrfxh3H92A0dz~TqKLP5RBzlXN2XXvRdviRzeeiLtpafVxSiQdI7d7l8~NC~vg3O3B2ancN85ULwYGCmCPaZLJcgW7meX46rTEgyQuNeL1jd8It0CwZJI66-Q__"
+  },
+  "progress": 100,
+  "create_time": 1785004149,
+  "consumed_credit": 50,
+  "prompt": "game-ready mossy standing stone cluster, three weathered grey granite menhirs of different heights leaning slightly, green moss and lichen patches on north faces, low-poly stylized game asset, PBR textures, strong readable silhouette, centered pivot at base, no text, no ground plane",
+  "thumbnail": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/cb13f78c-cdb6-405d-b5c4-081dcfa569b3/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvY2IxM2Y3OGMtY2RiNi00MDVkLWI1YzQtMDgxZGNmYTU2OWIzL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=jLXZeyOyDoXzs-Im3c2apu0-OP56M5lOBBQa378SdqTt0Rw1n~ZWiwDYpmdO~06QpAjCjh8XxR7GFVJC5L1sxLuRdNdx3ya3MNcspzRUceDLvhHsuEEsHl8lioCGkmSbgdlj29FfpzIGfbTwmp~7RHgIISIXJI0Q9ED-~b2WoLuHlTP07wHSmp4JQt04c1RYPUBdVU1KbF8oc3MHT-7zad0ZR0AulBrfxh3H92A0dz~TqKLP5RBzlXN2XXvRdviRzeeiLtpafVxSiQdI7d7l8~NC~vg3O3B2ancN85ULwYGCmCPaZLJcgW7meX46rTEgyQuNeL1jd8It0CwZJI66-Q__",
+  "queuing_num": -1,
+  "running_left_time": -1,
+  "result": {
+    "pbr_model": {
+      "type": "glb",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/cb13f78c-cdb6-405d-b5c4-081dcfa569b3/tripo_pbr_model_cb13f78c-cdb6-405d-b5c4-081dcfa569b3.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvY2IxM2Y3OGMtY2RiNi00MDVkLWI1YzQtMDgxZGNmYTU2OWIzL3RyaXBvX3Bicl9tb2RlbF9jYjEzZjc4Yy1jZGI2LTQwNWQtYjVjNC0wODFkY2ZhNTY5YjMuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=WhOUUrOyG-R30ek1HN9YQKK6XJg6LuNuHpWtJYriYEyehEOfzZKMVq1Z06nqRJxNEaDt0GmYL0mqg5vM9SQ3DDigKv2dTLKqQQoxFLaxarj1KHFzNkxbJji1gERijdHJhRl7IcUKo7QIKsqtLsFAVbNfzWVmAFC3Y5vuvE6FxfrYAXzq93X40ndnHJkKfCTYzUOHxyOby9aXprzz6acN3u5XyfpeSBBeZj7Gz2KxSpnJqFLL5-B9XUXtVufYIWbYrc9FclwnM9C8OjVhG9Q83w8UJ25UatjvjqfjHWk96xWSxoVZTH5ip~ODSXbWEO~eDP~-rfbhvOqbPlhEYKEk-g__"
+    },
+    "rendered_image": {
+      "type": "webp",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/cb13f78c-cdb6-405d-b5c4-081dcfa569b3/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvY2IxM2Y3OGMtY2RiNi00MDVkLWI1YzQtMDgxZGNmYTU2OWIzL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=jLXZeyOyDoXzs-Im3c2apu0-OP56M5lOBBQa378SdqTt0Rw1n~ZWiwDYpmdO~06QpAjCjh8XxR7GFVJC5L1sxLuRdNdx3ya3MNcspzRUceDLvhHsuEEsHl8lioCGkmSbgdlj29FfpzIGfbTwmp~7RHgIISIXJI0Q9ED-~b2WoLuHlTP07wHSmp4JQt04c1RYPUBdVU1KbF8oc3MHT-7zad0ZR0AulBrfxh3H92A0dz~TqKLP5RBzlXN2XXvRdviRzeeiLtpafVxSiQdI7d7l8~NC~vg3O3B2ancN85ULwYGCmCPaZLJcgW7meX46rTEgyQuNeL1jd8It0CwZJI66-Q__"
+    }
+  }
+}

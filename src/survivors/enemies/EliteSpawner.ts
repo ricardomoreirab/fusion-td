@@ -1,9 +1,28 @@
-import { Color, type Mesh } from 'three';
+import { BackSide, Color, type Mesh } from 'three';
+import type { WebGLProgramParametersWithUniforms } from 'three';
 import { Enemy } from './Enemy';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
 import { createDisc, createPolyhedron, createSphere, isMeshDisposed } from '../../engine/three/primitives';
 import type { SceneHost } from '../../engine/three/SceneHost';
 import { DifficultyTuning } from '../DifficultyTuning';
+
+/** Adds a view-angle fresnel term to a Phong shader's alpha so a thin shell
+ *  reads as a bright rim with a near-transparent center, instead of a flat
+ *  lit disc of color. Shared by the elite aura shell. */
+function applyFresnelRim(shader: WebGLProgramParametersWithUniforms): void {
+    shader.uniforms.fresnelPower = { value: 2.2 };
+    shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <common>',
+        `#include <common>
+        uniform float fresnelPower;`
+    );
+    shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <dithering_fragment>',
+        `float fresnelTerm = pow(1.0 - saturate(dot(normalize(vViewPosition), normalize(vNormal))), fresnelPower);
+        gl_FragColor.a *= fresnelTerm;
+        #include <dithering_fragment>`
+    );
+}
 
 const ELEMENT_COLORS: Record<string, Color> = {
     fire:     new Color(1.0, 0.4, 0.0),
@@ -48,16 +67,27 @@ export function makeElite(enemy: Enemy, element: string, host: SceneHost): void 
 
     if (!mesh) return;
 
-    // ── Pulsing aura sphere ──────────────────────────────────────────────────
-    const aura = createSphere('eliteAura_' + element, { diameter: 2.6 }, host);
+    // ── Pulsing aura rim shell ───────────────────────────────────────────────
+    // Close-fitting shell (was a 2.6-diameter blob 2x an enemy's width) —
+    // BackSide + a fresnel falloff reads as a bright rim hugging the
+    // silhouette with a near-transparent center, not a solid sphere.
+    const aura = createSphere('eliteAura_' + element, { diameter: 1.7 }, host);
     // Shared material per element — all elites of the same element pulse in sync
     // (intentional: the per-frame opacity write below deliberately hits the
     // SHARED cached material so one pulse drives every elite of that element).
     const auraMat = getCachedMaterial(`elite_aura_${element}`, m => {
+        // The default MeshPhongMaterial diffuse color is white; leaving it
+        // unset here was the bug — the scene's key/fill/hemi lights lit that
+        // white base to a blown-out sphere regardless of the low emissive
+        // opacity. Pin diffuse to black so ALL visible brightness comes from
+        // the element-tinted emissive term.
+        m.color = new Color(0, 0, 0);
         m.emissive = color.clone();
         m.transparent = true;
-        m.opacity = 0.18;
+        m.opacity = 0.35;
         m.depthWrite = false;
+        m.side = BackSide;
+        m.onBeforeCompile = applyFresnelRim;
     });
     aura.material = auraMat;
     mesh.add(aura);
@@ -79,12 +109,16 @@ export function makeElite(enemy: Enemy, element: string, host: SceneHost): void 
         if (_auraFrameCounter < 3) return;
         _auraFrameCounter = 0;
         const t = performance.now() / 1000;
-        auraMat.opacity = 0.10 + 0.10 * (1 + Math.sin((t / 0.75) * Math.PI));
+        auraMat.opacity = 0.22 + 0.16 * (1 + Math.sin((t / 0.75) * Math.PI));
     });
 
     // ── Ground glow disc at enemy feet ───────────────────────────────────────
     const disc = createDisc('eliteGlow_' + element, { radius: 0.9, tessellation: 16 }, host);
     disc.material = getCachedMaterial(`elite_glow_${element}`, m => {
+        // Same missing-diffuse-color bug as the aura shell above: an unset
+        // color defaults to lit white. Pin to black so brightness comes only
+        // from the element-tinted emissive.
+        m.color = new Color(0, 0, 0);
         m.emissive = color.clone();
         m.transparent = true;
         m.opacity = 0.40;

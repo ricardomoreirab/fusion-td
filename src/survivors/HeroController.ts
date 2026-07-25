@@ -1,4 +1,4 @@
-import { Vector3, PerspectiveCamera } from 'three';
+import { Vector3, OrthographicCamera, Camera } from 'three';
 import { Game } from '../engine/Game';
 import { Champion } from './champions/Champion';
 import { HeroBasicAttack, BasicAttackTarget, BasicAttackMode, ProjectileShape } from './champions/HeroBasicAttack';
@@ -7,7 +7,8 @@ import { Enemy } from './enemies/Enemy';
 import { PlayerStats } from './PlayerStats';
 import { DashMode } from './abilities/AbilityManager';
 import { capInputLen, arenaClampScale } from './integrateMove';
-import { stepZoom, lerpZoom, parsePersistedZoom, setCameraSlantPosition } from './cameraZoom';
+import { IsoCameraRig } from './world/IsoCameraRig';
+import { screenToWorldDir } from './world/isoProjection';
 import { fxRenderer, fxSize, ParticleEffect } from '../engine/three/particles/ParticleEffect';
 import { LifeTimeCurve, Shape } from '@newkrok/three-particles';
 import type { SceneHost } from '../engine/three/SceneHost';
@@ -18,35 +19,6 @@ const KNOCKBACK_SPEED         = 7.0;   // units / sec
 const KNOCKBACK_DURATION_S    = 0.15;
 const CAMERA_SHAKE_MAGNITUDE  = 0.6;   // world units added to camera position XZ per shake frame
 const CAMERA_SHAKE_DURATION_S = 0.10;
-
-/** Isometric (Diablo 4 / BG3-style) follow camera over the globe map.
- *  PITCH is the look-down angle from horizontal; FOV narrows the lens
- *  (telephoto flattens perspective toward an isometric read — the Babylon
- *  default was 0.8 rad); DISTANCE is the slant range from the focus point.
- *  Camera height and Z-offset derive from pitch + distance, so tune these
- *  three only. Pitch is capped so a slim band of curved horizon + sky still
- *  clears the top of the frame — that band is what sells the infinite-globe
- *  illusion. */
-const CAMERA_PITCH_DEG       = 42;
-const CAMERA_FOV             = 0.55;  // rad (vertical) — Three wants degrees, converted below
-const CAMERA_DISTANCE        = 26;    // desktop slant distance
-const CAMERA_DISTANCE_MOBILE = 23;    // narrow screens pull in slightly
-
-/** How far ahead of the hero the camera aims — nudges the hero just below
- *  screen centre so more of the threat-bearing far field is visible. */
-const CAMERA_AIM_AHEAD = 2;
-
-/** localStorage key for the persisted camera zoom multiplier. */
-const CAMERA_ZOOM_STORAGE_KEY = 'ktg.cameraZoom';
-
-/** localStorage is best-effort — wrapped so private-mode / disabled storage can't crash
- *  the camera. Returns null (→ default zoom) when storage is unavailable. */
-function readPersistedZoom(): string | null {
-    try { return localStorage.getItem(CAMERA_ZOOM_STORAGE_KEY); } catch { return null; }
-}
-function writePersistedZoom(zoom: number): void {
-    try { localStorage.setItem(CAMERA_ZOOM_STORAGE_KEY, String(zoom)); } catch { /* ignore */ }
-}
 
 const BLOOD_BURST_COUNT       = 12;
 
@@ -61,12 +33,15 @@ export class HeroController {
     private game: Game;
     private scene: SceneHost;
     private hero: Champion;
-    private camera: PerspectiveCamera;
+    /** The active camera. Consumers only project through it. */
+    private camera: OrthographicCamera;
+    /** Owns framing, zoom, shake and the follow lerp. */
+    private isoRig: IsoCameraRig;
+    /** Reused by the screen→world input conversion so movement allocates nothing. */
+    private readonly _scratchDir = { dx: 0, dz: 0 };
     private arenaRadius: number;
     private keys: { [k: string]: boolean } = {};
     private moveSpeed: number;
-    private cameraHeight: number;
-    private cameraOffsetZ: number;
 
     // External joystick input
     private externalDx: number = 0;
@@ -156,13 +131,7 @@ export class HeroController {
     // existing zoom/lerp/shake while keeping the look-down pitch identical to solo.
     private cameraFocusProvider: (() => { x: number; z: number; distanceScale: number }) | null = null;
 
-    // Mouse-wheel zoom: a multiplier on the BASE slant distance. zoomTarget is set by
-    // the wheel; zoomMultiplier eases toward it each frame and scales cameraHeight +
-    // cameraOffsetZ together so the look-down angle stays constant. See cameraZoom.ts.
-    private zoomMultiplier: number = 1;
-    private zoomTarget: number = 1;
     private readonly canvas: HTMLCanvasElement | null;
-    private readonly onWheel: (e: WheelEvent) => void;
     // Window keyboard listeners (replaces the Babylon scene keyboard observable) —
     // stored so dispose() removes them.
     private readonly onKeyDown: (e: KeyboardEvent) => void;
@@ -190,50 +159,13 @@ export class HeroController {
         const canvas = game.getCanvas();
         const viewportWidth = canvas.clientWidth || window.innerWidth;
         const viewportHeight = Math.max(1, canvas.clientHeight || window.innerHeight);
-        const pitchRad = CAMERA_PITCH_DEG * Math.PI / 180;
-        const camDist = viewportWidth < 700 ? CAMERA_DISTANCE_MOBILE : CAMERA_DISTANCE;
-        this.cameraHeight = camDist * Math.sin(pitchRad);
-        this.cameraOffsetZ = -camDist * Math.cos(pitchRad);
-
-        // Isometric follow camera: steep look-down + narrow (telephoto) FOV.
-        // Aim slightly AHEAD of the hero so the hero sits just below centre
-        // and the top of the frame keeps the curved horizon + sky band.
-        // CAMERA_FOV is the Babylon vertical fov in RADIANS; Three takes degrees.
-        // Near/far mirror the Babylon FreeCamera defaults (minZ 1, maxZ 10000).
-        this.camera = new PerspectiveCamera(
-            CAMERA_FOV * 180 / Math.PI,
-            viewportWidth / viewportHeight,
-            1,
-            10000,
-        );
-        this.camera.name = 'heroCam';
-        this.camera.position.set(0, this.cameraHeight, this.cameraOffsetZ);
-        // Snapshot the look-down rotation once via lookAt. It is never recomputed —
-        // only position moves per frame (Three never re-aims a camera on its own),
-        // so there is no per-frame rotation drift that reads as the map rotating.
-        this.camera.lookAt(new Vector3(0, 0, CAMERA_AIM_AHEAD));
-        game.setActiveCamera(this.camera);
-
-        // Mouse-wheel zoom. The rotation was just locked from the BASE (unzoomed)
-        // geometry above, so it is identical regardless of the saved zoom — the
-        // perspective never drifts. Load the persisted multiplier, snap the camera to
-        // the zoomed slant position so there is no first-frame pop, then listen for wheel.
-        this.zoomTarget = parsePersistedZoom(readPersistedZoom());
-        this.zoomMultiplier = this.zoomTarget;
-        this.camera.position.set(
-            0,
-            this.cameraHeight * this.zoomMultiplier,
-            this.cameraOffsetZ * this.zoomMultiplier,
-        );
-
         this.canvas = canvas;
-        this.onWheel = (e: WheelEvent) => {
-            e.preventDefault(); // stop page scroll / browser pinch-zoom over the canvas
-            this.zoomTarget = stepZoom(this.zoomTarget, e.deltaY);
-            writePersistedZoom(this.zoomTarget);
-        };
-        // passive:false is required so preventDefault() actually takes effect.
-        this.canvas?.addEventListener('wheel', this.onWheel, { passive: false });
+
+        // True orthographic isometric follow rig. It owns framing, zoom, shake,
+        // finite-guards and its own wheel listener.
+        this.isoRig = new IsoCameraRig(canvas);
+        this.camera = this.isoRig.getCamera();
+        game.setActiveCamera(this.camera);
 
         // Keyboard input (window listeners; removed in dispose())
         this.onKeyDown = (e: KeyboardEvent) => {
@@ -256,6 +188,7 @@ export class HeroController {
             targetProvider:   () => this.targetProvider(),
             enemyProvider:    () => this.enemyProvider?.() ?? [],
             multiTargetFromAttackSpeed: cfg.multiTargetFromAttackSpeed,
+            onAttack:         () => game.getAssetManager().playSound('heroAttack'),
         });
     }
 
@@ -338,6 +271,9 @@ export class HeroController {
         this.hero.flashHitRed();
         this.spawnHeroBloodBurst();
         this.cameraShakeTimeRemaining = CAMERA_SHAKE_DURATION_S;
+        // Audio rides the same rate limit as the visual feedback, so per-frame
+        // contact damage cannot machine-gun the hurt sound.
+        this.game.getAssetManager().playSound('heroHit');
 
         if (sourcePos) {
             const heroPos = this.hero.getPosition();
@@ -583,11 +519,13 @@ export class HeroController {
         if (this.keys['a'] || this.keys['arrowleft']) dx -= 1;
         if (this.keys['d'] || this.keys['arrowright']) dx += 1;
         if (Math.hypot(dx, dz) < 0.01) return null;
-        // Screen→world: the follow camera sits at -Z looking toward +Z, so in
-        // right-handed THREE screen-right is world -X (Babylon's left-handed
-        // view put it at +X). Inputs are screen-space intent; this negation is
-        // the conversion point (mirrored in update()'s movement block).
-        return { dx: -dx, dz };
+        // Screen→world. This is THE conversion point between screen-space intent
+        // and world motion, and its output is what co-op puts on the wire — so
+        // host and guest can never disagree about what "up" meant.
+        // The ground axes run diagonally across the screen at 45°, so raw WASD
+        // has to be rotated or "up" walks the hero sideways.
+        screenToWorldDir(dx, dz, this._scratchDir);
+        return { dx: this._scratchDir.dx, dz: this._scratchDir.dz };
     }
 
     /**
@@ -654,13 +592,9 @@ export class HeroController {
         // Game.resize() updates the ACTIVE camera on window resizes; this cheap
         // per-frame check is the belt-and-braces for a canvas that changed size
         // without a resize event (and for the first frames after construction).
-        const cw = this.canvas?.clientWidth || window.innerWidth;
-        const ch = Math.max(1, this.canvas?.clientHeight || window.innerHeight);
-        const aspect = cw / ch;
-        if (Number.isFinite(aspect) && aspect > 0 && aspect !== this.camera.aspect) {
-            this.camera.aspect = aspect;
-            this.camera.updateProjectionMatrix();
-        }
+        // The iso rig recomputes its own frustum from the live aspect every
+        // frame and only rebuilds the matrix when it actually moved, so there is
+        // no per-frame aspect fixup to do here.
 
         // ── Post-revive invulnerability shield ─────────────────────────────
         if (this.shieldTimer > 0) {
@@ -738,9 +672,11 @@ export class HeroController {
             if (this.keys['a'] || this.keys['arrowleft']) dx -= 1;
             if (this.keys['d'] || this.keys['arrowright']) dx += 1;
 
-            // Screen→world: screen-right is world -X under the right-handed
-            // camera (see getMoveInput) — flip before integrating.
-            dx = -dx;
+            // Screen→world — must stay identical to getMoveInput()'s conversion,
+            // which is what co-op transmits. See isoProjection.screenToWorldDir.
+            screenToWorldDir(dx, dz, this._scratchDir);
+            dx = this._scratchDir.dx;
+            dz = this._scratchDir.dz;
 
             // Normalize — cap at magnitude 1, allow joystick analog below 1.
             // Shared with the co-op input replay (integrateMove.ts) — same math.
@@ -799,82 +735,45 @@ export class HeroController {
         // Camera follow — position only, rotation is locked at construction.
         // In co-op a focus provider supplies a midpoint + a slant-distance multiplier;
         // solo play has no provider and frames the local hero at scale 1 (base distance).
-        const focus = this.cameraFocusProvider
-            ? this.cameraFocusProvider()
-            : { x: pos.x, z: pos.z, distanceScale: 1 };
-        // Only lerp from a FINITE focus + delta. A NaN/Infinity here would poison
-        // camera.position permanently (a lerp of NaN stays NaN forever), making
-        // the view matrix NaN → every mesh clips out → the canvas blanks to the
-        // near-black clear color: a sticky black screen that never recovers. We keep
-        // _scratchCamTarget at its last finite value so recovery has somewhere to go.
-        const ft = Number.isFinite;
-        if (ft(focus.x) && ft(focus.distanceScale) && ft(focus.z) && ft(deltaTime)) {
-            // Ease the live zoom toward the wheel-set target, then fold in the co-op
-            // framing multiplier (1 in solo). setCameraSlantPosition scales BOTH the
-            // camera height and the z-offset by the combined factor, so the look-down
-            // angle is invariant — co-op only ever pulls the camera straight back along
-            // the slant, it never changes the pitch the way an absolute height would.
-            this.zoomMultiplier = lerpZoom(this.zoomMultiplier, this.zoomTarget, deltaTime);
-            const scale = this.zoomMultiplier * focus.distanceScale;
-            setCameraSlantPosition(
-                this._scratchCamTarget,
-                focus.x,
-                focus.z,
-                this.cameraHeight,
-                this.cameraOffsetZ,
-                scale,
-            );
-            // In-place lerp toward the follow target (Babylon Vector3.LerpToRef
-            // writing back into camera.position).
-            this.camera.position.lerp(
-                this._scratchCamTarget,
-                Math.min(1, deltaTime * 6),
-            );
-        }
-        // If the position was already poisoned (or focus was non-finite this frame),
-        // snap back to the last finite follow target so rendering never goes dark.
-        const cp = this.camera.position;
-        if (!ft(cp.x) || !ft(cp.y) || !ft(cp.z)) {
-            console.error('[camera] non-finite hero-follow position — recovered to last finite target');
-            cp.copy(this._scratchCamTarget);
-        }
-
-        // Shake is applied *after* the lerp — otherwise the lerp's smoothing
-        // eats the per-frame jitter and the shake reads as ~1 pixel of motion.
-        // The next few frames' lerp then naturally decays the offset back to neutral.
-        if (this.cameraShakeTimeRemaining > 0) {
-            const k = this.cameraShakeTimeRemaining / CAMERA_SHAKE_DURATION_S;
-            const angle = Math.random() * Math.PI * 2;
-            this.camera.position.x += Math.cos(angle) * CAMERA_SHAKE_MAGNITUDE * k;
-            this.camera.position.z += Math.sin(angle) * CAMERA_SHAKE_MAGNITUDE * k;
-            this.cameraShakeTimeRemaining -= deltaTime;
+        // The rig owns follow, zoom, finite-guards and shake.
+        {
+            this.isoRig.setFocusProvider(this.cameraFocusProvider);
+            this.isoRig.update(deltaTime, pos.x, pos.z);
+            if (this.cameraShakeTimeRemaining > 0) {
+                this.isoRig.shake(this.cameraShakeTimeRemaining);
+                this.cameraShakeTimeRemaining -= deltaTime;
+            }
         }
 
         // Basic auto-attack (suspended while spectating / dead)
         if (this.basicAttack && !this.isDead && !this.spectating) this.basicAttack.update(deltaTime);
     }
 
-    public getCamera(): PerspectiveCamera {
+    /** The active camera. Consumers (off-screen indicators, ability targeting)
+     *  only project through it, and THREE's Raycaster/Object3D.project support
+     *  orthographic natively, so the union needs no special-casing downstream. */
+    public getCamera(): Camera {
         return this.camera;
     }
 
-    /** Current eased camera-zoom multiplier (1 = default, [0.6, 1.6]). */
-    public getZoomMultiplier(): number {
-        return this.zoomMultiplier;
+    /** Viewport changed — the iso rig re-picks its mobile/desktop view height. */
+    public resizeCamera(): void {
+        this.isoRig.resize();
     }
 
-    /** How far (world units) the camera has receded from its default-zoom
-     *  distance — 0 at zoom 1, positive when zoomed out. The gameplay layer
-     *  shifts the distance-fog band by this so the play area never hazes as the
-     *  camera pulls back. Derived from the base (unzoomed) slant geometry. */
-    public getCameraDistanceFromDefault(): number {
-        const baseSlant = Math.hypot(this.cameraHeight, this.cameraOffsetZ);
-        return baseSlant * (this.zoomMultiplier - 1);
+    /** Visible ground half-diagonal, used by the world to size prop spawn rings. */
+    public getViewHalfDiagonal(): number {
+        return this.isoRig.getViewHalfDiagonal();
+    }
+
+    /** Current eased camera-zoom multiplier. */
+    public getZoomMultiplier(): number {
+        return this.isoRig.getZoom();
     }
 
     public dispose(): void {
         this.basicAttack?.dispose(); // shared flight observer + streak pool
-        this.canvas?.removeEventListener('wheel', this.onWheel);
+        this.isoRig.dispose();
         window.removeEventListener('keydown', this.onKeyDown);
         window.removeEventListener('keyup', this.onKeyUp);
         // Three cameras own no GPU resources; hand rendering back to the boot

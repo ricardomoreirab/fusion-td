@@ -1,0 +1,37 @@
+{
+  "task_id": "0149a462-8875-44a9-b7f1-9917661ce373",
+  "type": "text_to_model",
+  "status": "success",
+  "input": {
+    "prompt": "game-ready cursed bone pile, stacked weathered skulls and ribcage bones half sunk in ash, pale bleached bone with violet rot staining, low-poly stylized game asset, PBR textures, readable silhouette, wide low mound, centered pivot at base, no text, no ground plane",
+    "model_version": "v3.1-20260211",
+    "texture": true,
+    "pbr": true,
+    "texture_quality": "detailed",
+    "texture_alignment": "geometry",
+    "export_uv": true,
+    "geometry_quality": "detailed"
+  },
+  "output": {
+    "pbr_model": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/0149a462-8875-44a9-b7f1-9917661ce373/tripo_pbr_model_0149a462-8875-44a9-b7f1-9917661ce373.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMDE0OWE0NjItODg3NS00NGE5LWI3ZjEtOTkxNzY2MWNlMzczL3RyaXBvX3Bicl9tb2RlbF8wMTQ5YTQ2Mi04ODc1LTQ0YTktYjdmMS05OTE3NjYxY2UzNzMuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=JoUUZVsJ7UMUQgIMVbHQGbY3zjtDgxki1kPaznx9Ckjwv3NIy3sdcqE4~I6zNcAcu1-nOkXaUJ6ScZPjKNeSvmqlm~6megxD73VMRlCWp1J7ptChTwseGqUkaKhVVguCVdf6QoDADa2PUgmOy2876N3uT3CE~Kp9CDAEhGSg8WWZ4R~PTamowgtxAx8qr3SLz5j0Al~3eXlAF9byzH1ZMG54lXDFC2z7XKr-FCDXsaiC0MJvclj218gOylZntMFAuXkvKjRpC5RwB0Gh-2iqQBWlsLRDHAGIK8zXRjkbSF3GJSOQzuj0GbYS3TfUFf4h0pgI6Jc~csu2mAH5b-g8ZA__",
+    "generated_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/0149a462-8875-44a9-b7f1-9917661ce373/text2image_0149a462-8875-44a9-b7f1-9917661ce373.jpeg?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMDE0OWE0NjItODg3NS00NGE5LWI3ZjEtOTkxNzY2MWNlMzczL3RleHQyaW1hZ2VfMDE0OWE0NjItODg3NS00NGE5LWI3ZjEtOTkxNzY2MWNlMzczLmpwZWciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=dvdkxsYg0NIKRu8cEZVmGu-H8rIwve~qxp-NdiuSvOU7E32Y33lPH9oORHcBbXwa7ZgPZr~wuyVjrhKxMZWAc6gdWnmlSVnCD0gYveL0JxcgWipGh4tb1MonkxFYzXzFYjJHRYreZ7vbQElXk-KYQSGzwgOxXSEE2HIJ-cAIrSY37xEAXmWlenTwKAh~RLja-KAbS2FxmAWVvsyvUd4Eo0YUjFj7LEvBqOl3j~DLjbR2Qs~oOZgb3AqXCtHoKU7Og~tLJVpXS9vs9LTntWQO2OQhXR143cnUMU8sCeeSc3KIfAJbi92zcXC9Osrx0CrO9j6ZcaeN0T93KTC8D6gNzw__",
+    "rendered_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/0149a462-8875-44a9-b7f1-9917661ce373/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMDE0OWE0NjItODg3NS00NGE5LWI3ZjEtOTkxNzY2MWNlMzczL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=ZcJoCwG6OpwqyFKqbe3X87M~Fi3uP8njDsPXV-0zpn6xDSLuTdwHnxtvA~MYWsnMUtySvDNTxlbYQ8yldWlJHnkUw6yfPfE3S1fTc9sZMd8Y2k2JG0qr-~Qq489vliKT1umioaIoxo~0d8UdEFWN9MDp8qOfOJaDIK9JMUloMydVsm1Uh30Ysr6~pVHQ774I8FMQ5yJ9r3ptyAoDE6JBnvbW67SJ0In4gJPeJrC6DCHWNsZmYwmhLDBCxzR6BClKGG4199rDdPoTeIlA8RnLbsqRzGBY4CJNDbEH9wQR9LDyHS--cKVmtZljvvXG2keYQTHiR6lBLEHmUWBVw-wf5A__"
+  },
+  "progress": 100,
+  "create_time": 1785004146,
+  "consumed_credit": 50,
+  "prompt": "game-ready cursed bone pile, stacked weathered skulls and ribcage bones half sunk in ash, pale bleached bone with violet rot staining, low-poly stylized game asset, PBR textures, readable silhouette, wide low mound, centered pivot at base, no text, no ground plane",
+  "thumbnail": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/0149a462-8875-44a9-b7f1-9917661ce373/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMDE0OWE0NjItODg3NS00NGE5LWI3ZjEtOTkxNzY2MWNlMzczL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=ZcJoCwG6OpwqyFKqbe3X87M~Fi3uP8njDsPXV-0zpn6xDSLuTdwHnxtvA~MYWsnMUtySvDNTxlbYQ8yldWlJHnkUw6yfPfE3S1fTc9sZMd8Y2k2JG0qr-~Qq489vliKT1umioaIoxo~0d8UdEFWN9MDp8qOfOJaDIK9JMUloMydVsm1Uh30Ysr6~pVHQ774I8FMQ5yJ9r3ptyAoDE6JBnvbW67SJ0In4gJPeJrC6DCHWNsZmYwmhLDBCxzR6BClKGG4199rDdPoTeIlA8RnLbsqRzGBY4CJNDbEH9wQR9LDyHS--cKVmtZljvvXG2keYQTHiR6lBLEHmUWBVw-wf5A__",
+  "queuing_num": -1,
+  "running_left_time": -1,
+  "result": {
+    "pbr_model": {
+      "type": "glb",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/0149a462-8875-44a9-b7f1-9917661ce373/tripo_pbr_model_0149a462-8875-44a9-b7f1-9917661ce373.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMDE0OWE0NjItODg3NS00NGE5LWI3ZjEtOTkxNzY2MWNlMzczL3RyaXBvX3Bicl9tb2RlbF8wMTQ5YTQ2Mi04ODc1LTQ0YTktYjdmMS05OTE3NjYxY2UzNzMuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=JoUUZVsJ7UMUQgIMVbHQGbY3zjtDgxki1kPaznx9Ckjwv3NIy3sdcqE4~I6zNcAcu1-nOkXaUJ6ScZPjKNeSvmqlm~6megxD73VMRlCWp1J7ptChTwseGqUkaKhVVguCVdf6QoDADa2PUgmOy2876N3uT3CE~Kp9CDAEhGSg8WWZ4R~PTamowgtxAx8qr3SLz5j0Al~3eXlAF9byzH1ZMG54lXDFC2z7XKr-FCDXsaiC0MJvclj218gOylZntMFAuXkvKjRpC5RwB0Gh-2iqQBWlsLRDHAGIK8zXRjkbSF3GJSOQzuj0GbYS3TfUFf4h0pgI6Jc~csu2mAH5b-g8ZA__"
+    },
+    "rendered_image": {
+      "type": "webp",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/0149a462-8875-44a9-b7f1-9917661ce373/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvMDE0OWE0NjItODg3NS00NGE5LWI3ZjEtOTkxNzY2MWNlMzczL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=ZcJoCwG6OpwqyFKqbe3X87M~Fi3uP8njDsPXV-0zpn6xDSLuTdwHnxtvA~MYWsnMUtySvDNTxlbYQ8yldWlJHnkUw6yfPfE3S1fTc9sZMd8Y2k2JG0qr-~Qq489vliKT1umioaIoxo~0d8UdEFWN9MDp8qOfOJaDIK9JMUloMydVsm1Uh30Ysr6~pVHQ774I8FMQ5yJ9r3ptyAoDE6JBnvbW67SJ0In4gJPeJrC6DCHWNsZmYwmhLDBCxzR6BClKGG4199rDdPoTeIlA8RnLbsqRzGBY4CJNDbEH9wQR9LDyHS--cKVmtZljvvXG2keYQTHiR6lBLEHmUWBVw-wf5A__"
+    }
+  }
+}

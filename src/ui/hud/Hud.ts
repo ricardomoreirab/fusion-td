@@ -291,8 +291,8 @@ export class Hud {
       const slot = slots[i];
       const ui = this.powerSlots[i];
       if (!slot) {
-        if (this.cachedPowerEmpty[i] !== true) { this.cachedPowerEmpty[i] = true; ui.setEmpty(true); }
-        if (this.cachedPowerIcon[i] !== '+') { this.cachedPowerIcon[i] = '+'; this.cachedPowerColor[i] = '#666'; ui.setIcon('+', '#666'); }
+        if (this.cachedPowerEmpty[i] !== true) { this.cachedPowerEmpty[i] = true; ui.setEmpty(true); ui.setAccent('#8a6d35'); }
+        if (this.cachedPowerIcon[i] !== '◇') { this.cachedPowerIcon[i] = '◇'; this.cachedPowerColor[i] = 'rgba(201, 162, 63, 0.4)'; ui.setIcon('◇', 'rgba(201, 162, 63, 0.4)'); }
         if (this.cachedPowerLevel[i] !== 0) { this.cachedPowerLevel[i] = 0; ui.setLevel(0); }
         if (this.cachedPowerCdFrac[i] !== 0) { this.cachedPowerCdFrac[i] = 0; ui.setCooldown(0); }
         this.prevCooldownRemaining[i] = -1;

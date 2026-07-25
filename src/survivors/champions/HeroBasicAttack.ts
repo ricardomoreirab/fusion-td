@@ -1,4 +1,4 @@
-import { Vector3, Mesh, Color, CircleGeometry, DoubleSide, MeshBasicMaterial, MeshPhongMaterial } from 'three';
+import { Vector3, Mesh, Color, CircleGeometry, DoubleSide, MeshBasicMaterial, MeshPhongMaterial, AdditiveBlending, DataTexture, RGBAFormat, Texture } from 'three';
 import { Champion } from './Champion';
 import { PowerSlotManager } from '../powers/PowerSlotManager';
 import { EnchantmentHitContext, PowerElement } from '../powers/PowerDefinitions';
@@ -18,6 +18,50 @@ import type { SceneHost, UpdateToken } from '../../engine/three/SceneHost';
 // Module-level scratch vectors — safe because update() is not reentrant (frames serialize)
 const _scratchA = new Vector3();
 const _scratchB = new Vector3();
+
+// Shared radial-gradient texture for the melee cone telegraph — bright core
+// fading to fully transparent at the rim. CircleGeometry's UVs are a planar
+// projection centered at (0.5, 0.5), so sampling this with the wedge's own
+// UVs puts the bright core at the hero (geometry center) and fades toward
+// the far edge of the swing, matching the sector's own falloff. Cached +
+// never disposed (parity with getSoftParticleTexture); headless-safe.
+let _coneTelegraphTexture: Texture | null = null;
+function getConeTelegraphTexture(): Texture {
+    if (_coneTelegraphTexture) return _coneTelegraphTexture;
+
+    if (typeof document === 'undefined') {
+        const data = new Uint8Array([255, 255, 255, 255]);
+        const tex = new DataTexture(data, 1, 1, RGBAFormat);
+        tex.needsUpdate = true;
+        _coneTelegraphTexture = tex;
+        return _coneTelegraphTexture;
+    }
+
+    const size = 128;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+        const data = new Uint8Array([255, 255, 255, 255]);
+        const tex = new DataTexture(data, 1, 1, RGBAFormat);
+        tex.needsUpdate = true;
+        _coneTelegraphTexture = tex;
+        return _coneTelegraphTexture;
+    }
+    const half = size / 2;
+    const gradient = ctx.createRadialGradient(half, half, 0, half, half, half);
+    gradient.addColorStop(0, 'rgba(255,255,255,0.95)');
+    gradient.addColorStop(0.35, 'rgba(255,255,255,0.55)');
+    gradient.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, size, size);
+
+    const tex = new Texture(canvas);
+    tex.needsUpdate = true;
+    _coneTelegraphTexture = tex;
+    return _coneTelegraphTexture;
+}
 
 export interface BasicAttackTarget {
     position: Vector3;
@@ -93,6 +137,8 @@ export class HeroBasicAttack {
     /** When true, every 15% above 1.0× attack speed grants +1 projectile in the fan.
      *  Wired on for the ranger so AS investment scales target count, not just rate. */
     private multiTargetFromAttackSpeed: boolean = false;
+    /** Owner hook fired once per attack; see constructor opts. */
+    private onAttack: (() => void) | null = null;
     private targetProvider: () => BasicAttackTarget | null;
     private powerSlots: PowerSlotManager | null = null;
     private playerStats: PlayerStats | null = null;
@@ -133,6 +179,10 @@ export class HeroBasicAttack {
             enemyProvider?: () => Enemy[];
             projectileShape?: ProjectileShape;
             multiTargetFromAttackSpeed?: boolean;
+            /** Fired once per attack (one swing / one volley, not per projectile)
+             *  so the owner can play a sound. Kept as a callback rather than a
+             *  Game reference so this stays free of engine dependencies. */
+            onAttack?: () => void;
         },
     ) {
         this.scene = scene;
@@ -145,6 +195,7 @@ export class HeroBasicAttack {
         this.enemyProvider = opts.enemyProvider ?? null;
         this.projectileShape = opts.projectileShape ?? 'sphere';
         this.multiTargetFromAttackSpeed = opts.multiTargetFromAttackSpeed ?? false;
+        this.onAttack = opts.onAttack ?? null;
     }
 
     /** Wire up the power slot manager so enchantments apply on each hit. */
@@ -271,6 +322,10 @@ export class HeroBasicAttack {
             const range = this.effectiveRange;
             if (heroPos.distanceToSquared(target.position) > range * range) return;
 
+            // Once per VOLLEY, after the range check — firing per projectile
+            // would stack a multishot fan into one clipping blast.
+            this.onAttack?.();
+
             const extras = this.playerStats?.extraAttacks ?? 0;
             // Ranger: every 15% above 1.0× AS grants an extra projectile. The
             // Multishot ult also rides on this — it boosts AS temporarily so the
@@ -336,6 +391,7 @@ export class HeroBasicAttack {
     }
 
     private performMeleeSwing(): void {
+        this.onAttack?.();
         const heroPos = this.getHeroPosition();
         const range = this.effectiveRange;
         const enemies = this.enemyProvider ? this.enemyProvider() : [];
@@ -464,6 +520,7 @@ export class HeroBasicAttack {
      *  x=π/2 pitch (order 'YXZ'), so aiming geometry-center θ=0 at the facing
      *  means rotation.y = −facingAngle. */
     private spawnSwingCone(center: Vector3, range: number, facingAngle: number): void {
+        const gradientMap = getConeTelegraphTexture();
         // Barbarian-only elemental tint: blend the colors of every active power
         // element. No elements (or non-barbarian) → the classic gold arc.
         const active = (this.powerSlots && (this.hero as any).championType === 'barbarian')
@@ -483,22 +540,29 @@ export class HeroBasicAttack {
         wedge.rotation.y = -facingAngle;
         // Cache materials by tint hue — finitely many element blends, compiled
         // once, reused forever. Fades go through setMeshOpacity (clone-on-write)
-        // so the shared cached material is NEVER mutated in place.
+        // so the shared cached material is NEVER mutated in place. `map` is
+        // the radial-gradient telegraph texture (bright at the hero, transparent
+        // at the far rim); additive blending + a soft edge replace the old flat
+        // translucent slab.
         const wedgeMat = tint
             ? getCachedMaterial('swingConeMatElem_' + tint.getHexString(), m => {
-                m.emissive.copy(tint).multiplyScalar(1.1);
+                m.emissive.copy(tint).multiplyScalar(1.3);
                 m.color.set(0, 0, 0); // emissive-only look
+                m.map = gradientMap;
                 m.transparent = true;
-                m.opacity = 0.4;
+                m.opacity = 0.55;
                 m.depthWrite = false;
+                m.blending = AdditiveBlending;
                 m.side = DoubleSide; // flat wedge must read from above regardless of winding
             })
             : getCachedMaterial('swingConeMat', m => {
-                m.emissive.set(1, 0.85, 0.4);
+                m.emissive.set(1, 0.42, 0.12); // ember orange-red — barbarian default
                 m.color.set(0, 0, 0);
+                m.map = gradientMap;
                 m.transparent = true;
-                m.opacity = 0.4;
+                m.opacity = 0.55;
                 m.depthWrite = false;
+                m.blending = AdditiveBlending;
                 m.side = DoubleSide;
             });
         wedge.material = wedgeMat;
@@ -517,17 +581,21 @@ export class HeroBasicAttack {
             ? getCachedMaterial('swingBladeMatElem_' + tint.getHexString(), m => {
                 m.emissive.copy(tint).multiplyScalar(1.4);
                 m.color.set(0, 0, 0);
+                m.map = gradientMap;
                 m.transparent = true;
-                m.opacity = 0.75;
+                m.opacity = 0.85;
                 m.depthWrite = false;
+                m.blending = AdditiveBlending;
                 m.side = DoubleSide;
             })
             : getCachedMaterial('swingBladeMat', m => {
-                m.emissive.set(1, 0.95, 0.7);
+                m.emissive.set(1, 0.75, 0.45); // white-hot ember edge
                 m.color.set(0, 0, 0);
+                m.map = gradientMap;
                 m.transparent = true;
-                m.opacity = 0.75;
+                m.opacity = 0.85;
                 m.depthWrite = false;
+                m.blending = AdditiveBlending;
                 m.side = DoubleSide;
             });
         blade.material = bladeMat;

@@ -1,8 +1,9 @@
 /**
  * audio.ts - engine-agnostic WebAudio playback replacing Babylon Sound.
  *
- * Buffers come from proceduralSfx.ts via registerSound (the game ships no
- * audio files). AudioContext is created lazily and resumed on the next
+ * Buffers are decoded from shipped audio files via loadSoundFile (see
+ * AssetManager's manifest). registerSound remains for anything that builds a
+ * buffer in memory. AudioContext is created lazily and resumed on the next
  * user gesture if the browser suspended it.
  */
 
@@ -28,8 +29,34 @@ function getContext(): AudioContext | null {
     return ctx;
 }
 
-/** Register an already-built buffer (procedural SFX) under a name. */
+/** Register an already-built buffer under a name. */
 export function registerSound(name: string, buffer: AudioBuffer): void {
+    buffers.set(name, buffer);
+}
+
+/** True once a buffer exists for `name` — call sites stay silent rather than
+ *  throwing when an asset failed to load. */
+export function hasSound(name: string): boolean {
+    return buffers.has(name);
+}
+
+/**
+ * Fetch + decode an audio file and register it under `name`.
+ *
+ * Decoding needs an AudioContext, but creating one before a user gesture leaves
+ * it 'suspended' — that is fine, decodeAudioData works on a suspended context,
+ * and getContext() already wires the gesture listeners that resume it.
+ *
+ * Rejects are the caller's to handle: a failed sound must degrade to silence,
+ * never take the boot sequence down with it.
+ */
+export async function loadSoundFile(name: string, url: string): Promise<void> {
+    const audio = getContext();
+    if (!audio) return;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    const bytes = await res.arrayBuffer();
+    const buffer = await audio.decodeAudioData(bytes);
     buffers.set(name, buffer);
 }
 

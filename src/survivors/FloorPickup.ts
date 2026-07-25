@@ -1,9 +1,8 @@
-import { Mesh, Vector3 } from 'three';
-import type { SceneHost } from '../engine/three/SceneHost';
+import { Color, Mesh, Vector3 } from 'three';
+import type { SceneHost, UpdateToken } from '../engine/three/SceneHost';
 import { createCylinder, createDisc, createSphere, createTorus, disposeMesh, isMeshDisposed } from '../engine/three/primitives';
-import { markGlowing } from '../engine/rendering/LowPolyMaterial';
+import { markGlowing, setMeshOpacity } from '../engine/rendering/LowPolyMaterial';
 import { getCachedMaterial } from '../engine/rendering/MaterialCache';
-import { curveDropAt } from './globe/curvature';
 
 export type FloorPickupKind = 'heal' | 'magnet';
 
@@ -31,9 +30,11 @@ export class FloorPickup {
     private mesh: Mesh;
     private alive = true;
     private ageS = 0;
+    private magnetized = false;
+    private chips: Mesh[] = [];
 
     constructor(
-        scene: SceneHost,
+        private readonly scene: SceneHost,
         position: Vector3,
         public readonly kind: FloorPickupKind,
         private readonly heroProvider: () => Vector3,
@@ -73,6 +74,19 @@ export class FloorPickup {
                 m.emissive.setRGB(1.0, 0.8, 0.2);
                 m.color.setRGB(0.25, 0.18, 0.02);
             });
+            // Three small orbiting chips read as "attracted metal fragments"
+            // circling the ring — cheap (shared geometry/material, 3 draws)
+            // and reinforces the magnet silhouette against the plain torus.
+            for (let i = 0; i < 3; i++) {
+                const chip = createSphere(`floorPickup_magnetChip${i}`, { diameter: 0.12, segments: 6 });
+                chip.material = getCachedMaterial('floorPickupMat_magnetChip', m => {
+                    m.emissive.setRGB(1.0, 0.9, 0.5);
+                    m.color.setRGB(0.3, 0.24, 0.05);
+                });
+                markGlowing(chip);
+                this.mesh.add(chip);
+                this.chips.push(chip);
+            }
         }
         markGlowing(this.mesh);
 
@@ -115,6 +129,7 @@ export class FloorPickup {
     public magnetize(): void {
         this.opts.magnetRadius = Infinity;
         this.opts.magnetSpeed = Math.max(this.opts.magnetSpeed, 18);
+        this.magnetized = true;
     }
 
     public update(deltaTime: number): void {
@@ -136,6 +151,7 @@ export class FloorPickup {
         }
 
         if (dist <= this.opts.pickupRadius) {
+            spawnFloorPickupBurst(this.scene, this.mesh.position, this.kind);
             this.opts.onPickup(this.kind);
             this.dispose();
             return;
@@ -154,9 +170,18 @@ export class FloorPickup {
             // Heartbeat pulse preserving the flask's 1.15× vertical stretch.
             const s = 1 + Math.sin(this.ageS * 4) * 0.12;
             this.mesh.scale.set(s, s * 1.15, s);
+        } else if (this.magnetized && dist > 0.001) {
+            // Attract stretch toward the hero — same cue as PowerDrop.
+            const stretch = Math.min(1.8, 1 + 12 / Math.max(dist, 0.5));
+            this.mesh.scale.set(1, 1, stretch);
+            this.mesh.lookAt(heroPos.x, this.mesh.position.y, heroPos.z);
         }
-        this.mesh.position.y = 0.6 + Math.sin(this.ageS * 3) * 0.1
-            - curveDropAt(this.mesh.position.x, this.mesh.position.z); // render-only globe drop
+        for (let i = 0; i < this.chips.length; i++) {
+            const chip = this.chips[i];
+            const a = this.ageS * 3 + (i * Math.PI * 2) / this.chips.length;
+            chip.position.set(Math.cos(a) * 0.55, Math.sin(a * 1.3) * 0.15, Math.sin(a) * 0.55);
+        }
+        this.mesh.position.y = 0.6 + Math.sin(this.ageS * 3) * 0.1;
     }
 
     public dispose(): void {
@@ -165,4 +190,52 @@ export class FloorPickup {
             disposeMesh(this.mesh); // cached material is shared — leave it
         }
     }
+}
+
+/**
+ * Standalone one-shot collect flash for floor pickups — outlives the pickup
+ * mesh itself (disposed the same frame it's collected), so the burst is its
+ * own emissive sphere + ring, same lifecycle as PowerDrop's burst. Cached
+ * material keyed by pickup kind (bounded: 'heal' | 'magnet').
+ */
+function spawnFloorPickupBurst(scene: SceneHost, position: Vector3, kind: FloorPickupKind): void {
+    const c = kind === 'heal' ? new Color(1.0, 0.3, 0.42) : new Color(1.0, 0.85, 0.35);
+    const burst = createSphere('floorPickupBurst_' + kind, { diameter: 0.7, segments: 8 }, scene);
+    burst.position.copy(position);
+    burst.material = getCachedMaterial(`floorPickupBurstMat_${kind}`, m => {
+        m.emissive.copy(c).multiplyScalar(2.2);
+        m.color.set(0, 0, 0);
+        m.transparent = true;
+        m.opacity = 0.9;
+        m.depthWrite = false;
+    });
+    markGlowing(burst);
+
+    const ring = createTorus('floorPickupBurstRing_' + kind, { diameter: 0.4, thickness: 0.07, tessellation: 18 });
+    ring.rotation.x = Math.PI / 2.6;
+    ring.material = getCachedMaterial(`floorPickupBurstRingMat_${kind}`, m => {
+        m.emissive.copy(c).multiplyScalar(1.8);
+        m.color.set(0, 0, 0);
+        m.transparent = true;
+        m.opacity = 0.85;
+        m.depthWrite = false;
+    });
+    burst.add(ring);
+
+    const duration = 0.26;
+    let elapsed = 0;
+    let token: UpdateToken | null = null;
+    token = scene.onBeforeRender.add(() => {
+        elapsed += scene.deltaSeconds;
+        const t = Math.min(elapsed / duration, 1);
+        const s = 1 + t * 2.4;
+        burst.scale.setScalar(s);
+        setMeshOpacity(burst, 0.9 * (1 - t));
+        ring.scale.setScalar(1 + t * 2.8);
+        setMeshOpacity(ring, 0.85 * (1 - t));
+        if (t >= 1) {
+            disposeMesh(burst);
+            scene.onBeforeRender.remove(token);
+        }
+    });
 }

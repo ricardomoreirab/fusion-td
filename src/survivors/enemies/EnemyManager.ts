@@ -24,7 +24,7 @@ import { redSwapType, TIER3_SWAP_WAVE } from './redSwap';
 import { PlayerStats } from '../PlayerStats';
 import { makeElite } from './EliteSpawner';
 import { DifficultyTuning } from '../DifficultyTuning';
-import { SPAWN_RING_RADIUS } from '../globe/constants';
+import { SPAWN_RING_RADIUS } from '../world/WorldConstants';
 
 export class EnemyManager {
     private game: Game;

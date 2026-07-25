@@ -1,0 +1,39 @@
+{
+  "task_id": "62131f9e-8863-4100-a95a-4a0cbba13f52",
+  "type": "text_to_model",
+  "status": "success",
+  "input": {
+    "prompt": "Goblin war totem, crude wooden pole with carved goblin face, small animal skulls and rope wraps, tattered dark-red banner hanging from a crossbar, low-poly stylized fantasy game asset, centered pivot, PBR, no text, no ground plane",
+    "model_version": "v3.1-20260211",
+    "texture": true,
+    "pbr": true,
+    "texture_quality": "detailed",
+    "texture_alignment": "geometry",
+    "smart_low_poly": true,
+    "export_uv": true,
+    "face_limit": 8000,
+    "geometry_quality": "detailed"
+  },
+  "output": {
+    "pbr_model": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260719/62131f9e-8863-4100-a95a-4a0cbba13f52/tripo_pbr_model_62131f9e-8863-4100-a95a-4a0cbba13f52.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MTkvNjIxMzFmOWUtODg2My00MTAwLWE5NWEtNGEwY2JiYTEzZjUyL3RyaXBvX3Bicl9tb2RlbF82MjEzMWY5ZS04ODYzLTQxMDAtYTk1YS00YTBjYmJhMTNmNTIuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg0NTA1NjAwfX19XX0_&Signature=YvgeWdxdbNQYmP0k8QOr8~DZwugqy3KR8TyA8G8IMlGEvV-8ZvKhd7wmbWw5mxl5vVG96ijkB-M6Uy5sFi9CjM~CexrdrjlBfvDxPh0qZwmQzlrXOeu4LGvNIjPj69jKryd7Ur8qXCHeARuUfuRmZ1MNJiGOOEp3OJosaCfk7DpZWCPmWaFFAzKzZP65o1~Qtr7qmzMjOpHczvaJTyA1m~leJ~WBc9OQHxRB1ccyvR48bMPgA770FUUCbq-btZZUKczlbEaRkwy4h~qxYPs0CE5XWyy05pruqW89V2WbEFIn9TeyaJ-LKBpZ4X8gTPxXIkpY-smLCcrxhr53q9CJWw__",
+    "generated_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260719/62131f9e-8863-4100-a95a-4a0cbba13f52/text2image_62131f9e-8863-4100-a95a-4a0cbba13f52.jpeg?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MTkvNjIxMzFmOWUtODg2My00MTAwLWE5NWEtNGEwY2JiYTEzZjUyL3RleHQyaW1hZ2VfNjIxMzFmOWUtODg2My00MTAwLWE5NWEtNGEwY2JiYTEzZjUyLmpwZWciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODQ1MDU2MDB9fX1dfQ__&Signature=CVfEbFp4X6UAYOmtheY~2ttpg4NxRV2ItYgaxHCyIjBdgHnKAgCA-YqMzn2CeQQP~srCMMJZVJscxSsAJGpmGgur91n3pS~znJJvw25RO~Y656uaasv~Z-hUPpzongij-hhSPbxyEKsMnvHOqQIuaANjsfHvBZpGBP81yoFB4kRsSpO38hDBJXz4kTvnaQVFINYfWMGKoiXVGle-R8oaKS2y~wxKDkr-PqOV9sqzTtnRcEp6v~zBgp4ThSa8myU4iPX-8W-9768rhdd6RdqwwNlRsObjhhJjEHJwQpjDA68frpqYO7usaUAK706ePSTbwJUYlZcewJLCeOD0BqmHIA__",
+    "rendered_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260719/62131f9e-8863-4100-a95a-4a0cbba13f52/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MTkvNjIxMzFmOWUtODg2My00MTAwLWE5NWEtNGEwY2JiYTEzZjUyL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODQ1MDU2MDB9fX1dfQ__&Signature=LbIsH-GXsdkSEOJfnM9oeNd6Aj6AdHb0dNxBfykEHS6isRiE8U3oMQ2KbMLlTCEQQ9ToGQPzmAqEAeCPhDhh7MNCTdRa7Rmv1LdwF-u9i5i9Fu~Oaecga~Vff99fqXfXzRu8Ok31Zh8y2SLEYdfZMN~20Fq4xLmiEpjQ88jHMFDLfuOqPKoeRKfn-tl0PmL2p2D~VVAEEmJXA3Z-n57elpM-x8ImtST-xioczfCbk5~QkmUhbPZdeOLJN-5XxCgw18xExHxGX2EFPyC63-5J6WjlzQnWw48h5aEaid4QAW5CIcBsCXvGip5ay99KzAfrd2c6W8Y4dDDDAToT7ZHKuA__"
+  },
+  "progress": 100,
+  "create_time": 1784476328,
+  "consumed_credit": 60,
+  "prompt": "Goblin war totem, crude wooden pole with carved goblin face, small animal skulls and rope wraps, tattered dark-red banner hanging from a crossbar, low-poly stylized fantasy game asset, centered pivot, PBR, no text, no ground plane",
+  "thumbnail": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260719/62131f9e-8863-4100-a95a-4a0cbba13f52/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MTkvNjIxMzFmOWUtODg2My00MTAwLWE5NWEtNGEwY2JiYTEzZjUyL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODQ1MDU2MDB9fX1dfQ__&Signature=LbIsH-GXsdkSEOJfnM9oeNd6Aj6AdHb0dNxBfykEHS6isRiE8U3oMQ2KbMLlTCEQQ9ToGQPzmAqEAeCPhDhh7MNCTdRa7Rmv1LdwF-u9i5i9Fu~Oaecga~Vff99fqXfXzRu8Ok31Zh8y2SLEYdfZMN~20Fq4xLmiEpjQ88jHMFDLfuOqPKoeRKfn-tl0PmL2p2D~VVAEEmJXA3Z-n57elpM-x8ImtST-xioczfCbk5~QkmUhbPZdeOLJN-5XxCgw18xExHxGX2EFPyC63-5J6WjlzQnWw48h5aEaid4QAW5CIcBsCXvGip5ay99KzAfrd2c6W8Y4dDDDAToT7ZHKuA__",
+  "queuing_num": -1,
+  "running_left_time": -1,
+  "result": {
+    "pbr_model": {
+      "type": "glb",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260719/62131f9e-8863-4100-a95a-4a0cbba13f52/tripo_pbr_model_62131f9e-8863-4100-a95a-4a0cbba13f52.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MTkvNjIxMzFmOWUtODg2My00MTAwLWE5NWEtNGEwY2JiYTEzZjUyL3RyaXBvX3Bicl9tb2RlbF82MjEzMWY5ZS04ODYzLTQxMDAtYTk1YS00YTBjYmJhMTNmNTIuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg0NTA1NjAwfX19XX0_&Signature=YvgeWdxdbNQYmP0k8QOr8~DZwugqy3KR8TyA8G8IMlGEvV-8ZvKhd7wmbWw5mxl5vVG96ijkB-M6Uy5sFi9CjM~CexrdrjlBfvDxPh0qZwmQzlrXOeu4LGvNIjPj69jKryd7Ur8qXCHeARuUfuRmZ1MNJiGOOEp3OJosaCfk7DpZWCPmWaFFAzKzZP65o1~Qtr7qmzMjOpHczvaJTyA1m~leJ~WBc9OQHxRB1ccyvR48bMPgA770FUUCbq-btZZUKczlbEaRkwy4h~qxYPs0CE5XWyy05pruqW89V2WbEFIn9TeyaJ-LKBpZ4X8gTPxXIkpY-smLCcrxhr53q9CJWw__"
+    },
+    "rendered_image": {
+      "type": "webp",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260719/62131f9e-8863-4100-a95a-4a0cbba13f52/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MTkvNjIxMzFmOWUtODg2My00MTAwLWE5NWEtNGEwY2JiYTEzZjUyL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODQ1MDU2MDB9fX1dfQ__&Signature=LbIsH-GXsdkSEOJfnM9oeNd6Aj6AdHb0dNxBfykEHS6isRiE8U3oMQ2KbMLlTCEQQ9ToGQPzmAqEAeCPhDhh7MNCTdRa7Rmv1LdwF-u9i5i9Fu~Oaecga~Vff99fqXfXzRu8Ok31Zh8y2SLEYdfZMN~20Fq4xLmiEpjQ88jHMFDLfuOqPKoeRKfn-tl0PmL2p2D~VVAEEmJXA3Z-n57elpM-x8ImtST-xioczfCbk5~QkmUhbPZdeOLJN-5XxCgw18xExHxGX2EFPyC63-5J6WjlzQnWw48h5aEaid4QAW5CIcBsCXvGip5ay99KzAfrd2c6W8Y4dDDDAToT7ZHKuA__"
+    }
+  }
+}

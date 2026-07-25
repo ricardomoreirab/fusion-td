@@ -39,7 +39,7 @@ worker/           Cloudflare Worker + Room Durable Object (blind WS relay)
 - `src/engine/Game.ts` — engine init, scene setup (lights, camera, post-processing pipeline, pre-registered hero torch), registers states (`menu`, `survivors`, `gameOver`).
 - `src/engine/StateManager.ts` — `changeState()`, `getState()`, `registerState()`.
 - `src/engine/GameState.ts` — base interface every state implements.
-- `src/engine/AssetManager.ts` — boot sound setup + `playSound` facade. The game ships NO audio files: every sound (SFX + the looping wind/drone ambience under the `bgMusic` handle) is synthesized at boot by `src/engine/three/proceduralSfx.ts` into WebAudio buffers.
+- `src/engine/AssetManager.ts` — boot audio loading + `playSound` facade. The game ships generated audio files (ElevenLabs) under `assets/audio/{sfx,ui,ambience}`, declared in the `MANIFEST` there and decoded into WebAudio buffers by `loadSoundFile` in `src/engine/three/audio.ts`. **This replaced the old procedural synthesis** — `proceduralSfx.ts` is deleted; do not reintroduce it. A failed asset degrades to silence, never an exception. Ambience is per-biome (`ambienceMeadow/Scorched/Cursed`) and cross-faded by `setAmbience()`, which the survivors state drives from `World.getAmbienceName()`; `exit()` must call `stopAllAmbience()` or the menu's `bgMusic` stacks on top of a still-playing bed.
 - `src/engine/three/SceneHost.ts` — THREE.Scene + the per-frame update buses (`onBeforeRender`, `onAnimUpdate` gated by `animationsEnabled`) + particle registry. Headless-friendly (Vitest drives it with `tick(dt)`).
 - `src/engine/three/RendererHost.ts` — WebGLRenderer + pmndrs postprocessing chain: RenderPass → Bloom + SelectiveBloom (GLOW_LAYER=11, Babylon GlowLayer parity) → ACES tone mapping → FXAA. NO vignette — over the bright uniform field it reads as a "halo of shadow" stamped on the screen, not as focus. `info` getter exposes renderer counts for the resource watchdog.
 - `src/engine/three/assets.ts` — GLB container cache + `instantiate()` (SkeletonUtils clone + per-instance materials + AnimationMixer). **Prefixes only the clone ROOT's name** — renaming descendants unbinds every animation track (THREE resolves tracks by node name) and the model T-poses.
@@ -112,9 +112,25 @@ Still under `src/survivors/`:
 - `LowPolyMaterial.ts` — `createLowPolyMaterial(name, color)`, `createEmissiveMaterial(name, color, strength)` (each call = fresh material, NOT cached), `makeFlatShaded`, `markGlowing(mesh)` (adds to the selective-bloom GLOW_LAYER), `setMeshOpacity(mesh, a)` (clone-on-write fade — replaces Babylon `mesh.visibility`; never mutate a shared material's opacity).
 - `MaterialCache.ts` — `getCachedMaterial(key, setup)` name-keyed material reuse (no scene param). Cached materials have `userData.cached = true` so `disposeMesh` leaves them alone. Cache keys must be BOUNDED (element/colour), never instance ids.
 - `src/engine/three/primitives.ts` — `createSphere/Torus/Disc/...` mesh factories (Babylon orientations baked in), plus the disposal funnel: `disposeMesh(mesh)` (frees geometry unless cache-owned + owned materials) and `isMeshDisposed(mesh)`.
-- `ProceduralGrass.ts` — quality-tiered hardware-instanced grass blades (8k/16k/32k low/med/high) with custom ShaderMaterial. Wind animation in vertex shader; torch contribution in fragment via `setTorch()` per-frame uniforms.
-- `ProceduralGrassTexture.ts` — Voronoi + multi-octave noise baked once into a 2048² texture for the ground disc.
 - `ProjectilePool.ts` — pooled projectile mesh allocation.
+
+### The world / scenario (in `src/survivors/world/`)
+Rebuilt from scratch (2026-07-25) under a **true orthographic isometric** camera. Replaced
+`src/survivors/globe/*` + `ProceduralGrass*` wholesale — those are **deleted; do not resurrect**.
+- `isoProjection.ts` — pure camera math (pitch `atan(1/√2)`=35.264°, yaw 45°, zoom, frustum,
+  `screenToWorldDir`). No Three/DOM, Vitest-covered.
+- `IsoCameraRig.ts` — the OrthographicCamera follow rig; owns framing, zoom, shake, finite-guards.
+- `Biomes.ts` — biome table + wave→blend resolution (pure). `World.ts` — facade.
+- `TerrainSurface.ts` (procedural ground shader), `GroundScatter.ts` (instanced tufts/debris),
+  `PropScatter.ts` (Tripo landmark GLBs), `Atmosphere.ts` (lights + fog + mist).
+
+**Two projection facts that bite:**
+1. **There is no horizon and the sky is never visible.** A horizon is a perspective artefact;
+   under parallel projection an infinite ground plane fills the whole frame. A sky dome would
+   render zero pixels — that is why there isn't one.
+2. **Fog must be camera-relative.** `THREE.Fog` uses view-space depth and the camera sits
+   `ISO_CLIP_DISTANCE` (220) back for clipping, so biome fog is authored as OFFSETS from the
+   hero's focal plane and rebased in `Atmosphere`. Absolute near/far renders a flat fog screen.
 
 ### Survivors-only shared types
 - `src/survivors/GameTypes.ts` — `ElementType`, `EnemyType`, `StatusEffect` enums. Formerly in the deleted `towers/Tower.ts`.
@@ -130,25 +146,20 @@ Survivors-mode lighting (configured in `Game.setupScene` + `SurvivorsGameplaySta
 
 | Light | Intensity | Notes |
 |---|---|---|
-| `light` (HemisphereLight) | 0.75 menu / 1.0 survivors | Global warm fill, persistent (`userData.persistent`); survivors `enter()` raises it, `exit()` restores. |
-| `survivorsKey` (DirectionalLight) | 1.35 | Warm dominant key; **owns the shadow map**; position + target follow the hero every frame. |
-| `survivorsFill` (DirectionalLight) | 1.0 | Cool back-fill, no shadows — rims the dark GLB characters so they separate from the grass. Kept below the key. |
+| `light` (HemisphereLight) | 0.75 menu / **0 survivors** | Persistent global fill. Survivors `enter()` ZEROES it because `Atmosphere` owns the full rig — leaving both hot stacked ~2.0 of ambient and flattened every surface. `exit()` restores it. |
+| `worldKey` (DirectionalLight) | biome-graded ~1.1-1.35 | Warm dominant key; **owns the shadow map**; follows the hero. Owned by `world/Atmosphere`. |
+| `worldFill` (DirectionalLight) | biome-graded ~0.6-0.85 | Cool back-fill, no shadows — rims the dark GLB characters. Kept below the key. |
+| `worldHemi` (HemisphereLight) | biome-graded ~0.8-0.95 | Scenario ambient, owned by `Atmosphere`. |
 | `heroTorch` (PointLight) | 0 → 5.0 | Created once in `Game.setupScene`, persistent; `Champion.enableTorch` parents it to the hero + cranks intensity (castShadow stays off). |
 | env cube (`scene.environment`) | 1.6 | IBL — read ONLY by the PBR GLB characters (grass/low-poly Phong ignore it), so it is the character-brightness knob that leaves the field untouched. The cube itself is a dark dusk map, hence the hot intensity. |
 
-**Globe ground normals stay flat-up.** The curved cap (`GlobeGround`) bakes the
-curvature into positions but does NOT `computeVertexNormals()` — curved normals
-tilt up to ~30° at the rim and the hemi+key lights paint a huge radial bright/dark
-band that follows the hero (the "dark ellipse" bug). Grass blades light with
-un-tilted normals too, keeping ground and grass consistent.
-
-**Shadows:** THREE has no ShadowGenerator — casting is per-mesh (`castShadow`) and
-the 1024 PCF map lives on `survivorsKey.shadow` with a fixed ±35-unit ortho frustum
-following the hero. Refresh is throttled (`light.shadow.autoUpdate = false`; update()
-sets `needsUpdate` every `_shadowRefreshInterval` frames — 2 normally, 3 under perf
-trim). Heavy enemies get `castShadow = true` via `EnemyManager.setShadowGenerators`;
-after wave 5 enemy shadow-casting is cut off entirely (hordes outgrow the cost).
-The grass shader samples the directional's shadow map directly.
+**Shadows:** THREE has no ShadowGenerator — casting is per-mesh (`castShadow`) and the 1024 PCF
+map lives on `worldKey.shadow` with a fixed ±42-unit ortho frustum following the hero. Refresh is
+throttled (`shadow.autoUpdate = false`; `Atmosphere.update` sets `needsUpdate` every Nth frame — 2
+normally, 3 under perf trim via `World.setShadowInterval`). Heavy enemies get `castShadow = true`
+via `EnemyManager.setShadowGenerators`; after wave 5 enemy shadow-casting is cut off entirely.
+`SurvivorsGameplayState.exit()` must NOT dispose `shadowSourceLight` — it is borrowed from
+`Atmosphere`, which disposes it in `world.dispose()`.
 
 **Note:** the Babylon-era "never create lights at runtime" rule is GONE — THREE
 recompiles affected materials on demand (a one-frame cost; prewarm if it matters).

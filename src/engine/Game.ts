@@ -10,6 +10,7 @@ import { PALETTE } from './rendering/StyleConstants';
 import { SceneHost } from './three/SceneHost';
 import { RendererHost } from './three/RendererHost';
 import { disposeMesh } from './three/primitives';
+import { hasSound } from './three/audio';
 import type { RGBA } from './three/math';
 import { evaluateRenderHealth, isFiniteVec3, isFiniteMatrix, type RenderHealthSnapshot } from './renderHealth';
 
@@ -113,6 +114,7 @@ export class Game {
         // lost context stops the frame while input/HUD keep working - the reported
         // "black screen, game still running".
         this.installContextLossRecovery();
+        this.installDebugHook();
 
         // Initialize managers
         this.assetManager = new AssetManager();
@@ -585,6 +587,26 @@ export class Game {
             'background:#7a1f1f;color:#fff;font:14px sans-serif;padding:10px 16px;text-align:center;';
         div.textContent = 'This browser has no GPU rendering support (WebGL unavailable) - the game cannot be displayed.';
         document.body.appendChild(div);
+    }
+
+    /**
+     * Dev-only diagnostics hook. Exposes the live scene, active camera and
+     * renderer counters on `window.__KTG__` so a headless QA pass can read real
+     * numbers (draw calls, triangles, fog band, camera framing) instead of
+     * inferring them from screenshots.
+     *
+     * Gated on a non-production build so it never ships. Called once from init.
+     */
+    private installDebugHook(): void {
+        if (process.env.NODE_ENV === 'production') return;
+        (window as unknown as { __KTG__: unknown }).__KTG__ = {
+            game: this,
+            scene: () => this.sceneHost.scene,
+            camera: () => this.activeCamera,
+            info: () => this.rendererHost?.info,
+            /** Which manifested sounds actually decoded into buffers. */
+            audio: (names: string[]) => names.map(n => ({ name: n, loaded: hasSound(n) })),
+        };
     }
 
     /** The scene host: THREE scene + update buses + particle registry. */

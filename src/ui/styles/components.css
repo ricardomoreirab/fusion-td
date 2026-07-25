@@ -25,10 +25,19 @@
 .frame--ornate::before { top: 5px; left: 5px; border-right: none; border-bottom: none; }
 .frame--ornate::after { bottom: 5px; right: 5px; border-left: none; border-top: none; }
 .frame--lite {
-  background: linear-gradient(180deg, rgba(36, 28, 18, 0.72), rgba(14, 11, 8, 0.72));
-  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  /* Bronze-gradient border via layered backgrounds: the outer layer (border-box,
+     no clip) paints the gradient border ring, the inner layer (padding-box)
+     paints the smoky chrome fill on top of it — cheaper than border-image and
+     keeps the existing --accent tinting working through color-mix. */
+  background-image:
+    linear-gradient(180deg, rgba(20, 15, 9, 0.82) 0%, rgba(10, 8, 5, 0.86) 55%, rgba(6, 5, 3, 0.90) 100%),
+    linear-gradient(155deg, var(--c-gold-hi), var(--c-gold) 45%, var(--c-gold-lo) 75%, #5a4418);
+  background-origin: padding-box, border-box;
+  background-clip: padding-box, border-box;
+  border: 1px solid transparent;
   border-radius: var(--r-sm);
-  box-shadow: var(--bevel-lite);
+  clip-path: var(--chamfer-sm);
+  box-shadow: var(--bevel-chrome);
 }
 
 /* ── Pill ────────────────────────────────────────────────── */
@@ -75,9 +84,13 @@
   padding: var(--s-2) var(--s-4);
   font-size: var(--fs-400);
   /* Visible XP track: the unfilled remainder must read as a progress trough,
-     not a black stub glued to the fill. */
-  background: linear-gradient(180deg, #16222e, #0c141c);
-  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.6), inset 0 0 0 1px rgba(95, 176, 232, 0.18);
+     not a black stub glued to the fill. Keeps the shared bronze-border-image
+     layering (background-origin/-clip pair from .frame--lite) — only the
+     padding-box fill layer changes to the trough's dark-blue tone. */
+  background-image:
+    linear-gradient(180deg, #16222e 0%, #0c141c 100%),
+    linear-gradient(155deg, var(--c-gold-hi), var(--c-gold) 45%, var(--c-gold-lo) 75%, #5a4418);
+  box-shadow: var(--bevel-chrome), inset 0 1px 3px rgba(0, 0, 0, 0.6), inset 0 0 0 1px rgba(95, 176, 232, 0.18);
 }
 .pill--level .pill__fill { background: linear-gradient(180deg, #5fb0e8, #2b6aa8); }
 .pill--stats {
@@ -133,13 +146,19 @@
   pointer-events: none;
 }
 .slot--empty {
-  border-style: dashed;
-  border-color: rgba(201, 162, 63, 0.3);
-  background: rgba(14, 11, 8, 0.4);
-  box-shadow: none;
-  opacity: 0.55; /* unfilled sockets recede — filled slots carry the row */
+  /* An intentional recessed socket, not an unfinished placeholder: solid
+     bronze bevel + inset shadow reads as "carved in" rather than "sketched".
+     Keeps the shared bronze-border-image layering from .frame--lite — only
+     the padding-box fill layer darkens and the box-shadow flips to inset. */
+  background-image:
+    linear-gradient(180deg, rgba(10, 8, 5, 0.7), rgba(10, 8, 5, 0.7)),
+    linear-gradient(155deg, var(--c-gold-hi), var(--c-gold) 45%, var(--c-gold-lo) 75%, #5a4418);
+  box-shadow:
+    inset 0 2px 4px rgba(0, 0, 0, 0.6),
+    inset 0 1px 0 rgba(201, 162, 63, 0.15);
+  opacity: 0.6; /* unfilled sockets recede — filled slots carry the row */
 }
-.slot--empty .slot__icon { color: rgba(201, 162, 63, 0.4); }
+.slot--empty .slot__icon { color: rgba(201, 162, 63, 0.35); font-size: calc(var(--hud-slot) * 0.32); }
 @keyframes slot-ready { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
 .slot--ready { animation: slot-ready 400ms ease-out; }
 
@@ -586,22 +605,44 @@
   gap: 4px;
   padding: 5px;
   border-radius: var(--r-sm);
-  background: rgba(10, 8, 5, 0.55);
-  border: 1px solid rgba(201, 162, 63, 0.28);
-  box-shadow: inset 0 1px 0 rgba(243, 218, 142, 0.08);
+  background-image:
+    linear-gradient(180deg, rgba(20, 15, 9, 0.75), rgba(8, 6, 4, 0.8)),
+    linear-gradient(155deg, var(--c-gold-hi), var(--c-gold) 45%, var(--c-gold-lo) 75%, #5a4418);
+  background-origin: padding-box, border-box;
+  background-clip: padding-box, border-box;
+  border: 1px solid transparent;
+  clip-path: var(--chamfer-xs);
+  box-shadow: var(--bevel-chrome);
   cursor: pointer;
 }
-.hud__inventory:hover { background: rgba(20, 16, 10, 0.7); border-color: rgba(201, 162, 63, 0.55); }
+.hud__inventory:hover {
+  background-image:
+    linear-gradient(180deg, rgba(30, 23, 14, 0.85), rgba(14, 11, 7, 0.88)),
+    linear-gradient(155deg, var(--c-gold-hi), var(--c-gold) 55%, var(--c-gold-lo) 80%, #6b5220);
+}
 .gear-slot {
   --accent: #8a6d35;
   width: 30px; height: 30px;
   display: flex; align-items: center; justify-content: center;
   border-radius: var(--r-sm);
-  border: 1px solid color-mix(in srgb, var(--accent) 70%, transparent);
-  background: linear-gradient(180deg, #1c1710, #0e0b08);
+  background-image:
+    linear-gradient(180deg, #1c1710, #0e0b08),
+    linear-gradient(155deg, color-mix(in srgb, var(--accent) 90%, var(--c-gold-hi)), var(--accent) 60%, #4a3a1c);
+  background-origin: padding-box, border-box;
+  background-clip: padding-box, border-box;
+  border: 1px solid transparent;
+  clip-path: var(--chamfer-xs);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
 }
-.gear-slot--empty { opacity: 0.5; }
+.gear-slot--empty {
+  /* Same recessed-socket language as the power/item slots (.slot--empty):
+     inset shadow reads as a carved-in bevel rather than a ghost/placeholder. */
+  background-image:
+    linear-gradient(180deg, rgba(10, 8, 5, 0.6), rgba(10, 8, 5, 0.6)),
+    linear-gradient(155deg, color-mix(in srgb, var(--accent) 60%, transparent), color-mix(in srgb, var(--accent) 40%, transparent));
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.6);
+}
+.gear-slot--empty .gear-slot__glyph { opacity: 0.35; filter: none; }
 .gear-slot__glyph { font-size: 16px; line-height: 1; filter: brightness(1.25); }
 
 @media (max-width: 720px) {

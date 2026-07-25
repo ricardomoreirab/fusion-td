@@ -1,0 +1,37 @@
+{
+  "task_id": "60318f43-c8a4-49cd-9746-fda7a8c47b4e",
+  "type": "text_to_model",
+  "status": "success",
+  "input": {
+    "prompt": "game-ready ruined stone archway, broken gothic arch of dark weathered stone, crumbling top with missing keystone, cracked carved runes, rubble at the base, low-poly stylized game asset, PBR textures, strong readable silhouette, centered pivot at base, no text, no ground plane",
+    "model_version": "v3.1-20260211",
+    "texture": true,
+    "pbr": true,
+    "texture_quality": "detailed",
+    "texture_alignment": "geometry",
+    "export_uv": true,
+    "geometry_quality": "detailed"
+  },
+  "output": {
+    "pbr_model": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/60318f43-c8a4-49cd-9746-fda7a8c47b4e/tripo_pbr_model_60318f43-c8a4-49cd-9746-fda7a8c47b4e.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvNjAzMThmNDMtYzhhNC00OWNkLTk3NDYtZmRhN2E4YzQ3YjRlL3RyaXBvX3Bicl9tb2RlbF82MDMxOGY0My1jOGE0LTQ5Y2QtOTc0Ni1mZGE3YThjNDdiNGUuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=PNyVnkh2g7hkNPG8GS~0OOA3B5FcFkYP9RUEp5RLyDcrfrr-jyLSvxXC05oFCgrXGrPR0~S3YkHl6mHYR31XxcZMbxwk-7H6nUzs5AD~gm3twq5AxS7scG8QvwyrgOy24VwP17~7exMo7U7HCbHAEoAQsh1tCLdFuX-jMb0rn6fmSTz7L~867dM5DFiJk76die4MvsmwoZPboYBVt~8GWc4Kxh3SWHckg4SXCyXnh3y~-k2hXM9aAZOA7oGccjujvHxRehO7TINg-mUT7xCdOf9FuTkGASH0vpQU6ZsWXc5ZQSq~yFZq2IPPRkCFrxN~0Ox4he0MFYEa0pbNZjdtcg__",
+    "generated_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/60318f43-c8a4-49cd-9746-fda7a8c47b4e/text2image_60318f43-c8a4-49cd-9746-fda7a8c47b4e.jpeg?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvNjAzMThmNDMtYzhhNC00OWNkLTk3NDYtZmRhN2E4YzQ3YjRlL3RleHQyaW1hZ2VfNjAzMThmNDMtYzhhNC00OWNkLTk3NDYtZmRhN2E4YzQ3YjRlLmpwZWciLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=Ap~GrYB3RlYmy0kyuHn8sY1hdEN8nUxTDCBQRa8nBSeyw24OigYK5~AMUCteKbGksJ2cWzNdNSYFQEWM3GNO3ZmcGNF3DG18-Ii8bLk4ci7UrwcHlmNYyFA34iSSaKWT8UXcFjg14XHKOrNsciaWEVVqvIEaAYF6SaGmKmboJd7GLRzofb1zNTCalVR8chfqzW7g3dDWDzhpljl1c4tAt3c20bCSfaU4EyPVKX3W-8nMG3JlqLXqz4oaFAkmULJJJ2ABeYfPxN4cB7hAksOSFFBiVR62veKyd7uedmfHCgWBbKIKVK7WFGYU6OXUqwxs4KMsHreMo-KKApyRpUk15g__",
+    "rendered_image": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/60318f43-c8a4-49cd-9746-fda7a8c47b4e/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvNjAzMThmNDMtYzhhNC00OWNkLTk3NDYtZmRhN2E4YzQ3YjRlL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=uNTaaAWOf4WoLXydc63vCaBG8rH3nBTj4L5vd07Z4SvNhDzDsD4nHvlrs-QIiVcMXgIuYDnj-SakhJm7oB8rMvypV-Nk8TQ38R1Bgz2Z0q4XpiIxTXec2X1TylNFLKziH~VRpHHZW5V8wXtgUpUlx5zi2a4Ku~0atExcWO~KzhuL4RK4eTmJSKytxCJjSlI7dxgpUtuFzmF31Cd2eQ8Cbzr9KBN9rbVrb1WjLZPxicVApOzx~zVl4cIP3GLU24BpXtDsWf8IuNgE52Thq1j2BcHuiSB-NWK3CyS38Cj3A0zrT0d7c44NAiAPVGcDyy8LbjnP1IRcJcyHLcSgBtqpsA__"
+  },
+  "progress": 100,
+  "create_time": 1785004152,
+  "consumed_credit": 50,
+  "prompt": "game-ready ruined stone archway, broken gothic arch of dark weathered stone, crumbling top with missing keystone, cracked carved runes, rubble at the base, low-poly stylized game asset, PBR textures, strong readable silhouette, centered pivot at base, no text, no ground plane",
+  "thumbnail": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/60318f43-c8a4-49cd-9746-fda7a8c47b4e/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvNjAzMThmNDMtYzhhNC00OWNkLTk3NDYtZmRhN2E4YzQ3YjRlL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=uNTaaAWOf4WoLXydc63vCaBG8rH3nBTj4L5vd07Z4SvNhDzDsD4nHvlrs-QIiVcMXgIuYDnj-SakhJm7oB8rMvypV-Nk8TQ38R1Bgz2Z0q4XpiIxTXec2X1TylNFLKziH~VRpHHZW5V8wXtgUpUlx5zi2a4Ku~0atExcWO~KzhuL4RK4eTmJSKytxCJjSlI7dxgpUtuFzmF31Cd2eQ8Cbzr9KBN9rbVrb1WjLZPxicVApOzx~zVl4cIP3GLU24BpXtDsWf8IuNgE52Thq1j2BcHuiSB-NWK3CyS38Cj3A0zrT0d7c44NAiAPVGcDyy8LbjnP1IRcJcyHLcSgBtqpsA__",
+  "queuing_num": -1,
+  "running_left_time": -1,
+  "result": {
+    "pbr_model": {
+      "type": "glb",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/60318f43-c8a4-49cd-9746-fda7a8c47b4e/tripo_pbr_model_60318f43-c8a4-49cd-9746-fda7a8c47b4e.glb?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvNjAzMThmNDMtYzhhNC00OWNkLTk3NDYtZmRhN2E4YzQ3YjRlL3RyaXBvX3Bicl9tb2RlbF82MDMxOGY0My1jOGE0LTQ5Y2QtOTc0Ni1mZGE3YThjNDdiNGUuZ2xiIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzg1MDI0MDAwfX19XX0_&Signature=PNyVnkh2g7hkNPG8GS~0OOA3B5FcFkYP9RUEp5RLyDcrfrr-jyLSvxXC05oFCgrXGrPR0~S3YkHl6mHYR31XxcZMbxwk-7H6nUzs5AD~gm3twq5AxS7scG8QvwyrgOy24VwP17~7exMo7U7HCbHAEoAQsh1tCLdFuX-jMb0rn6fmSTz7L~867dM5DFiJk76die4MvsmwoZPboYBVt~8GWc4Kxh3SWHckg4SXCyXnh3y~-k2hXM9aAZOA7oGccjujvHxRehO7TINg-mUT7xCdOf9FuTkGASH0vpQU6ZsWXc5ZQSq~yFZq2IPPRkCFrxN~0Ox4he0MFYEa0pbNZjdtcg__"
+    },
+    "rendered_image": {
+      "type": "webp",
+      "url": "https://tripo-data.rg1.data.tripo3d.com/tcli_709c88ef7e0944aca12ba339946b7c42/20260725/60318f43-c8a4-49cd-9746-fda7a8c47b4e/legacy_mesh.webp?Key-Pair-Id=K1676C64NMVM2J&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly90cmlwby1kYXRhLnJnMS5kYXRhLnRyaXBvM2QuY29tL3RjbGlfNzA5Yzg4ZWY3ZTA5NDRhY2ExMmJhMzM5OTQ2YjdjNDIvMjAyNjA3MjUvNjAzMThmNDMtYzhhNC00OWNkLTk3NDYtZmRhN2E4YzQ3YjRlL2xlZ2FjeV9tZXNoLndlYnAiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3ODUwMjQwMDB9fX1dfQ__&Signature=uNTaaAWOf4WoLXydc63vCaBG8rH3nBTj4L5vd07Z4SvNhDzDsD4nHvlrs-QIiVcMXgIuYDnj-SakhJm7oB8rMvypV-Nk8TQ38R1Bgz2Z0q4XpiIxTXec2X1TylNFLKziH~VRpHHZW5V8wXtgUpUlx5zi2a4Ku~0atExcWO~KzhuL4RK4eTmJSKytxCJjSlI7dxgpUtuFzmF31Cd2eQ8Cbzr9KBN9rbVrb1WjLZPxicVApOzx~zVl4cIP3GLU24BpXtDsWf8IuNgE52Thq1j2BcHuiSB-NWK3CyS38Cj3A0zrT0d7c44NAiAPVGcDyy8LbjnP1IRcJcyHLcSgBtqpsA__"
+    }
+  }
+}

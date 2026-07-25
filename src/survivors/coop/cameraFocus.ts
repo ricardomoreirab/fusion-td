@@ -1,6 +1,6 @@
 // Pure camera-framing math for the shared/tethered co-op camera. No Babylon —
 // returns a plain focus point + a slant-distance multiplier the scene layer applies
-// to the camera (see setCameraSlantPosition in ../cameraZoom).
+// to the camera (composed into frustum zoom by IsoCameraRig).
 
 export interface Point2 { x: number; z: number }
 /** Co-op framing tuning. `scalePerUnit` adds this much slant-distance multiplier per

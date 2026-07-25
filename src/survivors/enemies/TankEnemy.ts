@@ -568,6 +568,6 @@ export class TankEnemy extends Enemy {
         super.createDeathEffect();
 
         // Play a special sound for tank enemy death
-        this.game.getAssetManager().playSound('enemyDeath');
+        this.game.getAssetManager().playSound('enemyDeathHeavy');
     }
 }

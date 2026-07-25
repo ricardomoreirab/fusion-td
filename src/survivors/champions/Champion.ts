@@ -465,6 +465,12 @@ export class Champion extends Enemy {
             }
         });
 
+        // Cool rim light on the hero's own body materials only — the warm red/black
+        // barbarian otherwise merges into the warm yellow-green grass at gameplay
+        // camera distance. Skips the weapon primitive (its emissive is driven by
+        // element tints — see glbWeaponMats above) so the rim never fights that.
+        this._applyHeroRim();
+
         // Categorize the GLB's animation clips by name. Accept aliases per slot since
         // different rigs/export tools use different conventions. "special" matches power-
         // slot attacks (Fire Arrow / Frost Shards / etc.) — usually a longer/more dramatic
@@ -538,6 +544,58 @@ export class Champion extends Enemy {
         );
 
         if (aa.idle) this.playChampionAnim('idle');
+    }
+
+    /** Steel-blue fresnel rim shader, injected via onBeforeCompile into the hero
+     *  body's own per-instance materials (assets.ts instantiate() clones every
+     *  material per GLB instance, so this can never bleed into enemy GLBs sharing
+     *  the same source container). Pure silhouette separation, not a glow effect:
+     *  low strength, additive after the material's normal lit color, so it composes
+     *  safely with flashHitRed() (mutates .emissive in place) and the element weapon
+     *  tint (glbWeaponMats/weaponTintMat) — neither touches this injected term. Skips
+     *  the weapon primitive on purpose (excluded by the caller). */
+    private _applyHeroRim(): void {
+        if (!this.mesh) return;
+        const RIM_COLOR = '0.498, 0.658, 0.816'; // 0x7fa8d0, steel blue
+        const RIM_STRENGTH = 0.22;
+        const RIM_POWER = 3.0;
+        this.mesh.traverse(node => {
+            const m = node as Mesh;
+            if (!m.isMesh || !m.material || Array.isArray(m.material)) return;
+            const matName = m.material.name?.toLowerCase() ?? '';
+            if (matName.includes('weapon')) return; // element tint owns this material's emissive
+            const mat = m.material as Material & { onBeforeCompile: typeof Material.prototype.onBeforeCompile };
+            mat.customProgramCacheKey = () => 'hero-rim';
+            const prevOnBeforeCompile = mat.onBeforeCompile.bind(mat);
+            mat.onBeforeCompile = (shader, renderer) => {
+                prevOnBeforeCompile(shader, renderer);
+                shader.fragmentShader = shader.fragmentShader
+                    .replace(
+                        '#include <common>',
+                        `#include <common>\nvarying vec3 vHeroRimNormal;\nvarying vec3 vHeroRimView;`,
+                    )
+                    .replace(
+                        '#include <dithering_fragment>',
+                        `vec3 heroRimN = normalize(vHeroRimNormal);
+vec3 heroRimV = normalize(vHeroRimView);
+float heroRimFresnel = pow(1.0 - max(dot(heroRimN, heroRimV), 0.0), ${RIM_POWER.toFixed(1)});
+gl_FragColor.rgb += vec3(${RIM_COLOR}) * heroRimFresnel * ${RIM_STRENGTH.toFixed(2)};
+#include <dithering_fragment>`,
+                    );
+                shader.vertexShader = shader.vertexShader
+                    .replace(
+                        '#include <common>',
+                        `#include <common>\nvarying vec3 vHeroRimNormal;\nvarying vec3 vHeroRimView;`,
+                    )
+                    .replace(
+                        '#include <project_vertex>',
+                        `#include <project_vertex>
+vHeroRimNormal = normalize(normalMatrix * normal);
+vHeroRimView = normalize(-mvPosition.xyz);`,
+                    );
+            };
+            mat.needsUpdate = true;
+        });
     }
 
     /** True while a GLB-driven special animation is still playing.

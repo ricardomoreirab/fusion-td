@@ -61,6 +61,25 @@
   --bevel-lite:
     inset 0 1px 0 rgba(243, 218, 142, 0.25),
     0 2px 6px rgba(0, 0, 0, 0.5);
+  /* Forged-chrome bevel: 1px inner highlight (top) + darker inset shadow
+     (bottom/sides) reading as a beveled metal edge around the bronze border,
+     plus the outer drop shadow that lifts HUD chrome off the field. */
+  --bevel-chrome:
+    inset 0 1px 0 rgba(255, 236, 190, 0.30),
+    inset 0 -2px 3px rgba(0, 0, 0, 0.55),
+    0 2px 6px rgba(0, 0, 0, 0.55);
+  /* Small chamfered corners on pill/slot/button chrome — a cheap "forged
+     plate" tell that reads at HUD scale without extra draw cost. */
+  --chamfer-sm: polygon(
+    6px 0, calc(100% - 6px) 0, 100% 6px,
+    100% calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%,
+    0 calc(100% - 6px), 0 6px
+  );
+  --chamfer-xs: polygon(
+    4px 0, calc(100% - 4px) 0, 100% 4px,
+    100% calc(100% - 4px), calc(100% - 4px) 100%, 4px 100%,
+    0 calc(100% - 4px), 0 4px
+  );
 
   /* ── HUD sizing (fluid, landscape) ── */
   --hud-slot: clamp(32px, 6vw, 44px);
