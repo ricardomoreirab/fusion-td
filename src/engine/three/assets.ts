@@ -38,13 +38,19 @@ import type { SceneHost, UpdateToken } from './SceneHost';
  *             that a two-frame pose hold is below the threshold of noticing.
  *   reduced - mixer.update at REDUCED_ANIM_HZ, folding the skipped frames into
  *             one larger step so the clip never drifts out of phase.
- *   off     - frozen pose; the elapsed time is still carried so resuming does
- *             not lose the clip's position.
+ *   off     - frozen pose; the elapsed time is still carried, and the FIRST
+ *             update after resuming advances the mixer by the whole frozen
+ *             interval. Clip time is therefore linear in wall time no matter how
+ *             long the freeze lasted, so the resumed pose is exactly the one a
+ *             never-frozen mixer would be holding. For an entity that is not in
+ *             the scene graph at all this is strictly free.
  */
 export type AnimationLod = 'full' | 'half' | 'reduced' | 'off';
 
-/** Update rate of the `reduced` tier. Off-screen skeletons are never sampled by
- *  the renderer, so their only visible artefact is the pose they resume on. */
+/** Update rate of the `reduced` tier - for an entity that is still IN the scene
+ *  graph but whose pose the player cannot resolve. An entity the owner has
+ *  detached belongs on `off` instead: throttling costs a tenth of the posing to
+ *  produce a pose nothing can read. */
 const REDUCED_ANIM_HZ = 10;
 const REDUCED_ANIM_STEP = 1 / REDUCED_ANIM_HZ;
 
@@ -62,11 +68,28 @@ export interface ContainerInstance {
     /**
      * Throttle this instance's skeleton evaluation. At horde scale mixer.update
      * is the dominant per-entity CPU cost and it runs regardless of visibility -
-     * the renderer's frustum culling only skips DRAWING, never posing. Owners
-     * that know an entity is off-screen should drop it to 'reduced'; visible but
-     * distant entities belong on 'half'.
+     * the renderer's frustum culling only skips DRAWING, never posing. An owner
+     * that has taken the instance OUT of the scene graph should drop it to 'off'
+     * (nothing can read the pose, and resuming replays the frozen interval);
+     * visible but distant entities belong on 'half'.
+     *
+     * Resuming is only seamless because the owner un-parks BEFORE the animation
+     * bus runs for that frame - Game.frameTick is state update, then
+     * SceneHost.tick - so the catch-up lands on the same frame the entity is
+     * drawn again.
      */
     setAnimationLod(lod: AnimationLod): void;
+    /**
+     * Discard time banked by a throttled/frozen tier without applying it.
+     *
+     * The tiers are time-preserving by design: whatever they skip is replayed on
+     * the next update, so a resumed clip is exactly where a full-rate one would
+     * be. That is right for the looping clips an entity holds indefinitely and
+     * wrong for a ONE-SHOT clip the owner is starting right now - replaying a
+     * long freeze would run it to its clamped end on the frame it began. Call
+     * this immediately before starting such a clip.
+     */
+    resetAnimationClock(): void;
     dispose(): void;
 }
 
@@ -128,6 +151,7 @@ export class GlbContainer {
             animationGroups,
             mixer,
             setAnimationLod: (next: AnimationLod) => { lod = next; },
+            resetAnimationClock: () => { carried = 0; },
             dispose: () => {
                 if (disposed) return;
                 disposed = true;

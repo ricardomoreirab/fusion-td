@@ -356,11 +356,21 @@ export class Enemy {
             ps.object.visible = active;
         }
 
-        this.setAnimationLod(active ? this._visibleAnimLod : 'reduced');
+        // A parked enemy is DETACHED, so its skeleton is not drawn, not walked by
+        // scene.updateMatrixWorld and not read by anything else - posing it is
+        // pure waste, and 'off' removes it outright rather than throttling it to
+        // 10 Hz (measured 1.27 us per parked enemy per frame at 250 enemies).
+        // The frozen interval is carried and replayed by the first update after
+        // un-parking, which happens in the SAME frame: the cull runs inside
+        // EnemyManager.update, and Game.frameTick runs the state update before
+        // SceneHost.tick's animation bus. Clip switching here is driven by
+        // gameplay state and every clip loops, so a frozen mixer cannot strand an
+        // enemy in the wrong animation either.
+        this.setAnimationLod(active ? this._visibleAnimLod : 'off');
     }
 
     /** Animation tier used while this enemy is ON screen. `setRenderActive`
-     *  overrides it with 'reduced' whenever the enemy is parked. */
+     *  overrides it with 'off' whenever the enemy is parked. */
     private _visibleAnimLod: AnimationLod = 'full';
     private _appliedAnimLod: AnimationLod = 'full';
 
@@ -376,7 +386,7 @@ export class Enemy {
      * per frame across ~200 enemies at 'full', 1.09 ms at 'reduced'), and it runs
      * whether or not the player could tell — so EnemyManager grades it by distance
      * from the hero. Applied immediately when the enemy is on screen; a parked
-     * enemy stays on 'reduced' until the cull brings it back.
+     * enemy stays on 'off' until the cull brings it back.
      */
     public setVisibleAnimationLod(lod: AnimationLod): void {
         this._visibleAnimLod = lod;
@@ -1528,6 +1538,14 @@ export class Enemy {
      */
     protected _beginDeathSequence(): void {
         this.corpseBaseScale = this.mesh ? this.mesh.scale.x : 1;
+
+        // An enemy killed off screen was parked at 'off', banking every second it
+        // spent there. _beginCorpse un-parks it (a corpse leaves enemies[], so
+        // the cull stops maintaining it), and replaying that bank would run the
+        // one-shot death clip straight to its clamped end on the frame it starts.
+        // The looping clips below it are what the banked time exists for; this
+        // one is not.
+        this.glbInstance?.resetAnimationClock();
 
         if (this.glbAnimationGroups.length > 0) {
             for (const ag of this.glbAnimationGroups) {

@@ -45,7 +45,6 @@ export class EnemyManager {
      *  one, matching getEnemyById's existing behavior of never matching those. */
     private enemiesById: Map<number, Enemy> = new Map();
     private playerStats: PlayerStats | null = null;
-    private compositePath: Vector3[] | null = null;
     private splitHandler: ((e: Event) => void) | null = null;
     private healHandler: ((e: Event) => void) | null = null;
     private cloneHandler: ((e: Event) => void) | null = null;
@@ -433,9 +432,9 @@ export class EnemyManager {
      * near-miss renders rather than pops.
      *
      * The animation grade rides along here because it needs the same per-enemy
-     * position read: parked enemies drop to 'reduced' (they are not drawn at
-     * all), visible enemies far from the hero to 'half', and only the ones in
-     * the actual fight stay on 'full'.
+     * position read: parked enemies drop to 'off' (they are detached, so nothing
+     * can read the pose), visible enemies far from the hero to 'half', and only
+     * the ones in the actual fight stay on 'full'.
      */
     private _cullOffscreen(): void {
         const camera = this.cullCamera;
@@ -749,13 +748,6 @@ export class EnemyManager {
             console.warn(`[spawn] ${type}${eliteElement ? `:${eliteElement}` : ''} took ${Math.round(spawnMs)}ms`);
         }
         return enemy;
-    }
-
-    /**
-     * Set the composite path (spanning all segments) for new enemy spawning.
-     */
-    public setCompositePath(path: Vector3[]): void {
-        this.compositePath = path;
     }
 
     /**
