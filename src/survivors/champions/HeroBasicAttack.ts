@@ -45,6 +45,85 @@ export const MELEE_BASE_KNOCKBACK = 0.5;
 /** Half-width of the slash wave's damage corridor (world units, lateral). */
 export const SLASH_WAVE_HALF_WIDTH = 1.5;
 
+/** Default ceiling on arrows in one volley. The Thousand raises it. */
+export const DEFAULT_ARROW_CAP = 12;
+
+/**
+ * Ascension's read-only influence over the RANGER volley. One object rather than
+ * twenty setters, so the whole surface installs and clears atomically, and the
+ * other two classes pay exactly one monomorphic call against a frozen null
+ * object. Every method is a scalar read of already-resolved point counts.
+ */
+export interface ArrowPolicy {
+    /** Extra arrows added to the volley before the cap. */
+    bonusArrows(): number;
+    /** Attack-speed per extra arrow (lower = more arrows). */
+    arrowCountStep(): number;
+    /** Hard ceiling on arrows in one volley. */
+    arrowCap(): number;
+    /** Half-angle of the surplus fan, radians. */
+    fanHalfAngleRad(): number;
+    /** Double surplus arrows onto real targets instead of fanning into empty ground. */
+    stackSurplusOnTargets(): boolean;
+    /** Multiplier on each arrow's damage. */
+    arrowDamageScale(): number;
+    /** Absolute range override, 0 = keep the authored value. */
+    rangeOverride(): number;
+    /** Absolute projectile-speed override, 0 = keep the authored value. */
+    speedOverride(): number;
+    /** Extra ricochet bounces on top of the run item. */
+    bonusBounces(): number;
+    /** Ricochet search radius override, 0 = keep the authored value. */
+    ricochetRadius(): number;
+}
+
+const NULL_ARROW_POLICY: ArrowPolicy = Object.freeze({
+    bonusArrows: () => 0,
+    arrowCountStep: () => 0.15,
+    arrowCap: () => DEFAULT_ARROW_CAP,
+    fanHalfAngleRad: () => (10 * Math.PI) / 180,
+    stackSurplusOnTargets: () => false,
+    arrowDamageScale: () => 1,
+    rangeOverride: () => 0,
+    speedOverride: () => 0,
+    bonusBounces: () => 0,
+    ricochetRadius: () => 0,
+});
+
+/** Hard ceiling on an enchantment's effective level. Every barbarian onHit
+ *  scales linearly in `level` against maxLevel 5, so Runeblooded + Twin Enchant
+ *  maxed (+4) would badly overshoot without this. */
+export const ENCHANT_LEVEL_CAP = 8;
+
+/**
+ * Ascension's read-only influence over the basic attack. ONE provider object
+ * rather than nine setters, so the whole surface is installed and cleared
+ * atomically. Every method is PULLED — none of this is assigned onto PlayerStats,
+ * which applyLevelBonuses() re-assigns several times per wave.
+ *
+ * Composition rule for the two geometry methods: they take the current value and
+ * return the replacement, and the implementation MAXes rather than sums, so two
+ * nodes writing the same field cannot multiply into an arena-wide corridor.
+ */
+export interface BasicAttackMods {
+    /** Added to melee reach (world units). */
+    reachBonus(): number;
+    /** Replacement slash-wave corridor half-width, given the authored base. */
+    slashHalfWidth(base: number): number;
+    /** Replacement slash-wave travel distance, given the authored base. */
+    slashTravel(base: number): number;
+    /** Multiplier on slash-wave corridor damage. */
+    slashDamageMult(): number;
+    /** True to suppress the per-hit knockback (keeps the horde inside a channel). */
+    suppressKnockback(): boolean;
+    /** Levels added to every weapon enchantment before its onHit fires. */
+    enchantLevelBonus(): number;
+    /** 0..1 chance an enchantment fires a second time. */
+    enchantRepeatChance(): number;
+    /** True when the repeat should pick a DIFFERENT enchantment. */
+    enchantRepeatDistinct(): boolean;
+}
+
 /** Forward speed of the wave crest (world units / s). */
 export const SLASH_WAVE_SPEED = 16;
 
@@ -161,6 +240,11 @@ export class HeroBasicAttack {
     /** Item-effect hook: fired once per enemy actually hit by a basic attack
      *  (melee swing AND projectile), with the pre-crit damage dealt. */
     private onHitCallback: ((target: Enemy, damage: number) => void) | null = null;
+    /** Ascension hook fired once per SWING — one melee slash wave, one projectile
+     *  volley, or one Whirlwind tick. NOT per enemy hit (that is onHitCallback).
+     *  Distinct from the ctor's `onAttack`, which HeroController owns for the
+     *  swing sound; hook slots here are single-owner. */
+    private onSwingCallback: ((x: number, z: number) => void) | null = null;
     private projectileShape: ProjectileShape;
     private queuedSwings: number = 0;
     private queuedSpinTimer: number = 0;
@@ -237,6 +321,10 @@ export class HeroBasicAttack {
         return this.damage * this.damageMultiplierProvider();
     }
 
+    /** Public read of the same value, for systems that scale off a swing's worth
+     *  of damage (ascension nodes like Bodycheck deal "N% of basic damage"). */
+    public getEffectiveDamage(): number { return this.effectiveDamage; }
+
     /** Wire up player stats so run-item effects (lifesteal, knockback, multishot, multi-spin) apply. */
     public setPlayerStats(stats: PlayerStats): void {
         this.playerStats = stats;
@@ -253,6 +341,19 @@ export class HeroBasicAttack {
         this.onHitCallback = fn;
     }
 
+    public setOnSwing(fn: ((x: number, z: number) => void) | null): void {
+        this.onSwingCallback = fn;
+    }
+
+    /** Ascension's pulled influence over reach, the slash wave and enchantments.
+     *  Null in co-op and before any ascension point is spent. */
+    private mods: BasicAttackMods | null = null;
+    public setBasicAttackMods(m: BasicAttackMods | null): void { this.mods = m; }
+
+    /** Ranger-only volley policy. Frozen null object for the other classes. */
+    private pol: ArrowPolicy = NULL_ARROW_POLICY;
+    public setArrowPolicy(p: ArrowPolicy | null): void { this.pol = p ?? NULL_ARROW_POLICY; }
+
     /** Update the effective attack speed. multiplier > 1 = faster. */
     public updateAttackSpeed(multiplier: number): void {
         this.attackSpeedMultiplier = multiplier;
@@ -263,15 +364,32 @@ export class HeroBasicAttack {
         this.rangeMultiplier = multiplier;
     }
 
+    /** Transient attack-speed term (Skirmisher's Grace after a dash, Rage
+     *  Ascendant r3 below 30% HP). PULLED, never assigned — the pushed
+     *  attackSpeedMultiplier is re-assigned by applyLevelBonuses() every
+     *  recompute and would clobber a transient written onto it. */
+    private dynamicSpeedProvider: (() => number) | null = null;
+    public setDynamicSpeedProvider(fn: (() => number) | null): void {
+        this.dynamicSpeedProvider = fn;
+    }
+
+    /** Pushed multiplier × the transient term. */
+    private get effectiveAttackSpeed(): number {
+        return this.attackSpeedMultiplier * (this.dynamicSpeedProvider?.() ?? 1);
+    }
+
     private get effectiveInterval(): number {
-        return this.baseFireInterval / this.attackSpeedMultiplier;
+        return this.baseFireInterval / this.effectiveAttackSpeed;
     }
 
     private get effectiveRange(): number {
         const enchantBonus = this.mode === 'melee' && this.powerSlots
             ? this.powerSlots.getMeleeRangeBonus()
             : 0;
-        return (this.baseRange + enchantBonus) * this.rangeMultiplier;
+        const ascReach = this.mods?.reachBonus() ?? 0;
+        const override = this.pol.rangeOverride();
+        if (override > 0) return override * this.rangeMultiplier;
+        return (this.baseRange + enchantBonus + ascReach) * this.rangeMultiplier;
     }
 
     /** Debug snapshot of every gate the fire path checks — so the co-op overlay can
@@ -347,15 +465,20 @@ export class HeroBasicAttack {
             // Once per VOLLEY, after the range check — firing per projectile
             // would stack a multishot fan into one clipping blast.
             this.onAttack?.();
+            this.onSwingCallback?.(heroPos.x, heroPos.z);
 
             const extras = this.playerStats?.extraAttacks ?? 0;
             // Ranger: every 15% above 1.0× AS grants an extra projectile. The
             // Multishot ult also rides on this — it boosts AS temporarily so the
             // multi-target effect chains naturally instead of duplicating logic.
+            // effectiveAttackSpeed (not the pushed multiplier) so a transient
+            // Skirmisher's Grace burst feeds arrow count — that node's rider.
+            const step = Math.max(0.08, this.pol.arrowCountStep());
             const asBonus = this.multiTargetFromAttackSpeed
-                ? Math.max(0, Math.floor((this.attackSpeedMultiplier - 1) / 0.15))
+                ? Math.max(0, Math.floor((this.effectiveAttackSpeed - 1) / step))
                 : 0;
-            const total  = 1 + extras + asBonus;
+            const total = Math.min(this.pol.arrowCap(),
+                1 + extras + asBonus + this.pol.bonusArrows());
             if (total === 1) {
                 this.spawnProjectile(heroPos.clone(), target);
             } else if (this.multiTargetFromAttackSpeed) {
@@ -365,16 +488,22 @@ export class HeroBasicAttack {
                 const tgts = this.pickDistinctNearestTargets(heroPos, target, total);
                 for (const t of tgts) this.spawnProjectile(heroPos.clone(), t);
                 const fanned = total - tgts.length;
-                if (fanned > 0) {
-                    const totalSpreadRad = (20 * Math.PI) / 180;
-                    const step = fanned > 1 ? totalSpreadRad / (fanned - 1) : 0;
+                if (fanned > 0 && this.pol.stackSurplusOnTargets() && tgts.length > 0) {
+                    // Splinter Salvo: doubled-up arrows on real bodies rather than
+                    // fanning into empty ground.
+                    for (let i = 0; i < fanned; i++) {
+                        this.spawnProjectile(heroPos.clone(), tgts[i % tgts.length]);
+                    }
+                } else if (fanned > 0) {
+                    const totalSpreadRad = this.pol.fanHalfAngleRad() * 2;
+                    const fanStep = fanned > 1 ? totalSpreadRad / (fanned - 1) : 0;
                     const start = -totalSpreadRad / 2;
                     for (let i = 0; i < fanned; i++) {
-                        this.spawnProjectileAtAngle(heroPos.clone(), target, start + step * i);
+                        this.spawnProjectileAtAngle(heroPos.clone(), target, start + fanStep * i);
                     }
                 }
             } else {
-                const totalSpreadRad = (20 * Math.PI) / 180;
+                const totalSpreadRad = this.pol.fanHalfAngleRad() * 2;
                 const step = total > 1 ? totalSpreadRad / (total - 1) : 0;
                 const start = -totalSpreadRad / 2;
                 for (let i = 0; i < total; i++) {
@@ -416,6 +545,7 @@ export class HeroBasicAttack {
     private performSlashWave(): void {
         this.onAttack?.();
         const heroPos = this.getHeroPosition();
+        this.onSwingCallback?.(heroPos.x, heroPos.z);
         const range = this.effectiveRange;
         const enemies = this.enemyProvider ? this.enemyProvider() : [];
         const rangeSq = range * range;
@@ -444,7 +574,7 @@ export class HeroBasicAttack {
             dirX: fx,
             dirZ: fz,
             front: -SLASH_WAVE_BACK_GRACE,
-            maxDist: range,
+            maxDist: this.mods?.slashTravel(range) ?? range,
             crest,
             trail,
             hit: new Set(),
@@ -479,6 +609,8 @@ export class HeroBasicAttack {
     private stepSlashWave(w: SlashWaveFlight, dt: number): boolean {
         const prev = w.front;
         w.front = Math.min(w.front + SLASH_WAVE_SPEED * dt, w.maxDist);
+        // Pulled once per wave-step, not per enemy — the loop below is O(horde).
+        const halfWidth = this.mods?.slashHalfWidth(SLASH_WAVE_HALF_WIDTH) ?? SLASH_WAVE_HALF_WIDTH;
 
         // Live enemy list each step — enemies that walk into the lane mid-flight
         // are still hit (the old instant cone only saw its cast-time snapshot).
@@ -487,7 +619,7 @@ export class HeroBasicAttack {
             if (!e.isAlive() || w.hit.has(e)) continue;
             const dx = e.getPosition().x - w.origin.x;
             const dz = e.getPosition().z - w.origin.z;
-            if (!isInSlashBand(dx, dz, w.dirX, w.dirZ, prev, w.front, SLASH_WAVE_HALF_WIDTH)) continue;
+            if (!isInSlashBand(dx, dz, w.dirX, w.dirZ, prev, w.front, halfWidth)) continue;
             w.hit.add(e);
             this.applyHit(e, w.origin, enemies);
             // Baseline shove along the travel direction — the crest carries the
@@ -545,7 +677,7 @@ export class HeroBasicAttack {
             this.healCallback(dmg * lifestealPct);
         }
 
-        const knockback = this.playerStats?.knockbackOnHit ?? 0;
+        const knockback = this.mods?.suppressKnockback() ? 0 : (this.playerStats?.knockbackOnHit ?? 0);
         if (knockback > 0) {
             const dx = e.getPosition().x - fromPos.x;
             const dz = e.getPosition().z - fromPos.z;
@@ -566,6 +698,9 @@ export class HeroBasicAttack {
      *  Whirlwind uses this so each tick hits exactly like the basic attack
      *  (crit / lifesteal / knockback / enchantments) — just far more often. */
     public applyAttackHitsInRadius(center: Vector3, radius: number): void {
+        // ONE swing per call — this is how a Whirlwind tick counts as a swing for
+        // per-swing nodes (Aftershock). Fired here, not per enemy in the loop.
+        this.onSwingCallback?.(center.x, center.z);
         const enemies = this.enemyProvider ? this.enemyProvider() : [];
         const rSq = radius * radius;
         for (const e of enemies) {
@@ -862,7 +997,7 @@ export class HeroBasicAttack {
         }
 
         // Hand the flight to the single shared observer (see ensureFlightObserver).
-        const bounces = this.playerStats?.ricochetBounces ?? 0;
+        const bounces = (this.playerStats?.ricochetBounces ?? 0) + this.pol.bonusBounces();
         this.liveProjectiles.push({
             proj,
             poolKey,
@@ -874,7 +1009,7 @@ export class HeroBasicAttack {
             trailTimer: 0,
             // Snapshot damage at fire time — projectile carries that value;
             // upgrades mid-flight don't retroactively buff already-fired arrows.
-            capturedDamage: this.effectiveDamage,
+            capturedDamage: this.effectiveDamage * this.pol.arrowDamageScale(),
             heroPos: from,
             allEnemies: this.enemyProvider ? this.enemyProvider() : [],
             age: 0,
@@ -1013,7 +1148,7 @@ export class HeroBasicAttack {
             return false;
         }
 
-        const speed = 22;
+        const speed = this.pol.speedOverride() || 22;
         const step = Math.min(dist, speed * dt);
         _scratchB.normalize();
         _scratchB.multiplyScalar(step);
@@ -1041,7 +1176,8 @@ export class HeroBasicAttack {
     private pickRicochetTarget(from: Vector3, struck: Set<Enemy>): Enemy | null {
         if (!this.enemyProvider) return null;
         let best: Enemy | null = null;
-        let bestD2 = RICOCHET_RADIUS * RICOCHET_RADIUS;
+        const rr = this.pol.ricochetRadius() || RICOCHET_RADIUS;
+        let bestD2 = rr * rr;
         for (const e of this.enemyProvider()) {
             if (!e.isAlive() || struck.has(e)) continue;
             const ep = e.getPosition();
@@ -1056,6 +1192,14 @@ export class HeroBasicAttack {
     // ─────────────────────────────────────────────────────────────────────────
     // Enchantment application
     // ─────────────────────────────────────────────────────────────────────────
+    /** Fire the equipped weapon enchantments on one enemy from OUTSIDE a normal
+     *  hit (Aftershock's shockwave, Runeblooded r3's Smash/dash proc). Resolves
+     *  hero position and the enemy list itself so callers need neither. */
+    public fireEnchantmentsOn(enemy: Enemy): void {
+        if (!enemy.isAlive()) return;
+        this.applyEnchantments(enemy, this.getHeroPosition(), this.enemyProvider ? this.enemyProvider() : []);
+    }
+
     private applyEnchantments(enemy: Enemy, heroPos: Vector3, allEnemies: Enemy[]): void {
         if (!this.powerSlots) return;
         const enchantments = this.powerSlots.getActiveEnchantments();
@@ -1074,10 +1218,28 @@ export class HeroBasicAttack {
         ctx.baseDamage = this.effectiveDamage;
         ctx.element = 'physical';
 
-        for (const enc of enchantments) {
-            if (enc.slot.def.onHit) {
-                ctx.element = enc.slot.def.element;
-                enc.slot.def.onHit(enemy, enc.level, ctx);
+        const lvlBonus = this.mods?.enchantLevelBonus() ?? 0;
+        const repeatChance = this.mods?.enchantRepeatChance() ?? 0;
+        const distinct = this.mods?.enchantRepeatDistinct() ?? false;
+        for (let i = 0; i < enchantments.length; i++) {
+            const enc = enchantments[i];
+            if (!enc.slot.def.onHit) continue;
+            ctx.element = enc.slot.def.element;
+            // ENCHANT_LEVEL_CAP: every barbarian onHit scales linearly in `level`
+            // against maxLevel 5, so an uncapped +4 would badly overshoot.
+            enc.slot.def.onHit(enemy, Math.min(ENCHANT_LEVEL_CAP, enc.level + lvlBonus), ctx);
+            // Twin Enchant: re-fire this or a DIFFERENT enchantment. ctx is a
+            // reused singleton, so the repeat MUST re-assign ctx.element or a
+            // distinct repeat inherits the previous element and mis-colours (and
+            // mis-types) its damage.
+            if (repeatChance > 0 && enemy.isAlive() && Math.random() < repeatChance) {
+                const rep = distinct && enchantments.length > 1
+                    ? enchantments[(i + 1) % enchantments.length]
+                    : enc;
+                if (rep.slot.def.onHit) {
+                    ctx.element = rep.slot.def.element;
+                    rep.slot.def.onHit(enemy, Math.min(ENCHANT_LEVEL_CAP, rep.level + lvlBonus), ctx);
+                }
             }
         }
     }

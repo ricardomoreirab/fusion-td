@@ -24,8 +24,12 @@ export interface XpConfig {
 }
 
 /**
- * PROVISIONAL — calibrated post-build via the [xp] wave-clear log (see plan Task 8).
- * Defaults size total-to-max ≈ 35k XP so a full clear lands near wave 30.
+ * MEASURED (2026-07-26): total 1→100 is exactly 35,046 XP and the cap is reached
+ * at **wave 13** — gold is the only XP source and wave 14 alone yields ~14.5k.
+ * The earlier "lands near wave 30" note was an unrealised intent, not a
+ * measurement: the calibration pass it described never ran (gainMultiplier is
+ * still 1.0). Every point of XP past the cap now feeds AscensionSystem instead
+ * of being discarded; see src/survivors/ascension/.
  */
 export const XP_CONFIG: XpConfig = {
   maxLevel: 100,

@@ -44,6 +44,12 @@ import { POTIONS, POTION_PRICE, potionBuffs, PotionId } from './PotionShop';
 import { ItemDrop } from './ItemDrop';
 import { Equipment, priceFor, sellValueOf } from './items/Equipment';
 import { foldEquipmentStats, newEquipFoldTracker, EquipFoldTracker } from './items/foldEquipmentStats';
+import { AscensionSystem, ASCENSION_CONFIG } from './ascension/AscensionSystem';
+import { TIER_GATE } from './ascension/AscensionTrees';
+import { AscensionTreeOverlay, AscensionVM } from '../ui/overlays/AscensionTree';
+import { AscensionRuntime } from './ascension/AscensionRuntime';
+import { AscensionContext, AscEnemy } from './ascension/AscensionContext';
+import { foldAscensionStats, newAscFoldTracker, AscFoldTracker } from './ascension/ascensionStats';
 import { ITEM_CATALOG, ITEM_SETS, setById } from './items/ItemCatalog';
 import { ItemDef, EQUIP_SLOTS, MythicFxConfig } from './items/ItemTypes';
 import { itemArtIds } from '../ui/itemArt';
@@ -612,6 +618,16 @@ export class SurvivorsGameplayState implements GameState {
     private offscreenIndicators: OffscreenEnemyIndicators | null = null;
     private championSelect: ChampionSelectOverlay | null = null;
 
+    // ── Ascension (post-level-100 skill trees; single-player only) ───────────
+    /** Flat, not a PlayerSlot field: ascension is solo-only, so there is never a
+     *  second one. Constructed unconditionally in startRun and gated at CALL
+     *  time in awardXp — the co-op session resolves in a later async IIFE, so a
+     *  construction-time `if (coopSession)` would silently skip the wiring. */
+    private ascension: AscensionSystem | null = null;
+    private ascFoldTracker: AscFoldTracker = newAscFoldTracker();
+    private ascensionTree: AscensionTreeOverlay | null = null;
+    private ascRuntime: AscensionRuntime | null = null;
+
     // ── Itemization & merchant shop (single-player only; all null in co-op) ──
     private equipment: Equipment | null = null;
     private equipTracker: EquipFoldTracker = newEquipFoldTracker();
@@ -935,6 +951,12 @@ export class SurvivorsGameplayState implements GameState {
         // never inherits stale equipment-fold state from a previous one.
         this.equipTracker = newEquipFoldTracker();
         this.equipMaxHpApplied = 0;
+        // Ascension: takes over once LevelSystem caps at 100. Reset unconditionally
+        // here (mirroring equipTracker above) so a fresh run never inherits stale
+        // fold state — SurvivorsGameplayState is persistent and enter() does not
+        // reconstruct it. Must precede the baseline applyLevelBonuses() below.
+        this.ascension = new AscensionSystem(this.currentChampionType);
+        this.ascFoldTracker = newAscFoldTracker();
         this.playerStats.setXpSink((amount) => {
             this.awardXp(amount);
             // Itemization: Midas-style effects see every gold income (null in co-op).
@@ -995,8 +1017,7 @@ export class SurvivorsGameplayState implements GameState {
                 },
                 takeDamage: (amount: number, sourcePos?: Vector3) => {
                     if (!this.heroController) return;
-                    const mult = this.playerStats?.damageReductionMultiplier ?? 1.0;
-                    this.heroController.takeDamage(amount * mult, sourcePos);
+                    this.heroController.takeDamage(amount * this.effectiveDamageReduction(), sourcePos);
                 },
                 // M4-11: a dead/spectating local hero stops being a seek/orb-pull target
                 // so co-op enemies converge on the surviving teammate. SP never spectates
@@ -1091,8 +1112,9 @@ export class SurvivorsGameplayState implements GameState {
         // Each monster killed refunds a flat slice of every ability cooldown. Wired
         // to the kill hook (fires once per death from base die()) rather than the
         // reward float, which several enemy subclasses skip.
-        Enemy.onKillCallback = () => {
+        Enemy.onKillCallback = (position) => {
             this.abilityManager?.reduceAllCooldowns(KILL_COOLDOWN_REDUCTION);
+            this.ascRuntime?.onKill(position.x, position.z);
         };
         // Frozen/marked enemies erupt on death (Phase 1a primed the hook).
         Enemy.onShatterCallback = (position, damage, radius, element, status) => {
@@ -1107,7 +1129,8 @@ export class SurvivorsGameplayState implements GameState {
             this.scene,
             () => this.hero!.getPosition(),
             () => this.enemyManager!.getEnemies(),
-            () => (this.playerStats?.powerDamageMultiplier ?? 1.0) * this.runPerks.damageMultiplier,
+            () => (this.playerStats?.powerDamageMultiplier ?? 1.0) * this.runPerks.damageMultiplier
+                * (this.ascRuntime?.powerDamageMult() ?? 1.0),
             () => this.playerStats?.powerCooldownMultiplier ?? 1.0,
         );
 
@@ -1121,6 +1144,8 @@ export class SurvivorsGameplayState implements GameState {
         // for the manual Q/E ultimates (AbilityManager → triggerSpecial /
         // playAbilityClip). The barbarian keeps the special swing for power casts.
         this.powerSlots.setOnCast((slot) => {
+            // Chained, not replaced — this slot is single-owner.
+            this.ascRuntime?.onPowerCast();
             // One cast sound for every power. The audio layer's own retrigger
             // throttle keeps a full four-slot autocast burst from stacking.
             this.game.getAssetManager().playSound('powerCast');
@@ -1170,6 +1195,7 @@ export class SurvivorsGameplayState implements GameState {
             () => (this.playerStats?.powerDamageMultiplier ?? 1.0)
                 * (this.playerStats?.basicDamageMultiplier ?? 1.0)   // equipment basic-damage (1.0 in co-op)
                 * (this.itemEffects?.damageBonusMult() ?? 1.0)       // RAGE rider (null in co-op)
+                * (this.ascRuntime?.damageBonusMult() ?? 1.0)        // ascension conditionals (Rage Ascendant)
                 * this.runPerks.damageMultiplier,
         );
 
@@ -1232,12 +1258,16 @@ export class SurvivorsGameplayState implements GameState {
             // so respawning at center is safe). Host-authoritative — the guest sees its
             // alive flag flip true in the next snapshot and exits spectate.
             if (this.coopSession) this.respawnDeadHeroes();
-            // Calibration log: read in a ?test run to tune XP_CONFIG so level 100
-            // lands near wave 30 (see the XP spec §6).
+            // Calibration log: read in a ?test run to tune XP_CONFIG and
+            // ASCENSION_CONFIG. Measured baseline — level 100 lands at wave 13
+            // (total 35,046 XP) and A50 around wave 36 at 1.0x gold-find.
             if (this.levelSystem) {
+                const asc = this.ascension;
                 console.log(`[xp] wave=${clearedWave} level=${this.levelSystem.getLevel()} ` +
                     `progress=${Math.round(this.levelSystem.getProgress() * 100)}% ` +
-                    `totalXp=${Math.round(this.levelSystem.getTotalXp())}`);
+                    `totalXp=${Math.round(this.levelSystem.getTotalXp())}` +
+                    (asc ? ` asc=${asc.getLevel()} ascProgress=${Math.round(asc.getProgress() * 100)}% ` +
+                        `ascPoints=${asc.getUnspent()} ascTotalXp=${Math.round(asc.getTotalXp())}` : ''));
             }
             // ?test advances immediately for a fully unattended stress pass.
             if (this.testMode) { this.waveManager?.startNextWave(); return; }
@@ -1296,7 +1326,10 @@ export class SurvivorsGameplayState implements GameState {
         this.abilityManager.setDirectionProvider(() => this.heroController!.getMoveInput());
         this.abilityManager.setChampionTypeProvider(() => this.currentChampionType);
         this.abilityManager.setDashOverride((target, duration, mode, onComplete) => {
-            this.heroController!.startDashOverride(target, duration, mode, onComplete);
+            this.heroController!.startDashOverride(target, duration, mode, (landingPos) => {
+                onComplete(landingPos);
+                this.ascRuntime?.onDashLand(landingPos.x, landingPos.z);
+            });
         });
         // Whirlwind ticks reuse the basic attack's hit pipeline (crit / lifesteal /
         // knockback / enchantments) via the hero controller.
@@ -1304,7 +1337,8 @@ export class SurvivorsGameplayState implements GameState {
             this.heroController?.applyAttackHitsInRadius(center, radius);
         });
         this.abilityManager.setDamageMultiplierProvider(
-            () => (this.playerStats?.powerDamageMultiplier ?? 1.0) * this.runPerks.damageMultiplier,
+            () => (this.playerStats?.powerDamageMultiplier ?? 1.0) * this.runPerks.damageMultiplier
+                * (this.ascRuntime?.powerDamageMult() ?? 1.0),
         );
         this.abilityManager.prewarmAbilityEffects();
         this.prewarmPowerEffects();
@@ -1318,6 +1352,7 @@ export class SurvivorsGameplayState implements GameState {
         // Hero ultimate body clips: ABILITY_CLIPS (module-level) maps ability id →
         // GLB clip; played as a forced "special" channel.
         this.abilityManager.setOnActivate((abilityId) => {
+            this.ascRuntime?.onUltActivate(abilityId);
             const clip = ABILITY_CLIPS[abilityId];
             if (!clip || !this.hero) return;
             const hero = this.hero as { playAbilityClip?: (s: string, d?: number, sp?: number) => void };
@@ -1359,9 +1394,37 @@ export class SurvivorsGameplayState implements GameState {
         this.equipMaxHpApplied = 0;
         this.rageGlow = new RageGlow(this.scene, () => this.hero?.getPosition() ?? null);
         this.itemEffects = new ItemEffectRuntime(this.buildEffectContext());
+        this.ascRuntime = new AscensionRuntime(this.buildAscensionContext());
+        // Install every PULLED ascension provider. None of these is assigned onto
+        // PlayerStats, so applyLevelBonuses() cannot clobber them.
+        this.abilityManager?.setOnChannelEnd((id) => this.ascRuntime?.onChannelEnd(id));
+        this.abilityManager?.setUltCooldownMultiplierProvider(() => this.ascRuntime?.ultCooldownMult() ?? 1);
+        this.abilityManager?.setAbilityTuningProvider((id) => this.ascRuntime?.abilityTuning(id) ?? null);
+        this.heroController?.setTransientSpeedProvider(() => this.ascRuntime?.moveSpeedMult() ?? 1);
+        this.heroController?.setDamageNegateProvider(() => this.ascRuntime?.tryNegate() ?? false);
+        this.heroController?.setDamageAbsorbProvider((a) => this.ascRuntime?.absorb(a) ?? a);
+        this.heroController?.setCheatDeathProvider(() => this.ascRuntime?.tryCheatDeath() ?? false);
+        this.heroController?.setOnOverheal((o) => this.ascRuntime?.onHealOverflow(o));
+        const basic = this.heroController?.getBasicAttack();
+        basic?.setDynamicSpeedProvider(() => this.ascRuntime?.attackSpeedMult() ?? 1);
+        basic?.setOnSwing((x, z) => this.ascRuntime?.onSwing(x, z));
+        // Ranger-only: the volley policy. The other classes keep the frozen
+        // null object, so they pay one monomorphic call per arrow.
+        if (this.currentChampionType === 'ranger') basic?.setArrowPolicy(this.ascRuntime.arrowPolicy());
+        basic?.setBasicAttackMods({
+            reachBonus: () => this.ascRuntime?.reachBonus() ?? 0,
+            slashHalfWidth: (b) => this.ascRuntime?.slashHalfWidth(b) ?? b,
+            slashTravel: (b) => this.ascRuntime?.slashTravel(b) ?? b,
+            slashDamageMult: () => this.ascRuntime?.slashDamageMult() ?? 1,
+            suppressKnockback: () => this.ascRuntime?.suppressKnockback() ?? false,
+            enchantLevelBonus: () => this.ascRuntime?.enchantLevelBonus() ?? 0,
+            enchantRepeatChance: () => this.ascRuntime?.enchantRepeatChance() ?? 0,
+            enchantRepeatDistinct: () => this.ascRuntime?.enchantRepeatDistinct() ?? false,
+        });
         this.shopOverlay = new ShopOverlay(this.gameUI!.layer('overlay'));
         this.goblinPortrait = getGoblinPortrait();
         this.characterProfile = new CharacterProfile(this.gameUI!.layer('overlay'));
+        this.ascensionTree = new AscensionTreeOverlay(this.gameUI!.layer('overlay'));
         this.hud.setOnHorn(() => this.soundHorn());
         // The level medallion is the character-sheet button (solo only —
         // wiring it here is what makes it interactive).
@@ -1372,8 +1435,12 @@ export class SurvivorsGameplayState implements GameState {
         // the local hero's takeDamage is host-driven so setOnHurt won't fire there —
         // the snapshot HP-drop path fires onHeroHurt for the guest instead.
         this.heroController.setOnHurt((amount) => this.itemEffects?.onHeroHurt(amount));
-        this.heroController.getBasicAttack()?.setOnHit((enemy, dmg) =>
-            this.itemEffects?.onBasicHit(enemy, dmg));
+        // Both runtimes CHAIN inside the one lambda — the slot is single-owner, so
+        // assigning a second setOnHit would silently unsubscribe item effects.
+        this.heroController.getBasicAttack()?.setOnHit((enemy, dmg) => {
+            this.itemEffects?.onBasicHit(enemy, dmg);
+            this.ascRuntime?.onBasicHit(enemy as unknown as AscEnemy, dmg);
+        });
 
         // Q / E / Space → first / second / third ultimate. Mirrors a tap on the HUD
         // button exactly (Hud.triggerUltimateByIndex shares the same closure as
@@ -1388,9 +1455,19 @@ export class SurvivorsGameplayState implements GameState {
                 this.hud?.triggerUltimateByIndex(2);
                 e.preventDefault(); // stop the browser from scrolling
             }
-            else if (key === 'escape') this.hud?.togglePause();
+            else if (key === 't') this.openAscension();
+            else if (key === 'escape') {
+                // Unwind innermost-first, and never stack .pause-screen
+                // (z-index 9000, position: fixed) on top of the tree.
+                if (this.ascensionTree?.isPopupOpen()) this.ascensionTree.closePopup();
+                else if (this.ascensionTree?.isOpen()) this.ascensionTree.close();
+                else this.hud?.togglePause();
+            }
             else if (this.testMode && key === ']') this.cycleTestFusion();
             else if (this.testMode && key === '\\') this.stressLoad();
+            // DEV: grant ascension XP directly so the trees are reviewable without
+            // a 20-minute run to wave 36. [ = +1 level, { (shift+[) = +10.
+            else if (this.testMode && key === '[') this.devGrantAscension(e.shiftKey ? 10 : 1);
         };
         window.addEventListener('keydown', this._hotkeyHandler);
 
@@ -2802,6 +2879,8 @@ export class SurvivorsGameplayState implements GameState {
         this.abilityManager = null;
 
         this.levelSystem = null;
+        this.ascension = null;
+        this.ascFoldTracker = newAscFoldTracker();
         this.appliedMaxHpBonus = 0;
         this.waveBreatherRemaining = 0;
 
@@ -2820,6 +2899,10 @@ export class SurvivorsGameplayState implements GameState {
         this.shopOverlay = null;
         this.characterProfile?.close();
         this.characterProfile = null;
+        this.ascensionTree?.close();
+        this.ascensionTree = null;
+        this.ascRuntime?.reset();
+        this.ascRuntime = null;
         this.goblinPortrait?.stop();
         this.goblinPortrait?.detach();
         this.goblinPortrait = null;
@@ -3217,6 +3300,7 @@ export class SurvivorsGameplayState implements GameState {
             this.heroController.heal(this.heroController.getMaxHealth() * equipRegen * deltaTime);
         }
         this.itemEffects?.tick(deltaTime);
+        this.ascRuntime?.tick(deltaTime);
 
         // ── World upkeep ───────────────────────────────────────────────────
         // One call: terrain, scatter, props and atmosphere are all driven from
@@ -3512,7 +3596,8 @@ export class SurvivorsGameplayState implements GameState {
             this.powerChoice?.isOpen() ||
             this.replaceSlotOverlay?.isOpen() ||
             this.shopOverlay?.isOpen() ||
-            this.characterProfile?.isOpen()
+            this.characterProfile?.isOpen() ||
+            this.ascensionTree?.isOpen()
         );
     }
 
@@ -3908,7 +3993,21 @@ export class SurvivorsGameplayState implements GameState {
     /** Feed XP and, on any level-up, push the new attribute bonuses + show feedback. */
     private awardXp(amount: number): void {
         if (!this.levelSystem) return;
+        // Capture the cap state BEFORE addXp: its first line is
+        // `if (this.isMaxLevel() || amount <= 0) return 0;`, so on the grant that
+        // REACHES 100 it consumes part of `amount` and discards the rest —
+        // testing isMaxLevel() afterwards would feed that same grant to ascension
+        // a second time. Single-player only: gated at call time because the co-op
+        // session resolves after startRun (see maybeSpawnFloorPickup).
+        const wasCapped = this.levelSystem.isMaxLevel();
         const ups = this.levelSystem.addXp(amount);
+        if (wasCapped && !this.coopSession && this.ascension) {
+            if (this.ascension.addXp(amount) > 0) {
+                this.applyLevelBonuses();
+                this.hud?.showBanner(`Ascension ${this.ascension.getLevel()}`, 'arcane');
+                this.game.getAssetManager().playSound('levelUp');
+            }
+        }
         if (ups > 0) {
             this.applyLevelBonuses();
             this.heroController?.heal(this.heroController.getMaxHealth() * 0.05 * ups);
@@ -4003,6 +4102,19 @@ export class SurvivorsGameplayState implements GameState {
         ps.damageReductionMultiplier  *= pb.dmgReductionMult;
         ps.lifestealPct += pb.lifestealAdd - this.potionLifestealApplied;
         this.potionLifestealApplied = pb.lifestealAdd;
+
+        // Ascension: derived from point counts every recompute (the RunItems
+        // Math.pow precedent above), with a delta-swap tracker for the two shared
+        // additive fields. Position is load-bearing — it must sit AFTER the potion
+        // fold and BEFORE the re-push below, or moveSpeed/attackRange/attackSpeed
+        // stay stale for a whole recompute cycle. It also re-clamps the cooldown
+        // and damage-reduction floors, which equipment and potions multiply past.
+        if (this.ascension) {
+            foldAscensionStats(ps, this.ascension, this.ascFoldTracker);
+            // Behavioural nodes read their point counts from here; the runtime
+            // never touches PlayerStats, so nothing it does can be clobbered.
+            this.ascRuntime?.setActivePoints(this.ascension.snapshot());
+        }
 
         // Re-push the multipliers that are PUSHED (not pulled live), combined with runPerks.
         this.heroController?.updateMoveSpeed(ps.moveSpeedMultiplier * this.runPerks.moveSpeedMultiplier);
@@ -4307,6 +4419,194 @@ export class SurvivorsGameplayState implements GameState {
         if (!this.characterProfile || !this.equipment) return;
         if (this.characterProfile.isOpen()) { this.characterProfile.close(); return; }
         this.characterProfile.show(this.buildCharacterVM());
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Ascension tree (single-player only)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /** Toggle the tree. Solo-only: in co-op `ascension` never accrues a level,
+     *  so there is nothing to show and the overlay would only pause nothing. */
+    private openAscension(): void {
+        if (!this.ascensionTree || !this.ascension || this.coopSession) return;
+        if (this.ascensionTree.isOpen()) { this.ascensionTree.close(); return; }
+        if (this.ascension.getLevel() < 1 && this.ascension.getUnspent() < 1) {
+            this.hud?.showBanner('Ascension unlocks at level 100', 'arcane');
+            return;
+        }
+        this.ascensionTree.show(this.buildAscensionVM(), (id) => this.handleAscensionSpend(id));
+    }
+
+    /** Spend, then recompute — applyLevelBonuses is the ONLY thing that folds the
+     *  new point counts into PlayerStats (this is its 6th call site). */
+    private handleAscensionSpend(nodeId: string): void {
+        if (!this.ascension?.spend(nodeId)) return;
+        this.applyLevelBonuses();
+        this.game.getAssetManager().playSound('levelUp');
+        this.ascensionTree?.refresh(this.buildAscensionVM());
+    }
+
+    private buildAscensionVM(): AscensionVM {
+        const asc = this.ascension!;
+        return {
+            level: asc.getLevel(),
+            maxLevel: ASCENSION_CONFIG.maxAscension,
+            progress: asc.getProgress(),
+            unspent: asc.getUnspent(),
+            paths: asc.getTree().map(p => {
+                const capstone = p.nodes.find(n => n.tier === 5);
+                return {
+                    id: p.id,
+                    name: p.name,
+                    accent: p.accent,
+                    icon: p.icon,
+                    tagline: p.tagline,
+                    points: asc.pointsInPath(p.id),
+                    capstoneName: capstone ? capstone.name : '',
+                    capstoneNeed: TIER_GATE[5],
+                    nodes: p.nodes.map(n => {
+                        const pts = asc.getPoints(n.id);
+                        return {
+                            id: n.id,
+                            name: n.name,
+                            icon: n.icon,
+                            tier: n.tier,
+                            col: n.col,
+                            points: pts,
+                            max: n.max,
+                            // At 0 points descNow already IS the rank-1 preview,
+                            // so a "next point" line would repeat it verbatim.
+                            descNow: n.desc(Math.max(1, pts)),
+                            descNext: pts > 0 && pts < n.max ? n.desc(pts + 1) : null,
+                            canSpend: asc.canSpend(n.id),
+                            blockedReason: asc.blockedReason(n.id),
+                            locked: asc.pointsInPath(p.id) < TIER_GATE[n.tier],
+                            riderText: n.rider ? n.rider.text : null,
+                            riderActive: asc.riderActive(n),
+                        };
+                    }),
+                };
+            }),
+        };
+    }
+
+    /** DEV (?test only): jump ascension levels so the trees can be reviewed
+     *  without playing to wave 36. Routes through the same addXp path as real
+     *  income so the curve, point grant and fold are all exercised for real. */
+    private devGrantAscension(levels: number): void {
+        const asc = this.ascension;
+        if (!asc) return;
+        for (let i = 0; i < levels; i++) asc.addXp(asc.xpToNext(asc.getLevel()));
+        this.applyLevelBonuses();
+        this.hud?.showBanner(`Ascension ${asc.getLevel()} (dev)`, 'arcane');
+        console.log(`[xp] DEV ascension → A${asc.getLevel()} (${asc.getUnspent()} unspent)`);
+        if (this.ascensionTree?.isOpen()) this.ascensionTree.refresh(this.buildAscensionVM());
+    }
+
+    /**
+     * World adapter for ascension node effects. Deliberately exposes only
+     * COUNTED VISITORS for proximity — buildEffectContext's `enemiesNear`
+     * allocates a fresh array per call, which at horde scale with a dozen live
+     * nodes is the allocation-in-hot-path failure the perf backlog documents.
+     * FX colours are lowercase LITERALS so every cached material key is bounded.
+     */
+    /**
+     * The single damage-reduction read. BOTH intake paths must use it — ranged/
+     * ability damage (the enemy-facing takeDamage adapter) and body contact — or
+     * a conditional node works against one and not the other. Ascension's term is
+     * PULLED here rather than assigned onto PlayerStats, which applyLevelBonuses
+     * re-assigns several times a wave.
+     */
+    private effectiveDamageReduction(): number {
+        const base = this.playerStats?.damageReductionMultiplier ?? 1.0;
+        return Math.max(0.25, base * (this.ascRuntime?.damageReductionMult() ?? 1));
+    }
+
+    private buildAscensionContext(): AscensionContext {
+        return {
+            heroPos: () => {
+                const p = this.hero?.getPosition();
+                return p ? { x: p.x, z: p.z } : { x: 0, z: 0 };
+            },
+            heroHpFraction: () => {
+                const hc = this.heroController;
+                if (!hc) return 1;
+                const { current, max } = hc.getHealth();
+                return max > 0 ? current / max : 1;
+            },
+            enemiesNearCount: (x, z, radius) => {
+                const rSq = radius * radius;
+                let n = 0;
+                for (const e of this.activeAttackEnemies()) {
+                    if (!e.isAlive()) continue;
+                    const p = e.getPosition();
+                    const dx = p.x - x, dz = p.z - z;
+                    if (dx * dx + dz * dz <= rSq) n++;
+                }
+                return n;
+            },
+            forEachEnemyNear: (x, z, radius, cb) => {
+                const rSq = radius * radius;
+                for (const e of this.activeAttackEnemies()) {
+                    if (!e.isAlive()) continue;
+                    const p = e.getPosition();
+                    const dx = p.x - x, dz = p.z - z;
+                    if (dx * dx + dz * dz <= rSq) cb(e as unknown as AscEnemy);
+                }
+            },
+            damage: (e, amount, element) =>
+                (e as unknown as Enemy).takeDamage(amount, element as PowerElement),
+            curse: (e, durationS, fracPerSec) =>
+                (e as unknown as Enemy).applyStatusEffect(StatusEffect.CURSE, durationS, fracPerSec),
+            fragile: (e, durationS) =>
+                (e as unknown as Enemy).applyStatusEffect(StatusEffect.FRAGILE, durationS, 1),
+            hasStatus: (e, kind) => (e as unknown as Enemy).hasRichStatus(kind),
+            detonateStatus: (e, kind) => (e as unknown as Enemy).detonateRichStatus(kind),
+            heal: (amount) => this.heroController?.heal(amount),
+            basicDamage: () => this.heroController?.getBasicAttack()?.getEffectiveDamage() ?? 0,
+            knockback: (e, fromX, fromZ, force) => {
+                const p = e.getPosition();
+                const dx = p.x - fromX, dz = p.z - fromZ;
+                const len = Math.hypot(dx, dz) || 1;
+                (e as unknown as Enemy).applyKnockback(dx / len, dz / len, force);
+            },
+            reduceAbilityCooldowns: (seconds) => this.abilityManager?.reduceAllCooldowns(seconds),
+            zone: (x, z, opts) => {
+                if (!this.scene || !this.enemyManager) return;
+                persistentZone(this.scene, this.enemyManager.getEnemies(), x, z, {
+                    radius: opts.radius,
+                    durationS: opts.durationS,
+                    tickDamage: opts.tickDamage,
+                    element: opts.element as PowerElement,
+                    crawlToward: opts.crawlToward,
+                    crawlSpeed: opts.crawlSpeed,
+                });
+            },
+            ring: (x, z, colorHex, radius) => {
+                if (this.scene) spawnExpandingRing(this.scene, x, z, colorHex, radius);
+            },
+            rng: Math.random,
+            heroMaxHp: () => this.heroController?.getHealth().max ?? 1,
+            forEachEnemyAlive: (cb) => {
+                for (const e of this.activeAttackEnemies()) {
+                    if (e.isAlive()) cb(e as unknown as AscEnemy);
+                }
+            },
+            chill: (e, durationS, stacks) =>
+                (e as unknown as Enemy).applyStatusEffect(StatusEffect.CHILL, durationS, stacks),
+            slow: (e, frac, durationS) =>
+                (e as unknown as Enemy).applyStatusEffect(StatusEffect.SLOWED, durationS, frac),
+            abilityTimeLeft: (id) => this.abilityManager?.activeEffectTimeLeft(id) ?? 0,
+            extendAbility: (id, seconds) => this.abilityManager?.extendActiveEffect(id, seconds) ?? 0,
+            reduceAbilityCooldown: (id, seconds) => this.abilityManager?.reduceCooldown(id, seconds),
+            applyEnchantments: (e) =>
+                this.heroController?.getBasicAttack()?.fireEnchantmentsOn(e as unknown as Enemy),
+            castFreeWhirlwind: (durationS, radiusMult) => {
+                this.abilityManager?.castFreeWhirlwind(durationS, radiusMult);
+            },
+            castFreeSmash: (damageMult) => { this.abilityManager?.castFreeSmash(damageMult); },
+            forceCastAutocastSlots: () => { this.powerSlots?.forceCastAutocastSlots(); },
+        };
     }
 
     private handleShopReroll(): void {
@@ -4700,7 +5000,7 @@ export class SurvivorsGameplayState implements GameState {
     private applyContactDamage(deltaTime: number): void {
         if (!this.hero || !this.enemyManager || !this.heroController) return;
         const heroPos = this.hero.getPosition();
-        const reductionMult = this.playerStats?.damageReductionMultiplier ?? 1.0;
+        const reductionMult = this.effectiveDamageReduction();
 
         // Host co-op: also track ghost position for guest-hero contact checks below.
         // Single-player: coopRole is null — the guest block is never entered.

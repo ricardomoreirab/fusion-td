@@ -49,11 +49,34 @@ export type DashOverrideFn = (
 
 export interface Ability {
     name: string;
-    cooldown: number;      // Total cooldown in seconds
+    /** Authored base — written once in configureForClass, never mutated. */
+    baseCooldown: number;
+    /** Effective cooldown of the LAST cast (base x ascension tuning x the pulled
+     *  multiplier). The HUD divides currentCooldown by this, so the ring always
+     *  starts full even when a node shortens the cooldown. */
+    cooldown: number;
     currentCooldown: number; // Time remaining on cooldown
     isReady: boolean;
     needsTargeting: boolean; // true = click-to-target, false = instant cast
 }
+
+/** Per-ability tuning an Ascension node can override. Every field is optional;
+ *  an absent field keeps the authored default. Resolved ONCE per activation into
+ *  locals, never inside a tick(). */
+export interface AbilityTuning {
+    cooldownS: number;
+    radius: number;
+    durationS: number;
+    tickIntervalS: number;
+    damageMult: number;
+    knockForce: number;
+    count: number;
+    distance: number;
+}
+
+/** Shared empty tuning — resolving a provider that returns nothing must not
+ *  allocate. Read-only by contract. */
+const NO_TUNING: Partial<AbilityTuning> = {};
 
 interface ActiveEffect {
     id: string;
@@ -185,24 +208,24 @@ export class AbilityManager {
         this.abilities.clear();
         switch (championType) {
             case 'barbarian':
-                this.abilities.set('whirlwind', { name: 'Whirlwind',     cooldown: 35, currentCooldown: 0, isReady: true, needsTargeting: false });
-                this.abilities.set('smash',     { name: 'Smash',         cooldown: 25, currentCooldown: 0, isReady: true, needsTargeting: false });
+                this.abilities.set('whirlwind', { name: 'Whirlwind',     baseCooldown: 35, cooldown: 35, currentCooldown: 0, isReady: true, needsTargeting: false });
+                this.abilities.set('smash',     { name: 'Smash',         baseCooldown: 25, cooldown: 25, currentCooldown: 0, isReady: true, needsTargeting: false });
                 break;
             case 'ranger':
-                this.abilities.set('multishot',      { name: 'Multishot',       cooldown: 30, currentCooldown: 0, isReady: true, needsTargeting: false });
-                this.abilities.set('explosiveArrow', { name: 'Explosive Arrow', cooldown: 25, currentCooldown: 0, isReady: true, needsTargeting: false });
+                this.abilities.set('multishot',      { name: 'Multishot',       baseCooldown: 30, cooldown: 30, currentCooldown: 0, isReady: true, needsTargeting: false });
+                this.abilities.set('explosiveArrow', { name: 'Explosive Arrow', baseCooldown: 25, cooldown: 25, currentCooldown: 0, isReady: true, needsTargeting: false });
                 break;
             case 'mage':
             default:
                 // Meteor auto-targets the nearest enemy when fired from the HUD button
                 // (HeroHud.activate() doesn't supply a click position). Keep
                 // needsTargeting false so the button fires instantly like other ults.
-                this.abilities.set('meteor',    { name: 'Meteor Strike', cooldown: 45, currentCooldown: 0, isReady: true, needsTargeting: false });
-                this.abilities.set('frostNova', { name: 'Frost Nova',    cooldown: 30, currentCooldown: 0, isReady: true, needsTargeting: false });
+                this.abilities.set('meteor',    { name: 'Meteor Strike', baseCooldown: 45, cooldown: 45, currentCooldown: 0, isReady: true, needsTargeting: false });
+                this.abilities.set('frostNova', { name: 'Frost Nova',    baseCooldown: 30, cooldown: 30, currentCooldown: 0, isReady: true, needsTargeting: false });
                 break;
         }
         // Every class also gets the Space-bar mobility ability.
-        this.abilities.set('dash', { name: 'Dash', cooldown: 7, currentCooldown: 0, isReady: true, needsTargeting: false });
+        this.abilities.set('dash', { name: 'Dash', baseCooldown: 7, cooldown: 7, currentCooldown: 0, isReady: true, needsTargeting: false });
         this.abilityIds = Array.from(this.abilities.keys());
     }
 
@@ -319,6 +342,68 @@ export class AbilityManager {
      * untouched; a cooldown that reaches 0 clamps and flips to ready. Discrete
      * per-kill, so it is independent of frame time / slow-mo.
      */
+    /** Targeted sibling of reduceAllCooldowns — Storm-Born refunds BLINK only, so
+     *  the broad form would be a strictly stronger effect than the node says. */
+    public reduceCooldown(abilityId: string, seconds: number): void {
+        if (seconds <= 0) return;
+        const ability = this.abilities.get(abilityId);
+        if (!ability || ability.isReady) return;
+        ability.currentCooldown -= seconds;
+        if (ability.currentCooldown <= 0) {
+            ability.currentCooldown = 0;
+            ability.isReady = true;
+        }
+    }
+
+    /** Make an ability instantly available again (Bladestorm Echo, Standing Stone r3). */
+    public forceReady(abilityId: string): void {
+        const ability = this.abilities.get(abilityId);
+        if (!ability) return;
+        ability.currentCooldown = 0;
+        ability.isReady = true;
+    }
+
+    /** True while a timed effect with this id is running (Eye of the Storm and
+     *  friends condition on "while channelling"). */
+    public isEffectActive(id: string): boolean {
+        for (const e of this.activeEffects) if (e.id === id) return true;
+        return false;
+    }
+
+    /** Extend a running timed effect (Eye of the Maelstrom's kill-fed channel).
+     *  Returns the new remaining time, or 0 when no such effect is running. */
+    public extendActiveEffect(id: string, seconds: number): number {
+        for (const e of this.activeEffects) {
+            if (e.id === id) { e.timeLeft += seconds; return e.timeLeft; }
+        }
+        return 0;
+    }
+
+    /** Remaining time on a running effect, 0 when not active. */
+    public activeEffectTimeLeft(id: string): number {
+        for (const e of this.activeEffects) if (e.id === id) return e.timeLeft;
+        return 0;
+    }
+
+    /** Pulled per CAST. Never assigned onto PlayerStats. */
+    private ultCooldownMultProvider: ((abilityId: string) => number) | null = null;
+    public setUltCooldownMultiplierProvider(fn: ((abilityId: string) => number) | null): void {
+        this.ultCooldownMultProvider = fn;
+    }
+
+    /** Per-ability tuning overrides. Resolved ONCE per activation into locals —
+     *  never called inside a tick(). */
+    private tuningProvider: ((abilityId: string) => Partial<AbilityTuning> | null) | null = null;
+    public setAbilityTuningProvider(fn: ((abilityId: string) => Partial<AbilityTuning> | null) | null): void {
+        this.tuningProvider = fn;
+    }
+
+    /** Resolve tuning for one activation. Returns a shared empty object when no
+     *  provider is installed, so the common path never allocates. */
+    private tuning(abilityId: string): Partial<AbilityTuning> {
+        return this.tuningProvider?.(abilityId) ?? NO_TUNING;
+    }
+
     public reduceAllCooldowns(seconds: number): void {
         if (seconds <= 0) return;
         for (const ability of this.abilities.values()) {
@@ -441,6 +526,13 @@ export class AbilityManager {
 
         if (success) {
             ability.isReady = false;
+            // Effective cooldown = authored base, optionally overridden outright by
+            // an ascension tuning value, then scaled by the pulled multiplier
+            // (Unending Fury scales with the enemies standing near the hero AT THE
+            // MOMENT OF THE CAST, so it cannot be a static override).
+            const tunedCd = this.tuningProvider?.(abilityId)?.cooldownS;
+            ability.cooldown = Math.max(0.5,
+                (tunedCd ?? ability.baseCooldown) * (this.ultCooldownMultProvider?.(abilityId) ?? 1));
             ability.currentCooldown = ability.cooldown;
             this.isTargeting = false;
             this.targetingAbility = null;
@@ -492,8 +584,9 @@ export class AbilityManager {
 
     /** Damage every enemy within radius 4 of `center` and play one falling-meteor VFX. */
     private strikeMeteorAt(center: Vector3): void {
-        const radius = 4;
-        const damage = Math.round(150 * (this.damageMultiplierProvider?.() ?? 1));
+        const tMet = this.tuning('meteor');
+        const radius = tMet.radius ?? 4;
+        const damage = Math.round(150 * (tMet.damageMult ?? 1) * (this.damageMultiplierProvider?.() ?? 1));
         const enemies = this.enemiesInRange(center, radius);
         for (const enemy of enemies) {
             enemy.takeDamage(damage);
@@ -507,7 +600,7 @@ export class AbilityManager {
 
     private activateFrostNova(): boolean {
         const enemies = this.allEnemies();
-        const duration = 2.5;
+        const duration = this.tuning('frostNova').durationS ?? 2.5;
 
         for (const enemy of enemies) {
             if (enemy.isAlive()) {
@@ -531,12 +624,31 @@ export class AbilityManager {
     // ========================================================================
 
     private activateWhirlwind(): boolean {
+        const t = this.tuning('whirlwind');
+        return this.runWhirlwind(t.radius ?? 7, t.durationS ?? 5.0, t.tickIntervalS ?? 0.3, false);
+    }
+
+    /**
+     * Free re-cast of the channel with no cooldown (Bladestorm Echo). Bypasses
+     * activate() entirely, so the cooldown write never runs.
+     */
+    public castFreeWhirlwind(durationS: number, radiusMult: number): boolean {
+        const t = this.tuning('whirlwind');
+        return this.runWhirlwind(
+            (t.radius ?? 7) * radiusMult, durationS, t.tickIntervalS ?? 0.3, true);
+    }
+
+    /**
+     * The channel body, shared by the real cast and the echo.
+     *
+     * `isEcho` is the STRUCTURAL recursion guard: onChannelEnd is suppressed for
+     * echo effects, so an echo can never spawn another echo. A boolean re-entrancy
+     * flag alone would not survive the delay between a channel ending and its
+     * echo ending seconds later.
+     */
+    private runWhirlwind(radius: number, duration: number, tickS: number, isEcho: boolean): boolean {
         const heroPos = this.getHeroPosition();
         if (!heroPos) return false;
-
-        // Hurricane reach — double the barbarian's basic-attack range (3.5u → 7u).
-        const radius = 7;
-        const duration = 5.0;
 
         // Element-charged whirlwind: tint the hurricane + ground rings with the
         // blend of the equipped power elements (storm-grey default with none).
@@ -559,7 +671,7 @@ export class AbilityManager {
         this.activeEffects.push({
             id: 'whirlwind',
             timeLeft: duration,
-            tickInterval: 0.3,
+            tickInterval: tickS,
             timeSinceLastTick: 0,
             tick: () => {
                 const pos = this.getHeroPosition();
@@ -593,11 +705,27 @@ export class AbilityManager {
                     const p = this.getHeroPosition();
                     emitCoopFx('ultStop', p?.x ?? 0, p?.z ?? 0, undefined, undefined, 'whirlwind');
                 }
+                // Suppressed for echoes — this is what stops the echo chain.
+                if (!isEcho) this.onChannelEndCallback?.('whirlwind');
             },
         });
 
         return true;
     }
+
+    /** Fired when a NON-echo timed channel ends. Single-owner. */
+    private onChannelEndCallback: ((abilityId: string) => void) | null = null;
+    public setOnChannelEnd(fn: ((abilityId: string) => void) | null): void {
+        this.onChannelEndCallback = fn;
+    }
+
+    /** Free Smash at a damage scale, no cooldown (Bladestorm Echo r3, Standing Stone r3). */
+    public castFreeSmash(damageMult: number): void {
+        this.freeSmashMult = damageMult;
+        try { this.activateSmash(); } finally { this.freeSmashMult = 1; }
+    }
+    /** Extra scale applied to a free Smash only. */
+    private freeSmashMult = 1;
 
     // ========================================================================
     // Universal: Space-bar Dash / Jump / Teleport
@@ -765,9 +893,10 @@ export class AbilityManager {
         const heroPos = this.getHeroPosition();
         if (!heroPos) return false;
 
-        const knockRadius = 10;
-        const knockForce = 12;
-        const damage = Math.round(30 * (this.damageMultiplierProvider?.() ?? 1));
+        const tSm = this.tuning('smash');
+        const knockRadius = tSm.radius ?? 10;
+        const knockForce = tSm.knockForce ?? 12;
+        const damage = Math.round(30 * (tSm.damageMult ?? 1) * this.freeSmashMult * (this.damageMultiplierProvider?.() ?? 1));
 
         for (const e of this.allEnemies()) {
             if (!e.isAlive()) continue;
@@ -964,7 +1093,7 @@ export class AbilityManager {
 
         this.activeEffects.push({
             id: 'explosiveArrow',
-            timeLeft: 3.0,
+            timeLeft: this.tuning('explosiveArrow').durationS ?? 3.0,
             tickInterval: 0.5,
             timeSinceLastTick: 0,
             tick: () => {
@@ -979,7 +1108,7 @@ export class AbilityManager {
                     if (d < bestDist) { bestDist = d; nearest = e; }
                 }
                 if (!nearest) return;
-                const damage = Math.round(25 * (this.damageMultiplierProvider?.() ?? 1));
+                const damage = Math.round(25 * (this.tuning('explosiveArrow').damageMult ?? 1) * (this.damageMultiplierProvider?.() ?? 1));
                 this.spawnExplosiveArrow(pos, nearest, damage, 3);
             },
         });

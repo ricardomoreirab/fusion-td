@@ -1310,6 +1310,197 @@
   .char-stats { grid-template-columns: 1fr; }
 }
 
+/* ── Ascension tree ──────────────────────────────────────────
+   Post-level-100 skill trees. Note `.modal-panel` (= .frame--ornate) carries
+   `clip-path: var(--chamfer-lg)`, which clips outer box-shadows on EVERY
+   descendant — so node/edge glow is `filter: drop-shadow()` throughout, never
+   `box-shadow: 0 0 Npx`. */
+.modal-panel--ascension {
+  width: min(1080px, 96vw);
+  max-width: min(1080px, 96vw);
+  /* The PANEL never scrolls — .asc-scroll does — so the points counter and the
+     spend button stay pinned at every viewport height. */
+  overflow: hidden;
+}
+.modal-panel--ascension .modal-body { flex: 1 1 auto; min-height: 0; }
+
+.asc-header {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--s-3); flex: 0 0 auto;
+  padding: var(--s-2) var(--s-3);
+  background: rgba(0, 0, 0, 0.3);
+  box-shadow: inset 0 0 0 1px rgba(164, 99, 255, 0.22);
+}
+.asc-header__badge {
+  display: flex; align-items: center; gap: var(--s-2);
+  color: var(--c-arcane-hi);
+}
+.asc-header__points {
+  font-family: var(--ff-display); font-weight: 700; font-size: var(--fs-300);
+  color: var(--c-arcane-hi); font-variant-numeric: tabular-nums;
+}
+.asc-header__level {
+  font-family: var(--ff-body); font-size: var(--fs-200);
+  color: var(--c-parchment-dim); font-variant-numeric: tabular-nums;
+}
+.asc-header__hint {
+  font-family: var(--ff-body); font-style: italic; font-size: var(--fs-100);
+  color: var(--c-parchment-faint);
+}
+
+.asc-scroll {
+  flex: 1 1 auto; min-height: 0;
+  overflow: auto;
+  padding: var(--s-2) 0;
+}
+.asc-canvas {
+  position: relative;
+  width: var(--tree-w); height: var(--tree-h);
+  margin-inline: auto;
+}
+.asc-edges {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  pointer-events: none; overflow: visible;
+}
+.asc-edge { fill: none; stroke: var(--c-iron); stroke-width: 3; stroke-linecap: round; opacity: 0.5; }
+.asc-edge--live {
+  stroke: var(--accent); opacity: 0.95;
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--accent) 55%, transparent));
+}
+/* Static, not animated, so the locked state survives prefers-reduced-motion. */
+.asc-edge--locked { stroke-dasharray: 6 5; opacity: 0.3; }
+
+.asc-col { position: absolute; inset: 0; pointer-events: none; }
+.asc-col__head {
+  position: absolute; top: 0;
+  padding: 0 var(--s-2); text-align: center;
+  pointer-events: none;
+}
+.asc-col__title {
+  display: flex; align-items: center; justify-content: center; gap: var(--s-2);
+  font-family: var(--ff-display); font-weight: 700; font-size: var(--fs-300);
+  color: var(--accent); letter-spacing: 0.06em; text-transform: uppercase;
+}
+.asc-col__count {
+  font-size: var(--fs-100); color: var(--c-parchment-dim);
+  font-variant-numeric: tabular-nums;
+}
+.asc-col__tagline {
+  font-family: var(--ff-body); font-style: italic; font-size: var(--fs-100);
+  color: var(--c-parchment-faint); margin-top: 2px;
+}
+.asc-col__gate {
+  font-family: var(--ff-body); font-size: var(--fs-100);
+  color: var(--c-parchment-dim); margin-top: 3px;
+  font-variant-numeric: tabular-nums;
+}
+.asc-col__gate--on { color: var(--tier-ultimate); font-weight: 700; }
+
+.asc-node {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  width: 132px;
+  pointer-events: auto; cursor: pointer;
+}
+.asc-node__socket { pointer-events: none; }
+.asc-node--locked { opacity: 0.35; }
+.asc-node--owned .asc-node__socket { filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 50%, transparent)); }
+.asc-node--maxed .asc-node__socket { filter: drop-shadow(0 0 10px color-mix(in srgb, var(--accent) 75%, transparent)); }
+.asc-node--capstone .asc-node__socket { transform: scale(1.22); }
+.asc-node--capstone .asc-node__name { color: var(--tier-ultimate); }
+.asc-node--selected .asc-node__name { color: var(--c-gold-hi); }
+.asc-node--selected .asc-node__socket { filter: drop-shadow(0 0 12px var(--c-gold-hi)); }
+.asc-node__name {
+  font-family: var(--ff-display); font-weight: 700; font-size: 10px;
+  line-height: 1.15; text-align: center; color: var(--c-parchment);
+  text-shadow: 0 1px 2px #000;
+}
+.asc-node--capstone .asc-node__socket + .asc-node__name { margin-top: 5px; }
+
+.asc-pips { display: flex; gap: 3px; }
+.asc-pip {
+  width: 12px; height: 4px;
+  background: rgba(0, 0, 0, 0.55);
+  box-shadow: inset 0 0 0 1px rgba(201, 162, 63, 0.35);
+}
+.asc-pip--on { background: var(--accent); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.5); }
+
+/* Node detail popup. Mounted on the overlay layer as a SIBLING of the tree
+   modal — nesting it inside `.modal-panel` would clip it against that panel's
+   chamfer clip-path. Sits above the tree's own scrim. */
+.asc-popup-scrim {
+  --accent: var(--c-iron);
+  position: absolute; inset: 0; z-index: 1;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(4, 3, 6, 0.55);
+  backdrop-filter: blur(1px);
+  padding: var(--s-4);
+}
+.asc-popup {
+  position: relative;
+  width: min(420px, 92vw);
+  padding: var(--s-4) var(--s-4) var(--s-3);
+  display: flex; flex-direction: column; gap: var(--s-2);
+}
+.asc-popup__body { display: flex; flex-direction: column; gap: var(--s-1); }
+.asc-popup__path {
+  font-family: var(--ff-display); font-size: 9px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.1em; color: var(--c-parchment-faint);
+}
+.asc-popup__title {
+  display: flex; align-items: center; gap: var(--s-2);
+  font-family: var(--ff-display); font-weight: 700; font-size: var(--fs-400);
+  color: var(--accent);
+}
+.asc-popup__rankrow {
+  display: flex; align-items: center; gap: var(--s-2);
+  margin-bottom: var(--s-1);
+}
+.asc-popup__pips .asc-pip { width: 16px; height: 5px; }
+.asc-popup__rank {
+  font-family: var(--ff-display); font-size: var(--fs-100);
+  color: var(--c-parchment-dim); font-variant-numeric: tabular-nums;
+}
+.asc-popup__now, .asc-popup__next, .asc-popup__rider {
+  font-family: var(--ff-body); font-size: var(--fs-200); line-height: 1.35;
+}
+.asc-popup__now { color: var(--c-parchment); }
+.asc-popup__next { color: #b8e6b8; margin-top: var(--s-1); }
+.asc-popup__tag {
+  display: inline-block;
+  font-family: var(--ff-display); font-size: 9px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--c-parchment-faint); margin-right: var(--s-2);
+}
+.asc-popup__tag--next { color: var(--c-moss); }
+.asc-popup__rider {
+  color: var(--c-parchment-faint); margin-top: var(--s-1); opacity: 0.75;
+}
+.asc-popup__rider--on { color: var(--tier-fusion); opacity: 1; }
+.asc-popup__spend { align-self: stretch; justify-content: center; margin-top: var(--s-2); }
+/* A node with a point available reads as actionable before it is opened. */
+.asc-node--ready .asc-node__socket {
+  filter: drop-shadow(0 0 7px color-mix(in srgb, var(--c-gold-hi) 60%, transparent));
+}
+
+/* Below 1080px the 960px canvas stops fitting: scale it down rather than
+   forcing a horizontal scrub. Height is reserved by the wrapper so the
+   transform doesn't leave a gap. */
+@media (max-width: 1080px) {
+  .asc-canvas { transform: scale(0.78); transform-origin: top center; }
+  .asc-scroll { display: flex; justify-content: center; }
+}
+@media (max-width: 720px) {
+  .asc-canvas { transform: scale(0.62); }
+  .asc-header { flex-wrap: wrap; }
+  .asc-header__hint { display: none; }
+}
+@media (pointer: coarse) {
+  .asc-node { min-height: 44px; }
+  .asc-spend { min-height: 44px; }
+}
+
 /* ── Full-screen menu / screen ───────────────────────────────── */
 .screen {
   position: absolute; inset: 0;

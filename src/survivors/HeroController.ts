@@ -328,12 +328,28 @@ export class HeroController {
      *  stress horde can't kill you). Separate from the transient dash i-frame flag. */
     public debugInvulnerable: boolean = false;
 
+    /**
+     * ONE ordered pipeline, not three independent ifs — the order below is the
+     * contract several Ascension nodes depend on and it is easy to break.
+     */
     public takeDamage(amount: number, sourcePos?: Vector3): void {
         if (this.isDead) return;
         if (this.isInvulnerable || this.shieldTimer > 0 || this.debugInvulnerable) return;
+        // (1) NEGATE — Standing Stone / Unseen / Untethered r3. Returns BEFORE
+        //     onHurtCallback, so it also suppresses thorns, the hit flash and the
+        //     hurt SFX: the node text says "negated", never "reduced". The
+        //     provider consumes its own charge when it returns true.
+        if (this.negateProvider?.()) return;
+        // (2) ABSORB — Sanguine Ward's stored-overheal pool. Returns the damage
+        //     REMAINING; the pipeline falls through with that reduced value so
+        //     onHurtCallback reports what actually reached HP.
+        if (this.absorbProvider) {
+            amount = this.absorbProvider(amount);
+            if (amount <= 0) return;
+        }
         this.currentHealth -= amount;
-        // Fires before the revive-charge check: `amount` is the pre-revive damage
-        // that landed; a revive may still absorb the lethal outcome below.
+        // Fires before the revive-charge check with the POST-absorb amount: what
+        // actually landed. A revive may still absorb the lethal outcome below.
         this.onHurtCallback?.(amount);
         if (this.currentHealth <= 0) {
             // Extra Life: spend a charge to revive at full HP with a timed shield
@@ -343,6 +359,14 @@ export class HeroController {
                 this.currentHealth = this.maxHealth;
                 this.shieldTimer = HeroController.REVIVE_SHIELD_SECONDS;
                 this.onReviveCallback();
+                return;
+            }
+            // (3) CHEAT DEATH — The Debt r3. MUST intercept above onDeathCallback:
+            //     that callback runs exit() synchronously and nulls heroController
+            //     / playerStats mid-frame.
+            if (this.cheatDeathProvider?.()) {
+                this.currentHealth = 1;
+                this.shieldTimer = HeroController.REVIVE_SHIELD_SECONDS;
                 return;
             }
             this.currentHealth = 0;
@@ -356,6 +380,30 @@ export class HeroController {
     /** Item-effect hook: fired with the post-mitigation damage actually applied. */
     public setOnHurt(fn: ((amount: number) => void) | null): void {
         this.onHurtCallback = fn;
+    }
+
+    /** Ordered damage-pipeline hooks (Ascension). All PULLED — never assigned
+     *  onto PlayerStats, which applyLevelBonuses() re-assigns several times a wave. */
+    private negateProvider: (() => boolean) | null = null;
+    private absorbProvider: ((amount: number) => number) | null = null;
+    private cheatDeathProvider: (() => boolean) | null = null;
+    private onOverhealCallback: ((overflow: number) => void) | null = null;
+    /** Return true to fully negate the incoming hit (and consume the charge). */
+    public setDamageNegateProvider(fn: (() => boolean) | null): void { this.negateProvider = fn; }
+    /** Return the damage REMAINING after absorption. */
+    public setDamageAbsorbProvider(fn: ((amount: number) => number) | null): void { this.absorbProvider = fn; }
+    /** Return true to survive a lethal hit at 1 HP. */
+    public setCheatDeathProvider(fn: (() => boolean) | null): void { this.cheatDeathProvider = fn; }
+    /** Healing that exceeded max HP — Sanguine Ward banks it as a shield. */
+    public setOnOverheal(fn: ((overflow: number) => void) | null): void { this.onOverhealCallback = fn; }
+
+    /** Transient multiplicative move-speed term (Hurricane Heart while
+     *  channelling, Untethered after a blink, The Wild Hunt while moving).
+     *  PULLED per frame — pushing it through updateMoveSpeed() would be erased
+     *  by the next applyLevelBonuses(). */
+    private transientSpeedProvider: (() => number) | null = null;
+    public setTransientSpeedProvider(fn: (() => number) | null): void {
+        this.transientSpeedProvider = fn;
     }
 
     /** Grant one Extra Life revive charge (called by RunItems on item pickup). */
@@ -385,7 +433,12 @@ export class HeroController {
     /** Restore HP (capped at max). No-op while dead. Used by the Heal power-choice card. */
     public heal(amount: number): void {
         if (this.isDead || amount <= 0) return;
+        const before = this.currentHealth;
         this.currentHealth = Math.min(this.maxHealth, this.currentHealth + amount);
+        // Report the clamped remainder so Sanguine Ward can bank overheal as a
+        // shield. Fires only when healing was actually wasted.
+        const overflow = amount - (this.currentHealth - before);
+        if (overflow > 0) this.onOverhealCallback?.(overflow);
     }
 
     /**
@@ -492,7 +545,7 @@ export class HeroController {
      *  replay site and absorbed by the reconcile dead-zone/lerp. */
     public getEffectiveMoveSpeed(): number {
         const slow = this.elapsedTime < this.externalSlowUntil ? this.externalSlowMultiplier : 1;
-        return this.moveSpeed * this.moveSpeedMultiplier * slow;
+        return this.moveSpeed * this.moveSpeedMultiplier * slow * (this.transientSpeedProvider?.() ?? 1);
     }
 
     /** Push player-stats reference into the inner basic-attack instance, and also wire
