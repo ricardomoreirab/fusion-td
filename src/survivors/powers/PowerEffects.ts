@@ -136,6 +136,13 @@ export function aoeBurst(scene: SceneHost, enemies: Enemy[], x: number, z: numbe
 let _cameraShakeHook: ((durationS: number) => void) | null = null;
 let _hitstopHook: ((ms: number) => void) | null = null;
 
+/** Ascension's Forked Lightning bonus, applied to EVERY chain in the run.
+ *  Module-level like the other host hooks, so it MUST be nulled in
+ *  resetPowerEffects() or the next run inherits the previous run's chains. */
+export interface ChainBonus { extraHops: number; radiusBonus: number; split: boolean; }
+let _chainBonus: (() => ChainBonus) | null = null;
+export function setChainBonusProvider(fn: (() => ChainBonus) | null): void { _chainBonus = fn; }
+
 export function setCameraShakeHook(fn: ((durationS: number) => void) | null): void { _cameraShakeHook = fn; }
 export function setHitstopHook(fn: ((ms: number) => void) | null): void { _hitstopHook = fn; }
 
@@ -173,6 +180,7 @@ export function resetPowerEffects(): void {
     _activeEffects.clear();
     _cameraShakeHook = null;
     _hitstopHook = null;
+    _chainBonus = null;
     if (_flashEl) { _flashEl.remove(); _flashEl = null; }
 }
 
@@ -220,10 +228,15 @@ export interface ChainOpts {
  *  shared hit-set guarantees each enemy is hit at most once, bounding total work. */
 export function chainHit(scene: SceneHost, enemies: Enemy[], origin: Vector3, opts: ChainOpts): void {
     const falloff = opts.falloff ?? 0.75;
-    const r2 = opts.radius * opts.radius;
+    // Read ONCE per chain, never per hop. The shared hit-set below still bounds
+    // total work, so extra hops + split cannot revisit an enemy.
+    const cb = _chainBonus ? _chainBonus() : null;
+    const chainRadius = opts.radius + (cb ? cb.radiusBonus : 0);
+    const chainSplit = opts.split || (cb ? cb.split : false);
+    const r2 = chainRadius * chainRadius;
     const hit = new Set<Enemy>();
     const frontier: { x: number; z: number; dmg: number; hopsLeft: number }[] =
-        [{ x: origin.x, z: origin.z, dmg: opts.damage, hopsLeft: opts.hops }];
+        [{ x: origin.x, z: origin.z, dmg: opts.damage, hopsLeft: opts.hops + (cb ? cb.extraHops : 0) }];
     while (frontier.length > 0) {
         const node = frontier.shift()!;
         if (node.hopsLeft <= 0) continue;
@@ -242,7 +255,7 @@ export function chainHit(scene: SceneHost, enemies: Enemy[], origin: Vector3, op
         spawnBolt(scene, new Vector3(node.x, 1, node.z), new Vector3(bp.x, 1, bp.z), opts.element);
         best.takeDamage(node.dmg, opts.element);
         applyStatus(best, opts.status);
-        const branches = opts.split ? 2 : 1;
+        const branches = chainSplit ? 2 : 1;
         for (let b = 0; b < branches; b++) {
             frontier.push({ x: bp.x, z: bp.z, dmg: node.dmg * falloff, hopsLeft: node.hopsLeft - 1 });
         }

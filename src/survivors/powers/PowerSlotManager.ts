@@ -361,6 +361,28 @@ export class PowerSlotManager {
         return true;
     }
 
+    /**
+     * Cast ONE slot for free (The Second Voice). Sibling of recastFree, but
+     * targets a specific slot and picks the least-recently-cast one when the
+     * caller passes -1. Touches neither cooldownRemaining nor onCastCallback:
+     * a free cast must not feed the Resonance loop it was triggered by.
+     */
+    public castSlotFree(index: number): boolean {
+        let slot = index >= 0 ? this.slots[index] : null;
+        if (!slot) {
+            // Least-recently-cast: anything that is not the slot we just fired.
+            for (const s2 of this.slots) {
+                if (s2 && s2 !== this.lastCastSlot && s2.def.cast) { slot = s2; break; }
+            }
+        }
+        if (!slot || !slot.def.cast) return false;
+        // ONE fresh context per cast — the documented rule for this manager.
+        const ctx = this.buildContext();
+        ctx.element = slot.def.element;
+        slot.def.cast(slot.state, ctx);
+        return true;
+    }
+
     /** Rebuild the derived loadout views if a slot changed since the last read. */
     private refreshDerived(): void {
         if (!this.derivedDirty) return;

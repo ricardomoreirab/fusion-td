@@ -70,6 +70,7 @@ import { formatBuckets } from '../engine/rendering/resourceBudget';
 import { CoopSession } from './coop/CoopSession';
 import { GuestEnemies } from './coop/GuestEnemies';
 import { computeCameraFocus } from './coop/cameraFocus';
+import { setChainBonusProvider } from './powers/PowerEffects';
 import { setCoopFxEmit, spawnCosmeticProjectile, spawnCosmeticSwingRing, spawnCosmeticSlashWave, spawnCosmeticEnemyProjectile, spawnCosmeticTelegraph, startCosmeticUltChannel, emitCoopFx, isCoopFxActive, isReplayingFx, withFxReplay } from './coop/CoopFx';
 import {
     scheduleMeteorBarrage, createMeteorVisual, createFrostNovaVisual,
@@ -4606,6 +4607,8 @@ export class SurvivorsGameplayState implements GameState {
             },
             castFreeSmash: (damageMult) => { this.abilityManager?.castFreeSmash(damageMult); },
             forceCastAutocastSlots: () => { this.powerSlots?.forceCastAutocastSlots(); },
+            castSlotFree: (index) => { this.powerSlots?.castSlotFree(index); },
+            setChainBonus: (b) => setChainBonusProvider(b ? () => b : null),
         };
     }
 
@@ -4674,14 +4677,22 @@ export class SurvivorsGameplayState implements GameState {
     private getNearestEnemy(): BasicAttackTarget | null {
         if (!this.hero) return null;
         const heroPos = this.hero.getPosition();
+        // The Moonlit Lane inverts this to the FURTHEST enemy so the arrow has a
+        // full lane of bodies to drill through. Bounded by the attack range, so it
+        // can never target something the hero could not otherwise shoot.
+        const furthest = this.ascRuntime?.targetFurthest() ?? false;
+        const reach = this.heroController?.getBasicAttack()?.getEffectiveRange() ?? Infinity;
+        const reachSq = reach * reach;
         let best: Enemy | null = null;
-        let bestDistSq = Infinity;
+        let bestDistSq = furthest ? -1 : Infinity;
         for (const e of this.activeAttackEnemies()) {
             if (!e.isAlive()) continue;
             const dx = e.getPosition().x - heroPos.x;
             const dz = e.getPosition().z - heroPos.z;
             const dSq = dx * dx + dz * dz;
-            if (dSq < bestDistSq) {
+            if (furthest) {
+                if (dSq <= reachSq && dSq > bestDistSq) { bestDistSq = dSq; best = e; }
+            } else if (dSq < bestDistSq) {
                 bestDistSq = dSq;
                 best = e;
             }

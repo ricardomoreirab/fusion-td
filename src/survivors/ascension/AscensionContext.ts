@@ -79,4 +79,8 @@ export interface AscensionContext {
      *  Deliberately does NOT route back through onPowerCast — forced casts must
      *  generate no Resonance or the resource loop diverges. */
     forceCastAutocastSlots(): void;
+    /** Cast one slot free; -1 picks the least-recently-cast (The Second Voice). */
+    castSlotFree(index: number): void;
+    /** Install the run-wide chain bonus (Forked Lightning). Null clears it. */
+    setChainBonus(b: { extraHops: number; radiusBonus: number; split: boolean } | null): void;
 }

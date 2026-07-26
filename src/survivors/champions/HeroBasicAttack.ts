@@ -75,6 +75,15 @@ export interface ArrowPolicy {
     bonusBounces(): number;
     /** Ricochet search radius override, 0 = keep the authored value. */
     ricochetRadius(): number;
+    /** An arrow expired. `hitSomething` distinguishes a wasted arrow from a
+     *  spent one — Unspent Shafts only counts the wasted ones. */
+    onArrowExpired(hitSomething: boolean): void;
+    /** Bodies an arrow passes THROUGH before expiring (Puncture, The High Ground). */
+    pierceCount(): number;
+    /** Damage multiplier applied to each pierced body after the first. */
+    pierceDamageFrac(): number;
+    /** Target the FURTHEST enemy instead of the nearest (The Moonlit Lane). */
+    targetFurthest(): boolean;
 }
 
 const NULL_ARROW_POLICY: ArrowPolicy = Object.freeze({
@@ -88,6 +97,10 @@ const NULL_ARROW_POLICY: ArrowPolicy = Object.freeze({
     speedOverride: () => 0,
     bonusBounces: () => 0,
     ricochetRadius: () => 0,
+    onArrowExpired: () => {},
+    pierceCount: () => 0,
+    pierceDamageFrac: () => 1,
+    targetFurthest: () => false,
 });
 
 /** Hard ceiling on an enchantment's effective level. Every barbarian onHit
@@ -139,6 +152,9 @@ const SLASH_WAVE_ARC_HALF_RAD = (50 * Math.PI) / 180;
 /** How far a ricochet bounce (ranger run-item) can reach for its next target. */
 const RICOCHET_RADIUS = 6;
 
+/** Lateral half-width of a piercing arrow's lane (world units). */
+const PIERCE_LANE_HALF_WIDTH = 1.2;
+
 /** World-space Y each basic-attack projectile shape travels at (spawn height AND
  *  in-flight aim target both pin to this — see spawnProjectile / stepProjectile).
  *  Arrow shares ARROW_FLIGHT_HEIGHT with every other ranger arrow (powers,
@@ -187,6 +203,15 @@ interface ProjectileFlight {
     /** Enemies already hit by this arrow (bounces never re-hit them). Null
      *  when the flight has no bounces — avoids a Set per plain arrow. */
     struck: Set<Enemy> | null;
+    /** True once this arrow has connected with anything (Unspent Shafts). */
+    hitSomething: boolean;
+    /** Bodies this arrow may still pass through (Puncture). Spent BEFORE any
+     *  ricochet budget, so an arrow drills first and only banks when it stops. */
+    pierceLeft: number;
+    /** Unit heading, frozen at the first pierce so the arrow keeps a straight
+     *  lane instead of curving toward each new body. */
+    pierceDirX: number;
+    pierceDirZ: number;
 }
 
 /** In-flight slash wave (barbarian basic attack), advanced by the shared
@@ -320,6 +345,9 @@ export class HeroBasicAttack {
     private get effectiveDamage(): number {
         return this.damage * this.damageMultiplierProvider();
     }
+
+    /** Public read of the effective attack range (target-policy bounding). */
+    public getEffectiveRange(): number { return this.effectiveRange; }
 
     /** Public read of the same value, for systems that scale off a swing's worth
      *  of damage (ascension nodes like Bodycheck deal "N% of basic damage"). */
@@ -1014,6 +1042,10 @@ export class HeroBasicAttack {
             allEnemies: this.enemyProvider ? this.enemyProvider() : [],
             age: 0,
             bouncesLeft: bounces,
+            hitSomething: false,
+            pierceLeft: this.pol.pierceCount(),
+            pierceDirX: 0,
+            pierceDirZ: 0,
             struck: bounces > 0 ? new Set<Enemy>() : null,
         });
         this.ensureFlightObserver();
@@ -1064,6 +1096,9 @@ export class HeroBasicAttack {
     private stepProjectile(f: ProjectileFlight, dt: number): boolean {
         const { proj, target } = f;
         if (!target.isAlive()) {
+            // The target died en route — this arrow connected with nothing, so it
+            // counts as WASTED for Unspent Shafts.
+            this.pol.onArrowExpired(false);
             releaseProjectile(f.poolKey, proj);
             return false;
         }
@@ -1122,6 +1157,36 @@ export class HeroBasicAttack {
                 this.onHitCallback?.(hitEnemy, f.capturedDamage);
             }
 
+            // PIERCE (Puncture / The High Ground / The Moonlit Lane): the arrow
+            // continues STRAIGHT through the body it just hit rather than banking.
+            // Deliberately evaluated before the ricochet branch so pierce is spent
+            // first; the same `struck` Set is reused, so a lane can never re-hit a
+            // body and the pass is bounded by the enemies actually in the lane.
+            if (f.pierceLeft > 0 && f.struck) {
+                if (hitEnemy) f.struck.add(hitEnemy);
+                // Freeze the heading on the first pierce so the lane stays straight.
+                if (f.pierceDirX === 0 && f.pierceDirZ === 0) {
+                    const dx0 = target.position.x - f.heroPos.x;
+                    const dz0 = target.position.z - f.heroPos.z;
+                    const len0 = Math.hypot(dx0, dz0) || 1;
+                    f.pierceDirX = dx0 / len0;
+                    f.pierceDirZ = dz0 / len0;
+                }
+                const next = this.pickPierceTarget(target.position, f);
+                if (next) {
+                    f.pierceLeft--;
+                    f.capturedDamage *= this.pol.pierceDamageFrac();
+                    f.target = {
+                        position: next.getPosition(),
+                        takeDamage: (amount, element) => next.takeDamage(amount, element),
+                        isAlive: () => next.isAlive(),
+                        enemy: next,
+                    };
+                    this.spawnImpactFlash(target.position);
+                    return true;
+                }
+            }
+
             // Ricochet (ranger wave-15 item): instead of expiring, the arrow
             // banks toward the nearest fresh enemy and lands a full hit there —
             // this same block runs again on each landing, so bounces carry
@@ -1144,6 +1209,7 @@ export class HeroBasicAttack {
                     return true;
                 }
             }
+            f.hitSomething = true;
             releaseProjectile(f.poolKey, proj);
             return false;
         }
@@ -1165,10 +1231,35 @@ export class HeroBasicAttack {
         // Safety: release after 3s of flight
         f.age += dt;
         if (f.age > 3) {
+            this.pol.onArrowExpired(f.hitSomething);
             releaseProjectile(f.poolKey, proj);
             return false;
         }
         return true;
+    }
+
+    /**
+     * Nearest un-struck enemy AHEAD of the arrow along its frozen heading —
+     * modelled on pickRicochetTarget, but constrained to a forward cone so a
+     * piercing shot reads as a straight lane rather than a homing bounce.
+     */
+    private pickPierceTarget(from: Vector3, f: ProjectileFlight): Enemy | null {
+        if (!this.enemyProvider || !f.struck) return null;
+        const reach = this.effectiveRange;
+        let best: Enemy | null = null;
+        let bestForward = Infinity;
+        for (const e of this.enemyProvider()) {
+            if (!e.isAlive() || f.struck.has(e)) continue;
+            const ep = e.getPosition();
+            const dx = ep.x - from.x;
+            const dz = ep.z - from.z;
+            const forward = dx * f.pierceDirX + dz * f.pierceDirZ;
+            if (forward <= 0 || forward > reach) continue;          // behind, or out of reach
+            const lateral = Math.abs(dx * f.pierceDirZ - dz * f.pierceDirX);
+            if (lateral > PIERCE_LANE_HALF_WIDTH) continue;          // outside the lane
+            if (forward < bestForward) { bestForward = forward; best = e; }
+        }
+        return best;
     }
 
     /** Nearest alive enemy to `from` within RICOCHET_RADIUS that this arrow

@@ -127,6 +127,21 @@ export const SPLIT_NOCK_ARROWS = [1, 2, 3];
 export const SPLIT_NOCK_STEP = 0.11;
 export const SPLIT_NOCK_FAN_RAD = (22 * Math.PI) / 180;
 export const FLETCH_BOUNCES = [1, 2, 3];
+export const UNSPENT_EVERY = [6, 4, 3];
+export const PUNCTURE_BODIES = [1, 2, 3];
+export const PUNCTURE_FRAC = [0.75, 0.90, 1.10];
+export const HIGH_GROUND_PIERCE = [1, 2, 3];
+export const MOONLIT_RANGE = [22, 22, 30];
+export const MOONLIT_SPEED = 40;
+export const MOONLIT_PER_POINT = 0.02;
+/** = the Deadeye path capacity, so the bonus is bounded at +48%. */
+export const DEADEYE_PATH_CAP = 27;
+export const UNSPENT_VOLLEY = 3;
+export const FORKED_HOPS = [1, 2, 3];
+export const FORKED_RADIUS_BONUS = [1, 2, 3];
+export const SECOND_VOICE_AT = [8, 7, 6];
+export const SECOND_VOICE_ICD_S = 1.5;
+export const HOARFROST_DURATION_BONUS = [2, 4, 6];
 export const FLETCH_RADIUS = [7, 8, 9];
 export const BARBED_DURATION_S = [5, 5, 8];
 export const HAIL_CHANCE = [0.25, 0.40, 0.60];
@@ -229,6 +244,12 @@ export const COLLAPSE_MAX_WELLS = 4;
 export const HOLLOW_STAR_CURSE_CLAMP = 0.06;
 export const HOLLOW_STAR_PER_POINT = 0.03;
 
+/** Node ids of the Deadeye path — The Moonlit Lane r3 scales with the total. */
+const DEADEYE_NODE_IDS = [
+    'long-draw', 'keen-edge', 'puncture', 'mark-of-the-moon', 'the-still-breath',
+    'widowmaker', 'the-high-ground', 'the-one-shot', 'the-moonlit-lane',
+];
+
 /** Node ids of the Hollow Star path — its capstone scales with the total. */
 const HOLLOWSTAR_NODE_IDS = [
     'the-hollow-mouth', 'grave-weight', 'the-star-falls', 'dread', 'event-horizon',
@@ -298,6 +319,9 @@ export class AscensionRuntime {
     private inShatter = false;
     private hollowStarPoints = 0;
     private wellRelease = 0;
+    private wastedArrows = 0;
+    private secondVoiceCd = 0;
+    private deadeyePoints = 0;
 
     constructor(private ctx: AscensionContext) {}
 
@@ -312,9 +336,30 @@ export class AscensionRuntime {
         let w = 0;
         for (const id of WILDHUNT_NODE_IDS) w += points.get(id) ?? 0;
         this.wildHuntPoints = w;
+        let de = 0;
+        for (const id of DEADEYE_NODE_IDS) de += points.get(id) ?? 0;
+        this.deadeyePoints = de;
         let hs = 0;
         for (const id of HOLLOWSTAR_NODE_IDS) hs += points.get(id) ?? 0;
         this.hollowStarPoints = hs;
+        // Forked Lightning is a RUN-WIDE chain bonus, installed once here rather
+        // than read per hop. Cleared when the node is unowned so a fresh run
+        // never inherits it (resetPowerEffects also nulls it at exit).
+        const fl = (points.get('forked-lightning') ?? 0) - 1;
+        this.ctx.setChainBonus(fl >= 0
+            ? { extraHops: FORKED_HOPS[fl], radiusBonus: FORKED_RADIUS_BONUS[fl], split: fl >= 2 }
+            : null);
+    }
+
+    /** The Moonlit Lane retargets the basic attack to the furthest enemy. */
+    public targetFurthest(): boolean { return this.rank('the-moonlit-lane') >= 0; }
+
+    /** Hoarfrost Crawl turns this runtime's ice zones into creeping ones. */
+    private zoneCrawl(): { crawlSpeed: number; bonusDuration: number } | null {
+        const r = this.rank('hoarfrost-crawl');
+        return r >= 0
+            ? { crawlSpeed: HOARFROST_CRAWL[r], bonusDuration: HOARFROST_DURATION_BONUS[r] }
+            : null;
     }
 
     /** True while Whirlwind is channelling. */
@@ -365,6 +410,9 @@ export class AscensionRuntime {
         this.inShatter = false;
         this.hollowStarPoints = 0;
         this.wellRelease = 0;
+        this.wastedArrows = 0;
+        this.secondVoiceCd = 0;
+        this.deadeyePoints = 0;
     }
 
     // ── Mage ────────────────────────────────────────────────────────────────
@@ -422,6 +470,13 @@ export class AscensionRuntime {
             }
         }
 
+        // The Second Voice: at enough Resonance the cast echoes a DIFFERENT slot.
+        const sv = this.rank('the-second-voice');
+        if (sv >= 0 && this.secondVoiceCd <= 0 && this.resonance >= SECOND_VOICE_AT[sv]) {
+            this.secondVoiceCd = SECOND_VOICE_ICD_S;
+            this.ctx.castSlotFree(-1);
+        }
+
         // The Endless Canticle r3: at high Resonance a cast force-fires every
         // autocast slot. It COSTS 8 Resonance and is ICD'd, so it cannot sustain.
         if (this.rank('the-endless-canticle') >= 2
@@ -461,16 +516,47 @@ export class AscensionRuntime {
                 let m = this.thousandRamp;
                 const st = this.rank('the-still-breath');
                 if (st >= 0 && this.steadyTimer >= STEADY_ARM_S[st]) m *= 1 + STEADY_DAMAGE[st];
+                // The High Ground rewards distance; approximated per-volley rather
+                // than per-arrow so it costs one scalar read, not a distance test.
+                const hg = this.rank('the-high-ground');
+                if (hg >= 0) m *= 1 + HIGH_GROUND_BONUS[hg];
+                // The Moonlit Lane r3: +2% per Deadeye point, bounded by the
+                // path's own 27-point capacity (max +48%).
+                if (this.rank('the-moonlit-lane') >= 2) {
+                    m *= 1 + MOONLIT_PER_POINT * Math.min(this.deadeyePoints, DEADEYE_PATH_CAP);
+                }
                 return m;
             },
             rangeOverride: () => {
+                // The Moonlit Lane's reach wins outright when owned; it is the
+                // node that turns the basic attack into a lane.
+                const ml = this.rank('the-moonlit-lane');
+                if (ml >= 0) return MOONLIT_RANGE[ml];
                 const r = this.rank('long-draw');
                 return r >= 0 ? LONG_DRAW_RANGE[r] : 0;
             },
             speedOverride: () => {
+                if (this.rank('the-moonlit-lane') >= 0) return MOONLIT_SPEED;
                 const r = this.rank('long-draw');
                 return r >= 0 ? LONG_DRAW_SPEED[r] : 0;
             },
+            pierceCount: () => {
+                // Puncture and The High Ground both grant bodies; MAX, never sum.
+                const pu = this.rank('puncture');
+                const hg = this.rank('the-high-ground');
+                let n = 0;
+                if (pu >= 0) n = Math.max(n, PUNCTURE_BODIES[pu]);
+                if (hg >= 0) n = Math.max(n, HIGH_GROUND_PIERCE[hg]);
+                // The Moonlit Lane r3 removes the cap: bounded by the lane length
+                // and the struck-Set, not by a body count.
+                if (this.rank('the-moonlit-lane') >= 2) n = Math.max(n, 99);
+                return n;
+            },
+            pierceDamageFrac: () => {
+                const pu = this.rank('puncture');
+                return pu >= 0 ? PUNCTURE_FRAC[pu] : 1;
+            },
+            targetFurthest: () => this.rank('the-moonlit-lane') >= 0,
             bonusBounces: () => {
                 const r = this.rank('whispering-fletch');
                 return r >= 0 ? FLETCH_BOUNCES[r] : 0;
@@ -478,6 +564,24 @@ export class AscensionRuntime {
             ricochetRadius: () => {
                 const r = this.rank('whispering-fletch');
                 return r >= 0 ? FLETCH_RADIUS[r] : 0;
+            },
+            onArrowExpired: (hitSomething) => {
+                const r = this.rank('unspent-shafts');
+                if (r < 0) return;
+                // r3 counts a killing arrow as half a wasted one.
+                if (hitSomething) { if (r >= 2) this.wastedArrows += 0.5; }
+                else this.wastedArrows += 1;
+                if (this.wastedArrows >= UNSPENT_EVERY[r]) {
+                    this.wastedArrows = 0;
+                    const h = this.ctx.heroPos();
+                    const dmg = this.ctx.basicDamage();
+                    let n = 0;
+                    this.ctx.ring(h.x, h.z, '#e0e0e0', 2);
+                    this.ctx.forEachEnemyNear(h.x, h.z, 12, (e) => {
+                        if (n++ >= UNSPENT_VOLLEY) return;
+                        this.ctx.damage(e, dmg, 'physical');
+                    });
+                }
             },
         };
     }
@@ -819,11 +923,14 @@ export class AscensionRuntime {
             if (moved > STEADY_MOVE_EPSILON) {
                 this.wakeTimer = WILD_HUNT_WAKE_ICD_S;
                 const scale = wh >= 2 ? 1 + WILD_HUNT_PER_POINT * this.wildHuntPoints : 1;
+                const hc = this.zoneCrawl();
                 this.ctx.zone(h.x, h.z, {
                     radius: WILD_HUNT_WAKE_RADIUS[wh],
-                    durationS: WILD_HUNT_WAKE_DURATION_S[wh],
+                    durationS: WILD_HUNT_WAKE_DURATION_S[wh] + (hc ? hc.bonusDuration : 0),
                     tickDamage: WILD_HUNT_WAKE_DPS[wh] * scale * 0.5,
                     element: 'fire',
+                    crawlToward: hc ? { x: h.x, z: h.z } : undefined,
+                    crawlSpeed: hc ? hc.crawlSpeed : undefined,
                 });
             }
             this.lastHeroX = h.x; this.lastHeroZ = h.z;
@@ -831,6 +938,7 @@ export class AscensionRuntime {
 
         // ── Mage timers ──
         this.canticleCd = Math.max(0, this.canticleCd - dt);
+        this.secondVoiceCd = Math.max(0, this.secondVoiceCd - dt);
         if (this.wellRelease > 0) {
             this.wellRelease -= dt;
             if (this.wellRelease <= 0 && this.liveWells > 0) this.liveWells--;
@@ -1153,9 +1261,12 @@ export class AscensionRuntime {
             if (this.collapseKills >= COLLAPSE_EVERY[cl] && this.liveWells < COLLAPSE_MAX_WELLS) {
                 this.collapseKills = 0;
                 this.liveWells++;
+                const hc2 = this.zoneCrawl();
                 this.ctx.zone(x, z, {
-                    radius: COLLAPSE_RADIUS, durationS: 3,
+                    radius: COLLAPSE_RADIUS,
+                    durationS: 3 + (hc2 ? hc2.bonusDuration : 0),
                     tickDamage: this.ctx.basicDamage() * 0.3, element: 'arcane',
+                    crawlSpeed: hc2 ? hc2.crawlSpeed : undefined,
                 });
                 // The cap is released on a timer rather than tracked per zone.
                 this.wellRelease = 3;

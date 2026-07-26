@@ -41,6 +41,8 @@ function makeCtx(over: Partial<AscensionContext> = {}) {
     freeSmash: [] as number[],
     forceCasts: 0,
     chills: 0,
+    slotCasts: 0,
+    chainBonus: null as { extraHops: number; radiusBonus: number; split: boolean } | null,
   };
   let nearby: AscEnemy[] = [];
   let hpFrac = 1;
@@ -74,6 +76,8 @@ function makeCtx(over: Partial<AscensionContext> = {}) {
     forceCastAutocastSlots: () => { calls.forceCasts++; },
     forEachEnemyAlive: (cb) => { for (const e of nearby) cb(e); },
     chill: () => { calls.chills++; },
+    castSlotFree: () => { calls.slotCasts++; },
+    setChainBonus: (b) => { calls.chainBonus = b; },
     ...over,
   };
   return {
@@ -580,6 +584,86 @@ describe('ranger arrow policy', () => {
     const step = rt.arrowPolicy().arrowCountStep();
     expect(step).toBeGreaterThan(0);
     expect(step).toBeLessThanOrEqual(0.11);
+  });
+});
+
+describe('Forked Lightning (run-wide chain bonus)', () => {
+  it('installs the bonus once per recompute, not per cast', () => {
+    const h = runtimeWith({ 'forked-lightning': 3 });
+    expect(h.calls.chainBonus).toEqual({ extraHops: 3, radiusBonus: 3, split: true });
+  });
+
+  it('CLEARS the bonus when the node is unowned, so a fresh run never inherits it', () => {
+    const h = runtimeWith({ 'forked-lightning': 2 });
+    expect(h.calls.chainBonus).not.toBeNull();
+    h.rt.setActivePoints(new Map());
+    expect(h.calls.chainBonus).toBeNull();
+  });
+
+  it('only splits at rank 3', () => {
+    expect(runtimeWith({ 'forked-lightning': 2 }).calls.chainBonus!.split).toBe(false);
+    expect(runtimeWith({ 'forked-lightning': 3 }).calls.chainBonus!.split).toBe(true);
+  });
+});
+
+describe('The Second Voice', () => {
+  it('echoes a different slot once Resonance reaches the threshold, then ICDs', () => {
+    const h = runtimeWith({ 'arc-resonance': 3, 'the-second-voice': 3 });
+    for (let i = 0; i < 6; i++) h.rt.onPowerCast();
+    expect(h.calls.slotCasts).toBe(1);
+    h.rt.onPowerCast();
+    expect(h.calls.slotCasts).toBe(1); // suppressed by the ICD
+    h.rt.tick(2);
+    h.rt.onPowerCast();
+    expect(h.calls.slotCasts).toBe(2);
+  });
+});
+
+describe('pierce policy', () => {
+  it('MAXes Puncture and The High Ground rather than summing', () => {
+    const p = runtimeWith({ puncture: 1, 'the-high-ground': 3 }).rt.arrowPolicy();
+    expect(p.pierceCount()).toBe(3); // not 1 + 3
+  });
+
+  it('is 0 when neither node is owned', () => {
+    expect(runtimeWith({}).rt.arrowPolicy().pierceCount()).toBe(0);
+  });
+
+  it('The Moonlit Lane r3 removes the body cap and retargets', () => {
+    const h = runtimeWith({ 'the-moonlit-lane': 3 });
+    expect(h.rt.arrowPolicy().pierceCount()).toBeGreaterThan(50);
+    expect(h.rt.targetFurthest()).toBe(true);
+    expect(runtimeWith({}).rt.targetFurthest()).toBe(false);
+  });
+
+  it('bounds The Moonlit Lane damage by the Deadeye path capacity', () => {
+    const all: Record<string, number> = {};
+    for (const id of ['long-draw', 'keen-edge', 'puncture', 'mark-of-the-moon',
+      'the-still-breath', 'widowmaker', 'the-high-ground', 'the-one-shot',
+      'the-moonlit-lane']) all[id] = 3;
+    const p = runtimeWith(all).rt.arrowPolicy();
+    // +2% x 27 points = +54% from the capstone term alone; the whole scale must
+    // stay finite and bounded rather than compounding without limit.
+    expect(p.arrowDamageScale()).toBeLessThan(4);
+  });
+});
+
+describe('Unspent Shafts', () => {
+  it('counts only WASTED arrows and fires on the Nth', () => {
+    const h = runtimeWith({ 'unspent-shafts': 1 });
+    h.setNearby([makeEnemy()]);
+    const p = h.rt.arrowPolicy();
+    for (let i = 0; i < 5; i++) p.onArrowExpired(false);
+    expect(h.calls.rings).toHaveLength(0);
+    p.onArrowExpired(false);
+    expect(h.calls.rings).toHaveLength(1);
+  });
+
+  it('ignores arrows that connected, below rank 3', () => {
+    const h = runtimeWith({ 'unspent-shafts': 1 });
+    const p = h.rt.arrowPolicy();
+    for (let i = 0; i < 20; i++) p.onArrowExpired(true);
+    expect(h.calls.rings).toHaveLength(0);
   });
 });
 
