@@ -97,6 +97,58 @@ export interface PowerDefinition {
      * would be meaningless to display). Optional for autocast spells.
      */
     description?: (level: number) => string;
+    /**
+     * One-line flavour/mechanics summary shown at the top of a power card —
+     * how the power BEHAVES (what it targets, how it travels, what it leaves
+     * behind), independent of level. The numbers live in `stats`.
+     */
+    summary?: string;
+    /**
+     * Per-level stat rows for the card's detail table, e.g.
+     * `[{ label: 'Damage', value: '14', delta: '→ 18' }]`. `next` is the level
+     * the card would take the power to; when it equals `level` the power is
+     * maxed (or brand new) and rows render without a delta.
+     */
+    stats?: (level: number, next: number) => PowerStatRow[];
+}
+
+/** One row of a power card's stat table. */
+export interface PowerStatRow {
+    label: string;
+    /** Current value, already formatted (e.g. "14", "1.4s", "12u"). */
+    value: string;
+    /** Value after the pending level-up, when it changes. */
+    next?: string;
+    /** True when a HIGHER number is worse (cooldowns) — flips the delta colour. */
+    lowerIsBetter?: boolean;
+}
+
+/** Standard rows every autocast power shows: damage, cooldown, range, DPS. */
+export function autocastStatRows(def: PowerDefinition, level: number, next: number): PowerStatRow[] {
+    const at = (lvl: number) => ({ level: lvl, cooldownRemaining: 0 });
+    const dmg = (lvl: number) => def.damageFor(at(lvl));
+    const cd  = (lvl: number) => def.cooldownFor(at(lvl));
+    const dps = (lvl: number) => (cd(lvl) > 0 ? dmg(lvl) / cd(lvl) : dmg(lvl));
+    const changed = next !== level;
+    return [
+        {
+            label: 'Damage',
+            value: Math.round(dmg(level)).toString(),
+            next: changed ? Math.round(dmg(next)).toString() : undefined,
+        },
+        {
+            label: 'Cooldown',
+            value: `${cd(level).toFixed(2)}s`,
+            next: changed ? `${cd(next).toFixed(2)}s` : undefined,
+            lowerIsBetter: true,
+        },
+        {
+            label: 'Damage / sec',
+            value: dps(level).toFixed(1),
+            next: changed ? dps(next).toFixed(1) : undefined,
+        },
+        { label: 'Range', value: `${def.baseRange} u` },
+    ];
 }
 
 // =============================================================================
@@ -275,6 +327,13 @@ const mageFireDef: PowerDefinition = {
     baseRange: 12,
     maxLevel: 5,
     mode: 'autocast',
+    summary: 'Hurls a rolling ball of flame at the nearest enemy. It detonates on contact and leaves the target burning.',
+    description: (lvl) => `${Math.round(mageFireDef.baseDamage * Math.pow(1.25, lvl - 1))} impact damage, then 3 dmg/s burn for 3s`,
+    stats: (lvl, next) => [
+        ...autocastStatRows(mageFireDef, lvl, next),
+        { label: 'Burn', value: '3 dmg/s for 3s' },
+        { label: 'Projectile speed', value: '18 u/s' },
+    ],
     cooldownFor: (s) => mageFireDef.baseCooldown * Math.pow(0.92, s.level - 1),
     damageFor:   (s) => mageFireDef.baseDamage  * Math.pow(1.25, s.level - 1),
     cast: (state, ctx) => {
@@ -348,6 +407,13 @@ const mageIceDef: PowerDefinition = {
     baseRange: 11,
     maxLevel: 5,
     mode: 'autocast',
+    summary: 'Flings a cluster of frozen shards at the nearest enemy. They shatter on the first target struck and chill it to a crawl.',
+    description: (lvl) => `${Math.round(mageIceDef.baseDamage * Math.pow(1.25, lvl - 1))} damage and 50% slow for 2s`,
+    stats: (lvl, next) => [
+        ...autocastStatRows(mageIceDef, lvl, next),
+        { label: 'Slow', value: '50% for 2s' },
+        { label: 'Projectile speed', value: '20 u/s' },
+    ],
     cooldownFor: (s) => mageIceDef.baseCooldown * Math.pow(0.92, s.level - 1),
     damageFor:   (s) => mageIceDef.baseDamage  * Math.pow(1.25, s.level - 1),
     cast: (state, ctx) => {
@@ -418,6 +484,25 @@ const mageArcaneDef: PowerDefinition = {
     baseRange: 4.5,
     maxLevel: 5,
     mode: 'autocast',
+    summary: 'Detonates a ring of arcane force centred on you, striking every enemy caught inside. No projectile to dodge, no target needed.',
+    description: (lvl) => {
+        const r = lvl >= 4 ? mageArcaneDef.baseRange * 1.4 : mageArcaneDef.baseRange;
+        return `${Math.round(mageArcaneDef.baseDamage * Math.pow(1.25, lvl - 1))} damage to everything within ${r.toFixed(1)}u`;
+    },
+    stats: (lvl, next) => {
+        const radius = (l: number) => (l >= 4 ? mageArcaneDef.baseRange * 1.4 : mageArcaneDef.baseRange);
+        const rows = autocastStatRows(mageArcaneDef, lvl, next)
+            .filter(r => r.label !== 'Range');
+        return [
+            ...rows,
+            {
+                label: 'Blast radius',
+                value: `${radius(lvl).toFixed(1)} u`,
+                next: radius(next) !== radius(lvl) ? `${radius(next).toFixed(1)} u` : undefined,
+            },
+            { label: 'Targets', value: 'All enemies in radius' },
+        ];
+    },
     cooldownFor: (s) => mageArcaneDef.baseCooldown * Math.pow(0.92, s.level - 1),
     damageFor:   (s) => mageArcaneDef.baseDamage  * Math.pow(1.25, s.level - 1),
     cast: (state, ctx) => {
@@ -550,6 +635,39 @@ const magePhysicalDef: PowerDefinition = {
     baseRange: 2.5,
     maxLevel: 5,
     mode: 'autocast',
+    summary: 'Steel throwing-stars orbit you permanently, shredding anything they sweep through. Always on — no cast, no aiming.',
+    description: (lvl) =>
+        `${whirlingBladeCount(lvl)} orbiting blades, ${Math.round(magePhysicalDef.baseDamage * Math.pow(1.25, lvl - 1))} damage per sweep`,
+    stats: (lvl, next) => {
+        const at = (l: number) => ({ level: l, cooldownRemaining: 0 });
+        const sweep = (l: number) => magePhysicalDef.cooldownFor(at(l)) / 3;
+        const dmg = (l: number) => magePhysicalDef.damageFor(at(l));
+        const changed = next !== lvl;
+        return [
+            {
+                label: 'Blades',
+                value: whirlingBladeCount(lvl).toString(),
+                next: changed ? whirlingBladeCount(next).toString() : undefined,
+            },
+            {
+                label: 'Damage per sweep',
+                value: Math.round(dmg(lvl)).toString(),
+                next: changed ? Math.round(dmg(next)).toString() : undefined,
+            },
+            {
+                label: 'Sweep interval',
+                value: `${sweep(lvl).toFixed(2)}s`,
+                next: changed ? `${sweep(next).toFixed(2)}s` : undefined,
+                lowerIsBetter: true,
+            },
+            {
+                label: 'Damage / sec',
+                value: (dmg(lvl) / sweep(lvl)).toFixed(1),
+                next: changed ? (dmg(next) / sweep(next)).toFixed(1) : undefined,
+            },
+            { label: 'Orbit radius', value: `${magePhysicalDef.baseRange} u` },
+        ];
+    },
     cooldownFor: (s) => magePhysicalDef.baseCooldown * Math.pow(0.92, s.level - 1),
     damageFor:   (s) => magePhysicalDef.baseDamage  * Math.pow(1.25, s.level - 1),
     init: (state, ctx) => {
@@ -643,6 +761,24 @@ const mageStormDef: PowerDefinition = {
     baseRange: 10,
     maxLevel: 5,
     mode: 'autocast',
+    summary: 'Calls a bolt down on the nearest enemy, then arcs it outward through up to 3 more standing close by.',
+    description: (lvl) => {
+        const d = mageStormDef.baseDamage * Math.pow(1.25, lvl - 1);
+        return `${Math.round(d)} damage, then ${Math.round(d * 0.75)} to each of 3 chained targets`;
+    },
+    stats: (lvl, next) => {
+        const at = (l: number) => ({ level: l, cooldownRemaining: 0 });
+        const chain = (l: number) => mageStormDef.damageFor(at(l)) * 0.75;
+        return [
+            ...autocastStatRows(mageStormDef, lvl, next),
+            {
+                label: 'Chain damage',
+                value: Math.round(chain(lvl)).toString(),
+                next: next !== lvl ? Math.round(chain(next)).toString() : undefined,
+            },
+            { label: 'Chains', value: '3 targets within 4 u' },
+        ];
+    },
     cooldownFor: (s) => mageStormDef.baseCooldown * Math.pow(0.92, s.level - 1),
     damageFor:   (s) => mageStormDef.baseDamage  * Math.pow(1.25, s.level - 1),
     cast: (state, ctx) => {
@@ -714,6 +850,15 @@ const rangerFireDef: PowerDefinition = {
     baseRange: 14,
     maxLevel: 5,
     mode: 'autocast',
+    summary: 'Looses a burning arrow that bursts on impact, scorching everything in a wide blast and leaving the survivors alight.',
+    description: (lvl) =>
+        `${Math.round(rangerFireDef.baseDamage * Math.pow(1.25, lvl - 1))} damage in a 2.5u blast, plus 2.5 dmg/s burn for 2.5s`,
+    stats: (lvl, next) => [
+        ...autocastStatRows(rangerFireDef, lvl, next),
+        { label: 'Blast radius', value: '2.5 u' },
+        { label: 'Burn', value: '2.5 dmg/s for 2.5s' },
+        { label: 'Arrow speed', value: '22 u/s' },
+    ],
     cooldownFor: (s) => rangerFireDef.baseCooldown * Math.pow(0.92, s.level - 1),
     damageFor:   (s) => rangerFireDef.baseDamage  * Math.pow(1.25, s.level - 1),
     cast: (state, ctx) => {
@@ -813,6 +958,15 @@ const rangerIceDef: PowerDefinition = {
     baseRange: 15,
     maxLevel: 5,
     mode: 'autocast',
+    summary: 'Fires a frost-wrapped arrow in a straight line. It punches through two enemies, chilling each one it passes.',
+    description: (lvl) =>
+        `${Math.round(rangerIceDef.baseDamage * Math.pow(1.25, lvl - 1))} damage and 50% slow for 1.5s, pierces 2 enemies`,
+    stats: (lvl, next) => [
+        ...autocastStatRows(rangerIceDef, lvl, next),
+        { label: 'Pierces', value: '2 enemies' },
+        { label: 'Slow', value: '50% for 1.5s' },
+        { label: 'Arrow speed', value: '26 u/s' },
+    ],
     cooldownFor: (s) => rangerIceDef.baseCooldown * Math.pow(0.92, s.level - 1),
     damageFor:   (s) => rangerIceDef.baseDamage  * Math.pow(1.25, s.level - 1),
     cast: (state, ctx) => {
@@ -899,6 +1053,14 @@ const rangerArcaneDef: PowerDefinition = {
     baseRange: 16,
     maxLevel: 5,
     mode: 'autocast',
+    summary: 'An arcane-guided arrow that banks in flight to chase its mark. The longest reach of any ranger shot, and it does not miss.',
+    description: (lvl) =>
+        `${Math.round(rangerArcaneDef.baseDamage * Math.pow(1.25, lvl - 1))} damage, homes onto its target until it connects`,
+    stats: (lvl, next) => [
+        ...autocastStatRows(rangerArcaneDef, lvl, next),
+        { label: 'Tracking', value: 'Homing' },
+        { label: 'Arrow speed', value: '18 u/s' },
+    ],
     cooldownFor: (s) => rangerArcaneDef.baseCooldown * Math.pow(0.92, s.level - 1),
     damageFor:   (s) => rangerArcaneDef.baseDamage  * Math.pow(1.25, s.level - 1),
     cast: (state, ctx) => {
@@ -985,6 +1147,14 @@ const rangerPhysicalDef: PowerDefinition = {
     baseRange: 18,
     maxLevel: 5,
     mode: 'autocast',
+    summary: 'A heavy bodkin driven down a straight line, punching clean through EVERY enemy in its path for the full distance.',
+    description: (lvl) =>
+        `${Math.round(rangerPhysicalDef.baseDamage * Math.pow(1.25, lvl - 1))} damage to every enemy along an 18u line`,
+    stats: (lvl, next) => [
+        ...autocastStatRows(rangerPhysicalDef, lvl, next),
+        { label: 'Pierces', value: 'Unlimited' },
+        { label: 'Arrow speed', value: '28 u/s' },
+    ],
     cooldownFor: (s) => rangerPhysicalDef.baseCooldown * Math.pow(0.92, s.level - 1),
     damageFor:   (s) => rangerPhysicalDef.baseDamage  * Math.pow(1.25, s.level - 1),
     cast: (state, ctx) => {
@@ -1068,6 +1238,25 @@ const rangerStormDef: PowerDefinition = {
     baseRange: 14,
     maxLevel: 5,
     mode: 'autocast',
+    summary: 'A charged shaft that discharges on impact, jumping to two more enemies standing nearby.',
+    description: (lvl) => {
+        const d = rangerStormDef.baseDamage * Math.pow(1.25, lvl - 1);
+        return `${Math.round(d)} damage, then ${Math.round(d * 0.6)} to each of 2 chained targets`;
+    },
+    stats: (lvl, next) => {
+        const at = (l: number) => ({ level: l, cooldownRemaining: 0 });
+        const chain = (l: number) => rangerStormDef.damageFor(at(l)) * 0.6;
+        return [
+            ...autocastStatRows(rangerStormDef, lvl, next),
+            {
+                label: 'Chain damage',
+                value: Math.round(chain(lvl)).toString(),
+                next: next !== lvl ? Math.round(chain(next)).toString() : undefined,
+            },
+            { label: 'Chains', value: '2 targets within 4 u' },
+            { label: 'Arrow speed', value: '24 u/s' },
+        ];
+    },
     cooldownFor: (s) => rangerStormDef.baseCooldown * Math.pow(0.92, s.level - 1),
     damageFor:   (s) => rangerStormDef.baseDamage  * Math.pow(1.25, s.level - 1),
     cast: (state, ctx) => {
@@ -1184,7 +1373,22 @@ const barbarianFireDef: PowerDefinition = {
     mode: 'passive',
     cooldownFor: () => 0,
     damageFor:   () => 0,
+    summary: 'Wreathes your weapon in flame. Every swing that connects sets the target burning — no cooldown, it rides your basic attack.',
     description: (lvl) => `On hit: burn for ${Math.round(30 * lvl)}% weapon dmg/s over 2s`,
+    stats: (lvl, next) => [
+        { label: 'Type', value: 'Passive — on every hit' },
+        {
+            label: 'Burn per second',
+            value: `${Math.round(30 * lvl)}% weapon dmg`,
+            next: next !== lvl ? `${Math.round(30 * next)}% weapon dmg` : undefined,
+        },
+        { label: 'Burn duration', value: '2s' },
+        {
+            label: 'Total burn',
+            value: `${Math.round(60 * lvl)}% weapon dmg`,
+            next: next !== lvl ? `${Math.round(60 * next)}% weapon dmg` : undefined,
+        },
+    ],
     onHit: (enemy, level, ctx) => {
         const dotStrength = ctx.baseDamage * 0.3 * level;
         enemy.applyStatusEffect(StatusEffect.BURNING, 2, dotStrength);
@@ -1207,10 +1411,24 @@ const barbarianIceDef: PowerDefinition = {
     mode: 'passive',
     cooldownFor: () => 0,
     damageFor:   () => 0,
+    summary: 'Frost creeps along your weapon. Anything you strike is chilled, so the horde closes on you far more slowly.',
     description: (lvl) => {
         const slowMult = Math.max(0.4, 0.65 - lvl * 0.05);
         const pct = Math.round((1 - slowMult) * 100);
         return `On hit: slow target ${pct}% for 1.5s`;
+    },
+    stats: (lvl, next) => {
+        const pct = (l: number) => Math.round((1 - Math.max(0.4, 0.65 - l * 0.05)) * 100);
+        return [
+            { label: 'Type', value: 'Passive — on every hit' },
+            {
+                label: 'Slow',
+                value: `${pct(lvl)}%`,
+                next: next !== lvl ? `${pct(next)}%` : undefined,
+            },
+            { label: 'Duration', value: '1.5s' },
+            { label: 'Cap', value: '60% (slow caps at 80%)' },
+        ];
     },
     onHit: (enemy, level, ctx) => {
         const slowMult = Math.max(0.4, 0.65 - level * 0.05);
@@ -1234,7 +1452,17 @@ const barbarianArcaneDef: PowerDefinition = {
     mode: 'passive',
     cooldownFor: () => 0,
     damageFor:   () => 0,
+    summary: 'Binds raw arcane force to your edge. Each hit lands a second, unresisted burst on top of the weapon damage.',
     description: (lvl) => `On hit: +${Math.round(20 * lvl)}% bonus arcane damage`,
+    stats: (lvl, next) => [
+        { label: 'Type', value: 'Passive — on every hit' },
+        {
+            label: 'Bonus damage',
+            value: `+${Math.round(20 * lvl)}% weapon dmg`,
+            next: next !== lvl ? `+${Math.round(20 * next)}% weapon dmg` : undefined,
+        },
+        { label: 'Element', value: 'Arcane (instant, no DoT)' },
+    ],
     onHit: (enemy, level, ctx) => {
         const bonusDamage = ctx.baseDamage * 0.20 * level;
         enemy.takeDamage(bonusDamage, ctx.element);
@@ -1258,7 +1486,22 @@ const barbarianPhysicalDef: PowerDefinition = {
     cooldownFor: () => 0,
     damageFor:   () => 0,
     rangeBonus: (level) => level * 0.3,
+    summary: 'Heavier, wider swings. Adds raw damage to every hit AND extends the reach of your melee cone, so more of the pack is caught per chop.',
     description: (lvl) => `+${Math.round(25 * lvl)}% damage and +${(0.3 * lvl).toFixed(1)}u swing reach`,
+    stats: (lvl, next) => [
+        { label: 'Type', value: 'Passive — on every hit' },
+        {
+            label: 'Bonus damage',
+            value: `+${Math.round(25 * lvl)}% weapon dmg`,
+            next: next !== lvl ? `+${Math.round(25 * next)}% weapon dmg` : undefined,
+        },
+        {
+            label: 'Swing reach',
+            value: `+${(0.3 * lvl).toFixed(1)} u`,
+            next: next !== lvl ? `+${(0.3 * next).toFixed(1)} u` : undefined,
+        },
+        { label: 'Cone', value: '110° forward arc' },
+    ],
     onHit: (enemy, level, ctx) => {
         const bonusDamage = ctx.baseDamage * 0.25 * level;
         enemy.takeDamage(bonusDamage, ctx.element);
@@ -1281,7 +1524,19 @@ const barbarianStormDef: PowerDefinition = {
     mode: 'passive',
     cooldownFor: () => 0,
     damageFor:   () => 0,
+    summary: 'Your strikes discharge into the crowd, leaping from the struck enemy to whoever is packed in behind it.',
     description: (lvl) => `On hit: chain to ${Math.min(lvl, 3)} nearby enemies for 30% weapon dmg`,
+    stats: (lvl, next) => [
+        { label: 'Type', value: 'Passive — on every hit' },
+        {
+            label: 'Chains',
+            value: `${Math.min(lvl, 3)} enemies`,
+            next: next !== lvl && Math.min(next, 3) !== Math.min(lvl, 3)
+                ? `${Math.min(next, 3)} enemies` : undefined,
+        },
+        { label: 'Chain damage', value: '30% weapon dmg each' },
+        { label: 'Jump range', value: '4 u' },
+    ],
     onHit: (enemy, level, ctx) => {
         const chainCount = Math.min(level, 3);
         const chainDamage = ctx.baseDamage * 0.30;

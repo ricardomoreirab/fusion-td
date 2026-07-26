@@ -77,10 +77,56 @@ describe('ContainerInstance animation LOD', () => {
         inst.dispose();
     });
 
+    it("'half' applies in ~30 Hz steps and stays in phase", () => {
+        const host = new SceneHost();
+        const inst = makeContainer().instantiate(host);
+        inst.animationGroups[0].start(false);
+        inst.setAnimationLod('half');
+
+        // At 60 fps the step lands every OTHER frame: one frame holds the pose.
+        run(host, 1);
+        expect(appliedSeconds(inst.root)).toBe(0);
+        run(host, 1);
+        expect(appliedSeconds(inst.root)).toBeCloseTo(2 / 60, 5);
+
+        // Applied time still equals elapsed time — a half-rate skeleton must not
+        // drift out of phase with a full-rate one beside it.
+        run(host, 58);
+        expect(appliedSeconds(inst.root)).toBeCloseTo(1.0, 5);
+        inst.dispose();
+    });
+
+    it("'half' updates 2x as often as 'reduced' and 0.5x as often as 'full'", () => {
+        // The tiers must actually be distinct — a 'half' that silently behaved
+        // like 'full' would give back none of the CPU it exists to save.
+        const counts: Record<string, number> = {};
+        for (const lod of ['full', 'half', 'reduced'] as const) {
+            const host = new SceneHost();
+            const inst = makeContainer().instantiate(host);
+            inst.animationGroups[0].start(false);
+            inst.setAnimationLod(lod);
+            let applied = 0, last = 0;
+            for (let i = 0; i < 60; i++) {
+                host.tick(1 / 60);
+                const now = appliedSeconds(inst.root);
+                if (now !== last) { applied++; last = now; }
+            }
+            counts[lod] = applied;
+            inst.dispose();
+        }
+        expect(counts.full).toBe(60);
+        expect(counts.half).toBe(30);
+        // ~6 frames per 0.1s step, but 6 × (1/60) lands a hair under 0.1 in
+        // floating point, so the flush interval alternates 6/7 frames. Assert the
+        // rate, not an exact count that depends on that.
+        expect(counts.reduced).toBeGreaterThanOrEqual(6);
+        expect(counts.reduced).toBeLessThanOrEqual(10);
+    });
+
     it('leaves the animation bus on dispose regardless of LOD', () => {
         // The LOD gate must not become a way to leak a bus subscription: an
         // instance parked at 'reduced'/'off' still unhooks completely.
-        for (const lod of ['full', 'reduced', 'off'] as const) {
+        for (const lod of ['full', 'half', 'reduced', 'off'] as const) {
             const host = new SceneHost();
             const inst = makeContainer().instantiate(host);
             inst.animationGroups[0].start(false);

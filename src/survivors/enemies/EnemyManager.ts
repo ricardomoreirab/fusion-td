@@ -7,7 +7,7 @@ import { FastEnemy } from './FastEnemy';
 import { TankEnemy } from './TankEnemy';
 import { BossEnemy } from './BossEnemy';
 import { MilestoneBoss } from './MilestoneBoss';
-import type { GlbContainer } from '../../engine/three/assets';
+import type { AnimationLod, GlbContainer } from '../../engine/three/assets';
 import { SplittingEnemy } from './SplittingEnemy';
 import type { WaveManager } from '../WaveManager';
 import { HealerEnemy } from './HealerEnemy';
@@ -87,6 +87,14 @@ export class EnemyManager {
      *  0.78 vertical), so a silhouette throws ~0.8 units of shadow per unit of
      *  its height; 4 covers even a boss with room to spare. */
     private static readonly SHADOW_CULL_MARGIN = 4;
+    /**
+     * Distance from the hero past which a VISIBLE enemy drops to the half-rate
+     * animation tier. Inside it sits everything the player is actually reading —
+     * whatever is swinging at them, whatever they are aiming at — so the tier
+     * boundary never lands on an enemy in the fight. Beyond it the horde is
+     * silhouettes streaming inward, where a one-frame pose hold is invisible.
+     */
+    private static readonly ANIM_FULL_RATE_RADIUS = 16;
     private readonly _cullFrustum = new Frustum();
     private readonly _cullMatrix = new Matrix4();
     private readonly _cullSphere = new Sphere(new Vector3(), 1);
@@ -421,9 +429,15 @@ export class EnemyManager {
     }
 
     /**
-     * Park every enemy the camera cannot see. Runs once per frame over the live
-     * list; the per-enemy test is a sphere-vs-frustum check against a radius
-     * deliberately padded so a near-miss renders rather than pops.
+     * Park every enemy the camera cannot see, and grade the skeleton rate of the
+     * ones it can. Runs once per frame over the live list; the per-enemy test is
+     * a sphere-vs-frustum check against a radius deliberately padded so a
+     * near-miss renders rather than pops.
+     *
+     * The animation grade rides along here because it needs the same per-enemy
+     * position read: parked enemies drop to 'reduced' (they are not drawn at
+     * all), visible enemies far from the hero to 'half', and only the ones in
+     * the actual fight stay on 'full'.
      */
     private _cullOffscreen(): void {
         const camera = this.cullCamera;
@@ -432,6 +446,9 @@ export class EnemyManager {
         camera.updateMatrixWorld();
         this._cullMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
         this._cullFrustum.setFromProjectionMatrix(this._cullMatrix);
+
+        const hero = this.heroProvider?.getPosition() ?? null;
+        const fullSq = EnemyManager.ANIM_FULL_RATE_RADIUS * EnemyManager.ANIM_FULL_RATE_RADIUS;
 
         for (const enemy of this.enemies) {
             const p = enemy.getPosition();
@@ -442,6 +459,17 @@ export class EnemyManager {
             this._cullSphere.radius = enemy.castsShadow
                 ? enemy.cullRadius + EnemyManager.SHADOW_CULL_MARGIN
                 : enemy.cullRadius;
+
+            // Elites and bosses always animate at full rate: they are the reads
+            // the player tracks, they are large on screen at any distance, and
+            // there are never enough of them for the rate to matter.
+            let lod: AnimationLod = 'full';
+            if (hero && !enemy.isElite) {
+                const dx = p.x - hero.x;
+                const dz = p.z - hero.z;
+                if (dx * dx + dz * dz > fullSq) lod = 'half';
+            }
+            enemy.setVisibleAnimationLod(lod);
             enemy.setRenderActive(this._cullFrustum.intersectsSphere(this._cullSphere));
         }
     }

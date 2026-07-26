@@ -23,7 +23,7 @@ import { PlayerStats } from './PlayerStats';
 import { LevelSystem } from './LevelSystem';
 import { PowerDrop } from './powers/PowerDrop';
 import { PowerSlotManager, PowerSlot } from './powers/PowerSlotManager';
-import { POWER_DEFS, getPowerByElementAndClass, getPowerMapForClass, PowerElement, ChampionType, PowerDefinition } from './powers/PowerDefinitions';
+import { POWER_DEFS, getPowerByElementAndClass, getPowerMapForClass, PowerElement, ChampionType, PowerDefinition, PowerStatRow } from './powers/PowerDefinitions';
 import { getFusionFor, getFusionsForClass, getUltimateOfferForFusions } from './powers/FusionDefinitions';
 import { aoeBurst, gatherVortex, persistentZone, omniVolley, spawnBolt, arrowStrike, setCameraShakeHook, resetPowerEffects } from './powers/PowerEffects';
 import { getAutocastArchetype, archetypeKey } from './powers/FusionArchetypeRegistry';
@@ -591,7 +591,7 @@ export class SurvivorsGameplayState implements GameState {
     private shopOverlay: ShopOverlay | null = null;
     /** Gribble's live portrait — isolated mini-renderer, mounted in the shop UI. */
     private goblinPortrait: GoblinPortrait | null = null;
-    /** Always-accessible character sheet, opened from the HUD inventory strip. */
+    /** Always-accessible character sheet, opened from the HUD level medallion. */
     private characterProfile: CharacterProfile | null = null;
     private shopPhase: 'none' | 'open' = 'none';
     private currentStock: ItemDef[] = [];
@@ -1334,8 +1334,9 @@ export class SurvivorsGameplayState implements GameState {
         this.goblinPortrait = getGoblinPortrait();
         this.characterProfile = new CharacterProfile(this.gameUI!.layer('overlay'));
         this.hud.setOnHorn(() => this.soundHorn());
+        // The level medallion is the character-sheet button (solo only —
+        // wiring it here is what makes it interactive).
         this.hud.setOnOpenCharacter(() => this.openCharacter());
-        this.updateInventoryHud(); // populate + show the always-visible strip
 
         // Combat-event hooks — wired for host/solo AND co-op guest. On the HOST
         // setOnHurt fires when the host's hero is hit (thorns/chrono). On the GUEST
@@ -3520,8 +3521,9 @@ export class SurvivorsGameplayState implements GameState {
             const cards = offer.map((ult): PowerCard => ({
                 kind: 'ultimate',
                 title: ult.name,
-                subtitle: `ULTIMATE · ${ult.element} · forge from ${a.def.name} + ${b.def.name}`,
+                subtitle: `Forged from ${a.def.name} + ${b.def.name}`,
                 element: ult.element,
+                ...this.powerCardDetail(ult, 0),
                 onPick: () => {
                     this.powerSlots!.fuse(a.def.id, b.def.id, ult.id);
                     this.playForgeVfx(true);
@@ -3542,8 +3544,9 @@ export class SurvivorsGameplayState implements GameState {
                     cards.push({
                         kind: 'fusion',
                         title: fdef.name,
-                        subtitle: `FUSE  ·  ${aSlot.def.name} + ${bSlot.def.name}`,
+                        subtitle: `Consumes ${aSlot.def.name} + ${bSlot.def.name}`,
                         element: fdef.element,
+                        ...this.powerCardDetail(fdef, 0),
                         onPick: () => {
                             this.powerSlots!.fuse(aSlot.def.id, bSlot.def.id, fdef.id);
                             this.playForgeVfx(false);
@@ -3588,6 +3591,7 @@ export class SurvivorsGameplayState implements GameState {
                 title: def.name,
                 element: def.element,
                 subtitle: this.upgradeSubtitle(def, lvl),
+                ...this.powerCardDetail(def, lvl),
                 onPick: () => this.powerSlots!.levelUp(def.id),
             };
         }
@@ -3601,10 +3605,28 @@ export class SurvivorsGameplayState implements GameState {
             title: orbDef.name,
             element: orbDef.element,
             subtitle: slotsFull ? `${this.newPowerSubtitle(orbDef)} (replace slot)` : this.newPowerSubtitle(orbDef),
+            ...this.powerCardDetail(orbDef, 0),
             onPick: () => {
                 if (slotsFull) this.openReplacePrompt(orbDef.id);
                 else this.powerSlots!.addPower(orbDef.id);
             },
+        };
+    }
+
+    /**
+     * The rich half of a power card: behaviour summary, level chip and the stat
+     * table. `fromLevel` is 0 for a power the hero does not own yet — the table
+     * then shows the level-1 numbers with no delta.
+     */
+    private powerCardDetail(def: PowerDefinition, fromLevel: number): Pick<PowerCard, 'summary' | 'stats' | 'level' | 'nextLevel' | 'maxLevel'> {
+        const shown = Math.max(1, fromLevel);
+        const next = fromLevel === 0 ? shown : Math.min(def.maxLevel, fromLevel + 1);
+        return {
+            summary: def.summary,
+            stats: def.stats?.(shown, next),
+            level: fromLevel,
+            nextLevel: next,
+            maxLevel: def.maxLevel,
         };
     }
 
@@ -3623,6 +3645,7 @@ export class SurvivorsGameplayState implements GameState {
                 title: target.def.name,
                 element: target.def.element,
                 subtitle: this.upgradeSubtitle(target.def, target.state.level),
+                ...this.powerCardDetail(target.def, target.state.level),
                 onPick: () => this.powerSlots!.levelUp(target.def.id),
             };
         }
@@ -3635,6 +3658,7 @@ export class SurvivorsGameplayState implements GameState {
             title: altDef.name,
             element: altDef.element,
             subtitle: this.newPowerSubtitle(altDef),
+            ...this.powerCardDetail(altDef, 0),
             onPick: () => {
                 if (this.powerSlots!.emptySlotIndex() < 0) this.openReplacePrompt(altDef.id);
                 else this.powerSlots!.addPower(altDef.id);
@@ -3650,18 +3674,39 @@ export class SurvivorsGameplayState implements GameState {
         // since buildPerkCard also pads the fusion/late-game rows.
         if (this.heroController && Math.random() < 0.3) {
             const hero = this.heroController;
+            const amount = Math.round(hero.getMaxHealth() * 0.1);
             return {
                 kind: 'perk',
-                title: '+10% Heal',
+                title: 'Field Dressing',
                 subtitle: 'Restore 10% HP',
+                summary: 'A one-off patch-up. Heals you on the spot; nothing carries past this moment.',
+                stats: [
+                    { label: 'Heals', value: `${amount} HP (10% of max)` },
+                    { label: 'Current HP', value: `${Math.round(hero.getHealth().current)} / ${Math.round(hero.getHealth().max)}` },
+                    { label: 'Lasts', value: 'Instant' },
+                ],
                 onPick: () => hero.heal(hero.getMaxHealth() * 0.1),
             };
         }
 
-        const perks = [
-            { title: '+5% Damage', apply: () => { this.runPerks.damageMultiplier *= 1.05; } },
+        const perks: { title: string; summary: string; stats: PowerStatRow[]; apply: () => void }[] = [
+            {
+                title: '+5% Damage',
+                summary: 'A permanent edge on everything you own — basic attacks, powers, fusions and ultimates all scale with it.',
+                stats: [
+                    { label: 'Power damage', value: '+5%' },
+                    { label: 'Applies to', value: 'Every damage source' },
+                    { label: 'Lasts', value: 'Rest of the run' },
+                ],
+                apply: () => { this.runPerks.damageMultiplier *= 1.05; },
+            },
             {
                 title: '+5% Move Speed',
+                summary: 'Outrun the horde. More speed means more kiting room and fewer contact hits taken.',
+                stats: [
+                    { label: 'Move speed', value: '+5%' },
+                    { label: 'Lasts', value: 'Rest of the run' },
+                ],
                 apply: () => {
                     this.runPerks.moveSpeedMultiplier *= 1.05;
                     if (this.heroController && this.playerStats) {
@@ -3678,6 +3723,12 @@ export class SurvivorsGameplayState implements GameState {
             },
             {
                 title: '+10% Attack Range',
+                summary: 'Extends the reach of your basic attack — a longer melee cone, or arrows that connect from further out.',
+                stats: [
+                    { label: 'Basic attack range', value: '+10%' },
+                    { label: 'Applies to', value: 'Basic attack only' },
+                    { label: 'Lasts', value: 'Rest of the run' },
+                ],
                 apply: () => {
                     this.runPerks.attackRangeMultiplier *= 1.1;
                     if (this.heroController && this.playerStats) {
@@ -3689,7 +3740,14 @@ export class SurvivorsGameplayState implements GameState {
             },
         ];
         const perk = perks[Math.floor(Math.random() * perks.length)];
-        return { kind: 'perk', title: perk.title, subtitle: 'This run', onPick: perk.apply };
+        return {
+            kind: 'perk',
+            title: perk.title,
+            subtitle: 'This run',
+            summary: perk.summary,
+            stats: perk.stats,
+            onPick: perk.apply,
+        };
     }
 
     /** "Lv X→Y · Dmg A→B · CD a→b" (or per-level description for passives/fusions). */
@@ -4078,6 +4136,13 @@ export class SurvivorsGameplayState implements GameState {
             upgradeCost: shopUpgradeCost(this.shopLevel),
             upgradeAffordable: ps.getGold() >= shopUpgradeCost(this.shopLevel),
             quip,
+            // The gear ledger down the side of the shop: same slot VMs the
+            // character sheet renders, plus each piece's captured upgrade level.
+            equipped: this.buildGearSlots().map(slot => ({
+                ...slot,
+                level: eq.get(slot.slot)?.level ?? 0,
+            })),
+            sets: this.buildCharacterSets(),
         };
     }
 
@@ -4092,7 +4157,6 @@ export class SurvivorsGameplayState implements GameState {
         }
         this.purchasedIds.add(def.id); // keep the tile in place as "Sold"
         this.applyLevelBonuses();      // recompute: level + equipment fold + active effects
-        this.updateInventoryHud();
         this.shopOverlay?.refresh(this.buildShopVM(pickBark('buy')));
     }
 
@@ -4107,13 +4171,14 @@ export class SurvivorsGameplayState implements GameState {
         }
         this.activePotions.add(id);
         this.applyLevelBonuses();                    // fold the new potion buff now
-        this.updateInventoryHud();
         this.shopOverlay?.refresh(this.buildShopVM(pickBark('buy')));
     }
 
-    // ── Character sheet + HUD inventory strip (single-player) ────────────────
+    // ── Character sheet (single-player) ──────────────────────────────────────
 
-    /** The 6 equipped slots as display VMs — shared by the HUD strip + profile. */
+    /** The 6 equipped slots as display VMs — shared by the character sheet and
+     *  the shop's gear ledger. Built on demand; both surfaces are modal, so
+     *  there is nothing to keep in sync between equipment changes. */
     private buildGearSlots(): GearSlotVM[] {
         const eq = this.equipment;
         return EQUIP_SLOTS.map(slot => {
@@ -4128,12 +4193,6 @@ export class SurvivorsGameplayState implements GameState {
                 effectText: item ? this.itemEffectText(item.def) : null,
             };
         });
-    }
-
-    /** Push the current equipment into the always-visible HUD strip (solo only). */
-    private updateInventoryHud(): void {
-        if (!this.equipment) return;
-        this.hud?.setInventory(this.buildGearSlots());
     }
 
     /** Aggregate stats for the character sheet, read live from PlayerStats. */
@@ -4182,7 +4241,7 @@ export class SurvivorsGameplayState implements GameState {
         };
     }
 
-    /** Toggle the character sheet from the HUD inventory strip (pauses solo). */
+    /** Toggle the character sheet from the HUD level medallion (pauses solo). */
     private openCharacter(): void {
         if (!this.characterProfile || !this.equipment) return;
         if (this.characterProfile.isOpen()) { this.characterProfile.close(); return; }

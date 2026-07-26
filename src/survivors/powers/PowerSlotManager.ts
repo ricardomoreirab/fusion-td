@@ -187,24 +187,35 @@ export class PowerSlotManager {
         this.castDelayProvider = fn;
     }
 
-    /** Generous "is any enemy near enough for a power to matter" radius. Powers all
-     *  have different ranges (some global, some AOE around hero) — using one big
-     *  number avoids per-power range bookkeeping and just answers the question
-     *  "is there anything worth shooting at right now?". */
-    private static readonly ANY_TARGET_RADIUS = 20;
+    /** Slack added to a power's own reach when deciding whether to fire. Covers the
+     *  ground a seeking enemy closes during the cast wind-up (castDelayProvider),
+     *  so a target arriving mid-animation still gets hit. Deliberately small: this
+     *  gate is what stops the hero playing a cast animation at enemies the power
+     *  cannot reach, and every extra unit here reintroduces that. */
+    private static readonly CAST_REACH_MARGIN = 1.0;
 
-    private hasAnyTargetInRange(): boolean {
+    /** A slot's firing reach — its own declared range plus the wind-up margin.
+     *  Hero-centred AOE powers (Arcane Nova) declare their radius as baseRange,
+     *  so the same test covers projectile and burst powers alike. */
+    private static castReachFor(slot: PowerSlot): number {
+        return slot.def.baseRange + PowerSlotManager.CAST_REACH_MARGIN;
+    }
+
+    /** Squared distance to the nearest live enemy, or Infinity when the arena is
+     *  empty. Computed at most once per frame and compared against each ready
+     *  slot's own reach — one O(n) scan, not one per slot. */
+    private nearestEnemyDistanceSq(): number {
         const heroPos = this.heroProvider();
-        const r = PowerSlotManager.ANY_TARGET_RADIUS;
-        const rSq = r * r;
+        let best = Infinity;
         for (const e of this.enemyProvider()) {
             if (!e.isAlive()) continue;
             const ePos = e.getPosition();
             const dx = ePos.x - heroPos.x;
             const dz = ePos.z - heroPos.z;
-            if (dx * dx + dz * dz <= rSq) return true;
+            const d2 = dx * dx + dz * dz;
+            if (d2 < best) best = d2;
         }
-        return false;
+        return best;
     }
 
     public update(deltaTime: number): void {
@@ -231,8 +242,7 @@ export class PowerSlotManager {
         // allocation until a slot is actually ready to fire — when nothing fires
         // this loop does no allocation and no enemy scan at all.
         let ctx: PowerContext | null = null;
-        let hasTarget = false;
-        let targetChecked = false;
+        let nearestD2 = -1; // <0 = not yet computed this frame
         for (const slot of this.slots) {
             if (!slot) continue;
             // Persistent per-frame powers (e.g. Whirling Blades) update every frame —
@@ -247,12 +257,14 @@ export class PowerSlotManager {
             if (slot.def.mode === 'passive') continue;
             slot.state.cooldownRemaining -= deltaTime;
             if (slot.state.cooldownRemaining <= 0) {
-                // Resolve "anything to shoot at?" once per frame, lazily.
-                if (!targetChecked) {
-                    hasTarget = this.hasAnyTargetInRange();
-                    targetChecked = true;
-                }
-                if (!hasTarget) continue; // hold the cooldown, don't fire into empty arena
+                // Resolve the nearest enemy once per frame, lazily, then gate each
+                // ready slot on ITS OWN reach. A single generous radius shared by
+                // every slot made the hero play the cast animation at enemies the
+                // power could not reach — the cast() then found nothing in range
+                // and silently dropped, so the champion mimed shots into space.
+                if (nearestD2 < 0) nearestD2 = this.nearestEnemyDistanceSq();
+                const reach = PowerSlotManager.castReachFor(slot);
+                if (nearestD2 > reach * reach) continue; // hold the cooldown, stay idle
                 if (slot.def.cast) {
                     const delay = this.castDelayProvider();
                     if (delay > 0) {

@@ -6,7 +6,8 @@ import { iconEl, glyphEl } from '../icons';
 import { itemArtEl } from '../itemArt';
 import { ItemDef, RARITY_COLOR } from '../../survivors/items/ItemTypes';
 import { GRIBBLE_NAME } from '../../survivors/shop/GribbleBarks';
-import { SLOT_LABEL } from './slotMeta';
+import { SLOT_LABEL, SLOT_ICON } from './slotMeta';
+import type { GearSlotVM, CharSetVM } from './CharacterProfile';
 
 export interface ShopCardVM {
     def: ItemDef;
@@ -42,6 +43,13 @@ export interface PotionCardVM {
     active: boolean;
 }
 
+/** One equipped piece as the shop's gear ledger shows it: the character-sheet
+    slot VM plus the upgrade level baked into its numbers. */
+export interface ShopGearVM extends GearSlotVM {
+    /** Shop upgrade level captured when the piece was bought (drives the +N badge). */
+    level: number;
+}
+
 export interface ShopVM {
     gold: number;
     cards: ShopCardVM[];
@@ -54,6 +62,11 @@ export interface ShopVM {
     upgradeCost: number;
     upgradeAffordable: boolean;
     quip: string;
+    /** Everything the hero is currently wearing — one entry per equip slot,
+        empty slots included, so the ledger reads as a full paper doll. */
+    equipped: ShopGearVM[];
+    /** Sets the hero already has ≥2 pieces of. */
+    sets: CharSetVM[];
 }
 
 export interface ShopCallbacks {
@@ -86,6 +99,7 @@ export class ShopOverlay {
     private rerollBtn: HTMLDivElement | null = null;
     private upgradeBtn: HTMLDivElement | null = null;
     private shopLevelEl: HTMLDivElement | null = null;
+    private gearColEl: HTMLDivElement | null = null;
 
     constructor(private parent: HTMLElement) {}
 
@@ -115,7 +129,13 @@ export class ShopOverlay {
         this.potionRowEl = el('div', { class: 'shop-potions' });
         const mainCol = el('div', { class: 'shop-main-col' }, [topbar, this.gridEl, this.potionRowEl]);
 
-        modal.body.appendChild(el('div', { class: 'shop-body' }, [portraitCol, mainCol]));
+        // ── Far-right column: everything the hero is already wearing ──
+        // Buying blind is the failure mode here: the stock cards only compare
+        // against the ONE slot they would replace, so a full ledger of what is
+        // equipped (and which set bonuses it feeds) belongs on screen too.
+        this.gearColEl = el('div', { class: 'shop-gear-col' });
+
+        modal.body.appendChild(el('div', { class: 'shop-body' }, [portraitCol, mainCol, this.gearColEl]));
 
         // Footer: reroll + battle (no "Leave" — the shop is modal until battle).
         this.rerollBtn = makeButton({
@@ -154,6 +174,8 @@ export class ShopOverlay {
             for (const p of vm.potions) this.potionRowEl.appendChild(this.buildPotionCard(p));
         }
 
+        this.renderGearLedger(vm);
+
         this.rerollBtn!.replaceChildren(iconEl('dice'), el('span', { text: `Reroll (${vm.rerollCost}g)` }));
         this.rerollBtn!.classList.toggle('shop-reroll--poor', !vm.rerollAffordable);
         this.shopLevelEl!.replaceChildren(iconEl('anvil'), el('span', { text: `Shop +${vm.shopLevel}` }));
@@ -163,6 +185,73 @@ export class ShopOverlay {
 
     public setQuip(text: string): void {
         if (this.bubbleEl) this.bubbleEl.textContent = `“${text}”`;
+    }
+
+    /** The "Your Gear" column: one expanded row per equip slot (empty slots
+        included so the ledger reads as a paper doll), then any active set. */
+    private renderGearLedger(vm: ShopVM): void {
+        const col = this.gearColEl;
+        if (!col) return;
+        col.replaceChildren();
+        const equippedCount = vm.equipped.filter(g => g.name).length;
+        col.appendChild(el('div', { class: 'shop-gear-title' }, [
+            iconEl('shield'),
+            el('span', { text: 'Your Gear' }),
+            el('span', { class: 'shop-gear-count', text: `${equippedCount}/${vm.equipped.length}` }),
+        ]));
+
+        const list = el('div', { class: 'shop-gear-list' });
+        for (const gear of vm.equipped) list.appendChild(this.buildGearRow(gear));
+        col.appendChild(list);
+
+        if (vm.sets.length > 0) {
+            const setsBox = el('div', { class: 'shop-gear-sets' });
+            setsBox.appendChild(el('div', { class: 'shop-gear-sets__title', text: 'Set Bonuses' }));
+            for (const set of vm.sets) {
+                setsBox.appendChild(el('div', { class: 'shop-gear-set__name', text: `${set.name} (${set.count}/${set.total})` }));
+                for (const tier of set.tiers) {
+                    setsBox.appendChild(el('div', {
+                        class: `shop-gear-set__bonus${tier.active ? ' shop-gear-set__bonus--on' : ''}`,
+                        text: `${tier.pieces}pc — ${tier.text}`,
+                    }));
+                }
+            }
+            col.appendChild(setsBox);
+        }
+    }
+
+    private buildGearRow(gear: ShopGearVM): HTMLDivElement {
+        const row = el('div', { class: `shop-gear${gear.name ? '' : ' shop-gear--empty'}` });
+        if (gear.rarity) row.style.setProperty('--accent', RARITY_COLOR[gear.rarity]);
+
+        const art = el('div', { class: 'shop-gear__art' }, [
+            gear.glyph ? itemArtEl(gear.id, gear.glyph, gear.name ?? '') : iconEl(SLOT_ICON[gear.slot]),
+        ]);
+
+        const head = el('div', { class: 'shop-gear__head' }, [
+            el('div', { class: 'shop-gear__slot', text: SLOT_LABEL[gear.slot] }),
+            el('div', { class: 'shop-gear__name', text: gear.name ?? 'Empty' }),
+        ]);
+        if (gear.name && gear.level > 0) {
+            head.appendChild(el('div', { class: 'shop-gear__plus', text: `+${gear.level}` }));
+        }
+        if (gear.rarity) {
+            head.appendChild(el('div', { class: 'shop-gear__rarity', text: gear.rarity }));
+        }
+
+        const body = el('div', { class: 'shop-gear__body' }, [head]);
+        for (const line of gear.statLines) {
+            body.appendChild(el('div', { class: 'shop-gear__stat', text: line }));
+        }
+        if (gear.effectText) {
+            body.appendChild(el('div', { class: 'shop-gear__effect', text: gear.effectText }));
+        }
+        if (!gear.name) {
+            body.appendChild(el('div', { class: 'shop-gear__stat', text: 'Nothing equipped in this slot.' }));
+        }
+
+        row.append(art, body);
+        return row;
     }
 
     private buildCard(card: ShopCardVM, index: number): HTMLDivElement {
@@ -253,6 +342,7 @@ export class ShopOverlay {
         this.rerollBtn = null;
         this.upgradeBtn = null;
         this.shopLevelEl = null;
+        this.gearColEl = null;
     }
 
     public close(): void {

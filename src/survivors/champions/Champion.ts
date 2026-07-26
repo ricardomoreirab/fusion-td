@@ -13,6 +13,7 @@ import { LifeTimeCurve, Shape, SimulationSpace } from '@newkrok/three-particles'
 import { elementAuraConfig, elementBurstConfig } from '../fx/ElementParticles';
 import { GlbContainer, ContainerInstance } from '../../engine/three/assets';
 import { AnimGroup } from '../../engine/three/AnimGroup';
+import { findSkeletonRootName, splitClipByBody } from '../../engine/three/clipMask';
 import { createBox, createCylinder, createSphere, createTorus, createPolyhedron, disposeMesh, isMeshDisposed } from '../../engine/three/primitives';
 import { headingToYaw } from '../../engine/three/math';
 
@@ -174,6 +175,8 @@ export class Champion extends Enemy {
      *  When the asset ships skeletal anims we use these instead of mesh-level bob. */
     private championAnims: {
         idle: AnimGroup | null;
+        /** THE locomotion cycle — the champion's authored RUN, not whichever
+         *  movement clip happened to sort first in the GLB. */
         walk: AnimGroup | null;
         attack: AnimGroup | null;
         special: AnimGroup | null;
@@ -181,6 +184,15 @@ export class Champion extends Enemy {
         all: AnimGroup[];
     } = { idle: null, walk: null, attack: null, special: null, death: null, all: [] };
     private championCurrentAnim: AnimGroup | null = null;
+    /** Bone-masked layer pairs used while attacking on the move (see
+     *  _playCombatLayers). Derived lazily per source clip and cached; a null
+     *  value means "this clip has no usable half", cached so we don't re-split. */
+    private readonly _upperLayers = new Map<AnimGroup, AnimGroup | null>();
+    private readonly _lowerLayers = new Map<AnimGroup, AnimGroup | null>();
+    private _combatLayerUpper: AnimGroup | null = null;
+    private _combatLayerLower: AnimGroup | null = null;
+    /** Name of the rig's root node — counts as lower body when splitting. */
+    private _rigRootName: string | undefined;
     /** True while the GLB death clip is playing/holding — the per-frame anim selector,
      *  triggerAttack and triggerSpecial all defer to it so the fallen pose isn't overridden.
      *  Cleared by clearDeath() on co-op respawn. */
@@ -403,6 +415,7 @@ export class Champion extends Enemy {
         // instance (Babylon's cloneMaterials: true equivalent).
         const inst = asset.instantiate(host, 'ranger_');
         this.containerInstance = inst;
+        this._rigRootName = findSkeletonRootName(inst.root);
         const RANGER_SCALE = 1.5;
         inst.root.scale.multiplyScalar(RANGER_SCALE);
         this.mesh.add(inst.root);
@@ -501,10 +514,24 @@ export class Champion extends Enemy {
         // Per-champion explicit clip overrides — when the generic alias matcher
         // picks a clip that doesn't look right, hard-pick the one we want. The
         // substring is matched against the clip name.
+        //
+        // Locomotion is ALWAYS pinned to `_run`. The alias matcher takes the first
+        // clip containing "walk"/"run", which on these rigs is `_fastrun` purely
+        // because it sorts ahead of `_run` in the GLB — an accident of file order.
+        //
+        // `_fastrun` is NOT a sprint on these rigs whatever its name suggests: it
+        // reads as a slow, weird walk, and on Miya its cycle is LONGER (1.24 s)
+        // than her actual run (0.88 s). There is deliberately no sprint tier —
+        // swapping to it above a move-speed threshold is exactly how this bug
+        // came back once level-ups pushed the hero past the threshold. Extra
+        // speed shows as a faster run cycle (time-warp, capped), never a
+        // different clip.
         const PREFERRED: Partial<Record<string, { attack?: string; special?: string; walk?: string; idle?: string }>> = {
-            // (Per-champ explicit clip overrides. Barbarian's two ultimate abilities
-            //  fire through AbilityManager → Champion.playAbilityClip, not through
-            //  the basic-attack/special slots here.)
+            barbarian: { walk: '_run' },
+            ranger:    { walk: '_run' },
+            mage:      { walk: '_run' },
+            // (Barbarian's two ultimate abilities fire through AbilityManager →
+            //  Champion.playAbilityClip, not through the basic-attack/special slots.)
         };
         const overrides = PREFERRED[this.championType];
         if (overrides) {
@@ -539,7 +566,7 @@ export class Champion extends Enemy {
         }
         console.log(
             `[${this.championType}] mapped: idle="${aa.idle?.name ?? '(none)'}", ` +
-            `walk="${aa.walk?.name ?? '(none)'}", attack="${aa.attack?.name ?? '(none)'}", ` +
+            `run="${aa.walk?.name ?? '(none)'}", attack="${aa.attack?.name ?? '(none)'}", ` +
             `special="${aa.special?.name ?? '(none)'}"`,
         );
 
@@ -625,6 +652,126 @@ vHeroRimView = normalize(-mvPosition.xyz);`,
         this.championCurrentAnim = target;
     }
 
+    /** Drive the locomotion channel for this frame: always the run cycle,
+     *  time-warped to the hero's actual travel speed so feet never slide. */
+    private _playLocomotion(speed: number): void {
+        const clip = this.championAnims.walk;
+        if (!clip) return;
+        this.playChampionAnim('walk');
+        clip.speedRatio = this._locomotionSpeedRatio(speed);
+    }
+
+    /**
+     * Run the legs and the swing as two DISJOINT layers while the hero attacks
+     * on the move.
+     *
+     * The attack clip is compressed to the attack interval (triggerAttack), so
+     * from the moment enemies stay inside contact range the rig is in that clip
+     * essentially 100% of the time. Handing it the whole skeleton makes the
+     * champion glide across the field in a rooted pose; blending the run back in
+     * at partial weight is worse, because THREE has no bone mask and weights
+     * AVERAGE — every bone, including the legs, gets a fraction of each pose, so
+     * the stride shrinks to a mushy half-height shuffle.
+     *
+     * So the two clips are pre-split by skeleton region (see clipMask.ts) and
+     * both play at FULL weight: legs are 100% locomotion, torso and arms are
+     * 100% swing, and nothing is diluted.
+     */
+    private _playCombatLayers(speed: number): void {
+        const upper = this._attackUpperFor(this.championAnims.attack);
+        const lower = this._lowerLayerFor(this.championAnims.walk);
+        if (!upper || !lower) {
+            // Rig without a usable split (no leg tracks in the run, say) — fall
+            // back to the plain full-body attack rather than a broken half-pose.
+            this.playChampionAnim('attack');
+            return;
+        }
+        lower.speedRatio = this._locomotionSpeedRatio(speed);
+        if (this._combatLayerLower !== lower) {
+            if (this._combatLayerLower) this._combatLayerLower.weight = 0;
+            lower.crossFrom(this.championCurrentAnim, Champion.LAYER_FADE, true);
+            this._combatLayerLower = lower;
+        } else if (!lower.isPlaying) {
+            lower.resume(true);
+        }
+        lower.weight = 1;
+
+        if (this._combatLayerUpper !== upper) {
+            if (this._combatLayerUpper) this._combatLayerUpper.weight = 0;
+            this._combatLayerUpper = upper;
+        }
+        // The upper layer restarts with each swing (triggerAttack), not here.
+        upper.weight = 1;
+        // championCurrentAnim tracks the LEGS: it is what the next locomotion or
+        // idle transition cross-fades from, and the upper layer is torn down
+        // explicitly by _clearCombatLayers.
+        this.championCurrentAnim = lower;
+    }
+
+    /** Free the derived upper/lower layer AnimGroups (mixer actions + their
+     *  'finished' listeners). Must run before the owning mixer is disposed. */
+    private _disposeMaskedLayers(): void {
+        this._combatLayerUpper = null;
+        this._combatLayerLower = null;
+        for (const g of this._upperLayers.values()) g?.dispose();
+        for (const g of this._lowerLayers.values()) g?.dispose();
+        this._upperLayers.clear();
+        this._lowerLayers.clear();
+    }
+
+    /** Drop both combat layers back out of the blend. */
+    private _clearCombatLayers(): void {
+        if (this._combatLayerUpper) {
+            this._combatLayerUpper.weight = 0;
+            this._combatLayerUpper.stop();
+            this._combatLayerUpper = null;
+        }
+        if (this._combatLayerLower) {
+            // The lower layer may BE the clip the rig is about to keep running
+            // on; leave the stop to whatever transition takes over.
+            this._combatLayerLower = null;
+        }
+    }
+
+    /** Upper-body-only variant of an attack clip, derived once per clip. */
+    private _attackUpperFor(attack: AnimGroup | null): AnimGroup | null {
+        if (!attack) return null;
+        const cached = this._upperLayers.get(attack);
+        if (cached !== undefined) return cached;
+        const mixer = this.containerInstance?.mixer ?? null;
+        let group: AnimGroup | null = null;
+        if (mixer) {
+            const { upper } = splitClipByBody(attack.clip, this._rigRootName);
+            group = upper.tracks.length > 0 ? new AnimGroup(mixer, upper) : null;
+        }
+        this._upperLayers.set(attack, group);
+        return group;
+    }
+
+    /** Lower-body-only variant of a locomotion clip, derived once per clip. */
+    private _lowerLayerFor(locomotion: AnimGroup | null): AnimGroup | null {
+        if (!locomotion) return null;
+        const cached = this._lowerLayers.get(locomotion);
+        if (cached !== undefined) return cached;
+        const mixer = this.containerInstance?.mixer ?? null;
+        let group: AnimGroup | null = null;
+        if (mixer) {
+            const { lower } = splitClipByBody(locomotion.clip, this._rigRootName);
+            group = lower.tracks.length > 0 ? new AnimGroup(mixer, lower) : null;
+        }
+        this._lowerLayers.set(locomotion, group);
+        return group;
+    }
+
+    /** Time-warp for the run cycle at `speed`. Floored at 1.0: below it the run
+     *  simply plays as a walk, which is what a slowed or analog-stick hero used
+     *  to look like. Slower travel loses a little foot grip instead of losing
+     *  the gait entirely. Capped so a move-speed build blurs no further. */
+    private _locomotionSpeedRatio(speed: number): number {
+        const ref = Champion.RUN_REFERENCE_SPEED[this.championType] ?? 7;
+        return Math.min(Champion.LOCOMOTION_MAX_RATIO, Math.max(1, speed / ref));
+    }
+
     /** Called by HeroBasicAttack each time the champion's basic attack fires (ranger
      *  arrow, barbarian swing, etc.). Restarts the attack animation from frame 0 even
      *  if a previous one is still playing. The optional targetPos overrides facing —
@@ -654,6 +801,16 @@ vHeroRimView = normalize(-mvPosition.xyz);`,
             attack.speedRatio = attack.duration / dur;
             attack.crossFrom(this.championCurrentAnim, 0.07, false);
             this.championCurrentAnim = attack;
+            // The upper-body layer is a second copy of this same swing, used when
+            // the hero attacks on the move. Restart it in lockstep so whichever
+            // path the per-frame selector takes, the swing starts from frame 0.
+            // Weight stays where it is — _playCombatLayers owns that.
+            const upper = this._attackUpperFor(attack);
+            if (upper) {
+                upper.speedRatio = attack.speedRatio;
+                upper.start(false);
+                upper.weight = 0; // raised only if this frame turns out to be layered
+            }
         }
     }
 
@@ -687,6 +844,14 @@ vHeroRimView = normalize(-mvPosition.xyz);`,
         ranger:    9,
         mage:      7,
     };
+
+    /** Ceiling on locomotion time-warp — past this the legs blur rather than read
+     *  as faster, so the remaining speed shows as ground covered instead. */
+    private static readonly LOCOMOTION_MAX_RATIO = 1.6;
+
+    /** Cross-fade used when handing the rig between the full-body clips and the
+     *  split-layer combat pair. Short — the swap must not be a visible dissolve. */
+    private static readonly LAYER_FADE = 0.09;
 
     /** Exponentially ease the mesh yaw toward `targetYaw` along the shortest
      *  arc — replaces the per-frame hard snap, which made direction changes
@@ -1398,6 +1563,13 @@ vHeroRimView = normalize(-mvPosition.xyz);`,
             if (usingChampionGLB) {
                 const baseY = this.position.y;
                 this.mesh.position.y = baseY;
+                const travelSpeed = Math.sqrt(this.playerVelocity.lengthSq());
+                // Only a basic attack taken ON THE MOVE runs the split-layer pair;
+                // every other state owns the whole rig, so the layers are torn
+                // down on the way into it.
+                const layeredCombat = !this.glbDeathPlaying
+                    && this.glbSpecialTimer <= 0 && this.glbAttackTimer > 0 && isMoving;
+                if (!layeredCombat) this._clearCombatLayers();
                 if (this.glbDeathPlaying) {
                     // Death clip is playing (or holding its final fallen frame). Don't let
                     // idle/walk/attack reclaim the rig — it stays down until clearDeath().
@@ -1410,16 +1582,15 @@ vHeroRimView = normalize(-mvPosition.xyz);`,
                     // auto-matched special, making Whirlwind/Smash look like attack1.
                 } else if (this.glbAttackTimer > 0) {
                     this.glbAttackTimer = Math.max(0, this.glbAttackTimer - deltaTime);
-                    this.playChampionAnim('attack');
+                    // Swinging while running: legs and swing as disjoint layers.
+                    // Standing still: the attack owns the whole rig, as before.
+                    if (layeredCombat) this._playCombatLayers(travelSpeed);
+                    else this.playChampionAnim('attack');
                 } else if (isMoving) {
                     if (this.championAnims.walk) {
-                        this.playChampionAnim('walk');
                         // Stride matches actual travel speed (move-speed items,
                         // slows) so feet never slide.
-                        const speed = Math.sqrt(this.playerVelocity.lengthSq());
-                        const ref = Champion.RUN_REFERENCE_SPEED[this.championType] ?? 7;
-                        this.championAnims.walk.speedRatio =
-                            Math.min(1.8, Math.max(0.6, speed / ref));
+                        this._playLocomotion(travelSpeed);
                     } else {
                         if (this.championCurrentAnim) {
                             this.championCurrentAnim.stop();
@@ -1973,6 +2144,9 @@ vHeroRimView = normalize(-mvPosition.xyz);`,
         // and spin-arc mesh — which only die() used to free — leaked one set per run
         // onto the never-disposed shared scene and kept ticking forever.
         this._releaseChampionFx();
+        // Derived bone-masked layers hold their own mixer actions + a 'finished'
+        // listener, so they must unhook BEFORE the instance's mixer goes away.
+        this._disposeMaskedLayers();
         // GLB container instance: frees the per-instance cloned materials, the
         // cloned skeleton's bone-matrix texture, and the mixer's update hook
         // (glb_clonematerials_texture_leak invariant). No-op on the procedural path.
@@ -2077,6 +2251,9 @@ vHeroRimView = normalize(-mvPosition.xyz);`,
 
         this._disposeTorch();
 
+        // Derived bone-masked layers unhook first — they hold mixer actions and a
+        // 'finished' listener on the mixer the line below is about to tear down.
+        this._disposeMaskedLayers();
         // Tear down the GLB container instance: stops + disposes the cloned anim
         // groups (their animatables stop ticking once the mesh is gone), frees the
         // per-instance cloned materials AND the cloned skeleton's bone-matrix

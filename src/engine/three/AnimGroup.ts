@@ -83,6 +83,32 @@ export class AnimGroup {
         this.action.timeScale = v;
     }
 
+    /** Blend weight of this clip in the mixer's pose sum (0 = contributes nothing).
+     *  Reading it returns the EFFECTIVE weight, so a clip mid-cross-fade reports
+     *  its current partial contribution rather than its target. */
+    public get weight(): number {
+        return this.action.getEffectiveWeight();
+    }
+
+    /** Pin the blend weight, cancelling any in-flight fade. Without stopFading()
+     *  THREE's fade interpolant overwrites the weight again on the next mixer
+     *  update, so a plain setEffectiveWeight() during a cross-fade is a no-op. */
+    public set weight(v: number) {
+        this.action.stopFading();
+        this.action.setEffectiveWeight(v);
+    }
+
+    /** Resume playback WITHOUT rewinding to frame 0 — used to bring a clip that
+     *  faded out back into the blend mid-cycle (start()/crossFrom() both reset
+     *  time, which would restart a locomotion cycle from the same pose forever). */
+    public resume(loop: boolean): void {
+        this.action.setLoop(loop ? LoopRepeat : LoopOnce, Infinity);
+        this.action.clampWhenFinished = !loop;
+        this.action.paused = false;
+        this.action.enabled = true;
+        this.action.play();
+    }
+
     /** Seconds duration of the underlying clip. */
     public get duration(): number {
         return this.clip.duration;

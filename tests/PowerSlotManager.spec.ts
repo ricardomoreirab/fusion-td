@@ -151,3 +151,82 @@ describe('Whirling Blades — per-level blade count', () => {
         expect(bladeCount(mgr)).toBe(4); // level 3
     });
 });
+
+describe('PowerSlotManager — per-power cast range gate', () => {
+    type FakeEnemy = import('../src/survivors/enemies/Enemy').Enemy;
+
+    /** One stationary enemy `dist` units east of the hero at the origin. */
+    function managerWithEnemyAt(dist: number) {
+        const enemy = {
+            isAlive: () => true,
+            getPosition: () => new Vector3(dist, 0, 0),
+        } as unknown as FakeEnemy;
+        return new PowerSlotManager(host, () => new Vector3(0, 0, 0), () => [enemy]);
+    }
+
+    function rangedDef(baseRange: number, cast: PowerDefinition['cast']): PowerDefinition {
+        return {
+            id: 'ranged_power', name: 'Ranged Power', element: 'ice', icon: 'R',
+            baseCooldown: 0.25, baseDamage: 4, baseRange, maxLevel: 5, mode: 'autocast',
+            cooldownFor: () => 0.25, damageFor: () => 4, cast,
+        };
+    }
+
+    it('does not cast — or animate — at an enemy beyond the power\'s own range', () => {
+        // The bug: a single shared 20u radius let ANY slot fire whenever anything
+        // was loosely nearby. An 11u power then played the cast animation at an
+        // enemy 15u out and its cast() silently found no target.
+        const mgr = managerWithEnemyAt(15);
+        const cast = vi.fn();
+        const onCast = vi.fn();
+        mgr.setOnCast(onCast);
+        mgr.getSlots()[0] = { def: rangedDef(11, cast), state: { level: 1, cooldownRemaining: 0 } };
+
+        for (let i = 0; i < 30; i++) mgr.update(0.016);
+
+        expect(cast).not.toHaveBeenCalled();
+        expect(onCast).not.toHaveBeenCalled();
+    });
+
+    it('holds the cooldown while out of range so it fires the instant range is met', () => {
+        let dist = 15;
+        const enemy = {
+            isAlive: () => true,
+            getPosition: () => new Vector3(dist, 0, 0),
+        } as unknown as FakeEnemy;
+        const mgr = new PowerSlotManager(host, () => new Vector3(0, 0, 0), () => [enemy]);
+        const cast = vi.fn();
+        mgr.getSlots()[0] = { def: rangedDef(11, cast), state: { level: 1, cooldownRemaining: 0 } };
+
+        mgr.update(0.016);
+        expect(cast).not.toHaveBeenCalled();
+        expect(mgr.getSlots()[0]!.state.cooldownRemaining).toBeLessThanOrEqual(0);
+
+        dist = 6; // enemy closes to inside the 11u reach
+        mgr.update(0.016);
+        expect(cast).toHaveBeenCalledTimes(1);
+    });
+
+    it('gates each slot on ITS OWN range, not a shared radius', () => {
+        const mgr = managerWithEnemyAt(13);
+        const shortCast = vi.fn();
+        const longCast = vi.fn();
+        mgr.getSlots()[0] = { def: { ...rangedDef(4.5, shortCast), id: 'short' }, state: { level: 1, cooldownRemaining: 0 } };
+        mgr.getSlots()[1] = { def: { ...rangedDef(18, longCast), id: 'long' }, state: { level: 1, cooldownRemaining: 0 } };
+
+        mgr.update(0.016);
+
+        expect(shortCast).not.toHaveBeenCalled();
+        expect(longCast).toHaveBeenCalledTimes(1);
+    });
+
+    it('allows a 1u wind-up margin so an enemy arriving mid-animation still gets hit', () => {
+        const mgr = managerWithEnemyAt(11.5); // just past an 11u power
+        const cast = vi.fn();
+        mgr.getSlots()[0] = { def: rangedDef(11, cast), state: { level: 1, cooldownRemaining: 0 } };
+
+        mgr.update(0.016);
+
+        expect(cast).toHaveBeenCalledTimes(1);
+    });
+});

@@ -80,6 +80,8 @@ const ICONS = {
     body: '<path d="m12 2.9 2.72 5.86 6.38.72-4.73 4.33 1.28 6.3L12 16.94l-5.65 3.17 1.28-6.3L2.9 9.48l6.38-.72z"/>',
   },
   chevronUp: { body: '<path d="m5.5 14.8 6.5-6.4 6.5 6.4"/><path d="m5.5 20.4 6.5-6.4 6.5 6.4"/>' },
+  /** Single right chevron — the "becomes" arrow in power-card stat deltas. */
+  chevronRight: { body: '<path d="m9.2 5.2 6.8 6.8-6.8 6.8"/>' },
 
   // ── Champion classes ──────────────────────────────────────────────────
   axe: {
