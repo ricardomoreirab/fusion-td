@@ -767,6 +767,7 @@ export class AbilityManager {
 
         const knockRadius = 10;
         const knockForce = 12;
+        const damage = Math.round(30 * (this.damageMultiplierProvider?.() ?? 1));
 
         for (const e of this.allEnemies()) {
             if (!e.isAlive()) continue;
@@ -776,7 +777,7 @@ export class AbilityManager {
             const dist = Math.hypot(dx, dz);
             if (dist > knockRadius || dist < 0.001) continue;
 
-            e.takeDamage(30);
+            e.takeDamage(damage);
 
             const dirX = dx / dist;
             const dirZ = dz / dist;
