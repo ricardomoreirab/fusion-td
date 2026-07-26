@@ -28,6 +28,7 @@ import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js';
 import { MeshoptDecoder } from 'meshoptimizer/meshopt_decoder.module.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { AnimGroup } from './AnimGroup';
+import { pruneStaticTracks } from './pruneStaticTracks';
 import type { SceneHost, UpdateToken } from './SceneHost';
 
 /**
@@ -70,7 +71,14 @@ export interface ContainerInstance {
 }
 
 export class GlbContainer {
-    constructor(public readonly gltf: GLTF) {}
+    constructor(public readonly gltf: GLTF) {
+        // Once per loaded URL (containers are cached), before any instance can
+        // exist: the exported rigs carry a constant-at-bind `.scale` track for
+        // every bone and a constant `.position` track for most, and every one of
+        // them costs an interpolant + a property-mixer write per instance per
+        // frame. See pruneStaticTracks for why removal is provably inert.
+        pruneStaticTracks(this.gltf.scene, this.gltf.animations);
+    }
 
     public instantiate(host: SceneHost, namePrefix = ''): ContainerInstance {
         const root = cloneSkinned(this.gltf.scene) as Group;
