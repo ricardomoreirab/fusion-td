@@ -151,6 +151,52 @@ let markLoadersReady!: () => void;
 const loadersReady = new Promise<void>(resolve => { markLoadersReady = resolve; });
 
 /**
+ * A 4x4 ETC1S KTX2, 369 bytes, produced by `ktx create --encode basis-lz`.
+ *
+ * Transcoding this is the only way to drive KTX2Loader's cold path to
+ * completion from outside: `init()` alone stops at "wasm fetched, worker
+ * factory registered" — the Worker itself, the 515 KB transcoder binary copy
+ * into it, and `initializeBasis()` all wait for the first transcode job.
+ * See prewarmTranscoder.
+ */
+const TRANSCODER_PROBE_KTX2 =
+    'q0tUWCAyMLsNChoKAAAAAAEAAAAEAAAABAAAAAAAAAAAAAAAAQAAAAEAAAABAAAAaAAAACwAAACUAAAA' +
+    'XAAAAPAAAAAAAAAAgAAAAAAAAABwAQAAAAAAAAEAAAAAAAAAAAAAAAAAAAAsAAAAAAAAAAIAKACjAQIA' +
+    'AwMAAAgAAAAAAAAAAAA/AAAAAAAAAAAA/////ywAAABLVFh3cml0ZXIAa3R4IGNyZWF0ZSB2NC40LjIg' +
+    'LyBsaWJrdHggdjQuNC4yACgAAABLVFh3cml0ZXJTY1BhcmFtcwAtLWNsZXZlbCAwIC0tcWxldmVsIDEA' +
+    'AQABACgAAAAFAAAAKwAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAHABAAAAAAAAAIEmAgAAAAAAEBS' +
+    'BAATAAAAAAAACAFgAkAAAAAAADFUVVVVBQDBRAAAAAAAAPJfLQCYAAAAAAAAQAgAEwACAAAAAIgBwAQA' +
+    'AAAAAAACCAAA';
+
+/**
+ * Drag the Basis transcoder through its entire cold path while the player is
+ * still on the menu, instead of paying for it inside the first GLB load.
+ *
+ * Lazily, that cold path is: fetch basis_transcoder.js + the 515 KB .wasm,
+ * concatenate them into a ~600 KB worker source string, `createObjectURL` it,
+ * spawn the Worker, copy the wasm binary into it and compile+`initializeBasis()`
+ * it — all serialized ahead of the first texture the game actually wants.
+ *
+ * Fire-and-forget and silent by contract. Every failure mode (no transcodable
+ * format on this GPU, blocked Worker construction, a 404 on the wasm) leaves
+ * the lazy path exactly as it was, so a broken prewarm can only cost the boot
+ * two wasted requests — never a boot failure.
+ */
+function prewarmTranscoder(ktx2: KTX2Loader): void {
+    try {
+        const b64 = atob(TRANSCODER_PROBE_KTX2);
+        const probe = new Uint8Array(b64.length);
+        for (let i = 0; i < b64.length; i++) probe[i] = b64.charCodeAt(i);
+        // parse() transfers the buffer and reports through callbacks rather than
+        // a promise, so onError is mandatory — without it the internal .catch()
+        // is `catch(undefined)` and any failure surfaces as an unhandled rejection.
+        ktx2.parse(probe.buffer, texture => texture.dispose(), () => { /* silent */ });
+    } catch {
+        /* silent — the lazy path is the fallback */
+    }
+}
+
+/**
  * Attach the KTX2 transcoder. MUST run once after the WebGLRenderer exists and
  * BEFORE the first GLB load: KTX2Loader.detectSupport() asks the live GL context
  * which compressed formats it can transcode into, and without it every KTX2
@@ -169,6 +215,7 @@ export function configureAssetLoaders(renderer: WebGLRenderer): void {
     try {
         ktx2Loader = new KTX2Loader().detectSupport(renderer);
         loader.setKTX2Loader(ktx2Loader);
+        prewarmTranscoder(ktx2Loader);
     } catch (err) {
         // Degrade rather than throw: a GLB whose textures cannot be transcoded
         // still yields correct geometry, animation and material colours.

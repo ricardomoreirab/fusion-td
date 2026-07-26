@@ -66,7 +66,6 @@ module.exports = (env, argv) => ({
     }),
     new CopyWebpackPlugin({
       patterns: [
-        { from: 'src/assets', to: 'assets', noErrorOnMissing: true },
         // Referenced assets with no optimized counterpart (audio, item icons, and
         // any GLB assets:optimize hasn't been run over).
         {

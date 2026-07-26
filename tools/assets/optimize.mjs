@@ -72,6 +72,22 @@ const PROP_DIR = 'assets/world/props/opt/';
 const SIMPLIFY = { ratio: 0.4, error: 0.01, lockBorder: false };
 
 /**
+ * Landmark props ship 1024² Color + ORM + NormalGL each. They are static
+ * background dressing: fogged, never approached, and under the orthographic iso
+ * camera a monolith covers ~1/5 of the screen height at MAXIMUM zoom and ~1/10
+ * at the zoom the game is actually played at, so 1024² is several times more
+ * texel density than the framebuffer can resolve. Halving to 512² costs 4x the
+ * pixels and buys 4x on both download and VRAM: 2699 KB → 1434 KB over the six.
+ *
+ * Measured against the 1024² renders under identical lighting, mean absolute
+ * pixel difference is 0.3-1.7/255 with a whole prop filling a 900² frame, and
+ * 0.7/255 on the monolith at maximum in-game zoom.
+ *
+ * Characters and enemies are excluded — they are the thing the player looks at.
+ */
+const PROP_TEXTURE_MAX = 512;
+
+/**
  * ETC1S quality per asset class and texture role, measured rather than guessed.
  *
  * Character/portrait maps are 256²-2048² albedo viewed at close range, and even
@@ -154,21 +170,36 @@ function bootstrapKtx() {
 
 // ── texture encoding ─────────────────────────────────────────────────────────
 
-async function toPng(bytes) {
+/**
+ * Longest edge scaled down to `max`, with both dimensions floored to a multiple
+ * of 4. ETC1S encodes 4x4 blocks and pads anything else, so a ragged dimension
+ * spends bits on texels no sampler ever reads.
+ */
+function fitTo(width, height, max) {
+    if (!max || (width <= max && height <= max)) return null;
+    const scale = max / Math.max(width, height);
+    const snap = n => Math.max(4, Math.floor((n * scale) / 4) * 4);
+    return { width: snap(width), height: snap(height) };
+}
+
+async function toPng(bytes, maxSize = 0) {
     const image = sharp(Buffer.from(bytes));
     const stats = await image.stats();
     const meta = await image.metadata();
     const opaque = stats.isOpaque || !meta.hasAlpha;
-    const png = await sharp(Buffer.from(bytes))
-        .toColourspace('srgb')
-        [opaque ? 'removeAlpha' : 'ensureAlpha']()
+    const fit = fitTo(meta.width, meta.height, maxSize);
+    let pipeline = sharp(Buffer.from(bytes)).toColourspace('srgb');
+    // Resize BEFORE the KTX2/WebP encode — downscaling an already-blocked or
+    // already-lossy image would resample compression artefacts.
+    if (fit) pipeline = pipeline.resize({ ...fit, fit: 'fill', kernel: 'lanczos3' });
+    const png = await pipeline[opaque ? 'removeAlpha' : 'ensureAlpha']()
         .png({ compressionLevel: 0 })
         .toBuffer();
-    return { png, opaque, width: meta.width, height: meta.height };
+    return { png, opaque, width: meta.width, height: meta.height, resizedTo: fit };
 }
 
-async function encodeKtx2(ktx, bytes, { srgb, codec, klass }) {
-    const { png, opaque } = await toPng(bytes);
+async function encodeKtx2(ktx, bytes, { srgb, codec, klass, maxSize }) {
+    const { png, opaque, resizedTo } = await toPng(bytes, maxSize);
     const dir = join(tmpdir(), `ktx-enc-${process.pid}`);
     mkdirSync(dir, { recursive: true });
     const inFile = join(dir, 'in.png');
@@ -190,30 +221,31 @@ async function encodeKtx2(ktx, bytes, { srgb, codec, klass }) {
             ...encodeArgs,
             inFile, outFile,
         ], { stdio: 'pipe', env: { ...process.env, ...ktx.env } });
-        return new Uint8Array(readFileSync(outFile));
+        return { bytes: new Uint8Array(readFileSync(outFile)), resizedTo };
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }
 }
 
-async function encodeWebp(bytes) {
-    const { png, opaque } = await toPng(bytes);
+async function encodeWebp(bytes, maxSize = 0) {
+    const { png, opaque, resizedTo } = await toPng(bytes, maxSize);
     const out = await sharp(png).webp({ quality: 90, alphaQuality: 100, effort: 6 }).toBuffer();
-    return { bytes: new Uint8Array(out), opaque };
+    return { bytes: new Uint8Array(out), opaque, resizedTo };
 }
 
 /**
  * Replace every texture's image with a compressed equivalent, in place. Texture
  * and material NAMES are untouched — only the payload and mimeType change.
  */
-async function compressTextures(doc, ktx, codec, klass) {
+async function compressTextures(doc, ktx, codec, klass, maxSize) {
     const root = doc.getRoot();
     const textures = root.listTextures();
-    if (!textures.length) return { before: 0, after: 0, format: 'none' };
+    if (!textures.length) return { before: 0, after: 0, format: 'none', resized: '' };
 
     const before = textures.reduce((a, t) => a + (t.getImage()?.byteLength ?? 0), 0);
     let usedKtx = false;
     let usedWebp = false;
+    const resizes = new Set();
 
     for (const texture of textures) {
         const image = texture.getImage();
@@ -221,17 +253,20 @@ async function compressTextures(doc, ktx, codec, klass) {
         const srgb = getTextureColorSpace(texture) === 'srgb';
         if (ktx) {
             try {
-                texture.setImage(await encodeKtx2(ktx, image, { srgb, codec, klass }));
+                const out = await encodeKtx2(ktx, image, { srgb, codec, klass, maxSize });
+                texture.setImage(out.bytes);
                 texture.setMimeType('image/ktx2');
+                if (out.resizedTo) resizes.add(`${out.resizedTo.width}²`);
                 usedKtx = true;
                 continue;
             } catch (err) {
                 console.warn(`    ktx encode failed for "${texture.getName()}" (${err.message.trim().split('\n')[0]}) — using webp`);
             }
         }
-        const webp = await encodeWebp(image);
+        const webp = await encodeWebp(image, maxSize);
         texture.setImage(webp.bytes);
         texture.setMimeType('image/webp');
+        if (webp.resizedTo) resizes.add(`${webp.resizedTo.width}²`);
         usedWebp = true;
     }
 
@@ -239,7 +274,12 @@ async function compressTextures(doc, ktx, codec, klass) {
     if (usedWebp) doc.createExtension(EXTTextureWebP).setRequired(true);
 
     const after = root.listTextures().reduce((a, t) => a + (t.getImage()?.byteLength ?? 0), 0);
-    return { before, after, format: usedKtx ? (usedWebp ? 'ktx2+webp' : 'ktx2') : 'webp' };
+    return {
+        before,
+        after,
+        format: usedKtx ? (usedWebp ? 'ktx2+webp' : 'ktx2') : 'webp',
+        resized: resizes.size ? `↓${[...resizes].join('/')}` : '',
+    };
 }
 
 // ── model stats (the invariant check runs on these) ──────────────────────────
@@ -331,7 +371,11 @@ async function main() {
         const doc = await io.read(src);
         const before = snapshot(doc);
 
-        const tex = await compressTextures(doc, ktx, TEXTURE_OVERRIDES[rel] ?? 'etc1s', isProp ? 'prop' : 'model');
+        const tex = await compressTextures(
+            doc, ktx, TEXTURE_OVERRIDES[rel] ?? 'etc1s',
+            isProp ? 'prop' : 'model',
+            isProp ? PROP_TEXTURE_MAX : 0,
+        );
 
         if (isProp) {
             // Props arrive already quantized (KHR_mesh_quantization); simplify needs
@@ -360,7 +404,7 @@ async function main() {
             srcSize,
             dstSize,
             tris: [before.tris, after.tris],
-            tex: `${tex.format} ${fmt(tex.before)}→${fmt(tex.after)}`,
+            tex: `${tex.format}${tex.resized} ${fmt(tex.before)}→${fmt(tex.after)}`,
         });
         console.log(`${fmt(srcSize)} → ${fmt(dstSize)} (${pct(srcSize, dstSize)})`);
     }

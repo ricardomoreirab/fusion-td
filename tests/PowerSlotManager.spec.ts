@@ -230,3 +230,137 @@ describe('PowerSlotManager — per-power cast range gate', () => {
         expect(cast).toHaveBeenCalledTimes(1);
     });
 });
+
+// Regression guard: every cast gets its OWN PowerContext.
+//
+// A power's cast() registers an onBeforeRender observer that keeps the context
+// alive for the projectile's whole flight and reads ctx.element off it on every
+// frame — that is what colours the damage numbers and the element-tinted impact
+// FX. update() used to build ONE context lazily and hand it to every slot that
+// fired in the same tick, so the second slot's `ctx.element = ...` silently
+// repainted the first slot's in-flight projectile.
+describe('PowerSlotManager — per-cast context isolation', () => {
+    type FakeEnemy = import('../src/survivors/enemies/Enemy').Enemy;
+
+    /** Manager with one enemy well inside every power's range. */
+    function managerOn(scene: SceneHost) {
+        const enemy = {
+            isAlive: () => true,
+            getPosition: () => new Vector3(1, 0, 0),
+        } as unknown as FakeEnemy;
+        return new PowerSlotManager(scene, () => new Vector3(0, 0, 0), () => [enemy]);
+    }
+
+    function elementDef(
+        id: string,
+        element: PowerDefinition['element'],
+        cast: PowerDefinition['cast'],
+    ): PowerDefinition {
+        return {
+            id, name: id, element, icon: 'X',
+            baseCooldown: 0.25, baseDamage: 4, baseRange: 12, maxLevel: 5, mode: 'autocast',
+            cooldownFor: () => 0.25, damageFor: () => 4, cast,
+        };
+    }
+
+    it('two slots firing in the SAME tick each keep their own element', () => {
+        const scene = new SceneHost();
+        const mgr = managerOn(scene);
+        // Capture the context REFERENCE, exactly like a projectile observer's
+        // closure does — the bug is in what it reads later, not at call time.
+        const seenAtCast: string[] = [];
+        const held: { element: string }[] = [];
+        const capture = (element: string) => ((_s: unknown, ctx: { element: string }) => {
+            seenAtCast.push(ctx.element);
+            held.push(ctx);
+            void element;
+        }) as unknown as PowerDefinition['cast'];
+
+        mgr.getSlots()[0] = {
+            def: elementDef('fire_slot', 'fire', capture('fire')),
+            state: { level: 1, cooldownRemaining: 0 },
+        };
+        mgr.getSlots()[1] = {
+            def: elementDef('ice_slot', 'ice', capture('ice')),
+            state: { level: 1, cooldownRemaining: 0 },
+        };
+
+        mgr.update(0.016);
+
+        expect(seenAtCast).toEqual(['fire', 'ice']);
+        expect(held).toHaveLength(2);
+        // The retained references must be DISTINCT objects...
+        expect(held[0]).not.toBe(held[1]);
+        // ...and each must still report its own element after the tick, which is
+        // what the in-flight projectile reads every frame.
+        expect(held[0].element).toBe('fire');
+        expect(held[1].element).toBe('ice');
+    });
+
+    it('a retained context still reads its own element from a later frame observer', () => {
+        const scene = new SceneHost();
+        const mgr = managerOn(scene);
+        // Mirror the real thing: cast() registers a per-frame observer off
+        // ctx.scene and reports ctx.element on every subsequent frame.
+        const observed: Record<string, string[]> = { fire_slot: [], storm_slot: [] };
+        const castWithObserver = (id: string) => ((
+            _s: unknown,
+            ctx: { element: string; scene: SceneHost },
+        ) => {
+            ctx.scene.onBeforeRender.add(() => observed[id].push(ctx.element));
+        }) as unknown as PowerDefinition['cast'];
+
+        mgr.getSlots()[0] = {
+            def: elementDef('fire_slot', 'fire', castWithObserver('fire_slot')),
+            state: { level: 1, cooldownRemaining: 0 },
+        };
+        mgr.getSlots()[1] = {
+            def: elementDef('storm_slot', 'storm', castWithObserver('storm_slot')),
+            state: { level: 1, cooldownRemaining: 0 },
+        };
+
+        mgr.update(0.016);   // both cast, both register a flight observer
+        scene.tick(0.016);   // one "flight" frame
+        scene.tick(0.016);   // another
+
+        expect(observed.fire_slot).toEqual(['fire', 'fire']);
+        expect(observed.storm_slot).toEqual(['storm', 'storm']);
+    });
+
+    it('forceCastAutocastSlots gives every slot in the burst its own context', () => {
+        const scene = new SceneHost();
+        const mgr = managerOn(scene);
+        const held: { element: string }[] = [];
+        const capture = (() => ((_s: unknown, ctx: { element: string }) => {
+            held.push(ctx);
+        }) as unknown as PowerDefinition['cast'])();
+
+        mgr.getSlots()[0] = { def: elementDef('a', 'fire', capture), state: { level: 1, cooldownRemaining: 9 } };
+        mgr.getSlots()[1] = { def: elementDef('b', 'ice', capture), state: { level: 1, cooldownRemaining: 9 } };
+        mgr.getSlots()[2] = { def: elementDef('c', 'arcane', capture), state: { level: 1, cooldownRemaining: 9 } };
+
+        expect(mgr.forceCastAutocastSlots()).toBe(3);
+        expect(held.map(c => c.element)).toEqual(['fire', 'ice', 'arcane']);
+        expect(new Set(held).size).toBe(3); // three distinct objects
+    });
+
+    it('the per-frame tick context is still REUSED (the allocation fix stays)', () => {
+        const scene = new SceneHost();
+        const mgr = managerOn(scene);
+        const seen: unknown[] = [];
+        const def: PowerDefinition = {
+            id: 'ticker', name: 'ticker', element: 'physical', icon: 'T',
+            baseCooldown: 0.25, baseDamage: 4, baseRange: 12, maxLevel: 5, mode: 'autocast',
+            cooldownFor: () => 0.25, damageFor: () => 4,
+            tick: (_s, ctx) => { seen.push(ctx); },
+        };
+        mgr.getSlots()[0] = { def, state: { level: 1, cooldownRemaining: 9 } };
+
+        mgr.update(0.016);
+        mgr.update(0.016);
+        mgr.update(0.016);
+
+        expect(seen).toHaveLength(3);
+        expect(new Set(seen).size).toBe(1); // same object every frame
+    });
+});

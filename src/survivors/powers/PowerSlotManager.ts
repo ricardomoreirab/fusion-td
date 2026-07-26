@@ -273,7 +273,6 @@ export class PowerSlotManager {
         // slot reaches ready. Defer the O(n) target scan and the context object
         // allocation until a slot is actually ready to fire — when nothing fires
         // this loop does no allocation and no enemy scan at all.
-        let ctx: PowerContext | null = null;
         let nearestD2 = -1; // <0 = not yet computed this frame
         for (const slot of this.slots) {
             if (!slot) continue;
@@ -305,9 +304,17 @@ export class PowerSlotManager {
                         // at the clip's release point.
                         this.pendingCasts.push({ slot, timer: delay });
                     } else {
-                        if (!ctx) ctx = this.buildContext();
-                        ctx.element = slot.def.element;
-                        slot.def.cast(slot.state, ctx);
+                        // ONE CONTEXT PER CAST — never shared between slots. A
+                        // cast's projectile observer holds this object for the
+                        // whole flight and reads ctx.element off it every frame,
+                        // so a second slot firing in the same tick used to
+                        // repaint the first one's damage numbers and impact FX
+                        // with ITS element. buildContext() is reached only when a
+                        // slot actually fires, so an idle frame still allocates
+                        // nothing (that is what the lazy build was really for).
+                        const castCtx = this.buildContext();
+                        castCtx.element = slot.def.element;
+                        slot.def.cast(slot.state, castCtx);
                         this.lastCastSlot = slot;
                     }
                     // Only a real cast drives the special-attack animation — a slot with
@@ -325,14 +332,17 @@ export class PowerSlotManager {
      * exactly where it was after the burst. Returns the number of slots that fired.
      */
     public forceCastAutocastSlots(): number {
-        const ctx = this.buildContext();
         let count = 0;
         for (const slot of this.slots) {
             if (!slot) continue;
             if (slot.def.mode !== 'autocast') continue;
             if (!slot.def.cast) continue;
-            ctx.element = slot.def.element;
-            slot.def.cast(slot.state, ctx);
+            // One context per cast, same contract as update(): this burst fires
+            // several slots back to back, so a shared object would hand every
+            // projectile in flight the LAST slot's element.
+            const castCtx = this.buildContext();
+            castCtx.element = slot.def.element;
+            slot.def.cast(slot.state, castCtx);
             this.lastCastSlot = slot;
             count++;
         }
@@ -432,8 +442,10 @@ export class PowerSlotManager {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    /** A FRESH context. Required by cast()/init(): their projectile observers
-     *  keep reading ctx.scene/ctx.element long after the call returns. */
+    /** A FRESH context, and it must stay one PER CALL. cast()/init() hand this
+     *  object to projectile observers that keep reading ctx.scene/ctx.element
+     *  long after the call returns, so two casts may never share one. Only the
+     *  per-frame tick path reuses a context (tickContext). */
     private buildContext(): PowerContext {
         return {
             scene: this.scene,
