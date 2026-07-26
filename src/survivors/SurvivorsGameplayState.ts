@@ -535,7 +535,10 @@ export class SurvivorsGameplayState implements GameState {
         inProgress: false,
     };
     private _scratchRunStats: { timeS: number; kills: number } = { timeS: 0, kills: 0 };
-    private _scratchXp: { level: number; progress: number } = { level: 1, progress: 0 };
+    private _scratchXp: {
+        level: number; progress: number;
+        ascUnlocked: boolean; ascLevel: number; ascPoints: number;
+    } = { level: 1, progress: 0, ascUnlocked: false, ascLevel: 0, ascPoints: 0 };
     /** Reused co-op per-frame structs: the local pose we broadcast and the shared
      *  camera focus the provider returns. Both are consumed synchronously (the
      *  pose is encoded inside sendLocalPose; the focus is read by IsoCameraRig
@@ -1430,6 +1433,7 @@ export class SurvivorsGameplayState implements GameState {
         // The level medallion is the character-sheet button (solo only —
         // wiring it here is what makes it interactive).
         this.hud.setOnOpenCharacter(() => this.openCharacter());
+        if (!this.coopSession) this.hud.setOnOpenAscension(() => this.openAscension());
 
         // Combat-event hooks — wired for host/solo AND co-op guest. On the HOST
         // setOnHurt fires when the host's hero is hit (thorns/chrono). On the GUEST
@@ -3535,6 +3539,13 @@ export class SurvivorsGameplayState implements GameState {
             this._scratchRunStats.kills = this.playerStats.getTotalKills();
             this._scratchXp.level = this.levelSystem?.getLevel() ?? 1;
             this._scratchXp.progress = this.levelSystem?.getProgress() ?? 0;
+            // Reused struct: assign EVERY field every frame or stale values leak.
+            const capped = !!this.levelSystem?.isMaxLevel() && !this.coopSession;
+            this._scratchXp.ascUnlocked = capped;
+            this._scratchXp.ascLevel = this.ascension?.getLevel() ?? 0;
+            this._scratchXp.ascPoints = this.ascension?.getUnspent() ?? 0;
+            // Once capped, the XP rail tracks ascension progress instead.
+            if (capped && this.ascension) this._scratchXp.progress = this.ascension.getProgress();
             this.hud.update(
                 this.heroController.getHealth(),
                 this._scratchXp,
@@ -4431,8 +4442,12 @@ export class SurvivorsGameplayState implements GameState {
     private openAscension(): void {
         if (!this.ascensionTree || !this.ascension || this.coopSession) return;
         if (this.ascensionTree.isOpen()) { this.ascensionTree.close(); return; }
-        if (this.ascension.getLevel() < 1 && this.ascension.getUnspent() < 1) {
-            this.hud?.showBanner('Ascension unlocks at level 100', 'arcane');
+        // Gate on the HERO's level, not on ascension points: at the cap with no
+        // ascension XP banked yet the player IS unlocked, and telling them
+        // otherwise is simply false. They can open the tree and plan.
+        if (!this.levelSystem?.isMaxLevel()) {
+            const lv = this.levelSystem?.getLevel() ?? 1;
+            this.hud?.showBanner(`Ascension unlocks at level 100 (you are ${lv})`, 'arcane');
             return;
         }
         this.ascensionTree.show(this.buildAscensionVM(), (id) => this.handleAscensionSpend(id));
@@ -4497,6 +4512,13 @@ export class SurvivorsGameplayState implements GameState {
     private devGrantAscension(levels: number): void {
         const asc = this.ascension;
         if (!asc) return;
+        // Cap the HERO first so the dev path reproduces the real post-100 state
+        // (the tree gate and the HUD button both key off isMaxLevel), not just a
+        // pile of ascension points the UI would still hide.
+        if (this.levelSystem && !this.levelSystem.isMaxLevel()) {
+            this.levelSystem.addXp(1_000_000);
+            this.applyLevelBonuses();
+        }
         for (let i = 0; i < levels; i++) asc.addXp(asc.xpToNext(asc.getLevel()));
         this.applyLevelBonuses();
         this.hud?.showBanner(`Ascension ${asc.getLevel()} (dev)`, 'arcane');

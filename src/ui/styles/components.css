@@ -1426,6 +1426,44 @@
 }
 .asc-pip--on { background: var(--accent); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.5); }
 
+/* Ascension HUD button — the only way into the tree on touch, where the `t`
+   hotkey does not exist. Hidden until the hero caps. Arcane role colour, the
+   same one the XP rail and the level-up banner already use for "power gained".
+   Lift comes from `filter`, never an outer box-shadow (clip-path clips those). */
+.asc-btn {
+  position: relative;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 1px;
+  width: var(--hud-slot); height: var(--hud-slot);
+  color: var(--c-arcane-hi);
+  background: var(--rim-bronze) border-box, var(--fill-plate) padding-box;
+  border: 2px solid transparent;
+  clip-path: var(--chamfer-xs);
+  box-shadow: var(--bevel-chrome);
+  filter: var(--lift-sm);
+  cursor: pointer;
+}
+.asc-btn:hover { filter: var(--lift-sm) brightness(1.25); }
+.asc-btn:active { transform: translateY(1px) scale(0.97); }
+.asc-btn__label {
+  font-family: var(--ff-display); font-weight: 700; font-size: 8px;
+  letter-spacing: 0.08em; color: var(--c-parchment-dim);
+}
+.asc-btn__badge {
+  position: absolute; right: -3px; top: -3px;
+  min-width: 15px; height: 15px; padding: 0 3px;
+  display: none;
+  font-family: var(--ff-display); font-weight: 700; font-size: 10px; line-height: 15px;
+  text-align: center; color: var(--c-void);
+  background: var(--c-arcane-hi);
+  border-radius: var(--r-pill);
+}
+/* Unspent points pulse — a third channel, since box-shadow is owned by the
+   medallion level-up flash and filter by its hover state. */
+@keyframes asc-pending { 0%, 100% { filter: var(--lift-sm); } 50% { filter: var(--lift-sm) brightness(1.5); } }
+.asc-btn--pending { animation: asc-pending 1.8s ease-in-out infinite; }
+@media (pointer: coarse) { .asc-btn { width: 44px; height: 44px; } }
+
 /* Node detail popup. Mounted on the overlay layer as a SIBLING of the tree
    modal — nesting it inside `.modal-panel` would clip it against that panel's
    chamfer clip-path. Sits above the tree's own scrim. */
@@ -1730,7 +1768,7 @@
    these has a colour/shape channel too, so no information is lost. */
 @media (prefers-reduced-motion: reduce) {
   .meter--danger, .meter--hit, .medallion--up, .slot--ready, .ult--fire,
-  .hud__purse--gain, .coop-wait, .hud__horn { animation: none; }
+  .hud__purse--gain, .coop-wait, .hud__horn, .asc-btn--pending { animation: none; }
   .hud__banner--show { animation: none; opacity: 1; }
   .meter__ghost, .meter--xp .meter__fill { transition: none; }
 }

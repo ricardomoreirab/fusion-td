@@ -53,6 +53,11 @@ export class Hud {
   private xpMeter: MeterController;
   private medallion: HTMLDivElement;
   private medallionNum: HTMLDivElement;
+  private ascBtn: HTMLDivElement;
+  private ascBadge: HTMLDivElement;
+  private onOpenAscension: (() => void) | null = null;
+  private cachedAscPoints = -1;
+  private cachedAscShown = false;
 
   // Top-centre objective plate.
   private waveEl: HTMLDivElement;
@@ -153,7 +158,17 @@ export class Hud {
     this.hpMeter = makeMeter('hp', 'heart');
     this.xpMeter = makeMeter('xp');
     const bars = el('div', { class: 'hud__bars' }, [this.hpMeter.root, this.xpMeter.root]);
-    const vitals = el('div', { class: 'hud__vitals' }, [this.medallion, bars]);
+    // Ascension entry point. Hidden until the hero caps, then it is the only
+    // way in on touch — the `t` hotkey does not exist on a phone.
+    this.ascBadge = el('div', { class: 'asc-btn__badge' });
+    this.ascBtn = el('div', {
+      class: 'asc-btn',
+      attrs: { role: 'button', 'aria-label': 'Ascension' },
+    }, [iconEl('rune'), el('span', { class: 'asc-btn__label', text: 'ASC' }), this.ascBadge]);
+    this.ascBtn.style.display = 'none';
+    onTap(this.ascBtn, () => this.onOpenAscension?.());
+
+    const vitals = el('div', { class: 'hud__vitals' }, [this.medallion, bars, this.ascBtn]);
 
     // The medallion is the character-sheet button. The equipment strip that
     // used to sit under the vitals is gone — the shop's gear ledger covers
@@ -313,7 +328,7 @@ export class Hud {
 
   update(
     hp: { current: number; max: number },
-    xp: { level: number; progress: number },
+    xp: { level: number; progress: number; ascUnlocked?: boolean; ascLevel?: number; ascPoints?: number },
     slots: (PowerSlot | null)[],
     deltaTime = 0,
     waveInfo?: WaveInfo,
@@ -367,6 +382,23 @@ export class Hud {
       this.showBanner(`Level ${xp.level}`, 'arcane');
     }
     this.prevLevel = xp.level;
+
+    // Ascension button — appears once the hero caps, badge shows unspent points.
+    // Both writes sit behind cached diffs so this costs nothing at 60Hz.
+    const ascShown = !!xp.ascUnlocked && !!this.onOpenAscension;
+    if (ascShown !== this.cachedAscShown) {
+      this.cachedAscShown = ascShown;
+      this.ascBtn.style.display = ascShown ? '' : 'none';
+    }
+    if (ascShown) {
+      const pts = xp.ascPoints ?? 0;
+      if (pts !== this.cachedAscPoints) {
+        this.cachedAscPoints = pts;
+        this.ascBadge.textContent = pts > 0 ? String(pts) : '';
+        this.ascBadge.style.display = pts > 0 ? 'block' : 'none';
+        this.ascBtn.classList.toggle('asc-btn--pending', pts > 0);
+      }
+    }
 
     const waveText = waveTitle(waveInfo);
     if (waveText !== this.cachedWaveText) {
@@ -513,6 +545,12 @@ export class Hud {
   /** Open-character-profile callback (wired by the gameplay state). Also marks
       the level medallion as an interactive control — it stays inert wherever
       there is no character sheet to open (co-op). */
+  /** Wire the Ascension tree button. Single-player only, like the character
+   *  sheet — the button stays hidden until the hero reaches the level cap. */
+  setOnOpenAscension(fn: () => void): void {
+    this.onOpenAscension = fn;
+  }
+
   setOnOpenCharacter(fn: () => void): void {
     this.onOpenCharacter = fn;
     this.medallion.classList.add('interactive', 'medallion--clickable');
