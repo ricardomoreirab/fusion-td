@@ -8,6 +8,7 @@ import {
     stepIsoZoom, lerpIsoZoom, parsePersistedIsoZoom, clampIsoZoom,
     type OrthoFrustum,
 } from './isoProjection';
+import { observeCanvasSize, type CanvasSize } from '../../engine/canvasSize';
 
 const ZOOM_STORAGE_KEY = 'ktg.isoZoom';
 
@@ -58,6 +59,10 @@ export interface IsoFocus { x: number; z: number; distanceScale: number }
 export class IsoCameraRig {
     private readonly camera: OrthographicCamera;
     private readonly canvas: HTMLCanvasElement | null;
+    /** Cached viewport size. `applyProjection` runs every frame and used to read
+     *  `clientWidth`/`clientHeight` three times to do it, each a potential forced
+     *  reflow; the observer delivers the same numbers for free. */
+    private readonly viewport: CanvasSize;
 
     private viewHeight: number;
     private zoomTarget: number;
@@ -78,7 +83,8 @@ export class IsoCameraRig {
 
     constructor(canvas: HTMLCanvasElement | null, startX = 0, startZ = 0) {
         this.canvas = canvas;
-        const vw = canvas?.clientWidth || window.innerWidth;
+        this.viewport = observeCanvasSize(canvas);
+        const vw = this.viewport.width || window.innerWidth;
         this.viewHeight = vw < 700 ? ISO_VIEW_HEIGHT_MOBILE : ISO_VIEW_HEIGHT;
 
         this.zoomTarget = parsePersistedIsoZoom(readPersistedZoom());
@@ -128,8 +134,8 @@ export class IsoCameraRig {
     }
 
     private currentAspect(): number {
-        const w = this.canvas?.clientWidth || window.innerWidth;
-        const h = Math.max(1, this.canvas?.clientHeight || window.innerHeight);
+        const w = this.viewport.width || window.innerWidth;
+        const h = Math.max(1, this.viewport.height || window.innerHeight);
         const a = w / h;
         return Number.isFinite(a) && a > 0 ? a : 1;
     }
@@ -139,7 +145,7 @@ export class IsoCameraRig {
      *  self-heals without needing an explicit resize hook wired through Game. */
     private applyProjection(force: boolean, coopScale = 1): void {
         const aspect = this.currentAspect();
-        const vw = this.canvas?.clientWidth || window.innerWidth;
+        const vw = this.viewport.width || window.innerWidth;
         const wantHeight = vw < 700 ? ISO_VIEW_HEIGHT_MOBILE : ISO_VIEW_HEIGHT;
         if (wantHeight !== this.viewHeight) {
             this.viewHeight = wantHeight;
@@ -216,13 +222,15 @@ export class IsoCameraRig {
 
     /** Viewport changed: re-pick the mobile/desktop view height and rebuild. */
     public resize(): void {
-        const vw = this.canvas?.clientWidth || window.innerWidth;
+        this.viewport.refresh();
+        const vw = this.viewport.width || window.innerWidth;
         this.viewHeight = vw < 700 ? ISO_VIEW_HEIGHT_MOBILE : ISO_VIEW_HEIGHT;
         this.applyProjection(true);
     }
 
     public dispose(): void {
         this.canvas?.removeEventListener('wheel', this.onWheel);
+        this.viewport.dispose();
     }
 }
 
