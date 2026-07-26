@@ -36,6 +36,12 @@ function spin(name: string): QuaternionKeyframeTrack {
     return new QuaternionKeyframeTrack(name, TIMES, [0, 0, 0, 1, 0, 0.38, 0, 0.92, 0, 0, 0, 1]);
 }
 
+/** A rotation that never moves — and is not the bind (identity) orientation. */
+function pinnedQuat(name: string): QuaternionKeyframeTrack {
+    const q = [0, 0, 0.2588, 0.9659];
+    return new QuaternionKeyframeTrack(name, TIMES, [...q, ...q, ...q]);
+}
+
 describe('pruneStaticTracks', () => {
     it('removes a constant track that already sits on the bind value', () => {
         const { root } = rig();
@@ -49,16 +55,53 @@ describe('pruneStaticTracks', () => {
         expect(clip.tracks.map(t => t.name)).toEqual(['Bip001.quaternion']);
     });
 
-    it('keeps a constant track whose value differs from the bind pose', () => {
-        const { root } = rig();
-        // Bind scale is 1; a clip pinning it at 1.5 is a real (if static) pose.
-        const clip = new AnimationClip('run', 1, [
+    it('removes a constant that differs from bind when EVERY clip pins it there', () => {
+        const { root, hips } = rig();
+        // Bind scale is 1 but both clips pin it at 1.5, so 1.5 is what the rig
+        // actually is; the node adopts it and the channel goes (rule 2).
+        const run = new AnimationClip('run', 1, [
             spin('Bip001.quaternion'),
             constVec('Bip001.scale', 1.5, 1.5, 1.5),
         ]);
+        const idle = new AnimationClip('idle', 1, [
+            spin('Bip001_Spine.quaternion'),
+            constVec('Bip001.scale', 1.5, 1.5, 1.5),
+        ]);
 
-        expect(pruneStaticTracks(root, [clip])).toBe(0);
-        expect(clip.tracks).toHaveLength(2);
+        expect(pruneStaticTracks(root, [run, idle])).toBe(2);
+        expect(run.tracks.map(t => t.name)).toEqual(['Bip001.quaternion']);
+        expect(idle.tracks.map(t => t.name)).toEqual(['Bip001_Spine.quaternion']);
+        expect(hips.scale.x).toBe(Math.fround(1.5));
+    });
+
+    it('keeps a constant that differs from bind when a clip omits the channel', () => {
+        const { root, hips } = rig();
+        // `idle` never writes the scale, so it would show the bind value (1)
+        // while `run` shows 1.5. There is no single value to snap the node to.
+        const run = new AnimationClip('run', 1, [
+            spin('Bip001.quaternion'),
+            constVec('Bip001.scale', 1.5, 1.5, 1.5),
+        ]);
+        const idle = new AnimationClip('idle', 1, [spin('Bip001_Spine.quaternion')]);
+
+        expect(pruneStaticTracks(root, [run, idle])).toBe(0);
+        expect(run.tracks).toHaveLength(2);
+        expect(hips.scale.x).toBe(1);
+    });
+
+    it('keeps a constant that differs from bind AND differs between clips', () => {
+        const { root, hips } = rig();
+        const run = new AnimationClip('run', 1, [
+            spin('Bip001.quaternion'),
+            constVec('Bip001.scale', 1.5, 1.5, 1.5),
+        ]);
+        const idle = new AnimationClip('idle', 1, [
+            spin('Bip001_Spine.quaternion'),
+            constVec('Bip001.scale', 1.75, 1.75, 1.75),
+        ]);
+
+        expect(pruneStaticTracks(root, [run, idle])).toBe(0);
+        expect(hips.scale.x).toBe(1);
     });
 
     it('keeps a track that is constant in one clip but animated in another', () => {
@@ -232,9 +275,44 @@ describe('pruneStaticTracks — pose equivalence', () => {
         return { root, clips: [run, idle] };
     }
 
+    /** Every clip pins the spine at a translation AND a rotation the bind pose
+     *  does not hold — the rule-2 shape. */
+    function buildOffBind(): { root: Group; clips: AnimationClip[] } {
+        const { root } = rig();
+        const run = new AnimationClip('run', 1, [
+            spin('Bip001.quaternion'),
+            movingVec('Bip001.position'),
+            constVec('Bip001_Spine.position', 0, 0.52, 0),
+            pinnedQuat('Bip001_Spine.quaternion'),
+        ]);
+        const idle = new AnimationClip('idle', 1, [
+            constVec('Bip001.position', 0, 1.2, 0),
+            constVec('Bip001_Spine.position', 0, 0.52, 0),
+            pinnedQuat('Bip001_Spine.quaternion'),
+        ]);
+        return { root, clips: [run, idle] };
+    }
+
     it('produces a bit-identical pose trace across a clip switch', () => {
         const order = ['run', 'idle', 'run'];
         expect(poseTrace(build, true, order)).toEqual(poseTrace(build, false, order));
+    });
+
+    it('produces a bit-identical pose trace for an off-bind shared constant', () => {
+        const order = ['run', 'idle', 'run'];
+        expect(poseTrace(buildOffBind, true, order))
+            .toEqual(poseTrace(buildOffBind, false, order));
+    });
+
+    it('drops an off-bind channel from every clip and adopts it as the rest pose', () => {
+        const { root, clips } = buildOffBind();
+        const spine = root.getObjectByName('Bip001_Spine')!;
+        expect(pruneStaticTracks(root, clips)).toBe(4);
+        expect(clips[0].tracks.map(t => t.name))
+            .toEqual(['Bip001.quaternion', 'Bip001.position']);
+        expect(clips[1].tracks.map(t => t.name)).toEqual(['Bip001.position']);
+        expect(spine.position.y).toBe(Math.fround(0.52));
+        expect(spine.quaternion.z).toBe(Math.fround(0.2588));
     });
 
     it('drops only the provably inert half of the track set', () => {
