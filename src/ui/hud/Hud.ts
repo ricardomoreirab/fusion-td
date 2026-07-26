@@ -7,6 +7,7 @@ import { el } from '../dom';
 import { makeMeter, MeterController } from '../primitives/Meter';
 import { makeIconSlot, IconSlotController } from '../primitives/IconSlot';
 import { iconEl, IconName, setIcon } from '../icons';
+import { GameSettings } from '../../shared/GameSettings';
 import { elementColor, elementIcon, POWER_ICON, TIER_COLOR, TIER_ICON } from '../elementMeta';
 import { flashClass, onTap } from '../interaction';
 import {
@@ -190,12 +191,26 @@ export class Hud {
     this.purseNum = el('span', { class: 'hud__purse-n', text: '0' });
     this.purseEl = el('div', { class: 'hud__purse plate' }, [iconEl('coin'), this.purseNum]);
 
+    // Speaker toggle — same chrome as the pause button beside it. Writes the
+    // persisted setting; Game's GameSettings subscription applies the mute.
+    const soundBtn = el('div', { class: 'hud__pause plate interactive', attrs: { role: 'button', 'aria-label': 'Toggle sound' } });
+    const soundIcon = el('div', { class: 'hud__pause-icon' });
+    soundBtn.appendChild(soundIcon);
+    const syncSoundIcon = (): void => {
+      setIcon(soundIcon, GameSettings.getSoundOn() ? 'sound' : 'soundOff');
+    };
+    onTap(soundBtn, () => {
+      GameSettings.setSoundOn(!GameSettings.getSoundOn());
+      syncSoundIcon();
+    });
+    syncSoundIcon();
+
     const pauseBtn = el('div', { class: 'hud__pause plate interactive', attrs: { role: 'button', 'aria-label': 'Pause' } });
     this.pauseIcon = el('div', { class: 'hud__pause-icon' }, [iconEl('pause')]);
     pauseBtn.appendChild(this.pauseIcon);
     onTap(pauseBtn, () => this.togglePause());
 
-    const zoneTR = el('div', { class: 'hud__zone hud__zone--tr' }, [this.purseEl, pauseBtn]);
+    const zoneTR = el('div', { class: 'hud__zone hud__zone--tr' }, [this.purseEl, soundBtn, pauseBtn]);
     this.root.appendChild(el('div', { class: 'hud__topbar' }, [zoneTL, zoneTC, zoneTR]));
 
     // ── Bottom-left: 4 power slots over the run-item row ───────────────

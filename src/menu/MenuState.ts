@@ -6,6 +6,7 @@ import { GameUI } from '../ui/GameUI';
 import { el } from '../ui/dom';
 import { onTap } from '../ui/interaction';
 import { makeButton } from '../ui/primitives/Button';
+import { iconEl } from '../ui/icons';
 import { LeaderboardOverlay } from '../ui/overlays/Leaderboard';
 import { CoopLobbyOverlay } from '../ui/overlays/CoopLobby';
 import { PrivateRoomService } from '../net/RoomService';
@@ -65,6 +66,26 @@ export class MenuState implements GameState {
 
         // ── Full-screen container ────────────────────────────────────────
         const screen = el('div', { class: 'screen interactive' });
+
+        // Sound toggle — the game boots muted, so the menu corner is the one
+        // obvious place to opt into audio before a run (mirrored in-game by
+        // the HUD speaker). Game.start()'s GameSettings subscription applies
+        // the flip to the audio engine; the button only writes the setting.
+        const soundBtn = el('div', {
+            class: 'sound-btn',
+            attrs: { role: 'button', 'aria-label': 'Toggle sound' },
+        });
+        const syncSoundIcon = (): void => {
+            const on = GameSettings.getSoundOn();
+            soundBtn.replaceChildren(iconEl(on ? 'sound' : 'soundOff'));
+            soundBtn.classList.toggle('sound-btn--off', !on);
+        };
+        onTap(soundBtn, () => {
+            GameSettings.setSoundOn(!GameSettings.getSoundOn());
+            syncSoundIcon();
+        });
+        syncSoundIcon();
+        screen.appendChild(soundBtn);
 
         // Title
         screen.appendChild(el('div', { class: 'screen__title', text: 'KTG' }));

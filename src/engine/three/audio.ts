@@ -12,13 +12,14 @@ const buffers = new Map<string, AudioBuffer>();
 let ctx: AudioContext | null = null;
 let masterGain: GainNode | null = null;
 let masterVolume = 1;
+let muted = false;
 
 function getContext(): AudioContext | null {
     if (typeof AudioContext === 'undefined') return null;
     if (!ctx) {
         ctx = new AudioContext();
         masterGain = ctx.createGain();
-        masterGain.gain.value = masterVolume;
+        masterGain.gain.value = muted ? 0 : masterVolume;
         masterGain.connect(ctx.destination);
         const resume = (): void => {
             void ctx?.resume();
@@ -167,5 +168,18 @@ export function stopLoop(name: string, fadeS = 0.8): void {
 
 export function setMasterVolume(v: number): void {
     masterVolume = v;
-    if (masterGain) masterGain.gain.value = v;
+    if (masterGain) masterGain.gain.value = muted ? 0 : v;
+}
+
+/** Master mute: silences every source (one-shots, loops, ambience) at the
+ *  shared master gain. Sources keep playing into the zeroed gain, so
+ *  unmuting resumes mid-stream instead of restarting anything. Safe to call
+ *  before the AudioContext exists — the state applies at creation. */
+export function setMuted(m: boolean): void {
+    muted = m;
+    if (masterGain) masterGain.gain.value = m ? 0 : masterVolume;
+}
+
+export function isMuted(): boolean {
+    return muted;
 }

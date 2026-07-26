@@ -11,7 +11,8 @@ import { SceneHost } from './three/SceneHost';
 import { RendererHost } from './three/RendererHost';
 import { configureAssetLoaders } from './three/assets';
 import { disposeMesh } from './three/primitives';
-import { hasSound } from './three/audio';
+import { hasSound, setMuted } from './three/audio';
+import { GameSettings } from '../shared/GameSettings';
 import type { RGBA } from './three/math';
 import { evaluateRenderHealth, isFiniteVec3, isFiniteMatrix, type RenderHealthSnapshot } from './renderHealth';
 
@@ -123,6 +124,13 @@ export class Game {
         // Initialize managers
         this.assetManager = new AssetManager();
         this.stateManager = new StateManager(this);
+
+        // Master audio follows the persisted preference (OFF by default) —
+        // applied BEFORE any state enters so the menu music starts silent.
+        // The speaker toggles only write GameSettings; this subscription is
+        // the single place the preference reaches the audio engine.
+        setMuted(!GameSettings.getSoundOn());
+        GameSettings.subscribe(s => setMuted(!s.soundOn));
 
         // Register game states (their constructors don't touch the scene yet - only enter() does)
         this.stateManager.registerState('menu', new MenuState(this));

@@ -845,9 +845,17 @@
 .modal-panel--shop {
   width: min(1180px, 96vw);
   max-width: min(1180px, 96vw);
-  overflow-x: hidden;
+  /* The PANEL never scrolls: when the stock + gear ledger outgrow the
+     viewport, .shop-body scrolls internally instead, so the footer with
+     "To battle!" is pinned on screen at every viewport height. */
+  overflow: hidden;
 }
-.shop-body { display: flex; gap: var(--s-3); align-items: stretch; }
+.modal-panel--shop .modal-body { flex: 1 1 auto; min-height: 0; }
+.shop-body {
+  display: flex; gap: var(--s-3); align-items: stretch;
+  flex: 1 1 auto; min-height: 0;
+  overflow-y: auto; overflow-x: hidden;
+}
 .shop-portrait-col {
   flex: 0 0 200px;
   display: flex; flex-direction: column; gap: var(--s-2);
@@ -1182,6 +1190,23 @@
   .shop-bubble::after { left: 50%; transform: translateX(-50%); }
   .shop-portrait-mount { flex: 0 0 96px; min-height: 96px; }
 }
+
+/* Small corner speaker toggle on the main menu (the game boots muted). */
+.sound-btn {
+  position: absolute; top: 14px; right: 14px;
+  width: 40px; height: 40px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--c-gold);
+  background: rgba(14, 12, 8, 0.72);
+  border: 1px solid color-mix(in srgb, var(--c-gold) 45%, transparent);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: color 120ms ease, filter 120ms ease;
+}
+.sound-btn:hover { color: var(--c-gold-hi); filter: brightness(1.15); }
+.sound-btn--off { color: var(--c-parchment-dim); }
+.sound-btn .icon { font-size: 19px; }
+@media (pointer: coarse) { .sound-btn { width: 44px; height: 44px; } }
 
 /* Corner close button for dismissable modals (e.g. character profile). */
 .modal-close {

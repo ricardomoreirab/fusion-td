@@ -48,6 +48,14 @@ const ICONS = {
   pause: { filled: true, body: '<path d="M7.8 4.4h3.1v15.2H7.8zM13.1 4.4h3.1v15.2h-3.1z"/>' },
   play: { filled: true, body: '<path d="M7.8 4.3 19.2 12 7.8 19.7z"/>' },
   close: { body: '<path d="M5.6 5.6 18.4 18.4M18.4 5.6 5.6 18.4"/>' },
+  /** Speaker with waves — sound on. */
+  sound: {
+    body: '<path d="M4 9.6v4.8h3.2l4.6 3.8V5.8L7.2 9.6z"/><path d="M15.4 9.3a3.9 3.9 0 0 1 0 5.4M18 6.7a7.6 7.6 0 0 1 0 10.6"/>',
+  },
+  /** Speaker crossed out — sound off (the boot default). */
+  soundOff: {
+    body: '<path d="M4 9.6v4.8h3.2l4.6 3.8V5.8L7.2 9.6z"/><path d="m15.6 9.6 4.8 4.8M20.4 9.6l-4.8 4.8"/>',
+  },
 
   // ── Elements ──────────────────────────────────────────────────────────
   flame: {

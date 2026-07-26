@@ -12,11 +12,15 @@ export type GraphicsQuality = 'low' | 'medium' | 'high';
 interface SettingsShape {
     graphicsQuality: GraphicsQuality;
     leaderboardName: string;
+    /** Master audio. OFF by default — the player opts into sound via the
+     *  speaker toggle (menu corner / HUD top-right). */
+    soundOn: boolean;
 }
 
 const DEFAULTS: SettingsShape = {
     graphicsQuality: 'high',
     leaderboardName: '',
+    soundOn: false,
 };
 
 type Listener = (next: SettingsShape) => void;
@@ -37,7 +41,10 @@ function load(): SettingsShape {
             const leaderboardName = typeof parsed.leaderboardName === 'string'
                 ? parsed.leaderboardName.slice(0, 16)
                 : DEFAULTS.leaderboardName;
-            _state = { graphicsQuality: quality, leaderboardName };
+            const soundOn = typeof parsed.soundOn === 'boolean'
+                ? parsed.soundOn
+                : DEFAULTS.soundOn;
+            _state = { graphicsQuality: quality, leaderboardName, soundOn };
             return _state;
         }
     } catch (_) {
@@ -65,6 +72,18 @@ export const GameSettings = {
         const s = load();
         if (s.graphicsQuality === q) return;
         s.graphicsQuality = q;
+        persist();
+        for (const fn of _listeners) fn(s);
+    },
+
+    getSoundOn(): boolean {
+        return load().soundOn;
+    },
+
+    setSoundOn(on: boolean): void {
+        const s = load();
+        if (s.soundOn === on) return;
+        s.soundOn = on;
         persist();
         for (const fn of _listeners) fn(s);
     },
