@@ -25,6 +25,7 @@ import { redSwapType, TIER3_SWAP_WAVE } from './redSwap';
 import { PlayerStats } from '../PlayerStats';
 import { makeElite } from './EliteSpawner';
 import { DifficultyTuning } from '../DifficultyTuning';
+import { difficultyAt } from '../DifficultyCurve';
 import { SPAWN_RING_RADIUS } from '../world/WorldConstants';
 
 export class EnemyManager {
@@ -137,12 +138,6 @@ export class EnemyManager {
      *  is freshly constructed at the start of each run. */
     private orbHpMultiplier: number = 1;
 
-    /** Per-wave baseline HP/reward scaling. Each wave past the first adds this
-     *  fraction (linear): wave N → ×(1 + WAVE_HP_SCALE_PER_WAVE × (N − 1)).
-     *  Applied to every survivors spawn EXCEPT milestone bosses, whose tier HP
-     *  already derives from the wave number. Stacks multiplicatively with the
-     *  orb buff and elite scaling. */
-    private static readonly WAVE_HP_SCALE_PER_WAVE = 0.06;
 
     constructor(game: Game) {
         this.game = game;
@@ -329,17 +324,16 @@ export class EnemyManager {
         }
     }
 
-    /** Apply the per-wave baseline HP + reward scaling to a freshly-constructed
-     *  enemy. Skips milestone bosses (their tier HP already encodes the wave).
-     *  No-op on wave 1 (multiplier is exactly 1). */
+    /** Apply the per-wave HP + reward scaling to a freshly-constructed enemy.
+     *  Skips milestone bosses (their tier HP already encodes the wave). HP and
+     *  reward ride SEPARATE columns of the curve: reward counter-weights the
+     *  falling enemy count so wave income — and the XP ladder it feeds — stays
+     *  on its calibrated line. See DifficultyCurve's header. */
     private _applyWaveScaling(enemy: Enemy): void {
         if (enemy instanceof MilestoneBoss) return;
-        const wave = this.waveManager?.getCurrentWave() ?? 1;
-        const waveMult = 1 + EnemyManager.WAVE_HP_SCALE_PER_WAVE * Math.max(0, wave - 1);
-        if (waveMult > 1) {
-            enemy.applyHealthMultiplier(waveMult);
-            enemy.applyRewardMultiplier(waveMult);
-        }
+        const { hp, reward } = difficultyAt(this.waveManager?.getCurrentWave() ?? 1);
+        enemy.applyHealthMultiplier(hp);
+        enemy.applyRewardMultiplier(reward);
     }
 
     /** Apply the global difficulty multipliers (tankier + harder-hitting) to a
@@ -348,8 +342,9 @@ export class EnemyManager {
      *  on top of elite, orb, and wave-scaling multipliers (intentional). */
     private _applyGlobalDifficulty(enemy: Enemy): void {
         if (enemy instanceof MilestoneBoss) return;
+        const { damage } = difficultyAt(this.waveManager?.getCurrentWave() ?? 1);
         enemy.applyHealthMultiplier(DifficultyTuning.enemyHpMult);
-        enemy.applyDamageMultiplier(DifficultyTuning.enemyDamageMult);
+        enemy.applyDamageMultiplier(DifficultyTuning.enemyDamageMult * damage);
     }
 
     /**

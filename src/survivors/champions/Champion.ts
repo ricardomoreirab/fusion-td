@@ -2281,23 +2281,13 @@ vHeroRimView = normalize(-mvPosition.xyz);`,
         this.containerInstance = null;
         this.glbAnimationGroups.length = 0;
 
-        // Dispose mesh and health bars. Shared/cached materials survive (disposeMesh
-        // only frees materials flagged ownedMaterial, e.g. the mage orb).
+        // Dispose the mesh. Shared/cached materials survive (disposeMesh only
+        // frees materials flagged ownedMaterial, e.g. the mage orb). There are no
+        // health-bar meshes to free — createHealthBar is overridden empty here;
+        // the player's HP lives in the HUD.
         if (this.mesh) {
             disposeMesh(this.mesh);
             this.mesh = null;
-        }
-        if (this.healthBarMesh) {
-            disposeMesh(this.healthBarMesh);
-            this.healthBarMesh = null;
-        }
-        if (this.healthBarBackgroundMesh) {
-            disposeMesh(this.healthBarBackgroundMesh);
-            this.healthBarBackgroundMesh = null;
-        }
-        if (this.healthBarOutlineMesh) {
-            disposeMesh(this.healthBarOutlineMesh);
-            this.healthBarOutlineMesh = null;
         }
         this.statusEffectParticles.forEach(ps => {
             ps.stop();

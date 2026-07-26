@@ -5,6 +5,7 @@ import { AbilityManager } from '../../survivors/abilities/AbilityManager';
 import { RunItems, ItemId } from '../../survivors/RunItems';
 import { el } from '../dom';
 import { makeMeter, MeterController } from '../primitives/Meter';
+import { makeBossBar, BossBarController, BossBarEntry } from './BossBar';
 import { makeIconSlot, IconSlotController } from '../primitives/IconSlot';
 import { iconEl, IconName, setIcon } from '../icons';
 import { GameSettings } from '../../shared/GameSettings';
@@ -68,6 +69,9 @@ export class Hud {
   // Top-right purse.
   private purseEl: HTMLDivElement;
   private purseNum: HTMLSpanElement;
+
+  // Screen-space boss health plate (empty and hidden with no boss alive).
+  private bossBar: BossBarController;
 
   // Centre-top event callout.
   private banner: HTMLDivElement;
@@ -227,6 +231,12 @@ export class Hud {
 
     const zoneTR = el('div', { class: 'hud__zone hud__zone--tr' }, [this.purseEl, soundBtn, pauseBtn]);
     this.root.appendChild(el('div', { class: 'hud__topbar' }, [zoneTL, zoneTC, zoneTR]));
+
+    // ── Boss plate ─────────────────────────────────────────────────────
+    // Appended to the HUD root, NOT to zoneTC: the top bar is a flex row and a
+    // bar this wide inside it would shove the flanking zones outward.
+    this.bossBar = makeBossBar();
+    this.root.appendChild(this.bossBar.root);
 
     // ── Bottom-left: 4 power slots over the run-item row ───────────────
     const bottomLeft = el('div', { class: 'hud__cluster hud__cluster--left' });
@@ -561,8 +571,15 @@ export class Hud {
   pulseItem(id: ItemId): void { this.itemPulse[id] = true; }
   triggerUltimateByIndex(index: number): void { this.ultimateActivators[index]?.(); }
 
+  /** Reconcile the boss plate against the live boss-tier enemies. Called every
+   *  frame with a caller-owned reused array; pass an empty one to clear it. */
+  syncBosses(bosses: readonly BossBarEntry[]): void {
+    this.bossBar.sync(bosses);
+  }
+
   dispose(): void {
     window.clearTimeout(this.bannerTimer);
+    this.bossBar.dispose();
     this.root.remove();
     this.vignette.remove();
   }

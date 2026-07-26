@@ -33,6 +33,7 @@ import { BasicAttackTarget } from './champions/HeroBasicAttack';
 import { PowerChoiceOverlay, PowerCard } from '../ui/overlays/PowerChoice';
 import { ReplaceSlotOverlay } from '../ui/overlays/ReplaceSlot';
 import { Hud } from '../ui/hud/Hud';
+import type { BossBarEntry } from '../ui/hud/BossBar';
 import { GameUI } from '../ui/GameUI';
 import { OffscreenEnemyIndicators } from './ui/OffscreenEnemyIndicators';
 import { ChampionSelectOverlay, ChampionOption } from '../ui/overlays/ChampionSelect';
@@ -535,6 +536,17 @@ export class SurvivorsGameplayState implements GameState {
         inProgress: false,
     };
     private _scratchRunStats: { timeS: number; kills: number } = { timeS: 0, kills: 0 };
+    /** Reused boss-plate feed, in two parts so it is allocation-free after the
+     *  first boss: `_bossPool` is grow-only and owns the entry objects, while
+     *  `_scratchBosses` is the length-adjusted view handed to the HUD. Truncating
+     *  the view drops references, not the pooled objects, so a twin dying and
+     *  respawning never re-allocates. Hud.syncBosses consumes both synchronously
+     *  and retains neither. */
+    private _bossPool: BossBarEntry[] = [];
+    private _scratchBosses: BossBarEntry[] = [];
+    /** Boss ids whose enrage callout has already fired, so the banner is raised
+     *  once per boss rather than every frame it stays below the threshold. */
+    private _announcedEnrage = new Set<number>();
     private _scratchXp: {
         level: number; progress: number;
         ascUnlocked: boolean; ascLevel: number; ascPoints: number;
@@ -2863,6 +2875,11 @@ export class SurvivorsGameplayState implements GameState {
     public exit(): void {
         for (const d of this.powerDrops) d.dispose();
         this.powerDrops = [];
+        // Enemy ids restart per run (EnemyManager is reconstructed), so a stale
+        // id here would suppress the next run's first enrage callout.
+        this._announcedEnrage.clear();
+        this._bossPool.length = 0;
+        this._scratchBosses.length = 0;
 
         for (const d of this.itemDrops) d.dispose();
         this.itemDrops = [];
@@ -3555,6 +3572,7 @@ export class SurvivorsGameplayState implements GameState {
                 this._scratchRunStats,
             );
             this.hud.setGold(this.playerStats.getGold());
+            this.hud.syncBosses(this.collectBosses());
         }
         this._measure('hud');
 
@@ -4689,6 +4707,44 @@ export class SurvivorsGameplayState implements GameState {
      * race with (and clobber) the guest wiring, leaving the guest unable to
      * acquire a target (tgt=N) and never firing.
      */
+    /**
+     * Gather the live boss-tier enemies for the HUD boss plate, into the reused
+     * scratch array. Reads the SAME role-aware list as targeting, so the co-op
+     * guest drives the plate from its render-only registry (whose HP is
+     * host-authoritative) and the host/SP from the real EnemyManager.
+     *
+     * Boss-tier enemies are never more than a couple, but this walks the full
+     * enemy list once per frame, so it does no work beyond the tier test on the
+     * ~99% of frames with no boss out.
+     */
+    private collectBosses(): BossBarEntry[] {
+        const out = this._scratchBosses;
+        const list = this.activeAttackEnemies();
+        let n = 0;
+        for (let i = 0; i < list.length; i++) {
+            const e = list[i];
+            if (!e.isBossTier() || !e.isAlive()) continue;
+            let entry = this._bossPool[n];
+            if (!entry) {
+                entry = { id: 0, name: '', health: 0, maxHealth: 0, enraged: false };
+                this._bossPool[n] = entry;
+            }
+            out[n] = entry;
+            entry.id = e.id;
+            entry.name = e.getBossLabel() ?? 'Boss';
+            entry.health = e.getHealth();
+            entry.maxHealth = e.getMaxHealth();
+            entry.enraged = e.isEnraged();
+            if (entry.enraged && !this._announcedEnrage.has(entry.id)) {
+                this._announcedEnrage.add(entry.id);
+                this.hud?.showBanner(`${entry.name} enrages!`, 'danger');
+            }
+            n++;
+        }
+        out.length = n;
+        return out;
+    }
+
     private activeAttackEnemies(): Enemy[] {
         if (this.coopSession?.role === 'guest') {
             return this.guestEnemies?.getEnemies() ?? [];

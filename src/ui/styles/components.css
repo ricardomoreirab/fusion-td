@@ -586,6 +586,151 @@
 }
 .hud__banner--show { animation: banner-in 2000ms ease-out forwards; }
 
+/* ── Boss plate ───────────────────────────────────────────────
+   The screen-space boss health bar, centred under the top bar. It is
+   absolutely positioned rather than placed inside .hud__zone--tc on purpose:
+   a bar this wide sitting in the top bar's flex row would push the vitals and
+   purse flanks outward (see the flex-row invariant above). Sitting outside the
+   row, it can be as wide as it likes and still centre on screen.
+
+   Hidden with no rows: :empty collapses the container so the margin does not
+   push anything around during the 99% of a run with no boss alive. */
+.bossbar {
+  position: absolute;
+  top: clamp(52px, 8.5vh, 78px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(560px, 82vw);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  pointer-events: none;
+}
+.bossbar:empty { display: none; }
+
+.bossbar__row {
+  --accent: var(--c-blood);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  filter: var(--lift);
+}
+.bossbar__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  padding: 0 2px;
+}
+.bossbar__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--ff-display);
+  font-weight: 700;
+  font-size: var(--fs-300);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--c-parchment);
+  text-shadow: 0 2px 4px #000, 0 0 12px rgba(0, 0, 0, 0.9);
+}
+.bossbar__pct {
+  flex: 0 0 auto;
+  font-family: var(--ff-display);
+  font-weight: 700;
+  font-size: var(--fs-200);
+  color: var(--c-parchment-dim);
+  text-shadow: 0 1px 3px #000;
+  font-variant-numeric: tabular-nums; /* the % must not jitter the name's width */
+}
+/* Only rendered as a visible tag once the row goes enraged. */
+.bossbar__tag {
+  flex: 0 0 auto;
+  display: none;
+  align-items: center;
+  gap: var(--s-1);
+  font-family: var(--ff-display);
+  font-weight: 700;
+  font-size: var(--fs-200);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--c-blood-hi);
+  text-shadow: 0 1px 3px #000, 0 0 10px rgba(239, 90, 69, 0.8);
+}
+.bossbar__row--enraged .bossbar__tag { display: flex; }
+
+/* Same forged trough as .meter, scaled up — chamfer cuts rim and fill as one
+   plate, so separation comes from --lift, never an outer box-shadow. */
+.bossbar__track {
+  position: relative;
+  height: clamp(14px, 2.2vw, 20px);
+  overflow: hidden;
+  background-image: var(--fill-socket), var(--rim-bronze);
+  background-origin: padding-box, border-box;
+  background-clip: padding-box, border-box;
+  border: 2px solid transparent;
+  clip-path: var(--chamfer-xs);
+  box-shadow: var(--bevel-chrome), inset 0 2px 5px rgba(0, 0, 0, 0.8);
+}
+.bossbar__ghost,
+.bossbar__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 100%;
+}
+.bossbar__ghost {
+  background: linear-gradient(180deg, rgba(255, 214, 190, 0.55), rgba(190, 90, 60, 0.4));
+  transition: width 520ms cubic-bezier(0.22, 0.61, 0.36, 1) 220ms;
+}
+.bossbar__fill {
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--accent) 78%, #ffffff) 0%,
+    var(--accent) 42%,
+    color-mix(in srgb, var(--accent) 55%, #000000) 100%);
+  box-shadow: inset 0 -3px 7px rgba(0, 0, 0, 0.45);
+  transition: width 140ms linear;
+}
+.bossbar__fill::after {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 42%;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.26), rgba(255, 255, 255, 0));
+}
+/* 20 engraved divisions — a boss bar reads as "how much is left" far better
+   when the eye has chunks to count. */
+.bossbar__ticks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: repeating-linear-gradient(90deg,
+    transparent 0 calc(5% - 1px), rgba(0, 0, 0, 0.55) calc(5% - 1px) 5%);
+}
+
+/* Enraged: the bar runs hotter and breathes. Kept on the TRACK's inset shadow
+   (never an outer glow) because clip-path would cut an outer one away. */
+.bossbar__row--enraged { --accent: #ff5a2e; }
+.bossbar__row--enraged .bossbar__track { animation: bossbar-rage 900ms ease-in-out infinite; }
+.bossbar__row--enraged .bossbar__name { color: var(--c-blood-hi); }
+@keyframes bossbar-rage {
+  0%, 100% { box-shadow: var(--bevel-chrome), inset 0 2px 5px rgba(0,0,0,.8), inset 0 0 6px 1px rgba(255,90,46,.35); }
+  50%      { box-shadow: var(--bevel-chrome), inset 0 2px 5px rgba(0,0,0,.8), inset 0 0 16px 3px rgba(255,120,60,.85); }
+}
+
+/* Entry flourish when a row is (re)assigned to a boss. */
+@keyframes bossbar-in {
+  0%   { opacity: 0; transform: translateY(-8px) scaleX(0.9); }
+  100% { opacity: 1; transform: translateY(0) scaleX(1); }
+}
+.bossbar__row--enter { animation: bossbar-in 320ms ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .bossbar__row--enter { animation: none; }
+  .bossbar__row--enraged .bossbar__track { animation: none; }
+  .bossbar__ghost, .bossbar__fill { transition: none; }
+}
+
 /* ── Bottom clusters ─────────────────────────────────────────
    Powers stack above items on the left; ultimates sit right, out of the
    movement lane and away from the hero at screen centre. */

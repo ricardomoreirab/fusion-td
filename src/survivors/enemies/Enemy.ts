@@ -1,19 +1,17 @@
-import { Color, Mesh, MeshPhongMaterial, Object3D, Sprite, SpriteMaterial, Texture, Vector3 } from 'three';
+import { Color, Mesh, MeshPhongMaterial, Object3D, Texture, Vector3 } from 'three';
 import { Game } from '../../engine/Game';
 import { EnemyType, StatusEffect } from '../GameTypes';
 import { PowerElement } from '../powers/PowerDefinitions';
 import { StatusStacks, STATUS_TUNING, type RichStatusKind } from '../powers/StatusModel';
 import { type TargetProvider, pickNearestAlive } from './nearestTarget';
 import { rollCrit } from './critRoll';
-import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
 import { AnimGroup } from '../../engine/three/AnimGroup';
 import type { AnimationLod, ContainerInstance } from '../../engine/three/assets';
-import { DynamicTexture } from '../../engine/three/DynamicTexture';
 import { headingToYaw } from '../../engine/three/math';
 import { fxRenderer, fxSize, getSoftParticleTexture, ParticleEffect } from '../../engine/three/particles/ParticleEffect';
 import { LifeTimeCurve, Shape } from '@newkrok/three-particles';
 import { elementStatusConfig } from '../fx/ElementParticles';
-import { createPlane, createSphere, disposeMesh, isMeshDisposed } from '../../engine/three/primitives';
+import { createSphere, disposeMesh, isMeshDisposed } from '../../engine/three/primitives';
 import type { SceneHost, UpdateToken } from '../../engine/three/SceneHost';
 import type { SnapshotEnemy } from '../../net/Protocol';
 import {
@@ -38,32 +36,14 @@ const _deathClipWarned = new Set<string>();
 // mutated in place, so one instance is safe to share across every bar.
 export { HEALTH_COLOR_GREEN, HEALTH_COLOR_YELLOW, HEALTH_COLOR_RED, HEALTH_BAR_RENDER_GROUP };
 
-/** Bar dimensions per tier. Module-level frozen singletons: `_barDims()` is
- *  read every frame by the boss bar path, and returning a fresh object literal
- *  there allocated one garbage object per enemy per frame. */
-const BAR_DIM_BOSS   = Object.freeze({ width: 2.5, height: 0.18 });
+/** Bar dimensions per tier. Module-level frozen singletons: `_barDims()` is read
+ *  on every slot acquisition, and returning a fresh object literal there
+ *  allocated one garbage object per enemy. The BOSS tier has no world bar at all
+ *  (it renders on the HUD — see `createHealthBar`), hence no entry here. */
 const BAR_DIM_ELITE  = Object.freeze({ width: 1.5, height: 0.12 });
 /** Default NORMAL-tier bar. Subclasses override `barNormalDims` with their own
  *  module-level frozen constant (never a per-instance literal). */
 export const BAR_DIM_NORMAL = Object.freeze({ width: 1.0, height: 0.08 });
-
-/** Health-fill color band. Bar color changes by SWAPPING between the three
- *  shared cached materials below — never by mutating a material's color, which
- *  would recolor every enemy at once (the materials are shared). */
-export type HealthBarBand = 'green' | 'yellow' | 'red';
-
-/** Shared cached fill material for a band. One cached MeshPhongMaterial per band
- *  for ALL enemies (was: 1 fresh material per enemy per spawn). */
-export function healthBarFillMaterial(band: HealthBarBand): MeshPhongMaterial {
-    const color = band === 'green' ? HEALTH_COLOR_GREEN
-        : band === 'yellow' ? HEALTH_COLOR_YELLOW : HEALTH_COLOR_RED;
-    return getCachedMaterial(`healthBarFillMat_${band}`, m => {
-        m.color = color.clone();
-        m.specular = new Color(0, 0, 0);
-        m.depthTest = false;
-        m.depthWrite = false;
-    });
-}
 
 /** Melee FSM state → snapshot phase code. Module-level so getMeleeDisplay does
  *  not rebuild the map on every call (per enemy, 20 Hz, on the co-op host). */
@@ -200,16 +180,10 @@ export class Enemy {
     protected game: Game;
     protected scene: SceneHost;
     protected mesh: Mesh | null = null;
-    protected healthBarMesh: Mesh | null = null;
-    protected healthBarBackgroundMesh: Mesh | null = null;
-    protected healthBarOutlineMesh: Mesh | null = null;
-    /** Current fill-color band — the (shared) fill material is swapped only when
-     *  this changes, instead of reassigning a color every frame. */
-    protected _barBand: HealthBarBand | null = null;
 
     // HP-bar tier driven visual tweaks (set via applyHealthBarTier or subclass override).
-    // Normal: thin bar. Elite: 1.5× wider, orange frame. Boss: 2.5× wider,
-    // segmented into 4 chunks, red glowing frame, name label above.
+    // Normal: thin bar. Elite: 1.5× wider, orange. Boss: no world bar — the HUD
+    // boss plate owns it (see createHealthBar).
     protected barTier: 'normal' | 'elite' | 'boss' = 'normal';
     protected barHeightOffset: number = 1.0;
     /** NORMAL-tier fill size for this enemy class. Subclasses assign a
@@ -224,9 +198,6 @@ export class Enemy {
      *  so a release after teardown targets the field that issued the slot. */
     private _barField: HealthBarField | null = null;
     protected bossLabel: string | null = null;
-    protected barSegmentMeshes: Mesh[] = [];
-    protected barLabelMesh: Sprite | null = null;
-    protected barLabelTexture: DynamicTexture | null = null;
     protected position: Vector3;
     protected speed: number;
     protected originalSpeed: number; // Store original speed for status effects
@@ -375,16 +346,6 @@ export class Enemy {
         // Normal/elite bars are instances in the shared field — parking one just
         // stops its slot being written, which removes its vertices entirely.
         this._barField?.setVisible(this._barSlot, active);
-
-        // Boss-tier bars are still real meshes.
-        const setVisible = (m: Object3D | null): void => {
-            if (m && !isMeshDisposed(m)) m.visible = active;
-        };
-        setVisible(this.healthBarMesh);
-        setVisible(this.healthBarBackgroundMesh);
-        setVisible(this.healthBarOutlineMesh);
-        for (const seg of this.barSegmentMeshes) setVisible(seg);
-        setVisible(this.barLabelMesh);
 
         // Persistent status auras are scene-root THREE.Points that the cull used
         // to leave drawing for a parked enemy — one extra draw call each, for
@@ -535,7 +496,6 @@ export class Enemy {
                 console.error('Enemy mesh creation failed');
             }
             this.createHealthBar();
-            this._makeHealthBarAlwaysVisible();
         } catch (error) {
             console.error('Error creating enemy:', error);
         }
@@ -575,7 +535,6 @@ export class Enemy {
         if (opts?.label !== undefined) this.bossLabel = opts.label;
         this._disposeHealthBarMeshes();
         this.createHealthBar();
-        this._makeHealthBarAlwaysVisible();
     }
 
     /**
@@ -607,12 +566,24 @@ export class Enemy {
     }
 
     /** Return the (width, height) of the bar's FILL based on the current tier.
-     *  Always one of the frozen module constants — never a fresh literal. */
+     *  Always one of the frozen module constants — never a fresh literal. Only
+     *  reached for the tiers that take a slot in the instanced field; the boss
+     *  tier has no world bar. */
     private _barDims(): { width: number; height: number } {
-        if (this.barTier === 'boss')  return BAR_DIM_BOSS;
         if (this.barTier === 'elite') return BAR_DIM_ELITE;
         return this.barNormalDims;
     }
+
+    /** True when this enemy is presented on the HUD boss plate instead of a world
+     *  bar. Drives which enemies SurvivorsGameplayState feeds to `Hud.syncBosses`. */
+    public isBossTier(): boolean { return this.barTier === 'boss'; }
+
+    /** Display name for the HUD boss plate (tier label, or "… Echo" for a twin). */
+    public getBossLabel(): string | null { return this.bossLabel; }
+
+    /** Whether this enemy is in its enrage phase. Overridden by MilestoneBoss;
+     *  the base is always false so the HUD can ask any boss-tier enemy. */
+    public isEnraged(): boolean { return false; }
 
     /**
      * Create health bar for the enemy. Subclasses set `barHeightOffset` (in the
@@ -620,106 +591,20 @@ export class Enemy {
      * `barNormalDims` to size it.
      *
      * NORMAL and ELITE tiers take a slot in the shared instanced field — no
-     * meshes, no scene-root children, 2-3 draw calls for the whole horde. Only
-     * the BOSS tier still builds real meshes below: there are never more than a
-     * couple of them and they carry segment dividers plus a Sprite name label
-     * with a per-instance canvas texture.
+     * meshes, no scene-root children, 2-3 draw calls for the whole horde.
+     *
+     * The BOSS tier renders NO world bar: bosses are framed on the screen-space
+     * HUD bar instead (`src/ui/hud/BossBar.ts`), which is where a boss fight
+     * belongs — a floating plate over the model competed with the boss's own
+     * telegraphs and was unreadable the moment the camera clipped it off-screen.
+     * That also retired the only per-instance `DynamicTexture` in the enemy
+     * layer (the canvas name-label sprite), one texture + material per boss.
      */
     protected createHealthBar(): void {
         if (!this.mesh) return;
+        if (this.barTier === 'boss') return;
 
-        if (this.barTier !== 'boss') {
-            this._acquireBarSlot();
-            this.updateHealthBar();
-            return;
-        }
-
-        const { width, height } = this._barDims();
-        const y = this.position.y + this.barHeightOffset;
-        this._barBand = null; // force the fill-material assignment in updateHealthBar
-
-        // All bar materials are shared cached instances (healthBarFillMaterial +
-        // the frame/bg variants below) — was 3 fresh materials per spawn. Every
-        // bar material sets depthTest=false so bars always draw on top (the
-        // Babylon depth-clear render group equivalent).
-
-        // Frame: a dedicated glowing outline mesh behind the bar.
-        this.healthBarOutlineMesh = createPlane('healthBarOutline', {
-            width:  width  + 0.08,
-            height: height + 0.06,
-        }, this.scene);
-        this.healthBarOutlineMesh.position.set(this.position.x, y, this.position.z);
-        this.healthBarOutlineMesh.material = getCachedMaterial('healthBarFrameMat_boss', m => {
-            m.color    = new Color(1.0, 0.20, 0.15);
-            m.emissive = new Color(0.55, 0.10, 0.05);
-            m.specular = new Color(0, 0, 0);
-            m.depthTest = false;
-            m.depthWrite = false;
-        });
-
-        // Background: classic gray inset behind the fill.
-        this.healthBarBackgroundMesh = createPlane('healthBarBg', { width, height }, this.scene);
-        this.healthBarBackgroundMesh.position.set(this.position.x, y, this.position.z);
-        this.healthBarBackgroundMesh.material = getCachedMaterial('healthBarBgMat', m => {
-            m.color    = new Color(0.3, 0.3, 0.3);
-            m.specular = new Color(0, 0, 0);
-            m.depthTest = false;
-            m.depthWrite = false;
-        });
-
-        // Foreground (health fill) — material assigned by updateHealthBar's band swap.
-        this.healthBarMesh = createPlane('healthBar', { width, height }, this.scene);
-        this.healthBarMesh.position.set(this.position.x, y, this.position.z);
-
-        // 3 thin black dividers carving the bar into 4 chunks
-        this.barSegmentMeshes = [];
-        for (let i = 1; i <= 3; i++) {
-            const seg = createPlane(`healthBarSeg_${i}`, {
-                width:  0.04,
-                height: height + 0.02,
-            }, this.scene);
-            seg.material = getCachedMaterial('healthBarSegMat', m => {
-                m.color    = new Color(0, 0, 0);
-                m.specular = new Color(0, 0, 0);
-                m.depthTest = false;
-                m.depthWrite = false;
-            });
-            seg.position.set(this.position.x, y, this.position.z);
-            this.barSegmentMeshes.push(seg);
-        }
-
-        // Name label above the bar (canvas-drawn texture on a Sprite — sprites
-        // self-billboard, like the Babylon BILLBOARDMODE_ALL plane did).
-        if (this.bossLabel) {
-            const tex = new DynamicTexture('bossLabelTex', { width: 256, height: 64 });
-            const ctx = tex.getContext();
-            ctx.clearRect(0, 0, 256, 64);
-            ctx.font = 'bold 36px Arial';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.strokeStyle = 'black';
-            ctx.lineWidth = 6;
-            ctx.strokeText(this.bossLabel, 128, 32);
-            ctx.fillStyle = '#ff5040';
-            ctx.fillText(this.bossLabel, 128, 32);
-            tex.update();
-
-            const labelMat = new SpriteMaterial({
-                map: tex.texture,
-                transparent: true,
-                depthTest: false,
-                depthWrite: false,
-            });
-            labelMat.name = 'bossLabelMat';
-
-            this.barLabelMesh = new Sprite(labelMat);
-            this.barLabelMesh.name = 'bossLabel';
-            this.barLabelMesh.scale.set(2.6, 0.65, 1);
-            this.barLabelMesh.position.set(this.position.x, y + 0.45, this.position.z);
-            this.scene.scene.add(this.barLabelMesh);
-            this.barLabelTexture = tex;
-        }
-
+        this._acquireBarSlot();
         this.updateHealthBar();
     }
 
@@ -765,142 +650,16 @@ export class Enemy {
             );
             return;
         }
-
-        if (!this.mesh || !this.healthBarMesh || !this.healthBarBackgroundMesh) return;
-
-        const { width } = this._barDims();
-        const y = this.position.y + this.barHeightOffset;
-
-        // Calculate health percentage
-        const healthPercent = Math.max(0, this.health / this.maxHealth);
-
-        // Update health bar width based on health percentage
-        this.healthBarMesh.scale.x = healthPercent;
-
-        // Adjust position to align left side (offset scales with bar width)
-        const offset = (1 - healthPercent) * (width * 0.5);
-        this.healthBarMesh.position.x = this.position.x - offset;
-
-        // Update health bar color band (swaps the shared cached material — only
-        // when the band actually changes, never a per-frame material write).
-        this.applyHealthBarBand(healthPercent);
-
-        // Position outline behind everything
-        if (this.healthBarOutlineMesh && !isMeshDisposed(this.healthBarOutlineMesh)) {
-            this.healthBarOutlineMesh.position.x = this.position.x;
-            this.healthBarOutlineMesh.position.y = y;
-            this.healthBarOutlineMesh.position.z = this.position.z;
-        }
-
-        // Position health bars above the enemy
-        this.healthBarBackgroundMesh.position.x = this.position.x;
-        this.healthBarBackgroundMesh.position.y = y;
-        this.healthBarBackgroundMesh.position.z = this.position.z;
-
-        this.healthBarMesh.position.y = y;
-        this.healthBarMesh.position.z = this.position.z;
-
-        // Boss segments: track frame position, evenly spaced at -0.25/0/+0.25 of width
-        if (this.barSegmentMeshes.length > 0) {
-            for (let i = 0; i < this.barSegmentMeshes.length; i++) {
-                const seg = this.barSegmentMeshes[i];
-                if (!seg || isMeshDisposed(seg)) continue;
-                const segOffset = ((i + 1) * 0.25 - 0.5) * width; // -0.25w, 0, +0.25w
-                seg.position.x = this.position.x + segOffset;
-                seg.position.y = y;
-                seg.position.z = this.position.z;
-            }
-        }
-
-        if (this.barLabelMesh && !isMeshDisposed(this.barLabelMesh)) {
-            this.barLabelMesh.position.x = this.position.x;
-            this.barLabelMesh.position.y = y + 0.45;
-            this.barLabelMesh.position.z = this.position.z;
-        }
-
-        this._billboardHealthBar();
+        // Boss tier: no world bar to update — the HUD plate reads health straight
+        // off the enemy each frame.
     }
 
-    /** Face every bar plane at the active camera (Babylon BILLBOARDMODE_ALL).
-     *  The boss label is a THREE.Sprite and billboards itself. Shared by the
-     *  base and subclass updateHealthBar overrides. */
-    protected _billboardHealthBar(): void {
-        const q = this.game.getActiveCamera().quaternion;
-        if (this.healthBarOutlineMesh) this.healthBarOutlineMesh.quaternion.copy(q);
-        if (this.healthBarBackgroundMesh) this.healthBarBackgroundMesh.quaternion.copy(q);
-        if (this.healthBarMesh) this.healthBarMesh.quaternion.copy(q);
-        for (const seg of this.barSegmentMeshes) seg.quaternion.copy(q);
-    }
-
-    /** Swap the fill mesh's shared cached material when the health band changes.
-     *  Shared by the base and subclass updateHealthBar overrides. */
-    protected applyHealthBarBand(healthPercent: number): void {
-        const band: HealthBarBand = healthPercent > 0.6 ? 'green'
-            : healthPercent > 0.3 ? 'yellow' : 'red';
-        if (band !== this._barBand && this.healthBarMesh) {
-            this._barBand = band;
-            this.healthBarMesh.material = healthBarFillMaterial(band);
-        }
-    }
-
-    /** Dispose only the health-bar meshes (keeps the enemy alive). Bar materials
-     *  are SHARED cached instances — never dispose them here (that would break
-     *  every other live bar referencing them; clearMaterialCache() frees them on
-     *  run teardown; disposeMesh skips userData.cached materials automatically).
-     *  Only the per-instance boss label material/texture is freed. */
+    /** Dispose the health bar. Normal/elite bars are instances in the shared
+     *  field, so releasing the slot IS the disposal; the boss tier has no world
+     *  bar at all. Kept as a named method because the lifecycle calls it from
+     *  three places (re-tier, die, dispose) and it must stay idempotent. */
     private _disposeHealthBarMeshes(): void {
-        // Normal/elite bars are instanced — releasing the slot IS the disposal.
         this._releaseBarSlot();
-        if (this.healthBarMesh) {
-            disposeMesh(this.healthBarMesh);
-            this.healthBarMesh = null;
-        }
-        if (this.healthBarBackgroundMesh) {
-            disposeMesh(this.healthBarBackgroundMesh);
-            this.healthBarBackgroundMesh = null;
-        }
-        if (this.healthBarOutlineMesh) {
-            disposeMesh(this.healthBarOutlineMesh);
-            this.healthBarOutlineMesh = null;
-        }
-        for (const seg of this.barSegmentMeshes) {
-            if (seg && !isMeshDisposed(seg)) disposeMesh(seg);
-        }
-        this.barSegmentMeshes = [];
-        if (this.barLabelMesh) {
-            // Sprites share one static geometry across ALL sprites — never run
-            // them through disposeMesh (it would free the shared geometry).
-            // Free only what this label owns: its material and canvas texture.
-            this.barLabelMesh.removeFromParent();
-            this.barLabelMesh.userData.disposed = true;
-            (this.barLabelMesh.material as SpriteMaterial).dispose();
-            this.barLabelMesh = null;
-        }
-        if (this.barLabelTexture) {
-            this.barLabelTexture.dispose();
-            this.barLabelTexture = null;
-        }
-    }
-
-    /**
-     * Put every health-bar mesh on the HEALTH_BAR_RENDER_GROUP renderOrder band.
-     * Their materials all disable depthTest (set once in the cached setups), so
-     * a high renderOrder makes the bar always draw on top of the enemy mesh and
-     * stay visible regardless of the model's size — large bosses used to occlude
-     * their own bar. The +0..+4 offsets replace the depth buffer for stacking
-     * outline < background < fill < segments < label. Called after every
-     * createHealthBar() (init + re-tier), and safe to call when some bar meshes
-     * are absent (null-guarded).
-     */
-    private _makeHealthBarAlwaysVisible(): void {
-        const set = (m: Object3D | null, offset: number): void => {
-            if (m && !isMeshDisposed(m)) m.renderOrder = HEALTH_BAR_RENDER_GROUP + offset;
-        };
-        set(this.healthBarOutlineMesh, 0);
-        set(this.healthBarBackgroundMesh, 1);
-        set(this.healthBarMesh, 2);
-        for (const seg of this.barSegmentMeshes) set(seg, 3);
-        set(this.barLabelMesh, 4);
     }
 
     /**

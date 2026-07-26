@@ -3,6 +3,7 @@ import { PlayerStats } from './PlayerStats';
 import { Enemy } from './enemies/Enemy';
 import { WaveStatus } from './WaveStatus';
 import { computeWaveElites } from './WaveElites';
+import { difficultyAt } from './DifficultyCurve';
 
 // Define a wave of enemies
 interface Wave {
@@ -546,9 +547,8 @@ export class WaveManager {
         this.timeSinceLastSpawn += deltaTime;
         
         // Check if it's time to spawn the next enemy (delay scaled by survivors rate
-        // and per-wave ramp — later waves spawn even faster)
-        const waveRamp = 1 + Math.max(0, this.currentWave - 1) * 0.08;
-        const effectiveSpawnRate = this.spawnRateMultiplier * waveRamp;
+        // and the wave's pace scalar — later waves spawn faster)
+        const effectiveSpawnRate = this.spawnRateMultiplier * difficultyAt(this.currentWave).pace;
         const effectiveDelay = this.enemiesLeftToSpawn[0].delay / effectiveSpawnRate;
         if (this.timeSinceLastSpawn >= effectiveDelay) {
             // Spawn the enemy via the injectable spawn function
@@ -771,8 +771,9 @@ export class WaveManager {
         // (survivors mode multiplies count per group, with per-wave ramp on top).
         // Special-case 'boss': always spawn 1 boss, but pass the scaled count as a
         // strength multiplier so it scales HP/damage instead of cloning the boss.
-        const waveRamp = 1 + Math.max(0, this.currentWave - 1) * 0.08;
-        const effectiveCountMult = this.enemyCountMultiplier * waveRamp;
+        // Same pace scalar that drives spawn cadence above, so a wave's duration
+        // stays roughly wave-invariant as the curve climbs.
+        const effectiveCountMult = this.enemyCountMultiplier * difficultyAt(this.currentWave).pace;
         for (const enemyGroup of wave.enemies) {
             const scaledCount = Math.max(1, Math.round(enemyGroup.count * effectiveCountMult));
             if (enemyGroup.type === 'boss') {

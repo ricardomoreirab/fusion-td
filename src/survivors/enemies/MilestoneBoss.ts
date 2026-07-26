@@ -2,6 +2,7 @@ import { Box3, Color, Mesh, MeshPhongMaterial, Vector3 } from 'three';
 import { Game } from '../../engine/Game';
 import { BossEnemy } from './BossEnemy';
 import { DifficultyTuning } from '../DifficultyTuning';
+import { bossDifficultyAt } from '../DifficultyCurve';
 import { emitCoopFx } from '../coop/CoopFx';
 import { AnimGroup } from '../../engine/three/AnimGroup';
 import type { GlbContainer } from '../../engine/three/assets';
@@ -96,6 +97,20 @@ const PULL_TELEGRAPH_RADIUS = 3.0;  // visual grab-zone radius
 
 const ENRAGE_LUNGE_FACTOR = 0.5; // halves the special cooldown while enraged (2× rate)
 
+// ── Last-stand enrage ────────────────────────────────────────────────────────
+// Every milestone boss flips into a final phase once its health drops below
+// ENRAGE_HEALTH_FRACTION. This is the fight's shape: the boss is most dangerous
+// when it is nearly dead, so the kill has to be committed to rather than
+// out-attritioned. Distinct from the tier-3/4 twin-death enrage above — both can
+// fire in one fight, and each is one-shot.
+export const ENRAGE_HEALTH_FRACTION = 0.30;
+/** Tankiness is bought as damage REDUCTION, not extra max HP: adding HP at 30%
+ *  would push the HUD boss bar backwards, and a boss bar that can rise reads as
+ *  a bug. Taking 1/1.5× damage is the same 50% more effective HP, monotonically. */
+const ENRAGE_TANK_FACTOR   = 1.5;
+const ENRAGE_SPEED_FACTOR  = 1.5;
+const ENRAGE_DAMAGE_FACTOR = 1.5;
+
 // Elemental nova (tier 5 only): a periodic telegraphed AOE pulse around the boss,
 // independent of the dash/pull state machine. Reuses TELEGRAPH_DURATION for the wind-up.
 const NOVA_INTERVAL = 7.0;   // seconds between novas
@@ -125,11 +140,17 @@ export class MilestoneBoss extends BossEnemy {
     private dashDistanceRemaining: number = 0;
     private dashHasHit: boolean = false;
     private enraged: boolean = false;
+    /** Last-stand enrage — a SEPARATE one-shot from the twin-death `enraged`
+     *  above, so a tier-3/4 boss that already enraged from losing its twin can
+     *  still enrage again on dropping below the HP threshold. */
+    private lowHealthEnraged: boolean = false;
 
-    /** Damage dealt by a dash slash / pull slam / elemental nova — derived from melee hit damage. */
-    private readonly dashSlashDamage: number;
-    private readonly pullSlamDamage: number;
-    private readonly novaDamage: number;
+    /** Damage dealt by a dash slash / pull slam / elemental nova — derived from
+     *  melee hit damage. Mutable: the last-stand enrage scales them alongside the
+     *  melee hit they were derived from. */
+    private dashSlashDamage: number;
+    private pullSlamDamage: number;
+    private novaDamage: number;
 
     // Elemental nova (tier 5): own timer/telegraph, independent of the lunge machine.
     private novaCooldown: number = NOVA_INTERVAL;
@@ -179,8 +200,10 @@ export class MilestoneBoss extends BossEnemy {
         // strengthMultiplier comes from WaveManager when a wave config asked for
         // multiple bosses (collapsed into 1 stronger boss), or from EnemyManager
         // when spawning a weaker twin (0.6).
-        const hpMult    = tierHpMult(waveTier) * strengthMultiplier * DifficultyTuning.bossHpMult;
-        const dpsMult   = tierDpsMult(waveTier) * strengthMultiplier * DifficultyTuning.bossDamageMult;
+        // Milestone bosses only appear on 5th waves, so the tier IS the wave/5.
+        const curve     = bossDifficultyAt(waveTier * 5);
+        const hpMult    = tierHpMult(waveTier) * strengthMultiplier * DifficultyTuning.bossHpMult * curve.hp;
+        const dpsMult   = tierDpsMult(waveTier) * strengthMultiplier * DifficultyTuning.bossDamageMult * curve.damage;
         const baseSpeed = tierBaseSpeed(waveTier);
 
         // BossEnemy constructor already set maxHealth=500, meleeHitDamage=35, contactDamagePerSecond=30.
@@ -298,6 +321,7 @@ export class MilestoneBoss extends BossEnemy {
             }));
         }
 
+        this.maybeEnterLastStand();
         this.updateHeroVelocity(deltaTime);
         this.tickLungeStateMachine(deltaTime);
         if (this.waveTier >= 5) this.tickElementalNova(deltaTime);
@@ -561,6 +585,57 @@ export class MilestoneBoss extends BossEnemy {
             this.mesh.scale.multiplyScalar(1.2);
         }
         this.updateHealthBar();
+    }
+
+    /**
+     * Last-stand enrage: below ENRAGE_HEALTH_FRACTION the boss becomes 50% more
+     * durable, faster (both on its feet and between swings) and harder-hitting.
+     * One-shot and idempotent — checked once per frame from update().
+     *
+     * NOT called on the co-op guest, whose bosses never tick AI. That is fine:
+     * every mutation here is host-authoritative (the guest routes damage to the
+     * host and interpolates position from snapshots), and `isEnraged()` derives
+     * the HUD's enraged state from the health fraction so the bar still flips on
+     * both peers at the same threshold.
+     */
+    private maybeEnterLastStand(): void {
+        if (this.lowHealthEnraged || !this.alive) return;
+        if (this.health > this.maxHealth * ENRAGE_HEALTH_FRACTION) return;
+        this.lowHealthEnraged = true;
+
+        // Tankier — composed with any existing resistance so this is always
+        // exactly "takes 1/1.5 of the damage it would otherwise have taken".
+        this.damageResistance = 1 - (1 - this.damageResistance) / ENRAGE_TANK_FACTOR;
+
+        // Faster: on its feet, between melee swings, and between specials.
+        this.speed *= ENRAGE_SPEED_FACTOR;
+        this.originalSpeed *= ENRAGE_SPEED_FACTOR;
+        this.meleeWindupDuration /= ENRAGE_SPEED_FACTOR;
+        this.meleeCooldownDuration /= ENRAGE_SPEED_FACTOR;
+        this.lungeTimer /= ENRAGE_SPEED_FACTOR;
+
+        // Stronger: contact + melee via the shared helper, then the specials that
+        // were derived from melee damage at construction.
+        this.applyDamageMultiplier(ENRAGE_DAMAGE_FACTOR);
+        this.dashSlashDamage = Math.round(this.dashSlashDamage * ENRAGE_DAMAGE_FACTOR);
+        this.pullSlamDamage  = Math.round(this.pullSlamDamage * ENRAGE_DAMAGE_FACTOR);
+        this.novaDamage      = Math.round(this.novaDamage * ENRAGE_DAMAGE_FACTOR);
+
+        // Visual tell, paired with the HUD bar going enraged. The callout itself
+        // is raised by SurvivorsGameplayState off `isEnraged()` — no event
+        // plumbing, and it fires on the co-op guest too (which never ticks here).
+        if (this.mesh && !isMeshDisposed(this.mesh)) {
+            this.mesh.scale.multiplyScalar(1.12);
+        }
+    }
+
+    /** True once the boss is in its final phase. On the co-op guest the flag is
+     *  never set (no AI tick), so fall back to the health fraction — both peers
+     *  then agree on the threshold without replicating a bit over the wire. */
+    public override isEnraged(): boolean {
+        return this.lowHealthEnraged
+            || (this.alive && this.maxHealth > 0
+                && this.health <= this.maxHealth * ENRAGE_HEALTH_FRACTION);
     }
 
     /** EnemyManager links a freshly-spawned twin back to its origin boss so the
