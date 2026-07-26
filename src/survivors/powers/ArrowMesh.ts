@@ -4,6 +4,16 @@ import { createBox, createCylinder } from '../../engine/three/primitives';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
 
 /**
+ * World-space Y every ranger arrow travels at — the single source every arrow
+ * spawn site (basic attack, the 5 autocast powers, the arrow-delivery helper,
+ * Multishot's volley, Explosive Arrow) shares so they all loose from the same
+ * point on the bow instead of drifting to independently-tuned heights. Raised
+ * above the bow-hand bone's measured world height (Bip001_Prop1 ~1.58 on the
+ * scaled rig) so the shaft reads as coming from the bow, not the hip.
+ */
+export const ARROW_FLIGHT_HEIGHT = 1.8;
+
+/**
  * Stable cache key for an arrow's shared material, derived from its color.
  * Arrow geometry is identical across every shot, so the material only varies by
  * color — keying by color bounds the cache to the handful of arrow tints in use

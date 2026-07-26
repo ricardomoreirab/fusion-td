@@ -5,11 +5,12 @@ import { fxRenderer, fxSize, ParticleEffect } from '../../engine/three/particles
 import { headingToYaw } from '../../engine/three/math';
 import { tween } from '../../engine/three/tween';
 import {
-    createCylinder, createDisc, createIcoSphere, createTorus,
+    createDisc, createIcoSphere, createTorus,
     disposeMesh, isMeshDisposed,
 } from '../../engine/three/primitives';
 import { createEmissiveMaterial, setMeshOpacity } from '../../engine/rendering/LowPolyMaterial';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
+import { buildArrowMesh, ARROW_FLIGHT_HEIGHT } from '../powers/ArrowMesh';
 
 /**
  * Manual-ultimate VISUALS, extracted from AbilityManager (M6 C2) so the exact same
@@ -558,17 +559,9 @@ export function spawnMultishotAura(host: SceneHost, getCenter: () => Vector3 | n
  * damage). Leak-safe: material cached by a BOUNDED key, plain disposeMesh() leaves it.
  */
 export function spawnCosmeticVolleyArrow(host: SceneHost, from: Vector3, dirX: number, dirZ: number): void {
-    const arrow = createCylinder('coopVolleyArrow', {
-        height: 0.6, diameter: 0.08, tessellation: 5,
-    }, host);
-    arrow.position.set(from.x, from.y + 1.0, from.z);
-    // Emissive with black diffuse reads unlit (Babylon disableLighting parity).
-    arrow.material = getCachedMaterial('coopVolleyArrowMat', m => {
-        m.emissive = new Color(0.6, 1.0, 0.4);
-        m.color = new Color(0, 0, 0);
-    });
+    const arrow = buildArrowMesh(host, `coop_volley_arrow_${Math.random()}`, new Color(0.6, 1.0, 0.4));
+    arrow.position.set(from.x, ARROW_FLIGHT_HEIGHT, from.z);
     arrow.rotation.y = headingToYaw(dirX, dirZ);
-    arrow.rotation.x = Math.PI / 2; // lay the cylinder flat along its flight line
 
     const speed = 22;   // matches the local volley arrow
     const maxDist = 14; // a touch past the typical homing kill distance
@@ -601,19 +594,9 @@ export function spawnExplosiveArrowFlight(
     targetPos: Vector3,
     onImpact: (impactPos: Vector3) => void,
 ): void {
-    const arrow = createCylinder('expArrow', {
-        height: 0.8, diameter: 0.12, tessellation: 5,
-    }, host);
-    arrow.position.set(from.x, from.y + 1.0, from.z);
-
-    const mat = createEmissiveMaterial('expArrowMat', new Color(1.0, 0.55, 0.1), 0.9);
-    mat.transparent = true;
-    mat.opacity = 0.95;
-    arrow.material = mat;
-    arrow.userData.ownedMaterial = true;
-
-    arrow.lookAt(targetPos);
-    arrow.rotation.x += Math.PI / 2;
+    const arrow = buildArrowMesh(host, `exp_arrow_${Math.random()}`, new Color(1.0, 0.55, 0.1));
+    arrow.position.set(from.x, ARROW_FLIGHT_HEIGHT, from.z);
+    arrow.rotation.y = headingToYaw(targetPos.x - from.x, targetPos.z - from.z);
 
     const speed = 14;
     const toTarget = new Vector3();
@@ -623,7 +606,7 @@ export function spawnExplosiveArrowFlight(
             return;
         }
         const dt = host.deltaSeconds;
-        toTarget.subVectors(targetPos, arrow.position);
+        toTarget.set(targetPos.x - arrow.position.x, 0, targetPos.z - arrow.position.z);
         const dist = toTarget.length();
         if (dist < 0.5) {
             const impactPos = arrow.position.clone();
@@ -632,6 +615,7 @@ export function spawnExplosiveArrowFlight(
             onImpact(impactPos);
             return;
         }
+        arrow.rotation.y = headingToYaw(toTarget.x, toTarget.z);
         arrow.position.addScaledVector(toTarget.normalize(), speed * dt);
     });
 }

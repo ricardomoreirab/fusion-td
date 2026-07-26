@@ -7,7 +7,7 @@ import { headingToYaw } from '../../engine/three/math';
 import { Enemy } from '../enemies/Enemy';
 import { StatusEffect } from '../GameTypes';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
-import { buildArrowMesh } from './ArrowMesh';
+import { buildArrowMesh, ARROW_FLIGHT_HEIGHT } from './ArrowMesh';
 import { ParticleEffect } from '../../engine/three/particles/ParticleEffect';
 import {
     elementFlashConfig,
@@ -885,7 +885,7 @@ const rangerFireDef: PowerDefinition = {
         const arrowColor = new Color(1, 0.4, 0.05);
         const proj = buildArrowMesh(ctx.scene, `fire_arrow_${Math.random()}`, arrowColor);
         proj.position.copy(ctx.heroPosition);
-        proj.position.y = 1;
+        proj.position.y = ARROW_FLIGHT_HEIGHT;
         const disposeFx = attachProjectileFx(ctx.scene, 'fireArrow', 'fire', proj);
 
         const target = best;
@@ -908,7 +908,7 @@ const rangerFireDef: PowerDefinition = {
                 ctx.scene.onBeforeRender.remove(observer);
                 return;
             }
-            _homeTarget.copy(target.getPosition()); _homeTarget.y = 1;
+            _homeTarget.copy(target.getPosition()); _homeTarget.y = ARROW_FLIGHT_HEIGHT;
             const dir = _homeDir.subVectors(_homeTarget, proj.position);
             const dist = dir.length();
             const dirN = dir.normalize();
@@ -997,7 +997,7 @@ const rangerIceDef: PowerDefinition = {
         const arrowColor = new Color(0.4, 0.85, 1.0);
         const proj = buildArrowMesh(ctx.scene, `frost_arrow_${Math.random()}`, arrowColor);
         proj.position.copy(ctx.heroPosition);
-        proj.position.y = 1;
+        proj.position.y = ARROW_FLIGHT_HEIGHT;
         const disposeFx = attachProjectileFx(ctx.scene, 'frostArrow', 'ice', proj);
 
         // Orient arrow toward travel direction from the start
@@ -1087,7 +1087,7 @@ const rangerArcaneDef: PowerDefinition = {
         const arrowColor = new Color(0.7, 0.3, 1.0);
         const proj = buildArrowMesh(ctx.scene, `seek_arrow_${Math.random()}`, arrowColor);
         proj.position.copy(ctx.heroPosition);
-        proj.position.y = 1;
+        proj.position.y = ARROW_FLIGHT_HEIGHT;
         const disposeFx = attachProjectileFx(ctx.scene, 'seekArrow', 'arcane', proj);
 
         const target = best;
@@ -1111,7 +1111,7 @@ const rangerArcaneDef: PowerDefinition = {
                 ctx.scene.onBeforeRender.remove(observer);
                 return;
             }
-            _homeTarget.copy(target.getPosition()); _homeTarget.y = 1;
+            _homeTarget.copy(target.getPosition()); _homeTarget.y = ARROW_FLIGHT_HEIGHT;
             const toTarget = _homeDir.subVectors(_homeTarget, proj.position);
             const dist = toTarget.length();
 
@@ -1186,7 +1186,7 @@ const rangerPhysicalDef: PowerDefinition = {
         const proj = buildArrowMesh(ctx.scene, `pierce_arrow_${Math.random()}`, arrowColor);
         proj.scale.setScalar(1.3);
         proj.position.copy(ctx.heroPosition);
-        proj.position.y = 1;
+        proj.position.y = ARROW_FLIGHT_HEIGHT;
         const disposeFx = attachProjectileFx(ctx.scene, 'pierceArrow', 'physical', proj);
 
         // Orient arrow to face travel direction
@@ -1283,7 +1283,7 @@ const rangerStormDef: PowerDefinition = {
         const arrowColor = new Color(1.0, 0.95, 0.4);
         const proj = buildArrowMesh(ctx.scene, `lightning_arrow_${Math.random()}`, arrowColor);
         proj.position.copy(ctx.heroPosition);
-        proj.position.y = 1;
+        proj.position.y = ARROW_FLIGHT_HEIGHT;
         const disposeFx = attachProjectileFx(ctx.scene, 'lightningArrow', 'storm', proj);
 
         const target = best;
@@ -1305,7 +1305,7 @@ const rangerStormDef: PowerDefinition = {
                 ctx.scene.onBeforeRender.remove(observer);
                 return;
             }
-            _homeTarget.copy(target.getPosition()); _homeTarget.y = 1;
+            _homeTarget.copy(target.getPosition()); _homeTarget.y = ARROW_FLIGHT_HEIGHT;
             const dir = _homeDir.subVectors(_homeTarget, proj.position);
             const dist = dir.length();
             const dirN = dir.normalize();

@@ -10,7 +10,7 @@ import { headingToYaw } from '../../engine/three/math';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
 import { acquireProjectile, releaseProjectile } from '../../engine/rendering/ProjectilePool';
 import { ELEMENT_COLOR } from '../ElementColors';
-import { buildArrowMesh } from './ArrowMesh';
+import { buildArrowMesh, ARROW_FLIGHT_HEIGHT } from './ArrowMesh';
 import { StatusEffect } from '../GameTypes';
 import { getReaction } from './StatusReactions';
 import { Enemy } from '../enemies/Enemy';
@@ -511,7 +511,7 @@ export function arrowStrike(scene: SceneHost, fromX: number, fromZ: number, targ
         emitCoopFx('pe', fromX, fromZ, tp0.x, tp0.z, JSON.stringify({ p: 'arrow', e: element }));
     }
     const proj = buildArrowMesh(scene, `fx_arrow_${element}`, ELEMENT_COLOR[element]);
-    proj.position.set(fromX, 1, fromZ);
+    proj.position.set(fromX, ARROW_FLIGHT_HEIGHT, fromZ);
     let elapsed = 0;
     let fired = false;
     let fx: ActiveFx;

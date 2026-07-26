@@ -25,6 +25,7 @@ import {
     spawnSmashShockwave, spawnHurricaneVisual, spawnWhirlwindRing,
     spawnMultishotAura, spawnExplosiveArrowFlight, spawnExplosionVisual,
 } from './AbilityVisuals';
+import { buildArrowMesh, ARROW_FLIGHT_HEIGHT } from '../powers/ArrowMesh';
 
 /** Co-op cosmetic-burst tint for ults WITHOUT exact replication (dash + legacy ults).
  *  The class ults (meteor/frostNova/whirlwind/smash/multishot/explosiveArrow) emit
@@ -913,15 +914,13 @@ export class AbilityManager {
         return true;
     }
 
-    /** Homing arrow used by Multishot's per-tick volley. Spawns at the hero's
-     *  shoulder height, tracks the target, deals fixed damage on impact. */
+    /** Homing arrow used by Multishot's per-tick volley. Uses the same shared
+     *  arrow mesh + ARROW_FLIGHT_HEIGHT + rotation convention (order='YXZ' baked
+     *  by buildArrowMesh, yaw-only per-frame reorient) as every other ranger
+     *  arrow, so the volley reads as arrows rather than tumbling rods. */
     private spawnVolleyArrow(from: Vector3, target: Enemy, damage: number): void {
-        const arrow = createCylinder('volleyArrow', {
-            height: 0.6, diameter: 0.08, tessellation: 5,
-        }, this.host);
-        arrow.position.set(from.x, from.y + 1.0, from.z);
-        arrow.material = createEmissiveMaterial('volleyArrowMat', new Color(0.6, 1.0, 0.4), 0.8);
-        arrow.userData.ownedMaterial = true;
+        const arrow = buildArrowMesh(this.host, `volley_arrow_${Math.random()}`, new Color(0.6, 1.0, 0.4));
+        arrow.position.set(from.x, ARROW_FLIGHT_HEIGHT, from.z);
 
         const speed = 22;
         const observer: UpdateToken = this.host.onBeforeRender.add(() => {
@@ -933,21 +932,17 @@ export class AbilityManager {
             const dt = this.host.deltaSeconds;
             const tp = target.getPosition();
             const dx = tp.x - arrow.position.x;
-            const dy = (tp.y + 1.0) - arrow.position.y;
             const dz = tp.z - arrow.position.z;
-            const dist = Math.hypot(dx, dy, dz);
+            const dist = Math.hypot(dx, dz);
             if (dist < 0.4) {
                 target.takeDamage(damage);
                 disposeMesh(arrow);
                 this.host.onBeforeRender.remove(observer);
                 return;
             }
-            // Orient toward travel direction (flat yaw is enough for a thin arrow)
             arrow.rotation.y = headingToYaw(dx, dz);
-            arrow.rotation.x = Math.atan2(-dy, Math.hypot(dx, dz));
             const step = Math.min(dist, speed * dt);
             arrow.position.x += (dx / dist) * step;
-            arrow.position.y += (dy / dist) * step;
             arrow.position.z += (dz / dist) * step;
         });
         // Safety: dispose after 3s of flight
@@ -983,7 +978,8 @@ export class AbilityManager {
                     if (d < bestDist) { bestDist = d; nearest = e; }
                 }
                 if (!nearest) return;
-                this.spawnExplosiveArrow(pos, nearest, 25, 3);
+                const damage = Math.round(25 * (this.damageMultiplierProvider?.() ?? 1));
+                this.spawnExplosiveArrow(pos, nearest, damage, 3);
             },
         });
 
@@ -992,7 +988,6 @@ export class AbilityManager {
 
     private spawnExplosiveArrow(from: Vector3, target: any, damage: number, aoeRadius: number): void {
         const targetPos = target.getPosition().clone();
-        targetPos.y += 1.0;
         // Co-op: the flight target is FIXED at spawn (so is the local flight's), so one
         // message per arrow replays the flight AND its impact blast exactly.
         if (isCoopFxActive()) {
@@ -1005,11 +1000,16 @@ export class AbilityManager {
     }
 
     private triggerExplosion(position: Vector3, damage: number, radius: number): void {
-        // Damage all enemies in radius (squared compare — no sqrt per enemy).
+        // Damage all enemies in radius — horizontal-only (matches explodeFireArrow's
+        // convention elsewhere): a 3D distanceToSquared would shrink the effective
+        // radius by the arrow's flight-height offset against ground-level enemies.
         const radiusSq = radius * radius;
         for (const e of this.allEnemies()) {
             if (!e.isAlive()) continue;
-            if (position.distanceToSquared(e.getPosition()) <= radiusSq) {
+            const ep = e.getPosition();
+            const dx = position.x - ep.x;
+            const dz = position.z - ep.z;
+            if (dx * dx + dz * dz <= radiusSq) {
                 e.takeDamage(damage);
             }
         }

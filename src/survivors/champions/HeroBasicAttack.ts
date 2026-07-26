@@ -10,7 +10,7 @@ import { acquireProjectile, releaseProjectile } from '../../engine/rendering/Pro
 import { setMeshOpacity } from '../../engine/rendering/LowPolyMaterial';
 import { blendElements } from '../ElementColors';
 import { emitCoopFx } from '../coop/CoopFx';
-import { buildArrowMesh } from '../powers/ArrowMesh';
+import { buildArrowMesh, ARROW_FLIGHT_HEIGHT } from '../powers/ArrowMesh';
 import { createSphere, createTorus, disposeMesh, getCachedGeometry } from '../../engine/three/primitives';
 import { headingToYaw } from '../../engine/three/math';
 import type { SceneHost, UpdateToken } from '../../engine/three/SceneHost';
@@ -59,6 +59,17 @@ const SLASH_WAVE_ARC_HALF_RAD = (50 * Math.PI) / 180;
 
 /** How far a ricochet bounce (ranger run-item) can reach for its next target. */
 const RICOCHET_RADIUS = 6;
+
+/** World-space Y each basic-attack projectile shape travels at (spawn height AND
+ *  in-flight aim target both pin to this — see spawnProjectile / stepProjectile).
+ *  Arrow shares ARROW_FLIGHT_HEIGHT with every other ranger arrow (powers,
+ *  Multishot, Explosive Arrow) so they all visibly loose from the same point on
+ *  the bow instead of drifting to independently-tuned heights. */
+const PROJECTILE_FLIGHT_HEIGHT: Record<ProjectileShape, number> = {
+    sphere: 1,
+    arrow: ARROW_FLIGHT_HEIGHT,
+    mageBolt: 1,
+};
 
 /** Pure corridor test for one step of the slash wave's sweep: does the
  *  (dx, dz) offset from the wave origin fall inside the band the crest crossed
@@ -806,7 +817,7 @@ export class HeroBasicAttack {
         const poolKey = `basic_attack_proj_${this.projectileShape}`;
         const proj = acquireProjectile(poolKey, () => this.createProjectileMesh());
         proj.position.copy(from);
-        proj.position.y = 1;
+        proj.position.y = PROJECTILE_FLIGHT_HEIGHT[this.projectileShape];
 
         // Element-matched tint: blend the colors of every equipped power element
         // (same rule as the barbarian's swing arc). The material is cached by the
@@ -922,7 +933,7 @@ export class HeroBasicAttack {
             return false;
         }
         _scratchA.copy(target.position);
-        _scratchA.y = 1;
+        _scratchA.y = PROJECTILE_FLIGHT_HEIGHT[f.shape];
         _scratchB.subVectors(_scratchA, proj.position);
         const dist = _scratchB.length();
 
