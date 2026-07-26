@@ -7,7 +7,7 @@ import { type TargetProvider, pickNearestAlive } from './nearestTarget';
 import { rollCrit } from './critRoll';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
 import { AnimGroup } from '../../engine/three/AnimGroup';
-import type { ContainerInstance } from '../../engine/three/assets';
+import type { AnimationLod, ContainerInstance } from '../../engine/three/assets';
 import { DynamicTexture } from '../../engine/three/DynamicTexture';
 import { headingToYaw } from '../../engine/three/math';
 import { fxRenderer, fxSize, getSoftParticleTexture, ParticleEffect } from '../../engine/three/particles/ParticleEffect';
@@ -320,7 +320,31 @@ export class Enemy {
         for (const seg of this.barSegmentMeshes) setVisible(seg);
         setVisible(this.barLabelMesh);
 
-        this.glbInstance?.setAnimationLod(active ? 'full' : 'reduced');
+        this.setAnimationLod(active ? this._visibleAnimLod : 'reduced');
+    }
+
+    /** Animation tier used while this enemy is ON screen. `setRenderActive`
+     *  overrides it with 'reduced' whenever the enemy is parked. */
+    private _visibleAnimLod: AnimationLod = 'full';
+    private _appliedAnimLod: AnimationLod = 'full';
+
+    private setAnimationLod(lod: AnimationLod): void {
+        if (this._appliedAnimLod === lod) return;
+        this._appliedAnimLod = lod;
+        this.glbInstance?.setAnimationLod(lod);
+    }
+
+    /**
+     * Skeleton-evaluation tier for this enemy while it is visible. `mixer.update`
+     * is the single largest per-enemy CPU cost at horde scale (measured 3.44 ms
+     * per frame across ~200 enemies at 'full', 1.09 ms at 'reduced'), and it runs
+     * whether or not the player could tell — so EnemyManager grades it by distance
+     * from the hero. Applied immediately when the enemy is on screen; a parked
+     * enemy stays on 'reduced' until the cull brings it back.
+     */
+    public setVisibleAnimationLod(lod: AnimationLod): void {
+        this._visibleAnimLod = lod;
+        if (this._renderActive) this.setAnimationLod(lod);
     }
 
     // ── Guest-side network visuals (co-op) ──────────────────────────────────

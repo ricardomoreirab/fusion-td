@@ -25,18 +25,26 @@ import type { SceneHost, UpdateToken } from './SceneHost';
 
 /**
  * Per-instance animation budget tier.
- *   full    - mixer.update every frame (on-screen entities).
+ *   full    - mixer.update every frame (whatever the player is actually reading).
+ *   half    - mixer.update at HALF_ANIM_HZ. For a VISIBLE entity far enough away
+ *             that a two-frame pose hold is below the threshold of noticing.
  *   reduced - mixer.update at REDUCED_ANIM_HZ, folding the skipped frames into
  *             one larger step so the clip never drifts out of phase.
  *   off     - frozen pose; the elapsed time is still carried so resuming does
  *             not lose the clip's position.
  */
-export type AnimationLod = 'full' | 'reduced' | 'off';
+export type AnimationLod = 'full' | 'half' | 'reduced' | 'off';
 
 /** Update rate of the `reduced` tier. Off-screen skeletons are never sampled by
  *  the renderer, so their only visible artefact is the pose they resume on. */
 const REDUCED_ANIM_HZ = 10;
 const REDUCED_ANIM_STEP = 1 / REDUCED_ANIM_HZ;
+
+/** Update rate of the `half` tier — for entities that ARE drawn, so unlike
+ *  `reduced` the held pose is on screen. 30 Hz is a one-frame hold at 60 fps,
+ *  which no run cycle reads as a stutter at the distances this tier applies to. */
+const HALF_ANIM_HZ = 30;
+const HALF_ANIM_STEP = 1 / HALF_ANIM_HZ;
 
 export interface ContainerInstance {
     /** Cloned model root - parent this wherever the entity lives. */
@@ -47,7 +55,8 @@ export interface ContainerInstance {
      * Throttle this instance's skeleton evaluation. At horde scale mixer.update
      * is the dominant per-entity CPU cost and it runs regardless of visibility -
      * the renderer's frustum culling only skips DRAWING, never posing. Owners
-     * that know an entity is off-screen should drop it to 'reduced'.
+     * that know an entity is off-screen should drop it to 'reduced'; visible but
+     * distant entities belong on 'half'.
      */
     setAnimationLod(lod: AnimationLod): void;
     dispose(): void;
@@ -93,6 +102,7 @@ export class GlbContainer {
             carried += h.deltaSeconds;
             if (lod === 'off') return;
             if (lod === 'reduced' && carried < REDUCED_ANIM_STEP) return;
+            if (lod === 'half' && carried < HALF_ANIM_STEP) return;
             mixer.update(carried);
             carried = 0;
         });

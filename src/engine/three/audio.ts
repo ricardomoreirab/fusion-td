@@ -86,6 +86,48 @@ export function playSound(name: string, volume = 1): void {
 
 const activeLoops = new Map<string, { source: AudioBufferSourceNode; gain: GainNode }>();
 
+/** Longest run of silence treated as encoder padding rather than as content.
+ *  MP3 decode delay + final-frame padding is tens of milliseconds; a bed that
+ *  genuinely opens quiet stays untouched. */
+const MAX_PADDING_S = 0.12;
+/** Below this amplitude a sample counts as silence for padding detection. */
+const PADDING_FLOOR = 1 / 2048;
+
+/** Loop points that skip an MP3's encoder delay/padding, cached per buffer.
+ *  A lossy encode adds silence at both ends of the file; with `loop = true` and
+ *  no loop points those two silences meet at the wrap and punch an audible hole
+ *  through an otherwise seamless bed once every pass. */
+const loopPoints = new WeakMap<AudioBuffer, { start: number; end: number }>();
+
+/**
+ * Sample range of a looping bed with encoder padding excluded. Pure — exported
+ * for Vitest, which has no AudioBuffer.
+ *
+ * Bails out to the full range if either end is silent for longer than
+ * MAX_PADDING_S, so a bed that legitimately fades in from nothing is never
+ * clipped into starting mid-swell.
+ */
+export function detectLoopRange(
+    data: Float32Array | number[], sampleRate: number,
+): { startSample: number; endSample: number } {
+    const maxPad = Math.floor(MAX_PADDING_S * sampleRate);
+    let head = 0;
+    while (head < maxPad && head < data.length && Math.abs(data[head]) < PADDING_FLOOR) head++;
+    let tail = 0;
+    while (tail < maxPad && tail < data.length && Math.abs(data[data.length - 1 - tail]) < PADDING_FLOOR) tail++;
+    if (head >= maxPad || tail >= maxPad) return { startSample: 0, endSample: data.length };
+    return { startSample: head, endSample: data.length - tail };
+}
+
+function seamlessLoopPoints(buffer: AudioBuffer): { start: number; end: number } {
+    const cached = loopPoints.get(buffer);
+    if (cached) return cached;
+    const { startSample, endSample } = detectLoopRange(buffer.getChannelData(0), buffer.sampleRate);
+    const points = { start: startSample / buffer.sampleRate, end: endSample / buffer.sampleRate };
+    loopPoints.set(buffer, points);
+    return points;
+}
+
 /** Start a named buffer as a seamless loop (no-op if already playing). */
 export function playLoop(name: string, volume = 1): void {
     if (activeLoops.has(name)) return;
@@ -96,13 +138,16 @@ export function playLoop(name: string, volume = 1): void {
     const source = audio.createBufferSource();
     source.buffer = buffer;
     source.loop = true;
+    const { start, end } = seamlessLoopPoints(buffer);
+    source.loopStart = start;
+    source.loopEnd = end;
     const gain = audio.createGain();
     // Fade in so the loop never pops on state transitions.
     gain.gain.setValueAtTime(0.0001, audio.currentTime);
     gain.gain.exponentialRampToValueAtTime(Math.max(volume, 0.0001), audio.currentTime + 1.5);
     source.connect(gain);
     gain.connect(masterGain);
-    source.start();
+    source.start(0, start); // begin AT the loop point, not in the leading padding
     activeLoops.set(name, { source, gain });
 }
 

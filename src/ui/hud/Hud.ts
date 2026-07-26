@@ -7,16 +7,12 @@ import { el } from '../dom';
 import { makeMeter, MeterController } from '../primitives/Meter';
 import { makeIconSlot, IconSlotController } from '../primitives/IconSlot';
 import { iconEl, IconName, setIcon } from '../icons';
-import { itemArtEl } from '../itemArt';
 import { elementColor, elementIcon, POWER_ICON, TIER_COLOR, TIER_ICON } from '../elementMeta';
 import { flashClass, onTap } from '../interaction';
 import {
   cooldownFraction, waveTitle, enemiesLeftLabel, waveBannerLabel,
   clockLabel, levelLabel, WaveInfo,
 } from '../format';
-import { GearSlotVM } from '../overlays/CharacterProfile';
-import { SLOT_ICON } from '../overlays/slotMeta';
-import { EQUIP_SLOTS, RARITY_COLOR } from '../../survivors/items/ItemTypes';
 
 // Icon/colour maps for the HUD. Every one of these used to be a platform
 // emoji; they are now authored glyphs from src/ui/icons.ts.
@@ -102,10 +98,9 @@ export class Hud {
   private onHorn: () => void = () => {};
   private lowHpTime = 0;
 
-  // Always-visible equipment strip (single-player only) → opens the character profile.
-  private inventoryStrip!: HTMLDivElement;
-  private inventoryCells: HTMLDivElement[] = [];
-  private onOpenCharacter: () => void = () => {};
+  /** Opens the character sheet — wired to the level medallion. Set by the
+      gameplay state; single-player only, so the medallion is inert in co-op. */
+  private onOpenCharacter: (() => void) | null = null;
 
   // diff trackers
   private prevHp = -1;
@@ -154,22 +149,13 @@ export class Hud {
     const bars = el('div', { class: 'hud__bars' }, [this.hpMeter.root, this.xpMeter.root]);
     const vitals = el('div', { class: 'hud__vitals' }, [this.medallion, bars]);
 
-    // Equipment strip, directly under the vitals (single-player). Hidden until
-    // setInventory() is called; clicking it opens the character profile.
-    this.inventoryStrip = el('div', {
-      class: 'hud__inventory interactive',
-      attrs: { role: 'button', title: 'Character (equipment)' },
-    });
-    for (let i = 0; i < EQUIP_SLOTS.length; i++) {
-      const cell = el('div', { class: 'gear-slot gear-slot--empty' });
-      cell.appendChild(el('div', { class: 'gear-slot__glyph' }, [iconEl(SLOT_ICON[EQUIP_SLOTS[i]])]));
-      this.inventoryCells.push(cell);
-      this.inventoryStrip.appendChild(cell);
-    }
-    this.inventoryStrip.style.display = 'none';
-    onTap(this.inventoryStrip, () => this.onOpenCharacter());
+    // The medallion is the character-sheet button. The equipment strip that
+    // used to sit under the vitals is gone — the shop's gear ledger covers
+    // "what am I wearing" at the moment it matters, so the HUD no longer pays
+    // six permanent tiles for it.
+    onTap(this.medallion, () => this.onOpenCharacter?.());
 
-    const zoneTL = el('div', { class: 'hud__zone hud__zone--tl' }, [vitals, this.inventoryStrip]);
+    const zoneTL = el('div', { class: 'hud__zone hud__zone--tl' }, [vitals]);
 
     // ── Top-centre: what I'm fighting ─────────────────────────────────
     this.waveEl = el('div', { class: 'obj__wave', text: 'WAVE 1' });
@@ -502,29 +488,14 @@ export class Hud {
     this.hornBtn.style.display = visible ? '' : 'none';
   }
 
-  /** Open-character-profile callback (wired by the gameplay state). */
-  setOnOpenCharacter(fn: () => void): void { this.onOpenCharacter = fn; }
-
-  /** Populate + show the always-visible equipment strip (single-player only).
-      Each cell shows the equipped piece's icon + rarity color, or the empty
-      slot icon. Called at run start and after every equipment change. */
-  setInventory(slots: GearSlotVM[]): void {
-    this.inventoryStrip.style.display = '';
-    for (let i = 0; i < this.inventoryCells.length; i++) {
-      const cell = this.inventoryCells[i];
-      const s = slots[i];
-      if (!s) continue;
-      const filled = !!s.name;
-      cell.classList.toggle('gear-slot--empty', !filled);
-      cell.style.setProperty('--accent', filled && s.rarity ? RARITY_COLOR[s.rarity] : '#8a6d35');
-      const glyph = cell.firstElementChild;
-      if (glyph) {
-        glyph.replaceChildren(s.glyph
-          ? itemArtEl(s.id, s.glyph, s.name ?? '')
-          : iconEl(SLOT_ICON[s.slot]));
-      }
-      cell.title = filled ? `${s.name}` : `${s.slot} (empty)`;
-    }
+  /** Open-character-profile callback (wired by the gameplay state). Also marks
+      the level medallion as an interactive control — it stays inert wherever
+      there is no character sheet to open (co-op). */
+  setOnOpenCharacter(fn: () => void): void {
+    this.onOpenCharacter = fn;
+    this.medallion.classList.add('interactive', 'medallion--clickable');
+    this.medallion.setAttribute('role', 'button');
+    this.medallion.setAttribute('title', 'Character sheet');
   }
 
   pulseItem(id: ItemId): void { this.itemPulse[id] = true; }

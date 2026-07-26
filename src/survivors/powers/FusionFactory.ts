@@ -5,6 +5,7 @@ import type {
     PowerDefinition,
     PowerRuntimeState,
     PowerContext,
+    PowerStatRow,
     EnchantmentHitContext,
     PowerElement,
     ChampionType,
@@ -105,6 +106,9 @@ export function makeFusionDef(a: PowerDefinition, b: PowerDefinition): PowerDefi
         // state is the canonical level source, so passing it here is correct.
         cooldownFor: (s) => ((a.cooldownFor(s) + b.cooldownFor(s)) / 2) * FUSION_CD,
         damageFor:   (s) => a.damageFor(s) + b.damageFor(s),
+        summary:
+            `Both ${a.name} and ${b.name} fire from a single slot, each hitting ${Math.round((FUSION_DMG - 1) * 100)}% harder ` +
+            `on a cooldown ${Math.round((1 - FUSION_CD) * 100)}% shorter than the average of the two.`,
         description: (lvl) =>
             `Fused: ${parents.map(p => (p.description ? p.description(lvl) : p.name)).join('  +  ')}`,
         init: (state, ctx) => { ensureSubStates(state, ctx); },
@@ -116,6 +120,43 @@ export function makeFusionDef(a: PowerDefinition, b: PowerDefinition): PowerDefi
                 if (sub && p.dispose) p.dispose(sub);
             }
         },
+    };
+
+    // Stat table: the fused numbers up top, then each parent's own effect rows so
+    // the card still says what the two halves actually do.
+    def.stats = (lvl, next) => {
+        const at = (l: number) => ({ level: l, cooldownRemaining: 0 });
+        const changed = next !== lvl;
+        const rows: PowerStatRow[] = [
+            { label: 'Fused from', value: `${a.name} + ${b.name}` },
+        ];
+        if (a.mode === 'passive') {
+            rows.push({ label: 'Type', value: 'Passive — on every hit' });
+            rows.push({
+                label: 'Fusion bonus',
+                value: `+${Math.round(FUSION_PASSIVE_BONUS * lvl * 100)}% weapon dmg`,
+                next: changed ? `+${Math.round(FUSION_PASSIVE_BONUS * next * 100)}% weapon dmg` : undefined,
+            });
+        } else {
+            rows.push(
+                {
+                    label: 'Damage',
+                    value: Math.round(def.damageFor(at(lvl))).toString(),
+                    next: changed ? Math.round(def.damageFor(at(next))).toString() : undefined,
+                },
+                {
+                    label: 'Cooldown',
+                    value: `${def.cooldownFor(at(lvl)).toFixed(2)}s`,
+                    next: changed ? `${def.cooldownFor(at(next)).toFixed(2)}s` : undefined,
+                    lowerIsBetter: true,
+                },
+                { label: 'Range', value: `${def.baseRange} u` },
+            );
+        }
+        for (const p of parents) {
+            if (p.description) rows.push({ label: p.name, value: p.description(lvl) });
+        }
+        return rows;
     };
 
     if (a.mode === 'passive') {
