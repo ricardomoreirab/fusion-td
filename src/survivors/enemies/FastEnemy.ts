@@ -1,13 +1,16 @@
 import { Box3, Color, Mesh, MeshPhongMaterial, Vector3 } from 'three';
 import { Game } from '../../engine/Game';
 import { Enemy } from './Enemy';
-import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../engine/rendering/LowPolyMaterial';
 import { PALETTE } from '../../engine/rendering/StyleConstants';
 import { AnimGroup } from '../../engine/three/AnimGroup';
 import type { GlbContainer } from '../../engine/three/assets';
 import { headingToYaw } from '../../engine/three/math';
-import { createBox, createCylinder, createPlane, createPolyhedron, createSphere, disposeMesh, isMeshDisposed } from '../../engine/three/primitives';
+import { createBox, createCylinder, createPolyhedron, createSphere, disposeMesh, isMeshDisposed } from '../../engine/three/primitives';
+
+/** NORMAL-tier health-bar fill size for this class. Module-level + frozen: it is
+ *  read on every bar rebuild and must never be a per-instance literal. */
+const BAR_DIM = Object.freeze({ width: 0.8, height: 0.08 });
 
 export class FastEnemy extends Enemy {
     /** Static slot used by EnemyManager.spawnSurvivorsEnemy to stage a preloaded GLB
@@ -24,8 +27,21 @@ export class FastEnemy extends Enemy {
 
     // Motion-trail ghost meshes (3 trailing copies)
     private ghostTrails: Mesh[] = [];
-    // Previous positions ring buffer for smooth trailing
-    private trailPositions: Array<{ x: number; y: number; z: number }> = [];
+    /** Position history for the ghost trail: a TRUE ring buffer of
+     *  TRAIL_HISTORY xyz triples with a moving head, written every frame. The
+     *  previous `unshift({x,y,z})` allocated an object per enemy per frame AND
+     *  was O(n) in the length it was capped to. */
+    private readonly trailHistory = new Float32Array(FastEnemy.TRAIL_HISTORY * 3);
+    /** Index of the newest sample in trailHistory. -1 until the first write. */
+    private trailHead = -1;
+    /** Samples written so far, saturating at TRAIL_HISTORY. */
+    private trailFilled = 0;
+    private static readonly TRAIL_HISTORY = 9;
+    /** Per-instance emissive scratch. The body material is per-instance but the
+     *  PALETTE colour it derives from is a SHARED constant that must never be
+     *  mutated — so the pulse writes into this and assigns it, instead of
+     *  cloning the palette colour every frame (Champion.tickBarbSpinFx idiom). */
+    private readonly _emissiveScratch = new Color();
 
     /** True when this instance renders via the artillery-carriage GLB. */
     private usingGLB: boolean = false;
@@ -50,6 +66,11 @@ export class FastEnemy extends Enemy {
         this.meleeWindupDuration   = 0.2;
         this.meleeStrikeDuration   = 0.08;
         this.meleeCooldownDuration = 0.35;
+
+        // Health bar anchor + size. The bar itself is an instance in the shared
+        // HealthBarField (see Enemy.createHealthBar) — no meshes to build here.
+        this.barHeightOffset = 2.3;
+        this.barNormalDims = BAR_DIM;
 
         // Build mesh + health bar AFTER field initializers have run (see Enemy
         // constructor note). new.target guard → fires only for the concrete leaf.
@@ -333,63 +354,6 @@ export class FastEnemy extends Enemy {
     }
 
     /**
-     * Override the health bar creation for fast enemies (positioned higher for flying)
-     */
-    protected createHealthBar(): void {
-        if (!this.mesh) return;
-
-        this._barBand = null; // force the fill-material assignment in updateHealthBar
-
-        // Two meshes, shared cached materials (see Enemy.createHealthBar): the
-        // frame-sized near-black background doubles as the outline.
-        this.healthBarBackgroundMesh = createPlane('healthBarBg', {
-            width: 0.88,
-            height: 0.14
-        }, this.scene);
-        this.healthBarBackgroundMesh.position.set(this.position.x, this.position.y + 2.3, this.position.z);
-        this.healthBarBackgroundMesh.material = getCachedMaterial('healthBarBgFrameMat', m => {
-            m.color    = new Color(0.05, 0.05, 0.05);
-            m.specular = new Color(0, 0, 0);
-            m.depthTest = false;
-            m.depthWrite = false;
-        });
-
-        // Health fill — material assigned by updateHealthBar's band swap.
-        this.healthBarMesh = createPlane('healthBar', {
-            width: 0.8,
-            height: 0.08
-        }, this.scene);
-        this.healthBarMesh.position.set(this.position.x, this.position.y + 2.3, this.position.z);
-
-        this.updateHealthBar();
-    }
-
-    /**
-     * Override the updateHealthBar method for fast enemies
-     */
-    protected updateHealthBar(): void {
-        if (!this.mesh || !this.healthBarMesh || !this.healthBarBackgroundMesh) return;
-
-        const healthPercent = Math.max(0, this.health / this.maxHealth);
-
-        this.healthBarMesh.scale.x = healthPercent;
-
-        const offset = (1 - healthPercent) * 0.4; // Adjusted for narrower bar (0.8 width)
-        this.healthBarMesh.position.x = this.position.x - offset;
-
-        this.applyHealthBarBand(healthPercent);
-
-        this.healthBarBackgroundMesh.position.x = this.position.x;
-        this.healthBarBackgroundMesh.position.y = this.position.y + 2.3;
-        this.healthBarBackgroundMesh.position.z = this.position.z;
-
-        this.healthBarMesh.position.y = this.position.y + 2.3;
-        this.healthBarMesh.position.z = this.position.z;
-
-        this._billboardHealthBar();
-    }
-
-    /**
      * Update the enemy with ghostly swooping flight animation
      * @param deltaTime Time elapsed since last update in seconds
      * @returns True if the enemy reached the end of the path
@@ -445,25 +409,25 @@ export class FastEnemy extends Enemy {
     protected animateProceduralParts(deltaTime: number): void {
         this.flyTime += deltaTime * 6;
 
-        // Record position history for trail (store last 9 positions in a ring buffer)
-        this.trailPositions.unshift({
-            x: this.position.x,
-            y: this.position.y + 1.3 + Math.sin(this.flyTime * 0.6) * 0.25,
-            z: this.position.z
-        });
-        if (this.trailPositions.length > 9) this.trailPositions.length = 9;
+        // Record position history for the trail (ring buffer, newest at head).
+        const cap = FastEnemy.TRAIL_HISTORY;
+        this.trailHead = (this.trailHead + 1) % cap;
+        if (this.trailFilled < cap) this.trailFilled++;
+        const w = this.trailHead * 3;
+        this.trailHistory[w]     = this.position.x;
+        this.trailHistory[w + 1] = this.position.y + 1.3 + Math.sin(this.flyTime * 0.6) * 0.25;
+        this.trailHistory[w + 2] = this.position.z;
 
         // Update ghost trail positions (sample every 3 frames back)
         for (let g = 0; g < this.ghostTrails.length; g++) {
             const ghost = this.ghostTrails[g];
             if (isMeshDisposed(ghost)) continue;
-            const histIdx = Math.min((g + 1) * 3, this.trailPositions.length - 1);
-            if (histIdx < this.trailPositions.length) {
-                const hp = this.trailPositions[histIdx];
-                ghost.position.set(hp.x, hp.y, hp.z);
-                ghost.rotation.y = this.mesh ? this.mesh.rotation.y : 0;
-                ghost.scale.copy(this.mesh ? this.mesh.scale : ghost.scale);
-            }
+            const age = Math.min((g + 1) * 3, this.trailFilled - 1);
+            if (age < 0) continue;
+            const r = (((this.trailHead - age) % cap) + cap) % cap * 3;
+            ghost.position.set(this.trailHistory[r], this.trailHistory[r + 1], this.trailHistory[r + 2]);
+            ghost.rotation.y = this.mesh ? this.mesh.rotation.y : 0;
+            ghost.scale.copy(this.mesh ? this.mesh.scale : ghost.scale);
         }
 
         if (this.mesh) {
@@ -472,11 +436,14 @@ export class FastEnemy extends Enemy {
             this.mesh.position.y = this.position.y + 1.3 + hoverY;
 
             // Subtle emissive pulse on body (per-instance material — never a
-            // shared cached one; assign a fresh Color, don't mutate in place)
+            // shared cached one). Writes into this enemy's own scratch Color so
+            // the shared PALETTE constant is never mutated and no Color is
+            // allocated per frame.
             const bodyMat = this.mesh.material as MeshPhongMaterial;
             if (bodyMat) {
                 const pulse = 0.5 + 0.3 * Math.sin(this.flyTime * 2.5);
-                bodyMat.emissive = PALETTE.ENEMY_FAST_WISP.clone().multiplyScalar(pulse);
+                this._emissiveScratch.copy(PALETTE.ENEMY_FAST_WISP).multiplyScalar(pulse);
+                bodyMat.emissive = this._emissiveScratch;
             }
 
             // Gentle body tilt as it sways

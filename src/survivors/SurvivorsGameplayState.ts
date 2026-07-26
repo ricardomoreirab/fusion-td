@@ -236,6 +236,10 @@ const RECONCILE_DEAD_ZONE = 1.0;
 const RECONCILE_HARD_SNAP = 5.0;
 const RECONCILE_LERP = 0.25;
 
+/** Shared/tethered co-op camera framing. Hoisted: the focus provider runs every
+ *  frame and these numbers never change during a run. */
+const COOP_FOCUS_OPTS = { maxScale: 1.5, scalePerUnit: 0.02 };
+
 /**
  * Per-player aggregate (co-op M4, spec §3). The local player is always
  * `players[localId]`; single-player and the M3 host both run with exactly
@@ -331,6 +335,8 @@ export class SurvivorsGameplayState implements GameState {
      *  only while a disconnect is being waited out. */
     private _connMachine: ConnectionMachine | null = null;
     private _reconnectEl: HTMLDivElement | null = null;
+    /** Last text written into _reconnectEl — dirty-check for the per-frame update. */
+    private _reconnectText = '';
     /** M6 D1: why the grace window is open — 'self' = OUR socket dropped (we attempt
      *  the resume), 'peer' = the relay reported the OTHER peer left (we wait). */
     private _connLostKind: 'self' | 'peer' | null = null;
@@ -520,10 +526,31 @@ export class SurvivorsGameplayState implements GameState {
         inProgress: false,
     };
     private _scratchRunStats: { timeS: number; kills: number } = { timeS: 0, kills: 0 };
+    private _scratchXp: { level: number; progress: number } = { level: 1, progress: 0 };
+    /** Reused co-op per-frame structs: the local pose we broadcast and the shared
+     *  camera focus the provider returns. Both are consumed synchronously (the
+     *  pose is encoded inside sendLocalPose; the focus is read by IsoCameraRig
+     *  in the same call) — neither is queued or retained. */
+    private _scratchPose: { x: number; y: number; z: number; ry: number } = { x: 0, y: 0, z: 0, ry: 0 };
+    private _scratchFocus: { x: number; z: number; distanceScale: number } = { x: 0, z: 0, distanceScale: 1 };
     /** Flip to true while diagnosing a slow-frame regression. Kept off by
      *  default so the per-frame instrumentation (per-subsystem performance.now,
      *  closure + object literal allocations) doesn't add background overhead. */
     private static readonly PROFILE_UPDATE: boolean = false;
+    /** Per-subsystem timings for the slow-frame log. Only written while
+     *  PROFILE_UPDATE is on; the record is replaced at the top of each profiled
+     *  update() so a run can't accumulate stale keys. */
+    private _profTimes: Record<string, number> = {};
+    private _profMark = 0;
+
+    /** Stamp the elapsed time since the previous mark under `key`. No-op (and
+     *  allocation-free) unless PROFILE_UPDATE is on. */
+    private _measure(key: string): void {
+        if (!SurvivorsGameplayState.PROFILE_UPDATE) return;
+        const now = performance.now();
+        this._profTimes[key] = now - this._profMark;
+        this._profMark = now;
+    }
 
     // Run tracking for game-over summary
     private runStartTime: number = 0;
@@ -2321,8 +2348,10 @@ export class SurvivorsGameplayState implements GameState {
                 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:99998;display:flex;' +
                 'align-items:center;justify-content:center;background:#0008;color:#fda;' +
                 'font:600 20px/1.4 sans-serif;text-align:center;pointer-events:none';
+            el.style.whiteSpace = 'pre-line';
             document.body.appendChild(el);
             this._reconnectEl = el;
+            this._reconnectText = '';
         }
         const secs = Math.ceil(cm.graceRemaining);
         const role = this.coopSession?.role;
@@ -2334,8 +2363,13 @@ export class SurvivorsGameplayState implements GameState {
         const outcome = self
             ? (role === 'host' ? '(run continues solo if you can’t rejoin)' : '(run ends if you can’t rejoin)')
             : (role === 'host' ? '(continuing solo if they don’t return)' : '(run ends if the host doesn’t return)');
-        this._reconnectEl.textContent = `${headline}\n${action} ${secs}s\n${outcome}`;
-        this._reconnectEl.style.whiteSpace = 'pre-line';
+        // Only the countdown changes frame to frame — dirty-check the composed
+        // string so the DOM write (and its relayout) happens once per second.
+        const text = `${headline}\n${action} ${secs}s\n${outcome}`;
+        if (text !== this._reconnectText) {
+            this._reconnectText = text;
+            this._reconnectEl.textContent = text;
+        }
 
         if (cm.state === 'closed') {
             this._endReconnect();
@@ -2369,6 +2403,7 @@ export class SurvivorsGameplayState implements GameState {
         this._connMachine = null;
         this._reconnectEl?.remove();
         this._reconnectEl = null;
+        this._reconnectText = '';
         this._connLostKind = null;  // M6 D1 (an in-flight resume self-checks on resolve)
         this._resumeAccumS = 0;
         // Invariant: no reconnect state ⇒ no resume considered in flight. A connect
@@ -2964,19 +2999,16 @@ export class SurvivorsGameplayState implements GameState {
         // a power or paused (wall-clock runStartTime kept jumping on resume).
         this.runClockS += dt;
 
-        // Per-subsystem timing is gated behind a compile-time-style flag —
-        // when off (production), no performance.now / object allocations run.
+        // Per-subsystem timing is gated behind a compile-time-style flag — when off
+        // (production) `_measure` returns on its first line and this whole block
+        // allocates nothing. It used to build a closure + a record every frame
+        // regardless, which is exactly the cost the instrumentation is meant to find.
         const profile = SurvivorsGameplayState.PROFILE_UPDATE;
         const _t0 = profile ? performance.now() : 0;
-        let _tMark = _t0;
-        let _times: Record<string, number> | null = null;
-        if (profile) _times = {};
-        const _measure = (key: string) => {
-            if (!profile || !_times) return;
-            const now = performance.now();
-            _times[key] = now - _tMark;
-            _tMark = now;
-        };
+        if (profile) {
+            this._profMark = _t0;
+            this._profTimes = {};
+        }
 
         this.heroController.update(dt);
         if (this.hero) this.hero.update(dt);
@@ -2988,8 +3020,6 @@ export class SurvivorsGameplayState implements GameState {
         if (this.coopSession && this.hero) {
             const hp = this.hero.getPosition();
             const ry = this.hero.getFacingY();
-            // NOTE(M3): the per-frame object literal here is intentionally simple for
-            // M2; binary encoding + scratch reuse arrive at M3 (spec §3/§6).
             // anim: 2 while a basic-attack clip is playing so the teammate's ghost can
             // mirror the swing/shot; 1 otherwise (the ghost derives walk/idle from
             // its interpolated velocity).
@@ -3000,7 +3030,13 @@ export class SurvivorsGameplayState implements GameState {
             // wins so an ult's cast pose shows even while the basic attack is on cooldown.
             const heroAnimSrc = this.hero as unknown as { isSpecialActive?: () => boolean; isAttackActive?: () => boolean };
             const heroAnim = heroAnimSrc.isSpecialActive?.() ? 3 : (heroAnimSrc.isAttackActive?.() ? 2 : 1);
-            this.coopSession.sendLocalPose({ x: hp.x, y: hp.y, z: hp.z, ry }, heroAnim);
+            // Reused pose struct — sendLocalPose copies the fields into the wire
+            // message synchronously, so nothing downstream holds this reference.
+            this._scratchPose.x = hp.x;
+            this._scratchPose.y = hp.y;
+            this._scratchPose.z = hp.z;
+            this._scratchPose.ry = ry;
+            this.coopSession.sendLocalPose(this._scratchPose, heroAnim);
             if (this.coopSession.role === 'guest') {
                 const mv = this.heroController?.getMoveInput();
                 // buttons (dash/ult) carried for M4-9 ability routing; 0 for now.
@@ -3045,27 +3081,36 @@ export class SurvivorsGameplayState implements GameState {
                     this.heroController?.setCameraFocusProvider(() => {
                         const self = this.hero?.getPosition();
                         const mate = this.coopGhost?.getPosition();
+                        // Reused focus struct — IsoCameraRig reads it inside this
+                        // same call and never keeps it.
+                        const focus = this._scratchFocus;
                         // A hero can be momentarily null (death, pre-first-pose). Frame
                         // whichever one exists at solo distance; only fall back to the
                         // arena centre when neither does (avoids snapping to origin).
-                        if (!self && !mate) return { x: 0, z: 0, distanceScale: 1 };
+                        if (!self && !mate) {
+                            focus.x = 0; focus.z = 0; focus.distanceScale = 1;
+                            return focus;
+                        }
                         if (!self || !mate) {
                             const p = (self ?? mate)!;
-                            return { x: p.x, z: p.z, distanceScale: 1 };
+                            focus.x = p.x; focus.z = p.z; focus.distanceScale = 1;
+                            return focus;
                         }
                         // M4-11: while spectating, follow the surviving teammate alone.
-                        if (this._spectating) return { x: mate.x, z: mate.z, distanceScale: 1 };
+                        if (this._spectating) {
+                            focus.x = mate.x; focus.z = mate.z; focus.distanceScale = 1;
+                            return focus;
+                        }
                         // Frame both heroes: centre on the midpoint and pull the camera
                         // straight back along the slant as they separate (the scene layer
                         // keeps the pitch fixed). Expressed as a multiplier on the BASE
                         // slant distance so it tracks the solo perspective — and mobile's
                         // pulled-in distance — automatically, instead of a hard-coded
                         // height that breaks when the perspective is retuned.
-                        return computeCameraFocus(
-                            { x: self.x, z: self.z },
-                            { x: mate.x, z: mate.z },
-                            { maxScale: 1.5, scalePerUnit: 0.02 },
-                        );
+                        // Vector3 already satisfies Point2 — passing the live
+                        // positions straight through keeps this frame-path
+                        // allocation-free (tuning lives in COOP_FOCUS_OPTS).
+                        return computeCameraFocus(self, mate, COOP_FOCUS_OPTS, focus);
                     });
                     // Part C (Task 9 ghost targeting provider): on the host, push the ghost
                     // into _heroProviders so enemies target the nearest of both heroes.
@@ -3178,7 +3223,7 @@ export class SurvivorsGameplayState implements GameState {
             this._lastHeroZ = hp.z;
         }
 
-        _measure('hero');
+        this._measure('hero');
 
         // M3 role split: host/single-player run the full authoritative simulation;
         // guest skips it entirely and instead applies the latest host snapshot to
@@ -3187,13 +3232,13 @@ export class SurvivorsGameplayState implements GameState {
         if (coopRole !== 'guest') {
             // Host / single-player: authoritative simulation (unchanged behavior).
             if (this.waveManager) this.waveManager.update(dt);
-            _measure('wave');
+            this._measure('wave');
             if (this.enemyManager) this.enemyManager.update(dt);
-            _measure('enemies');
+            this._measure('enemies');
 
             // Contact damage
             this.applyContactDamage(dt);
-            _measure('contact');
+            this._measure('contact');
         } else {
             // Guest: do NOT tick enemyManager / waveManager / breather.
             // Apply the latest host snapshot to drive the render-only enemies
@@ -3317,22 +3362,22 @@ export class SurvivorsGameplayState implements GameState {
                     }
                 }
             }
-            _measure('guestApply');
+            this._measure('guestApply');
         }
 
         // Power auto-fire (suspended while spectating — the dead local hero does nothing)
         if (this.powerSlots && !this._spectating) this.powerSlots.update(dt);
-        _measure('powers');
+        this._measure('powers');
 
         // Element visual decorations on the hero's weapon
         if (this.hero && this.powerSlots) {
             this.hero.updateElementVisuals(this.powerSlots.getActiveElements());
         }
-        _measure('elemVis');
+        this._measure('elemVis');
 
         // Manual ultimates (Meteor Strike + Frost Nova) — suspended while spectating.
         if (this.abilityManager && !this._spectating) this.abilityManager.update(dt);
-        _measure('abilities');
+        this._measure('abilities');
 
         // Power drops + item drops — tick + swap-pop dead entries in one
         // backwards pass (the previous .filter rebuilt both arrays every
@@ -3369,10 +3414,10 @@ export class SurvivorsGameplayState implements GameState {
                 this.floorPickups.pop();
             }
         }
-        _measure('drops');
+        this._measure('drops');
 
         this.damageNumbers?.update(dt);
-        _measure('damageNum');
+        this._measure('damageNum');
 
         // HUD update — reuse the scratch waveInfo struct.
         if (this.hud && this.powerSlots && this.playerStats) {
@@ -3389,9 +3434,11 @@ export class SurvivorsGameplayState implements GameState {
             }
             this._scratchRunStats.timeS = this.runClockS;
             this._scratchRunStats.kills = this.playerStats.getTotalKills();
+            this._scratchXp.level = this.levelSystem?.getLevel() ?? 1;
+            this._scratchXp.progress = this.levelSystem?.getProgress() ?? 0;
             this.hud.update(
                 this.heroController.getHealth(),
-                { level: this.levelSystem?.getLevel() ?? 1, progress: this.levelSystem?.getProgress() ?? 0 },
+                this._scratchXp,
                 this.powerSlots.getSlots(),
                 dt,
                 waveInfo,
@@ -3399,11 +3446,11 @@ export class SurvivorsGameplayState implements GameState {
             );
             this.hud.setGold(this.playerStats.getGold());
         }
-        _measure('hud');
+        this._measure('hud');
 
         // Off-screen enemy indicators (all tiers)
         if (this.offscreenIndicators) this.offscreenIndicators.update();
-        _measure('offscreenInd');
+        this._measure('offscreenInd');
 
         // B4 — Host snapshot authoring at ~20 Hz. Accumulate raw deltaTime (not dt)
         // so the cadence is wall-clock based and isn't slowed by slow-mo overlays.
@@ -3427,10 +3474,10 @@ export class SurvivorsGameplayState implements GameState {
             }
         }
 
-        if (profile && _times) {
+        if (profile) {
             const totalMs = performance.now() - _t0;
             if (totalMs > 50) {
-                const breakdown = Object.entries(_times)
+                const breakdown = Object.entries(this._profTimes)
                     .filter(([, ms]) => ms > 1)
                     .sort(([, a], [, b]) => b - a)
                     .map(([k, ms]) => `${k}=${Math.round(ms)}ms`)

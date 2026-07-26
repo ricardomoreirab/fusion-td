@@ -11,13 +11,15 @@ import { setMeshOpacity } from '../../engine/rendering/LowPolyMaterial';
 import { blendElements } from '../ElementColors';
 import { emitCoopFx } from '../coop/CoopFx';
 import { buildArrowMesh } from '../powers/ArrowMesh';
-import { createSphere, createTorus, disposeMesh } from '../../engine/three/primitives';
+import { createSphere, createTorus, disposeMesh, getCachedGeometry } from '../../engine/three/primitives';
 import { headingToYaw } from '../../engine/three/math';
 import type { SceneHost, UpdateToken } from '../../engine/three/SceneHost';
 
 // Module-level scratch vectors — safe because update() is not reentrant (frames serialize)
 const _scratchA = new Vector3();
 const _scratchB = new Vector3();
+/** Shared empty element list for the "no power slots" paths (read-only). */
+const NO_ELEMENTS: PowerElement[] = [];
 
 // Shared radial-gradient texture for the melee cone telegraph — bright core
 // fading to fully transparent at the rim. CircleGeometry's UVs are a planar
@@ -160,6 +162,14 @@ export class HeroBasicAttack {
     private liveStreaks: StreakPuff[] = [];
     private streakPool: Mesh[] = [];
     private flightToken: UpdateToken | null = null;
+    /** Reused enchantment-hit context — see applyEnchantments. Not reentrant. */
+    private readonly _hitCtx: EnchantmentHitContext = {
+        scene: null as unknown as SceneHost,
+        heroPosition: null as unknown as Vector3,
+        enemies: [],
+        baseDamage: 0,
+        element: 'physical',
+    };
 
     /**
      * When set (co-op guest), a hit reports to the host instead of mutating enemy HP.
@@ -524,13 +534,17 @@ export class HeroBasicAttack {
         // Barbarian-only elemental tint: blend the colors of every active power
         // element. No elements (or non-barbarian) → the classic gold arc.
         const active = (this.powerSlots && (this.hero as any).championType === 'barbarian')
-            ? Array.from(this.powerSlots.getActiveElements())
-            : [];
+            ? this.powerSlots.getActiveElementList()
+            : NO_ELEMENTS;
         const tint = active.length > 0 ? blendElements(active) : null;
         const half = MELEE_CONE_HALF_ANGLE_RAD;
 
-        // Faint full-cone wedge — the hit-area readout.
-        const wedge = new Mesh(new CircleGeometry(range, 24, -half, half * 2));
+        // Faint full-cone wedge — the hit-area readout. UNIT radius + a mesh
+        // scale of `range`: CircleGeometry's UVs are normalised by its radius,
+        // so a scaled unit wedge is pixel-identical to a per-swing geometry and
+        // costs no allocation. Cached (bounded key) — disposeMesh skips it.
+        const wedge = new Mesh(getCachedGeometry(
+            'meleeSwingWedge', () => new CircleGeometry(1, 24, -half, half * 2)));
         wedge.name = 'swingCone';
         this.scene.scene.add(wedge);
         wedge.position.copy(center);
@@ -566,12 +580,14 @@ export class HeroBasicAttack {
                 m.side = DoubleSide;
             });
         wedge.material = wedgeMat;
-        wedge.scale.setScalar(0.75); // grows to full reach during the chop
+        wedge.scale.setScalar(range * 0.75); // grows to full reach during the chop
 
         // Bright blade slice sweeping edge-to-edge across the cone.
         const bladeHalf = (14 * Math.PI) / 180;
-        const blade = new Mesh(new CircleGeometry(range, 10, -bladeHalf, bladeHalf * 2));
+        const blade = new Mesh(getCachedGeometry(
+            'meleeSwingBlade', () => new CircleGeometry(1, 10, -bladeHalf, bladeHalf * 2)));
         blade.name = 'swingBlade';
+        blade.scale.setScalar(range);
         this.scene.scene.add(blade);
         blade.position.copy(center);
         blade.position.y = 0.35;
@@ -610,7 +626,7 @@ export class HeroBasicAttack {
             const t = Math.min(elapsed / duration, 1);
 
             // Wedge: expand to full reach and fade.
-            const s = 0.75 + 0.25 * t;
+            const s = range * (0.75 + 0.25 * t);
             wedge.scale.set(s, s, s);
             setMeshOpacity(wedge, 0.4 * (1 - t));
 
@@ -801,8 +817,8 @@ export class HeroBasicAttack {
         // (same rule as the barbarian's swing arc). The material is cached by the
         // blend's hex — element subsets are finite, so the cache stays bounded.
         const activeElements = this.powerSlots
-            ? Array.from(this.powerSlots.getActiveElements())
-            : [];
+            ? this.powerSlots.getActiveElementList()
+            : NO_ELEMENTS;
         const tint = activeElements.length > 0 ? blendElements(activeElements) : null;
         const matKey = tint
             ? `basic_attack_proj_mat_${this.projectileShape}_${tint.getHexString()}`
@@ -989,16 +1005,18 @@ export class HeroBasicAttack {
         const enchantments = this.powerSlots.getActiveEnchantments();
         if (enchantments.length === 0) return;
 
-        const ctx: EnchantmentHitContext = {
-            scene: this.scene,
-            heroPosition: heroPos,
-            enemies: allEnemies,
-            // Pass the multiplied damage so passive on-hit bonuses (Arcane Bite,
-            // Flaming Edge DoT, Heavy Strike, Shock Chain) also scale with shop
-            // upgrades and the per-card global power bump.
-            baseDamage: this.effectiveDamage,
-            element: 'physical',
-        };
+        // Reused hit context — this runs once per enemy per hit, i.e. per enemy
+        // per frame while Whirlwind is up. onHit hooks read it synchronously and
+        // never retain it (unlike a power's cast(), whose observers do).
+        const ctx = this._hitCtx;
+        ctx.scene = this.scene;
+        ctx.heroPosition = heroPos;
+        ctx.enemies = allEnemies;
+        // Pass the multiplied damage so passive on-hit bonuses (Arcane Bite,
+        // Flaming Edge DoT, Heavy Strike, Shock Chain) also scale with shop
+        // upgrades and the per-card global power bump.
+        ctx.baseDamage = this.effectiveDamage;
+        ctx.element = 'physical';
 
         for (const enc of enchantments) {
             if (enc.slot.def.onHit) {

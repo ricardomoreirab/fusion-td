@@ -70,6 +70,8 @@ export class AbilityManager {
     private enemyManager: EnemyManager;
     private playerStats: PlayerStats | null = null;
     private abilities: Map<string, Ability> = new Map();
+    /** Cached insertion-ordered key list of `abilities` — see getRegisteredAbilityIds. */
+    private abilityIds: string[] = [];
 
     // Targeting state
     private isTargeting: boolean = false;
@@ -200,14 +202,17 @@ export class AbilityManager {
         }
         // Every class also gets the Space-bar mobility ability.
         this.abilities.set('dash', { name: 'Dash', cooldown: 7, currentCooldown: 0, isReady: true, needsTargeting: false });
+        this.abilityIds = Array.from(this.abilities.keys());
     }
 
     /**
-     * Returns the registered ability IDs in insertion order.
-     * HeroHud uses this to build class-appropriate ultimate buttons.
+     * The registered ability IDs in insertion order.
+     * The HUD reads this EVERY frame to drive the ultimate buttons, but the
+     * registry only changes at run setup — so the array is built once in
+     * configureForClass() and handed back by reference (read-only for callers).
      */
     public getRegisteredAbilityIds(): string[] {
-        return Array.from(this.abilities.keys());
+        return this.abilityIds;
     }
 
     // ========================================================================
@@ -1369,6 +1374,7 @@ export class AbilityManager {
     public dispose(): void {
         this.game.getCanvas().removeEventListener('click', this.onCanvasClick);
         this.abilities.clear();
+        this.abilityIds = [];
         this.activeEffects = [];
         this.isTargeting = false;
         this.targetingAbility = null;

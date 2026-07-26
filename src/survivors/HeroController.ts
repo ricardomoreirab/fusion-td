@@ -124,6 +124,7 @@ export class HeroController {
     private _scratchVel: Vector3 = new Vector3();
     private _scratchCamTarget: Vector3 = new Vector3();
     private _scratchInput = { dx: 0, dz: 0 };
+    private _scratchHealth = { current: 0, max: 0 };
 
     // Co-op: when set, the camera frames this point (+ a slant-distance multiplier)
     // instead of just the local hero. distanceScale === 1 means "frame exactly like
@@ -412,8 +413,13 @@ export class HeroController {
         return Math.max(0, this.currentHealth / this.maxHealth);
     }
 
+    /** Current + max HP. Returns a REUSED struct (read it before calling again) —
+     *  the HUD, the co-op snapshot builder and the debug overlay all call this
+     *  every frame. */
     public getHealth(): { current: number; max: number } {
-        return { current: this.currentHealth, max: this.maxHealth };
+        this._scratchHealth.current = this.currentHealth;
+        this._scratchHealth.max = this.maxHealth;
+        return this._scratchHealth;
     }
 
     /** Apply full basic-attack hits to all enemies within `radius` of `center`.

@@ -1,6 +1,7 @@
 import { Frustum, Matrix4, Sphere, Vector3, type Camera, type Light, type Mesh } from 'three';
 import { Game } from '../../engine/Game';
-import { Enemy, resetDeathBurstBudget } from './Enemy';
+import { Enemy, resetDeathBurstBudget, resetStatusVisualBudget } from './Enemy';
+import { disposeHealthBarField } from './HealthBarField';
 import { type TargetProvider, pickNearestAlive } from './nearestTarget';
 import { BasicEnemy } from './BasicEnemy';
 import { FastEnemy } from './FastEnemy';
@@ -98,6 +99,8 @@ export class EnemyManager {
     private readonly _cullFrustum = new Frustum();
     private readonly _cullMatrix = new Matrix4();
     private readonly _cullSphere = new Sphere(new Vector3(), 1);
+    /** Reused result buffer for getEnemiesInRange (see the contract there). */
+    private readonly _inRangeResult: Enemy[] = [];
 
     /** Preloaded GLB containers per enemy type. Passed in by SurvivorsGameplayState
      *  after load completes. spawnSurvivorsEnemy stages the asset on the matching enemy
@@ -909,21 +912,29 @@ export class EnemyManager {
     }
 
     /**
-     * Get enemies within a certain range of a position
+     * Get enemies within a certain range of a position.
+     *
+     * Returns a REUSED array — the caller must consume it before the next call
+     * (every current caller iterates it immediately and drops it). Returning
+     * `enemies.filter(...)` allocated a fresh array plus a closure on a per-frame
+     * path that scans the whole horde.
      */
     public getEnemiesInRange(position: Vector3, range: number): Enemy[] {
         // Squared-distance compare avoids a sqrt per enemy (this scans all enemies
         // and is called per-frame from Champion.blockNearbyEnemies + abilities).
         // Keeps the full 3D term so results are identical to the old Vector3.Distance.
         const rangeSq = range * range;
-        return this.enemies.filter(enemy => {
-            if (!enemy.isAlive()) return false;
+        const out = this._inRangeResult;
+        out.length = 0;
+        for (const enemy of this.enemies) {
+            if (!enemy.isAlive()) continue;
             const ep = enemy.getPosition();
             const dx = ep.x - position.x;
             const dy = ep.y - position.y;
             const dz = ep.z - position.z;
-            return dx * dx + dy * dy + dz * dz <= rangeSq;
-        });
+            if (dx * dx + dy * dy + dz * dz <= rangeSq) out.push(enemy);
+        }
+        return out;
     }
 
     /**
@@ -1021,6 +1032,14 @@ export class EnemyManager {
         // release setTimeout is still pending at teardown can't carry a non-zero
         // count into the next run (which would suppress early poofs next time).
         resetDeathBurstBudget();
+        // Same contract for the concurrent status-aura budget.
+        resetStatusVisualBudget();
+
+        // Free the shared instanced health-bar field (its 3 InstancedMeshes,
+        // their materials, the shared plane geometry and the update-bus hook).
+        // Every enemy released its slot above; the field no-ops any late release
+        // once disposed, so a straggler can never write into a fresh run's field.
+        disposeHealthBarField();
 
         // Remove event listeners
         if (this.splitHandler) {

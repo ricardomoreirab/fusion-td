@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { Object3D } from 'three';
 import { SceneHost } from '../src/engine/three/SceneHost';
 
 describe('SceneHost update bus', () => {
@@ -148,5 +149,93 @@ describe('SceneHost update bus', () => {
         expect(host.particleSystems.length).toBe(0);
         host.tick(0.02);
         expect(ticks).toBe(1);
+    });
+});
+
+/** Stands in for @newkrok/three-particles, which calls
+ *  `particleSystem.parent.updateMatrixWorld()` on every update - a full-graph
+ *  walk whenever the emitter sits at the scene root. */
+function nagger(host: SceneHost, times: number, onTick?: () => void) {
+    return {
+        tick: () => {
+            onTick?.();
+            for (let i = 0; i < times; i++) host.scene.updateMatrixWorld();
+        },
+    };
+}
+
+describe('SceneHost world-matrix pass', () => {
+    it('runs exactly one pass per tick', () => {
+        const host = new SceneHost();
+        expect(host.matrixWorldPasses).toBe(0);
+        host.tick(0.016);
+        expect(host.matrixWorldPasses).toBe(1);
+        host.tick(0.016);
+        expect(host.matrixWorldPasses).toBe(2);
+    });
+
+    it('stays at one pass per tick however many times the particle loop asks', () => {
+        const host = new SceneHost();
+        for (let i = 0; i < 8; i++) host.registerParticleSystem(nagger(host, 20));
+        host.tick(0.016);
+        // 8 systems x 20 requests = 160 suppressed; only tick()'s own pass runs.
+        expect(host.matrixWorldPasses).toBe(1);
+        host.tick(0.016);
+        expect(host.matrixWorldPasses).toBe(2);
+    });
+
+    it('the pass runs BEFORE the particle loop, so emitters read fresh matrices', () => {
+        const host = new SceneHost();
+        const child = new Object3D();
+        host.scene.add(child);
+        // A gameplay object moved on the update bus, exactly like a projectile
+        // hosting a trail emitter.
+        host.onBeforeRender.add(() => { child.position.x = 5; });
+        let seenX = Number.NaN;
+        host.registerParticleSystem(nagger(host, 3, () => {
+            seenX = child.matrixWorld.elements[12];
+        }));
+        host.tick(0.016);
+        expect(seenX).toBe(5);
+    });
+
+    it('suppression is released when a particle system throws', () => {
+        const host = new SceneHost();
+        const exploder = { tick: () => { throw new Error('boom'); } };
+        host.registerParticleSystem(exploder);
+        expect(() => host.tick(0.016)).toThrow('boom');
+        // The pass tick() ran before the loop still counted...
+        expect(host.matrixWorldPasses).toBe(1);
+        // ...and the guard is NOT stuck on: a direct call recomputes for real.
+        host.scene.updateMatrixWorld();
+        expect(host.matrixWorldPasses).toBe(2);
+
+        // The next tick must keep updating world matrices - a stuck guard here
+        // would silently freeze every transform in the game.
+        host.unregisterParticleSystem(exploder);
+        const child = new Object3D();
+        host.scene.add(child);
+        child.position.z = 7;
+        host.tick(0.016);
+        expect(host.matrixWorldPasses).toBe(3);
+        expect(child.matrixWorld.elements[14]).toBe(7);
+    });
+
+    it('only the scene instance is guarded - a non-scene parent still walks', () => {
+        const host = new SceneHost();
+        const rig = new Object3D();      // e.g. a projectile hosting a trail
+        const emitter = new Object3D();
+        rig.add(emitter);
+        host.scene.add(rig);
+        host.registerParticleSystem({
+            tick: () => {
+                rig.position.x = 3;
+                // What the library does for a mesh-parented WORLD-space system.
+                rig.updateMatrixWorld();
+                expect(emitter.matrixWorld.elements[12]).toBe(3);
+            },
+        });
+        host.tick(0.016);
+        expect(host.matrixWorldPasses).toBe(1);
     });
 });

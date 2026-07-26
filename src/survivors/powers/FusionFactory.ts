@@ -191,9 +191,18 @@ export function makeFusionDef(a: PowerDefinition, b: PowerDefinition): PowerDefi
     // level (sub.level is synced so blade count tracks level-ups), exactly as the
     // standalone base power does.
     if (parents.some(p => p.tick)) {
+        // Reusable synthetic context: tick() runs every frame and its parents read
+        // the context synchronously. (cast() above keeps a fresh one — its
+        // projectile observers hold on to the context for the whole flight.)
+        let synthTickCtx: PowerContext | null = null;
         def.tick = (state, ctx, dt) => {
             const subs = ensureSubStates(state, ctx);
-            const synthCtx: PowerContext = { ...ctx, damageMultiplier: ctx.damageMultiplier * FUSION_DMG };
+            const synthCtx: PowerContext = synthTickCtx ??= { ...ctx, damageMultiplier: 1 };
+            synthCtx.scene = ctx.scene;
+            synthCtx.heroPosition = ctx.heroPosition;
+            synthCtx.enemies = ctx.enemies;
+            synthCtx.element = ctx.element;
+            synthCtx.damageMultiplier = ctx.damageMultiplier * FUSION_DMG;
             for (const p of parents) {
                 if (!p.tick) continue;
                 const sub = subs[p.id];

@@ -17,8 +17,15 @@
  *     textures. Call only when no instances are alive.
  */
 
-import { AnimationMixer, Group, Material, Mesh, Object3D, SkinnedMesh, Texture } from 'three';
+import { AnimationMixer, Group, Material, Mesh, Object3D, SkinnedMesh, Texture, WebGLRenderer } from 'three';
 import { GLTFLoader, GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js';
+// Imported from meshoptimizer rather than three/examples/jsm/libs, which three
+// vendors from this same package: @types/three re-exports that module from a
+// `meshoptimizer/decoder` subpath the package does not expose, so the vendored
+// copy has no usable types. This also pins the decoder to the exact version
+// tools/assets/optimize.mjs encodes with.
+import { MeshoptDecoder } from 'meshoptimizer/meshopt_decoder.module.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { AnimGroup } from './AnimGroup';
 import type { SceneHost, UpdateToken } from './SceneHost';
@@ -131,14 +138,61 @@ export class GlbContainer {
     }
 }
 
-const loader = new GLTFLoader();
+/** Never wait longer than this for configureAssetLoaders(). See loadContainer. */
+const LOADER_CONFIG_TIMEOUT_MS = 10_000;
+
+// The meshopt decoder is self-contained WASM with no renderer dependency, so it
+// can be wired at module scope - EXT_meshopt_compression then works even if
+// configureAssetLoaders is never reached.
+const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+
+let ktx2Loader: KTX2Loader | null = null;
+let markLoadersReady!: () => void;
+const loadersReady = new Promise<void>(resolve => { markLoadersReady = resolve; });
+
+/**
+ * Attach the KTX2 transcoder. MUST run once after the WebGLRenderer exists and
+ * BEFORE the first GLB load: KTX2Loader.detectSupport() asks the live GL context
+ * which compressed formats it can transcode into, and without it every KTX2
+ * texture throws "No suitable compressed texture format found".
+ *
+ * No setTranscoderPath() on purpose. Left empty, KTX2Loader resolves the Basis
+ * transcoder through `new URL('…/basis_transcoder.wasm', import.meta.url)`,
+ * which webpack rewrites into a content-hashed emitted asset. A hand-copied
+ * transcoder directory would ship the same 515 KB binary a second time and
+ * would break under a non-root publicPath.
+ *
+ * Safe to call more than once; later calls are ignored.
+ */
+export function configureAssetLoaders(renderer: WebGLRenderer): void {
+    if (ktx2Loader) return;
+    try {
+        ktx2Loader = new KTX2Loader().detectSupport(renderer);
+        loader.setKTX2Loader(ktx2Loader);
+    } catch (err) {
+        // Degrade rather than throw: a GLB whose textures cannot be transcoded
+        // still yields correct geometry, animation and material colours.
+        console.warn('[assets] KTX2 transcoder unavailable - compressed textures will fail to decode.', err);
+    }
+    markLoadersReady();
+}
+
 const containerCache = new Map<string, Promise<GlbContainer>>();
 
 /** Load (once) and cache a GLB container by URL. */
 export function loadContainer(url: string): Promise<GlbContainer> {
     let pending = containerCache.get(url);
     if (!pending) {
-        pending = loader.loadAsync(url).then(gltf => new GlbContainer(gltf));
+        // Runtime GLBs carry KHR_texture_basisu, so a load started before
+        // configureAssetLoaders() would fail on every texture. Wait for it -
+        // but bounded, so a boot path that never configures surfaces a normal
+        // load error instead of a permanently pending loading screen.
+        pending = Promise.race([
+            loadersReady,
+            new Promise<void>(resolve => setTimeout(resolve, LOADER_CONFIG_TIMEOUT_MS)),
+        ])
+            .then(() => loader.loadAsync(url))
+            .then(gltf => new GlbContainer(gltf));
         pending.catch(() => containerCache.delete(url)); // allow retry after a failed load
         containerCache.set(url, pending);
     }

@@ -1,7 +1,6 @@
 import { Box3, Color, Mesh, Vector3 } from 'three';
 import { Game } from '../../engine/Game';
 import { Enemy, getStatusEffectTexture, tryAcquireDeathBurst, scheduleDeathBurstTeardown } from './Enemy';
-import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../engine/rendering/LowPolyMaterial';
 import { PALETTE } from '../../engine/rendering/StyleConstants';
 import { AnimGroup } from '../../engine/three/AnimGroup';
@@ -9,7 +8,7 @@ import type { GlbContainer } from '../../engine/three/assets';
 import { headingToYaw } from '../../engine/three/math';
 import { fxRenderer, fxSize, ParticleEffect } from '../../engine/three/particles/ParticleEffect';
 import { LifeTimeCurve, Shape } from '@newkrok/three-particles';
-import { createBox, createCylinder, createPlane } from '../../engine/three/primitives';
+import { createBox, createCylinder } from '../../engine/three/primitives';
 
 export class BasicEnemy extends Enemy {
     /** Static slot used by EnemyManager.spawnSurvivorsEnemy to stage a preloaded GLB
@@ -50,6 +49,10 @@ export class BasicEnemy extends Enemy {
         this.meleeWindupDuration   = 0.28;
         this.meleeStrikeDuration   = 0.1;
         this.meleeCooldownDuration = 0.5;
+
+        // Health bar anchor + size. The bar itself is an instance in the shared
+        // HealthBarField (see Enemy.createHealthBar) — no meshes to build here.
+        this.barHeightOffset = 1.9;
 
         // Build mesh + health bar AFTER field initializers have run (see Enemy
         // constructor note). new.target guard → fires only for the concrete leaf.
@@ -404,62 +407,6 @@ export class BasicEnemy extends Enemy {
 
         // Store original scale
         this.originalScale = 1.0;
-    }
-
-    /**
-     * Override the health bar creation for basic enemies (positioned higher)
-     */
-    protected createHealthBar(): void {
-        if (!this.mesh) return;
-        this._barBand = null; // force the fill-material assignment in updateHealthBar
-
-        // Two meshes, shared cached materials (see Enemy.createHealthBar): the
-        // frame-sized near-black background doubles as the outline.
-        this.healthBarBackgroundMesh = createPlane('healthBarBg', {
-            width: 1.08,
-            height: 0.14
-        }, this.scene);
-        this.healthBarBackgroundMesh.position.set(this.position.x, this.position.y + 1.9, this.position.z);
-        this.healthBarBackgroundMesh.material = getCachedMaterial('healthBarBgFrameMat', m => {
-            m.color    = new Color(0.05, 0.05, 0.05);
-            m.specular = new Color(0, 0, 0);
-            m.depthTest = false;
-            m.depthWrite = false;
-        });
-
-        // Health fill — material assigned by updateHealthBar's band swap.
-        this.healthBarMesh = createPlane('healthBar', {
-            width: 1.0,
-            height: 0.08
-        }, this.scene);
-        this.healthBarMesh.position.set(this.position.x, this.position.y + 1.9, this.position.z);
-
-        this.updateHealthBar();
-    }
-
-    /**
-     * Override the updateHealthBar method for basic enemies
-     */
-    protected updateHealthBar(): void {
-        if (!this.mesh || !this.healthBarMesh || !this.healthBarBackgroundMesh) return;
-
-        const healthPercent = Math.max(0, this.health / this.maxHealth);
-
-        this.healthBarMesh.scale.x = healthPercent;
-
-        const offset = (1 - healthPercent) * 0.5;
-        this.healthBarMesh.position.x = this.position.x - offset;
-
-        this.applyHealthBarBand(healthPercent);
-
-        this.healthBarBackgroundMesh.position.x = this.position.x;
-        this.healthBarBackgroundMesh.position.y = this.position.y + 1.9;
-        this.healthBarBackgroundMesh.position.z = this.position.z;
-
-        this.healthBarMesh.position.y = this.position.y + 1.9;
-        this.healthBarMesh.position.z = this.position.z;
-
-        this._billboardHealthBar();
     }
 
     /**

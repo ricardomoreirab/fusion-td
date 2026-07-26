@@ -2,46 +2,67 @@ import { describe, it, expect } from 'vitest';
 import { PoseBuffer, type Pose } from '../src/net/Interpolation';
 
 const pose = (x: number, z: number, ry = 0): Pose => ({ x, y: 0, z, ry });
+/** Fresh out-param per call so a test can compare two samples independently. */
+const out = (): Pose => ({ x: 0, y: 0, z: 0, ry: 0 });
 
 describe('PoseBuffer', () => {
     it('returns null before any sample', () => {
-        expect(new PoseBuffer().sample(0)).toBeNull();
+        expect(new PoseBuffer().sample(0, out())).toBeNull();
     });
 
     it('returns the only sample when just one exists', () => {
         const b = new PoseBuffer();
         b.push(100, pose(2, 4));
-        expect(b.sample(100)).toEqual(pose(2, 4));
+        expect(b.sample(100, out())).toEqual(pose(2, 4));
     });
 
     it('linearly interpolates between two samples at the render time', () => {
         const b = new PoseBuffer();
         b.push(100, pose(0, 0));
         b.push(200, pose(10, -20));
-        expect(b.sample(150)).toEqual(pose(5, -10));
+        expect(b.sample(150, out())).toEqual(pose(5, -10));
     });
 
     it('clamps to the latest sample when render time is past it', () => {
         const b = new PoseBuffer();
         b.push(100, pose(0, 0));
         b.push(200, pose(10, 0));
-        expect(b.sample(999)).toEqual(pose(10, 0));
+        expect(b.sample(999, out())).toEqual(pose(10, 0));
     });
 
     it('interpolates rotation along the shortest arc across the PI wrap', () => {
         const b = new PoseBuffer();
         b.push(0, pose(0, 0, 3.0));
         b.push(100, pose(0, 0, -3.0));
-        const out = b.sample(50)!;
-        expect(Math.abs(Math.abs(out.ry) - Math.PI)).toBeLessThan(0.15);
+        const r = b.sample(50, out())!;
+        expect(Math.abs(Math.abs(r.ry) - Math.PI)).toBeLessThan(0.15);
     });
 
     it('caps stored samples at 32 and drops the oldest', () => {
         const b = new PoseBuffer();
         for (let i = 0; i < 40; i++) b.push(i, pose(i, 0));
         // 32 retained (t=8..39); sampling at/under the oldest retained clamps to it.
-        expect(b.sample(0)).toEqual(pose(8, 0));
-        expect(b.sample(8)).toEqual(pose(8, 0));
+        expect(b.sample(0, out())).toEqual(pose(8, 0));
+        expect(b.sample(8, out())).toEqual(pose(8, 0));
+    });
+
+    it('writes into the caller-owned struct and allocates nothing', () => {
+        const b = new PoseBuffer();
+        b.push(0, pose(0, 0));
+        b.push(100, pose(10, 20));
+        const dst = out();
+        expect(b.sample(50, dst)).toBe(dst); // the SAME object, not a copy
+        expect(dst).toEqual(pose(5, 10));
+        // A second sample overwrites the same struct rather than allocating.
+        b.sample(100, dst);
+        expect(dst).toEqual(pose(10, 20));
+    });
+
+    it('leaves the out struct untouched when the buffer is empty', () => {
+        const dst = out();
+        dst.x = 7;
+        expect(new PoseBuffer().sample(0, dst)).toBeNull();
+        expect(dst.x).toBe(7);
     });
 
     describe('speedAt', () => {

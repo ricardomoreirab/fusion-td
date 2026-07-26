@@ -230,13 +230,23 @@ export class GroundScatter {
     /**
      * Wrap instances that have fallen behind the hero. Returns true if any
      * matrix was rewritten, so the caller only flags the buffer when needed.
+     *
+     * The scan touches every instance every frame the hero moves, so the arrays
+     * are hoisted into locals (a typed-array load beats a property load + load)
+     * and a wrap writes ONLY the translation columns of the existing instance
+     * matrix — rotation and scale are unchanged by a lattice snap, so there is
+     * nothing to recompose.
      */
     private wrapLayer(layer: Layer, heroX: number, heroZ: number): boolean {
         const half = SCATTER_TILE * 0.5;
+        const curX = layer.curX;
+        const curZ = layer.curZ;
+        const m = layer.mesh.instanceMatrix.array as Float32Array;
+        const count = layer.count;
         let dirty = false;
-        for (let i = 0; i < layer.count; i++) {
-            let x = layer.curX[i];
-            let z = layer.curZ[i];
+        for (let i = 0; i < count; i++) {
+            let x = curX[i];
+            let z = curZ[i];
             let moved = false;
             // Snap by whole tiles so the instance lands back on the same lattice
             // it started on — that is what makes the recycling invisible.
@@ -245,9 +255,11 @@ export class GroundScatter {
             while (z - heroZ > half)  { z -= SCATTER_TILE; moved = true; }
             while (heroZ - z > half)  { z += SCATTER_TILE; moved = true; }
             if (moved) {
-                layer.curX[i] = x;
-                layer.curZ[i] = z;
-                this.writeInstance(layer, i);
+                curX[i] = x;
+                curZ[i] = z;
+                const o = i * 16;
+                m[o + 12] = x;
+                m[o + 14] = z;
                 dirty = true;
             }
         }

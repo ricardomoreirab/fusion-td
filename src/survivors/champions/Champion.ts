@@ -25,6 +25,21 @@ type EmissiveMaterial = Material & { emissive: Color };
 // Module-level scratch vector — safe because update() is not reentrant (frames serialize)
 const _scratchDir = new Vector3();
 
+/** Every power element, in the order the weapon-tint bitmask numbers them.
+ *  Hoisted: updateElementVisuals walks it every frame. */
+const ALL_ELEMENTS: PowerElement[] = ['fire', 'ice', 'arcane', 'physical', 'storm'];
+
+/** Bitmask of the active elements — the weapon-tint cache key. It replaces a
+ *  per-frame `Array.from(set).sort().join('+')`; the key is only ever compared,
+ *  never displayed, so an int is strictly better. */
+function elementMask(active: Set<string>): number {
+    let mask = 0;
+    for (let i = 0; i < ALL_ELEMENTS.length; i++) {
+        if (active.has(ALL_ELEMENTS[i])) mask |= 1 << i;
+    }
+    return mask;
+}
+
 /**
  * Champion — a friendly boss-like unit that walks the path in reverse,
  * attacks nearby enemies, and slows enemies near it.
@@ -114,8 +129,10 @@ export class Champion extends Enemy {
     private barbSpinArcTimer: number = 0;
     // Spin-attack blood trail particles
     private barbSpinBloodPs: ParticleEffect | null = null;
-    // Latest active power elements, snapshotted each frame from updateElementVisuals.
-    private activeElementSnapshot: string[] = [];
+    // Latest active power elements, rebuilt from updateElementVisuals only when
+    // the equipped element set actually changes (tracked by activeElementMask).
+    private activeElementSnapshot: PowerElement[] = [];
+    private activeElementMask: number = -1;
     // Elemental axe-trail particle systems created per spin (one per active element).
     private barbSpinElemPs: ParticleEffect[] = [];
     // Spin-attack trail particles that already stopped and are waiting out their
@@ -158,7 +175,7 @@ export class Champion extends Enemy {
     // cached material: flashHitRed() mutates mesh materials' emissive.
     private weaponTintMat: MeshPhongMaterial | null = null;
     private weaponOrigMat: { mesh: Mesh; mat: Mesh['material'] | null } | null = null;
-    private weaponTintKey: string | null = null;
+    private weaponTintKey: number = -1;
 
     /** Optional preloaded GLB container for whichever champion class this is (Miya for
      *  ranger, Aulus for barbarian, etc.). When present, createMesh instantiates the GLB
@@ -2231,7 +2248,7 @@ vHeroRimView = normalize(-mvPosition.xyz);`,
             try { this.weaponTintMat.dispose(); } catch (_) { /* already disposed */ }
             this.weaponTintMat = null;
         }
-        this.weaponTintKey = null;
+        this.weaponTintKey = -1;
         if (this.flashHitRedRestoreTimer !== null) {
             clearTimeout(this.flashHitRedRestoreTimer);
             this.flashHitRedRestoreTimer = null;
@@ -2331,15 +2348,21 @@ vHeroRimView = normalize(-mvPosition.xyz);`,
      * Call once per frame with the set of active power elements.
      */
     public updateElementVisuals(activeElements: Set<string>): void {
-        this.activeElementSnapshot = Array.from(activeElements);
+        const mask = elementMask(activeElements);
+        if (mask !== this.activeElementMask) {
+            this.activeElementMask = mask;
+            this.activeElementSnapshot.length = 0;
+            for (let i = 0; i < ALL_ELEMENTS.length; i++) {
+                if (mask & (1 << i)) this.activeElementSnapshot.push(ALL_ELEMENTS[i]);
+            }
+        }
         if (!this.mesh) return;
         const anchor = this.getWeaponAnchor();
         if (!anchor) return;
 
-        this.updateWeaponTint(activeElements);
+        this.updateWeaponTint(mask);
 
-        const allElements: PowerElement[] = ['fire', 'ice', 'arcane', 'physical', 'storm'];
-        for (const element of allElements) {
+        for (const element of ALL_ELEMENTS) {
             const shouldShow = activeElements.has(element);
             let ps = this.elementAuraPs.get(element);
             if (shouldShow && !ps) {
@@ -2448,21 +2471,20 @@ vHeroRimView = normalize(-mvPosition.xyz);`,
      *  Procedural path: swaps the weapon mesh's material for a unique tint mat.
      *  While tinted, the mage orb's idle pulse writes to the detached
      *  mageOrbMat (harmless); it resumes if all elements are removed. */
-    private updateWeaponTint(activeElements: Set<string>): void {
-        const key = Array.from(activeElements).sort().join('+');
+    private updateWeaponTint(key: number): void {
         if (key === this.weaponTintKey) return;
         this.weaponTintKey = key;
 
         // GLB path — emissive write on the weapon's per-instance cloned material
         // (instance-owned, so mutating it in place never bleeds across heroes).
         if (this.glbWeaponMats.length > 0) {
-            if (key === '') {
+            if (key === 0) {
                 for (const w of this.glbWeaponMats) w.mat.emissive.copy(w.baseEmissive);
             } else {
                 // Kept subtle (0.35): emissive ADDS over the albedo, so a strong
                 // tint flattens the axe texture — this strength colors the weapon
                 // while its painted detail still reads through.
-                const blend = blendElements(this.activeElementSnapshot as PowerElement[]);
+                const blend = blendElements(this.activeElementSnapshot);
                 for (const w of this.glbWeaponMats) {
                     w.mat.emissive.copy(blend).multiplyScalar(0.35);
                 }
@@ -2479,14 +2501,14 @@ vHeroRimView = normalize(-mvPosition.xyz);`,
         }
         if (!weapon || isMeshDisposed(weapon)) return;
 
-        if (key === '') {
+        if (key === 0) {
             if (this.weaponOrigMat && this.weaponOrigMat.mesh === weapon) {
                 weapon.material = this.weaponOrigMat.mat as Mesh['material'];
             }
             return;
         }
 
-        const blend = blendElements(this.activeElementSnapshot as PowerElement[]);
+        const blend = blendElements(this.activeElementSnapshot);
         if (!this.weaponTintMat) {
             this.weaponTintMat = new MeshPhongMaterial();
             this.weaponTintMat.name = `heroWeaponTint_${this.championType}`;

@@ -29,6 +29,8 @@ export const SEQ_RESTART_GAP = 1000;
  */
 export class CoopSession {
     private remoteBuffer = new PoseBuffer();
+    /** Reused output of getRemotePose — valid only until the next call. */
+    private readonly _remotePose: Pose = { x: 0, y: 0, z: 0, ry: 0 };
     private remoteChamp: string | null = null;
     private remoteAnim = 0; // last anim code from the remote hero (0 idle/1 run/2 attack)
     private localSeq: number;
@@ -281,9 +283,10 @@ export class CoopSession {
         return this.remoteAnim;
     }
 
-    /** Interpolated remote pose at the given render time, or null if none yet. */
+    /** Interpolated remote pose at the given render time, or null if none yet.
+     *  Returns a REUSED struct — read it before calling again. */
     getRemotePose(renderTimeMs: number): Pose | null {
-        return this.remoteBuffer.sample(renderTimeMs);
+        return this.remoteBuffer.sample(renderTimeMs, this._remotePose);
     }
 
     dispose(): void {

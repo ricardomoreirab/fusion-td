@@ -77,6 +77,8 @@ export class Hud {
   private cachedPowerEmpty: (boolean | null)[] = [null, null, null, null];
   private cachedPowerIcon: (IconName | null)[] = [null, null, null, null];
   private cachedPowerColor: (string | null)[] = [null, null, null, null];
+  /** Out-param for iconFor() — one struct instead of a literal per slot per frame. */
+  private readonly iconOut: { icon: IconName; color: string } = { icon: 'socket', color: '' };
   private cachedPowerLevel: (number | null)[] = [null, null, null, null];
   private cachedPowerCdFrac: number[] = [-1, -1, -1, -1];
   private itemPulse: Record<ItemId, boolean> = {
@@ -387,7 +389,9 @@ export class Hud {
         continue;
       }
       if (this.cachedPowerEmpty[i] !== false) { this.cachedPowerEmpty[i] = false; ui.setEmpty(false); }
-      const { icon, color } = this.iconFor(slot);
+      this.iconFor(slot, this.iconOut);
+      const icon = this.iconOut.icon;
+      const color = this.iconOut.color;
       if (this.cachedPowerIcon[i] !== icon || this.cachedPowerColor[i] !== color) {
         this.cachedPowerIcon[i] = icon;
         this.cachedPowerColor[i] = color;
@@ -507,15 +511,17 @@ export class Hud {
     this.vignette.remove();
   }
 
-  protected iconFor(slot: PowerSlot): { icon: IconName; color: string } {
+  /** Icon + accent for a power slot, written into the caller-owned `out` struct
+   *  (this runs for every equipped slot every frame). */
+  protected iconFor(slot: PowerSlot, out: { icon: IconName; color: string }): void {
     const tier = slot.def.tier;
     if (tier === 'ultimate' || tier === 'fusion') {
-      return { icon: TIER_ICON[tier], color: TIER_COLOR[tier] };
+      out.icon = TIER_ICON[tier];
+      out.color = TIER_COLOR[tier];
+      return;
     }
-    return {
-      icon: POWER_ICON[slot.def.id] ?? elementIcon(slot.def.element),
-      color: elementColor(slot.def.element),
-    };
+    out.icon = POWER_ICON[slot.def.id] ?? elementIcon(slot.def.element);
+    out.color = elementColor(slot.def.element);
   }
   protected cdFraction = cooldownFraction;
 }

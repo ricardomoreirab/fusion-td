@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     BIOMES, BIOME_TRANSITION_WAVES,
-    biomeForWave, biomeIndexForWave, resolveBiomeBlend,
+    biomeForWave, biomeIndexForWave, resolveBiomeBlend, resolveBiomeBlendT,
     luminance, lerpRgb,
     GROUND_LUMINANCE_MIN, GROUND_LUMINANCE_MAX,
 } from '../src/survivors/world/Biomes';
@@ -109,6 +109,14 @@ describe('resolveBiomeBlend', () => {
             const t = resolveBiomeBlend(w).t;
             expect(t).toBeGreaterThanOrEqual(0);
             expect(t).toBeLessThanOrEqual(1);
+        }
+    });
+});
+
+describe('resolveBiomeBlendT', () => {
+    it('matches resolveBiomeBlend().t everywhere (allocation-free variant)', () => {
+        for (let w = 0; w <= 40; w += 0.25) {
+            expect(resolveBiomeBlendT(w)).toBe(resolveBiomeBlend(w).t);
         }
     });
 });

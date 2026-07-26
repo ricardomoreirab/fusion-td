@@ -16,27 +16,36 @@ import { elementStatusConfig } from '../fx/ElementParticles';
 import { createPlane, createSphere, disposeMesh, isMeshDisposed } from '../../engine/three/primitives';
 import type { SceneHost, UpdateToken } from '../../engine/three/SceneHost';
 import type { SnapshotEnemy } from '../../net/Protocol';
+import {
+    BAR_TIER_ELITE,
+    BAR_TIER_NORMAL,
+    getHealthBarField,
+    HEALTH_BAR_RENDER_GROUP,
+    HEALTH_COLOR_GREEN,
+    HEALTH_COLOR_RED,
+    HEALTH_COLOR_YELLOW,
+    type HealthBarField,
+} from './HealthBarField';
 
 // One-time per-enemy-class log when a GLB has no recognizable death clip, so the
 // asset's real clip name can be added to the matcher in _findDeathClip().
 const _deathClipWarned = new Set<string>();
 
 // Cached health-bar colors — shared across all enemy instances to avoid per-frame
-// allocations. Exported so enemy subclasses that override updateHealthBar() reuse
-// the same constants instead of allocating `new Color(...)` every frame.
-// These are assigned (never mutated in place) onto health-bar materials, so
-// sharing one instance across all enemies is safe.
-export const HEALTH_COLOR_GREEN  = new Color(0.2, 0.8, 0.2);
-export const HEALTH_COLOR_YELLOW = new Color(0.8, 0.8, 0.2);
-export const HEALTH_COLOR_RED    = new Color(0.8, 0.2, 0.2);
+// allocations. They live in HealthBarField (the instanced bar renderer is their
+// primary consumer) and are re-exported here so the historical import path keeps
+// working. Assigned onto materials / written into an instanceColor buffer, never
+// mutated in place, so one instance is safe to share across every bar.
+export { HEALTH_COLOR_GREEN, HEALTH_COLOR_YELLOW, HEALTH_COLOR_RED, HEALTH_BAR_RENDER_GROUP };
 
-/** Base renderOrder for enemy health bars. In the Babylon build this was a
- *  rendering GROUP whose depth buffer was cleared before it rendered; in Three
- *  the same "always on top" result comes from depthTest=false on every bar
- *  material (set in their cached setups below) plus a high renderOrder so the
- *  bars draw after the world. Outline/bg/fill/segments/label get +0..+4 so
- *  they stack correctly without a depth buffer. */
-export const HEALTH_BAR_RENDER_GROUP = 1000;
+/** Bar dimensions per tier. Module-level frozen singletons: `_barDims()` is
+ *  read every frame by the boss bar path, and returning a fresh object literal
+ *  there allocated one garbage object per enemy per frame. */
+const BAR_DIM_BOSS   = Object.freeze({ width: 2.5, height: 0.18 });
+const BAR_DIM_ELITE  = Object.freeze({ width: 1.5, height: 0.12 });
+/** Default NORMAL-tier bar. Subclasses override `barNormalDims` with their own
+ *  module-level frozen constant (never a per-instance literal). */
+export const BAR_DIM_NORMAL = Object.freeze({ width: 1.0, height: 0.08 });
 
 /** Health-fill color band. Bar color changes by SWAPPING between the three
  *  shared cached materials below — never by mutating a material's color, which
@@ -55,6 +64,14 @@ export function healthBarFillMaterial(band: HealthBarBand): MeshPhongMaterial {
         m.depthWrite = false;
     });
 }
+
+/** Melee FSM state → snapshot phase code. Module-level so getMeleeDisplay does
+ *  not rebuild the map on every call (per enemy, 20 Hz, on the co-op host). */
+const MELEE_PHASE_CODE = { idle: 0, windup: 1, strike: 2, cooldown: 3 } as const;
+
+/** Shape returned by getMeleeDisplay — a single reused out-struct (see there). */
+export interface MeleeDisplay { phase: number; progress: number }
+const _meleeDisplayOut: MeleeDisplay = { phase: 0, progress: 0 };
 
 // Per-hit emissive tint — module-level constant so flashHit doesn't allocate
 // a fresh Color on every damage event (every chain-lightning sub-hit etc.).
@@ -91,6 +108,39 @@ export function releaseDeathBurst(): void {
  *  can never permanently starve future poofs. */
 export function resetDeathBurstBudget(): void {
     _activeDeathBursts = 0;
+}
+
+// Hard cap on simultaneously-alive PERSISTENT status-effect particle systems
+// (burn / chill-slow / freeze / stun / confuse auras). Same shape and same
+// reasoning as the death-burst budget above, but the pressure is different: a
+// single Frostfire or chain-burn build tags dozens of enemies at once, and each
+// tagged enemy adds a THREE.Points to the scene (one extra draw call each) plus
+// an entry in the per-frame particle walk — an aura blanket over 60 enemies was
+// ~120 draws on its own. Past the cap the status still applies in FULL: only
+// the cosmetic aura is skipped. Elites and bosses are exempt (they are the reads
+// the player tracks, and there are never enough of them to matter).
+let _activeStatusVisuals = 0;
+const MAX_ACTIVE_STATUS_VISUALS = 24;
+/** Reserve a status-aura slot. `exempt` (elite/boss) always succeeds but is
+ *  still counted, so the budget reflects what is actually on screen. */
+export function tryAcquireStatusVisual(exempt: boolean): boolean {
+    if (!exempt && _activeStatusVisuals >= MAX_ACTIVE_STATUS_VISUALS) return false;
+    _activeStatusVisuals++;
+    return true;
+}
+/** Release a slot reserved by tryAcquireStatusVisual — wired to the effect's
+ *  own onDispose so EVERY teardown path (expiry, death, corpse, run exit)
+ *  releases exactly once. */
+export function releaseStatusVisual(): void {
+    if (_activeStatusVisuals > 0) _activeStatusVisuals--;
+}
+/** Live count — diagnostics + tests. */
+export function activeStatusVisualCount(): number {
+    return _activeStatusVisuals;
+}
+/** Reset to zero (EnemyManager teardown), mirroring resetDeathBurstBudget. */
+export function resetStatusVisualBudget(): void {
+    _activeStatusVisuals = 0;
 }
 
 // ── Death-burst teardown ──────────────────────────────────────────────────────
@@ -162,6 +212,17 @@ export class Enemy {
     // segmented into 4 chunks, red glowing frame, name label above.
     protected barTier: 'normal' | 'elite' | 'boss' = 'normal';
     protected barHeightOffset: number = 1.0;
+    /** NORMAL-tier fill size for this enemy class. Subclasses assign a
+     *  module-level frozen constant (see BAR_DIM_NORMAL) instead of overriding
+     *  createHealthBar/updateHealthBar — those overrides are what kept every bar
+     *  a pair of scene meshes. Elite/boss sizes are tier-fixed. */
+    protected barNormalDims: { width: number; height: number } = BAR_DIM_NORMAL;
+    /** Slot in the shared instanced bar field (-1 = no bar: boss tier, the
+     *  Champion, or the field being full). */
+    private _barSlot: number = -1;
+    /** The field the slot belongs to. Held directly (rather than re-resolved)
+     *  so a release after teardown targets the field that issued the slot. */
+    private _barField: HealthBarField | null = null;
     protected bossLabel: string | null = null;
     protected barSegmentMeshes: Mesh[] = [];
     protected barLabelMesh: Sprite | null = null;
@@ -311,6 +372,11 @@ export class Enemy {
                 this.mesh.removeFromParent();
             }
         }
+        // Normal/elite bars are instances in the shared field — parking one just
+        // stops its slot being written, which removes its vertices entirely.
+        this._barField?.setVisible(this._barSlot, active);
+
+        // Boss-tier bars are still real meshes.
         const setVisible = (m: Object3D | null): void => {
             if (m && !isMeshDisposed(m)) m.visible = active;
         };
@@ -319,6 +385,15 @@ export class Enemy {
         setVisible(this.healthBarOutlineMesh);
         for (const seg of this.barSegmentMeshes) setVisible(seg);
         setVisible(this.barLabelMesh);
+
+        // Persistent status auras are scene-root THREE.Points that the cull used
+        // to leave drawing for a parked enemy — one extra draw call each, for
+        // something off screen. The system keeps simulating (it is registered on
+        // the particle bus and bounded by the status-visual budget); only the
+        // draw is dropped.
+        for (const ps of this.statusEffectParticles.values()) {
+            ps.object.visible = active;
+        }
 
         this.setAnimationLod(active ? this._visibleAnimLod : 'reduced');
     }
@@ -531,19 +606,33 @@ export class Enemy {
         this.reward = Math.floor(this.reward * mult);
     }
 
-    /** Return the (width, height) of the bar based on the current tier. */
+    /** Return the (width, height) of the bar's FILL based on the current tier.
+     *  Always one of the frozen module constants — never a fresh literal. */
     private _barDims(): { width: number; height: number } {
-        if (this.barTier === 'boss')  return { width: 2.5, height: 0.18 };
-        if (this.barTier === 'elite') return { width: 1.5, height: 0.12 };
-        return { width: 1.0, height: 0.08 };
+        if (this.barTier === 'boss')  return BAR_DIM_BOSS;
+        if (this.barTier === 'elite') return BAR_DIM_ELITE;
+        return this.barNormalDims;
     }
 
     /**
      * Create health bar for the enemy. Subclasses set `barHeightOffset` (in the
-     * constructor, after super()) to anchor it at the top of their head.
+     * constructor, after super()) to anchor it at the top of their head, and
+     * `barNormalDims` to size it.
+     *
+     * NORMAL and ELITE tiers take a slot in the shared instanced field — no
+     * meshes, no scene-root children, 2-3 draw calls for the whole horde. Only
+     * the BOSS tier still builds real meshes below: there are never more than a
+     * couple of them and they carry segment dividers plus a Sprite name label
+     * with a per-instance canvas texture.
      */
     protected createHealthBar(): void {
         if (!this.mesh) return;
+
+        if (this.barTier !== 'boss') {
+            this._acquireBarSlot();
+            this.updateHealthBar();
+            return;
+        }
 
         const { width, height } = this._barDims();
         const y = this.position.y + this.barHeightOffset;
@@ -554,78 +643,54 @@ export class Enemy {
         // bar material sets depthTest=false so bars always draw on top (the
         // Babylon depth-clear render group equivalent).
 
-        // Frame: elite/boss get a dedicated glowing outline mesh behind the bar.
-        // The basic tier (the bulk of the horde) skips it — its background IS the
-        // frame-sized near-black slab, same framed look with one less mesh each.
-        if (this.barTier === 'boss' || this.barTier === 'elite') {
-            this.healthBarOutlineMesh = createPlane('healthBarOutline', {
-                width:  width  + 0.08,
-                height: height + 0.06,
-            }, this.scene);
-            this.healthBarOutlineMesh.position.set(this.position.x, y, this.position.z);
-            this.healthBarOutlineMesh.material = getCachedMaterial(
-                `healthBarFrameMat_${this.barTier}`, m => {
-                    if (this.barTier === 'boss') {
-                        m.color    = new Color(1.0, 0.20, 0.15);
-                        m.emissive = new Color(0.55, 0.10, 0.05);
-                    } else {
-                        m.color    = new Color(1.0, 0.55, 0.15);
-                        m.emissive = new Color(0.35, 0.18, 0.04);
-                    }
-                    m.specular = new Color(0, 0, 0);
-                    m.depthTest = false;
-                    m.depthWrite = false;
-                });
-        }
-
-        // Background. Basic tier: frame-sized near-black slab (doubles as the
-        // frame). Elite/boss: classic gray inset behind the fill.
-        const basicTier = this.barTier !== 'boss' && this.barTier !== 'elite';
-        this.healthBarBackgroundMesh = createPlane('healthBarBg', {
-            width:  basicTier ? width  + 0.08 : width,
-            height: basicTier ? height + 0.06 : height,
+        // Frame: a dedicated glowing outline mesh behind the bar.
+        this.healthBarOutlineMesh = createPlane('healthBarOutline', {
+            width:  width  + 0.08,
+            height: height + 0.06,
         }, this.scene);
+        this.healthBarOutlineMesh.position.set(this.position.x, y, this.position.z);
+        this.healthBarOutlineMesh.material = getCachedMaterial('healthBarFrameMat_boss', m => {
+            m.color    = new Color(1.0, 0.20, 0.15);
+            m.emissive = new Color(0.55, 0.10, 0.05);
+            m.specular = new Color(0, 0, 0);
+            m.depthTest = false;
+            m.depthWrite = false;
+        });
+
+        // Background: classic gray inset behind the fill.
+        this.healthBarBackgroundMesh = createPlane('healthBarBg', { width, height }, this.scene);
         this.healthBarBackgroundMesh.position.set(this.position.x, y, this.position.z);
-        this.healthBarBackgroundMesh.material = basicTier
-            ? getCachedMaterial('healthBarBgFrameMat', m => {
-                m.color    = new Color(0.05, 0.05, 0.05);
-                m.specular = new Color(0, 0, 0);
-                m.depthTest = false;
-                m.depthWrite = false;
-            })
-            : getCachedMaterial('healthBarBgMat', m => {
-                m.color    = new Color(0.3, 0.3, 0.3);
-                m.specular = new Color(0, 0, 0);
-                m.depthTest = false;
-                m.depthWrite = false;
-            });
+        this.healthBarBackgroundMesh.material = getCachedMaterial('healthBarBgMat', m => {
+            m.color    = new Color(0.3, 0.3, 0.3);
+            m.specular = new Color(0, 0, 0);
+            m.depthTest = false;
+            m.depthWrite = false;
+        });
 
         // Foreground (health fill) — material assigned by updateHealthBar's band swap.
         this.healthBarMesh = createPlane('healthBar', { width, height }, this.scene);
         this.healthBarMesh.position.set(this.position.x, y, this.position.z);
 
-        // Boss-only: 3 thin black dividers carving the bar into 4 chunks
+        // 3 thin black dividers carving the bar into 4 chunks
         this.barSegmentMeshes = [];
-        if (this.barTier === 'boss') {
-            for (let i = 1; i <= 3; i++) {
-                const seg = createPlane(`healthBarSeg_${i}`, {
-                    width:  0.04,
-                    height: height + 0.02,
-                }, this.scene);
-                seg.material = getCachedMaterial('healthBarSegMat', m => {
-                    m.color    = new Color(0, 0, 0);
-                    m.specular = new Color(0, 0, 0);
-                    m.depthTest = false;
-                    m.depthWrite = false;
-                });
-                seg.position.set(this.position.x, y, this.position.z);
-                this.barSegmentMeshes.push(seg);
-            }
+        for (let i = 1; i <= 3; i++) {
+            const seg = createPlane(`healthBarSeg_${i}`, {
+                width:  0.04,
+                height: height + 0.02,
+            }, this.scene);
+            seg.material = getCachedMaterial('healthBarSegMat', m => {
+                m.color    = new Color(0, 0, 0);
+                m.specular = new Color(0, 0, 0);
+                m.depthTest = false;
+                m.depthWrite = false;
+            });
+            seg.position.set(this.position.x, y, this.position.z);
+            this.barSegmentMeshes.push(seg);
         }
 
-        // Boss-only: name label above the bar (canvas-drawn texture on a Sprite —
-        // sprites self-billboard, like the Babylon BILLBOARDMODE_ALL plane did).
-        if (this.barTier === 'boss' && this.bossLabel) {
+        // Name label above the bar (canvas-drawn texture on a Sprite — sprites
+        // self-billboard, like the Babylon BILLBOARDMODE_ALL plane did).
+        if (this.bossLabel) {
             const tex = new DynamicTexture('bossLabelTex', { width: 256, height: 64 });
             const ctx = tex.getContext();
             ctx.clearRect(0, 0, 256, 64);
@@ -658,10 +723,49 @@ export class Enemy {
         this.updateHealthBar();
     }
 
+    /** Reserve this enemy's slot in the shared instanced bar field. Idempotent;
+     *  a full field (or a headless harness with no scene) simply leaves the slot
+     *  at -1 and the enemy renders without a bar. */
+    private _acquireBarSlot(): void {
+        if (this._barSlot >= 0 || !this.scene) return;
+        const field = getHealthBarField(this.scene, this.game);
+        const dims = this._barDims();
+        const slot = field.acquire(
+            this.barTier === 'elite' ? BAR_TIER_ELITE : BAR_TIER_NORMAL,
+            dims.width, dims.height,
+        );
+        if (slot < 0) return;
+        this._barField = field;
+        this._barSlot = slot;
+        field.setVisible(slot, this._renderActive);
+    }
+
+    /** Hand the instanced bar slot back. Idempotent; safe after field teardown. */
+    private _releaseBarSlot(): void {
+        if (this._barSlot < 0) return;
+        this._barField?.release(this._barSlot);
+        this._barSlot = -1;
+        this._barField = null;
+    }
+
     /**
      * Update the health bar based on current health
      */
     protected updateHealthBar(): void {
+        // Instanced path (normal + elite): write the slot, the field composes and
+        // uploads every bar in one pass right before the render.
+        if (this._barSlot >= 0 && this._barField) {
+            const frac = this.maxHealth > 0 ? this.health / this.maxHealth : 0;
+            this._barField.setState(
+                this._barSlot,
+                this.position.x,
+                this.position.y + this.barHeightOffset,
+                this.position.z,
+                frac,
+            );
+            return;
+        }
+
         if (!this.mesh || !this.healthBarMesh || !this.healthBarBackgroundMesh) return;
 
         const { width } = this._barDims();
@@ -745,6 +849,8 @@ export class Enemy {
      *  run teardown; disposeMesh skips userData.cached materials automatically).
      *  Only the per-instance boss label material/texture is freed. */
     private _disposeHealthBarMeshes(): void {
+        // Normal/elite bars are instanced — releasing the slot IS the disposal.
+        this._releaseBarSlot();
         if (this.healthBarMesh) {
             disposeMesh(this.healthBarMesh);
             this.healthBarMesh = null;
@@ -877,13 +983,11 @@ export class Enemy {
                 }
             }
 
-            // Update health bar. Bars live in world space as separate scene
-            // children, so a culled enemy's bar would be re-placed and
-            // re-billboarded every frame for nothing; setRenderActive(true)
+            // Update health bar. Bars are positioned in world space (an instance
+            // in the shared field, or the boss tier's own meshes), so a culled
+            // enemy's bar would be re-placed for nothing; setRenderActive(true)
             // is followed by this running again on the very next frame.
-            if (this._renderActive &&
-                this.healthBarMesh && !isMeshDisposed(this.healthBarMesh) &&
-                this.healthBarBackgroundMesh && !isMeshDisposed(this.healthBarBackgroundMesh)) {
+            if (this._renderActive) {
                 this.updateHealthBar();
             }
 
@@ -990,11 +1094,9 @@ export class Enemy {
             this.mesh.position.copy(this.position);
         }
 
-        // Update health bar position if it still exists
-        if (this.healthBarMesh && !isMeshDisposed(this.healthBarMesh) &&
-            this.healthBarBackgroundMesh && !isMeshDisposed(this.healthBarBackgroundMesh)) {
-            this.updateHealthBar();
-        }
+        // Update health bar position (instanced slot, or the boss tier's meshes;
+        // both no-op when this enemy has no bar).
+        this.updateHealthBar();
 
         return false;
     }
@@ -1330,15 +1432,38 @@ export class Enemy {
         const config = elementStatusConfig(effect);
         if (!config) return;
 
+        // Concurrent-aura budget. A single burn/chill build tags dozens of
+        // enemies at once and every aura is another scene-root THREE.Points (a
+        // draw call) plus an entry in the per-frame particle walk. Past the cap
+        // the status is already fully applied by the caller — only this cosmetic
+        // is skipped. Elites and bosses are exempt so telegraphed states on the
+        // enemies the player is actually reading stay visible.
+        if (!tryAcquireStatusVisual(this.isElite || this.barTier !== 'normal')) return;
+
         // CONFUSED motes orbit at head height, matching the old emit-box's upper
         // extent (0..0.8 Y) rather than the enemy's feet-level origin.
         if (effect === StatusEffect.CONFUSED) {
             config.transform = { ...config.transform, position: new Vector3(0, 0.7, 0) };
         }
 
-        const particleSystem = new ParticleEffect(`${effect}Particles`, this.scene, config, {
-            follow: this.mesh,
-        });
+        let particleSystem: ParticleEffect;
+        try {
+            particleSystem = new ParticleEffect(`${effect}Particles`, this.scene, config, {
+                follow: this.mesh,
+            });
+        } catch (err) {
+            // A slot reserved for a system that never existed would permanently
+            // shrink the budget for the rest of the run.
+            releaseStatusVisual();
+            throw err;
+        }
+        // Release through the effect's own teardown so EVERY path that frees it
+        // (expiry, die(), dispose(), guest corpse, run exit) gives the slot back
+        // exactly once — ParticleEffect.dispose() is idempotent.
+        particleSystem.onDispose = () => releaseStatusVisual();
+        // A parked enemy's aura must not draw; setRenderActive already ran for
+        // this enemy, so honour its current state at creation time too.
+        particleSystem.object.visible = this._renderActive;
 
         this.statusEffectParticles.set(effect, particleSystem);
     }
@@ -2042,18 +2167,19 @@ export class Enemy {
      *
      * Phase mapping: idle=0, windup=1, strike=2, cooldown=3
      */
-    public getMeleeDisplay(): { phase: number; progress: number } {
-        const phaseMap: Record<typeof this.meleeState, number> = {
-            idle: 0, windup: 1, strike: 2, cooldown: 3,
-        };
-        const phase = phaseMap[this.meleeState];
+    public getMeleeDisplay(): MeleeDisplay {
         let progress = 0;
         switch (this.meleeState) {
             case 'windup':   progress = this.meleeWindupDuration   > 0 ? 1 - this.meleeTimer / this.meleeWindupDuration   : 1; break;
             case 'strike':   progress = this.meleeStrikeDuration   > 0 ? 1 - this.meleeTimer / this.meleeStrikeDuration   : 1; break;
             case 'cooldown': progress = this.meleeCooldownDuration > 0 ? 1 - this.meleeTimer / this.meleeCooldownDuration : 1; break;
         }
-        return { phase, progress: Math.max(0, Math.min(1, progress)) };
+        // Shared out-struct: this runs per enemy at 20 Hz on the co-op host and
+        // the caller reads it immediately (buildSnapshot packs the values into
+        // the wire entry on the same line). The result must NOT be retained.
+        _meleeDisplayOut.phase = MELEE_PHASE_CODE[this.meleeState];
+        _meleeDisplayOut.progress = Math.max(0, Math.min(1, progress));
+        return _meleeDisplayOut;
     }
 
     /** Build (once) the list of named GLB skill clips and their snapshot anim
@@ -2139,10 +2265,7 @@ export class Enemy {
         const k = 1 - Math.exp(-12 * deltaTime);
         this.health += (this._netHpTarget - this.health) * k;
         if (Math.abs(this.health - this._netHpTarget) < 0.5) this.health = this._netHpTarget;
-        if (this.healthBarMesh && !isMeshDisposed(this.healthBarMesh) &&
-            this.healthBarBackgroundMesh && !isMeshDisposed(this.healthBarBackgroundMesh)) {
-            this.updateHealthBar();
-        }
+        this.updateHealthBar();
     }
 
     /** Guest-side: start/stop the persistent status-particle FX from a flag transition. */

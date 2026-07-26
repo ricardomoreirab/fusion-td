@@ -39,6 +39,12 @@ const FILL_DIR = { x: 0.62, y: 0.35, z: 0.55 };
  *  tallest prop's cast distance. */
 const SHADOW_EXTENT = 42;
 
+/** Scalar lerp. A module function rather than a per-frame arrow closure over `t`
+ *  — update() runs every frame and used to allocate one closure per call. */
+function lerpN(x: number, y: number, t: number): number {
+    return x + (y - x) * t;
+}
+
 export class Atmosphere {
     private readonly host: SceneHost;
     public readonly key: DirectionalLight;
@@ -128,18 +134,16 @@ export class Atmosphere {
     }
 
     public update(heroX: number, heroZ: number, a: BiomeDef, b: BiomeDef, t: number): void {
-        const lerpN = (x: number, y: number) => x + (y - x) * t;
-
         // ── Lights ──────────────────────────────────────────────────────────
         this._cA.setRGB(a.lighting.keyColor[0], a.lighting.keyColor[1], a.lighting.keyColor[2]);
         this._cB.setRGB(b.lighting.keyColor[0], b.lighting.keyColor[1], b.lighting.keyColor[2]);
         this.key.color.copy(this._cA).lerp(this._cB, t);
-        this.key.intensity = lerpN(a.lighting.keyIntensity, b.lighting.keyIntensity);
+        this.key.intensity = lerpN(a.lighting.keyIntensity, b.lighting.keyIntensity, t);
 
         this._cA.setRGB(a.lighting.fillColor[0], a.lighting.fillColor[1], a.lighting.fillColor[2]);
         this._cB.setRGB(b.lighting.fillColor[0], b.lighting.fillColor[1], b.lighting.fillColor[2]);
         this.fill.color.copy(this._cA).lerp(this._cB, t);
-        this.fill.intensity = lerpN(a.lighting.fillIntensity, b.lighting.fillIntensity);
+        this.fill.intensity = lerpN(a.lighting.fillIntensity, b.lighting.fillIntensity, t);
 
         this._cA.setRGB(a.lighting.hemiSky[0], a.lighting.hemiSky[1], a.lighting.hemiSky[2]);
         this._cB.setRGB(b.lighting.hemiSky[0], b.lighting.hemiSky[1], b.lighting.hemiSky[2]);
@@ -147,7 +151,7 @@ export class Atmosphere {
         this._cA.setRGB(a.lighting.hemiGround[0], a.lighting.hemiGround[1], a.lighting.hemiGround[2]);
         this._cB.setRGB(b.lighting.hemiGround[0], b.lighting.hemiGround[1], b.lighting.hemiGround[2]);
         this.hemi.groundColor.copy(this._cA).lerp(this._cB, t);
-        this.hemi.intensity = lerpN(a.lighting.hemiIntensity, b.lighting.hemiIntensity);
+        this.hemi.intensity = lerpN(a.lighting.hemiIntensity, b.lighting.hemiIntensity, t);
 
         // Lights ride the hero: the world is a treadmill, so a world-anchored
         // light would walk out of its own shadow frustum.
@@ -170,8 +174,8 @@ export class Atmosphere {
         this._cA.setRGB(a.atmosphere.fogColor[0], a.atmosphere.fogColor[1], a.atmosphere.fogColor[2]);
         this._cB.setRGB(b.atmosphere.fogColor[0], b.atmosphere.fogColor[1], b.atmosphere.fogColor[2]);
         this.fog.color.copy(this._cA).lerp(this._cB, t);
-        this.fog.near = ISO_CLIP_DISTANCE + lerpN(a.atmosphere.fogNearOffset, b.atmosphere.fogNearOffset);
-        this.fog.far = ISO_CLIP_DISTANCE + lerpN(a.atmosphere.fogFarOffset, b.atmosphere.fogFarOffset);
+        this.fog.near = ISO_CLIP_DISTANCE + lerpN(a.atmosphere.fogNearOffset, b.atmosphere.fogNearOffset, t);
+        this.fog.far = ISO_CLIP_DISTANCE + lerpN(a.atmosphere.fogFarOffset, b.atmosphere.fogFarOffset, t);
 
         // ── Clear colour (diagnostic only — see the class note) ─────────────
         this._cA.setRGB(a.atmosphere.clearColor[0], a.atmosphere.clearColor[1], a.atmosphere.clearColor[2]);
@@ -182,7 +186,7 @@ export class Atmosphere {
         }
 
         // ── Ground mist ─────────────────────────────────────────────────────
-        const mistAmount = lerpN(a.atmosphere.mist, b.atmosphere.mist);
+        const mistAmount = lerpN(a.atmosphere.mist, b.atmosphere.mist, t);
         if (mistAmount <= 0.002) {
             this.mist.visible = false;
         } else {

@@ -135,6 +135,8 @@ export class WaveManager {
     private firstWaveTimer: number = 0;
     private firstWaveStarted: boolean = false;
     private parallelWaves: ParallelWave[] = [];
+    /** Reused scratch for updateParallelWaves — see there. */
+    private _completedWaves: ParallelWave[] = [];
     private wavesPerLevel: number = 10;
     private levelIndex: number = 0;
 
@@ -571,9 +573,17 @@ export class WaveManager {
      * @param deltaTime Time elapsed since last update in seconds
      */
     private updateParallelWaves(deltaTime: number): void {
-        // Update each parallel wave and filter out completed ones
-        const completedWaves: ParallelWave[] = [];
-        
+        // Common case by far: no parallel waves at all. Bail before the scratch
+        // array is even touched — this runs every frame.
+        if (this.parallelWaves.length === 0) {
+            this.parallelWaveMultiplier = 1.0;
+            return;
+        }
+        // Update each parallel wave and filter out completed ones. Persistent
+        // scratch: cleared per call rather than reallocated.
+        const completedWaves = this._completedWaves;
+        completedWaves.length = 0;
+
         for (const wave of this.parallelWaves) {
             const completed = wave.update(deltaTime);
             if (completed) {

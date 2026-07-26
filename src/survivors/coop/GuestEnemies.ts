@@ -4,7 +4,7 @@ import { Game } from '../../engine/Game';
 import { Enemy } from '../enemies/Enemy';
 import { createEnemyOfType } from '../enemies/createEnemyOfType';
 import { makeElite } from '../enemies/EliteSpawner';
-import { PoseBuffer } from '../../net/Interpolation';
+import { PoseBuffer, type Pose } from '../../net/Interpolation';
 import type { SnapshotEnemy, SpawnMsg } from '../../net/Protocol';
 
 /** Resolve the preloaded GLB container for an enemy type, or null. */
@@ -25,6 +25,11 @@ export type EnemyAssetResolver = (type: string) => GlbContainer | null;
  */
 export class GuestEnemies {
     private byId = new Map<number, Enemy>();
+    /** Live mirror of byId.values(), kept in sync on every add/remove so the
+     *  per-frame providers (targeting, power slots, off-screen indicators) read
+     *  an array instead of rebuilding one. Same contract as EnemyManager.enemies:
+     *  callers must treat it as read-only. */
+    private list: Enemy[] = [];
     /** Per-enemy position interpolation buffer — same smoothing the champion ghost
      *  uses. pushSnapshot() feeds it on each NEW snapshot; interpolate() lerps the
      *  mesh toward a render time ~100ms in the past every frame. */
@@ -33,6 +38,9 @@ export class GuestEnemies {
      *  drive them) but not yet released. Tracked so clear() on run exit can
      *  disposeCorpse() them immediately instead of leaving a pending self-tick. */
     private lingering = new Set<Enemy>();
+    /** Scratch pose for interpolate() — one buffer sample is consumed before the
+     *  next is taken, so a single struct covers every enemy in the frame. */
+    private _scratchPose: Pose = { x: 0, y: 0, z: 0, ry: 0 };
     /** Mirror of EnemyManager.MAX_CORPSES — caps simultaneous skinned death-anim
      *  corpses on the guest so an AoE wipe can't pile up unbounded meshes/skeletons
      *  and stall the frame (same freeze hazard the host guards against). */
@@ -64,6 +72,7 @@ export class GuestEnemies {
         ea.maxHealth = msg.maxHealth;
         ea.health    = msg.maxHealth;
         this.byId.set(msg.id, e);
+        this.list.push(e);
         // Seed the interpolation buffer with the spawn pose so the enemy renders
         // at its spawn point immediately (before the first snapshot arrives).
         const buf = new PoseBuffer();
@@ -96,10 +105,13 @@ export class GuestEnemies {
      *  procedural parts on the host), so without this the procedural meshes
      *  slide around as statues. `deltaTime` is the frame delta in seconds. */
     interpolate(renderTimeMs: number, deltaTime: number): void {
-        for (const [id, enemy] of this.byId) {
-            const buf = this.buffers.get(id);
+        // Indexed over the live mirror: `for..of` on a Map allocates an entry
+        // array per enemy per frame, which is exactly what this pass is for.
+        for (let i = 0; i < this.list.length; i++) {
+            const enemy = this.list[i];
+            const buf = this.buffers.get(enemy.id);
             if (!buf) continue;
-            const p = buf.sample(renderTimeMs);
+            const p = buf.sample(renderTimeMs, this._scratchPose);
             if (!p) continue;
             enemy.applyNetworkPosition(p.x, p.y, p.z, p.ry);
             // No-op for GLB enemies (net-driven clips animate those).
@@ -110,7 +122,7 @@ export class GuestEnemies {
     /** Per-frame non-positional visuals tick (HP-bar easing). Separate from
      *  interpolate() because it needs the frame delta, not a render time. */
     tickVisuals(deltaTime: number): void {
-        for (const enemy of this.byId.values()) enemy.tickNetworkVisuals(deltaTime);
+        for (let i = 0; i < this.list.length; i++) this.list[i].tickNetworkVisuals(deltaTime);
     }
 
     death(id: number): void {
@@ -119,6 +131,7 @@ export class GuestEnemies {
         // corpse while its death clip plays.
         this.byId.delete(id);
         this.buffers.delete(id);
+        if (e) this.unlist(e);
         if (!e) return;
         // CRITICAL leak-safety: the corpse must end in disposeCorpse, which frees
         // the GLB skeleton bone-matrix texture, anim groups, per-instance
@@ -145,6 +158,15 @@ export class GuestEnemies {
         e.disposeCorpse();
         this.byId.delete(id);
         this.buffers.delete(id);
+        this.unlist(e);
+    }
+
+    /** Swap-pop `e` out of the live mirror. Order is not meaningful here. */
+    private unlist(e: Enemy): void {
+        const i = this.list.indexOf(e);
+        if (i < 0) return;
+        this.list[i] = this.list[this.list.length - 1];
+        this.list.pop();
     }
 
     clear(): void {
@@ -154,14 +176,17 @@ export class GuestEnemies {
         // callback mutates `lingering`, so iterate a copy.
         for (const e of [...this.lingering]) e.disposeCorpse();
         this.lingering.clear();
+        this.list.length = 0;
     }
 
     count(): number {
         return this.byId.size;
     }
 
+    /** The live enemy mirror. Read-only for callers (same contract as
+     *  EnemyManager.getEnemies) — it is mutated in place on spawn/death. */
     public getEnemies(): Enemy[] {
-        return [...this.byId.values()];
+        return this.list;
     }
 
     public getById(id: number): Enemy | undefined {

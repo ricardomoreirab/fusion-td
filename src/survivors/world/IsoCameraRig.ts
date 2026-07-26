@@ -72,6 +72,8 @@ export class IsoCameraRig {
 
     private readonly _frustum: OrthoFrustum = { left: -1, right: 1, top: 1, bottom: -1 };
     private readonly _desired = new Vector3();
+    /** Solo-frame focus, written in place — the no-provider path runs every frame. */
+    private readonly _soloFocus: IsoFocus = { x: 0, z: 0, distanceScale: 1 };
     private readonly onWheel: (e: WheelEvent) => void;
 
     constructor(canvas: HTMLCanvasElement | null, startX = 0, startZ = 0) {
@@ -161,7 +163,13 @@ export class IsoCameraRig {
      * focus provider is installed.
      */
     public update(deltaTime: number, fallbackX: number, fallbackZ: number): void {
-        const focus = this.focusProvider?.() ?? { x: fallbackX, z: fallbackZ, distanceScale: 1 };
+        let focus = this.focusProvider?.() ?? null;
+        if (!focus) {
+            this._soloFocus.x = fallbackX;
+            this._soloFocus.z = fallbackZ;
+            this._soloFocus.distanceScale = 1;
+            focus = this._soloFocus;
+        }
 
         // Guard: a non-finite focus would poison camera.position permanently,
         // because a lerp of NaN stays NaN forever and a NaN view matrix clips

@@ -11,6 +11,8 @@
     "preview": "wrangler dev",
     "icons:generate": "node tools/item-icons/generate.mjs",
     "icons:items": "node tools/item-icons/serve.mjs",
+    "assets:optimize": "node tools/assets/optimize.mjs",
+    "assets:verify": "node tools/assets/verify.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -28,15 +30,20 @@
   },
   "dependencies": {
     "@newkrok/three-particles": "^3.0.0",
+    "meshoptimizer": "^0.25.0",
     "postprocessing": "^6.39.2",
     "three": "^0.185.1"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260529.1",
+    "@gltf-transform/core": "^4.4.2",
+    "@gltf-transform/extensions": "^4.4.2",
+    "@gltf-transform/functions": "^4.4.2",
     "@types/three": "^0.185.1",
     "copy-webpack-plugin": "^11.0.0",
     "css-loader": "^6.11.0",
     "html-webpack-plugin": "^5.5.3",
+    "sharp": "^0.34.5",
     "style-loader": "^3.3.4",
     "ts-loader": "^9.5.0",
     "typescript": "^5.2.2",

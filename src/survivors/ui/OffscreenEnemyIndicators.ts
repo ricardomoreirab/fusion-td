@@ -10,6 +10,19 @@ const ELEMENT_HEX: Record<string, string> = {
     storm:    '#bbbbff',
 };
 
+/** Elite-dot colours indexed by ELEMENT_ORDER, so the per-frame style identity is
+ *  a small int instead of a composed `${size}|${border}|${bg}` string. */
+const ELEMENT_ORDER = ['fire', 'ice', 'arcane', 'physical', 'storm'];
+
+/** One live indicator dot plus the state needed to skip redundant DOM writes. */
+interface Dot {
+    el: HTMLDivElement;
+    /** tier * 8 + (elite element index + 1); -1 = never styled. */
+    styleCode: number;
+    left: number;
+    top: number;
+}
+
 /**
  * Screen-edge dots for off-screen enemies (DOM port of the old Babylon-GUI
  * version). One absolutely-positioned circular div per off-screen enemy,
@@ -26,7 +39,7 @@ export class OffscreenEnemyIndicators {
     /** Layer the dots mount into — pointer-events: none, viewport-covering. */
     private layer: HTMLElement;
     /** Map from enemy → its screen-edge indicator dot */
-    private active: Map<Enemy, HTMLDivElement> = new Map();
+    private active: Map<Enemy, Dot> = new Map();
     /** Reused per-frame set to avoid allocating a new Set every update */
     private _seen: Set<Enemy> = new Set<Enemy>();
     /** Scratch vector reused per enemy per frame so the projection allocates nothing. */
@@ -79,7 +92,7 @@ export class OffscreenEnemyIndicators {
                 // Remove the indicator if the enemy came back on screen
                 const dot = this.active.get(e);
                 if (dot) {
-                    dot.remove();
+                    dot.el.remove();
                     this.active.delete(e);
                 }
                 continue;
@@ -88,14 +101,13 @@ export class OffscreenEnemyIndicators {
             // Tier detection (boss first so a hypothetical boss+elite stays boss)
             const isBoss  = e instanceof BossEnemy;
             const isElite = !isBoss && e.isElite;
+            const tier    = isBoss ? 2 : isElite ? 1 : 0;
+            const elemIdx = isElite ? ELEMENT_ORDER.indexOf(e.eliteDropElement ?? '') + 1 : 0;
+            // Small int identity for the styling — a composed template string per
+            // off-screen enemy per frame was pure garbage for a value only compared.
+            const styleCode = tier * 8 + elemIdx;
 
             const size   = isBoss ? 18 : isElite ? 12 : 6;
-            const border = isBoss || isElite ? 2 : 0;
-            const bg     = isBoss
-                ? '#ff3333'
-                : isElite
-                    ? (ELEMENT_HEX[e.eliteDropElement ?? ''] ?? '#ffffff')
-                    : '#aaaaaa';
             const margin = size / 2 + 4;
 
             // Compute the clamped screen-edge position (top-left screen space;
@@ -109,50 +121,57 @@ export class OffscreenEnemyIndicators {
             const ex = cx + Math.cos(ang) * (cx - margin);
             const ey = cy + Math.sin(ang) * (cy - margin);
 
-            const styleKey = `${size}|${border}|${bg}`;
             let dot = this.active.get(e);
             if (!dot) {
-                dot = document.createElement('div');
-                dot.style.position = 'absolute';
-                dot.style.pointerEvents = 'none';
+                const el = document.createElement('div');
+                el.style.position = 'absolute';
+                el.style.pointerEvents = 'none';
                 // Centre the dot on its (left, top) point, like the old
                 // centre-aligned ADT control.
-                dot.style.transform = 'translate(-50%, -50%)';
-                this.applyStyle(dot, size, border, bg, styleKey);
-                this.layer.appendChild(dot);
+                el.style.transform = 'translate(-50%, -50%)';
+                el.style.boxSizing = 'border-box';
+                el.style.borderRadius = '50%';
+                dot = { el, styleCode: -1, left: Number.NaN, top: Number.NaN };
+                this.layer.appendChild(el);
                 this.active.set(e, dot);
-            } else if (dot.dataset.styleKey !== styleKey) {
-                // Re-style only when the tier styling actually changed (e.g.
-                // EliteSpawner promoting a regular spawn to elite) — not every
-                // frame. The style key is stashed on the element's dataset.
-                this.applyStyle(dot, size, border, bg, styleKey);
             }
-            dot.style.left = `${ex}px`;
-            dot.style.top  = `${ey}px`;
+            if (dot.styleCode !== styleCode) {
+                // Re-style only when the tier styling actually changed (e.g.
+                // EliteSpawner promoting a regular spawn to elite) — not every frame.
+                dot.styleCode = styleCode;
+                this.applyStyle(dot.el, size, tier, elemIdx);
+            }
+            // Sub-pixel churn is invisible but each write costs a style recalc, so
+            // round and dirty-check both offsets.
+            const left = Math.round(ex);
+            const top  = Math.round(ey);
+            if (left !== dot.left) { dot.left = left; dot.el.style.left = `${left}px`; }
+            if (top !== dot.top)   { dot.top  = top;  dot.el.style.top  = `${top}px`; }
         }
 
         // Clean up stale entries (dead enemies)
         for (const [e, dot] of this.active) {
             if (!seen.has(e)) {
-                dot.remove();
+                dot.el.remove();
                 this.active.delete(e);
             }
         }
     }
 
-    private applyStyle(dot: HTMLDivElement, size: number, border: number, bg: string, styleKey: string): void {
-        dot.dataset.styleKey = styleKey;
-        dot.style.width        = `${size}px`;
-        dot.style.height       = `${size}px`;
-        dot.style.boxSizing    = 'border-box';
-        dot.style.border       = border > 0 ? `${border}px solid #ffffff` : 'none';
-        dot.style.background   = bg;
-        dot.style.borderRadius = '50%';
+    private applyStyle(el: HTMLDivElement, size: number, tier: number, elemIdx: number): void {
+        el.style.width      = `${size}px`;
+        el.style.height     = `${size}px`;
+        el.style.border     = tier > 0 ? '2px solid #ffffff' : 'none';
+        el.style.background = tier === 2
+            ? '#ff3333'
+            : tier === 1
+                ? (ELEMENT_HEX[ELEMENT_ORDER[elemIdx - 1]] ?? '#ffffff')
+                : '#aaaaaa';
     }
 
     public dispose(): void {
         for (const dot of this.active.values()) {
-            dot.remove();
+            dot.el.remove();
         }
         this.active.clear();
     }

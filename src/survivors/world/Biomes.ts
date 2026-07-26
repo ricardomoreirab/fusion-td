@@ -283,6 +283,20 @@ export function resolveBiomeBlend(wave: number): BiomeBlend {
     return { from, to: next, t };
 }
 
+/**
+ * Just the blend factor of resolveBiomeBlend, without its record. World.update
+ * calls this every frame and only ever reads `.t`, so the object was pure
+ * garbage there; the record form stays for callers that need the biome pair.
+ */
+export function resolveBiomeBlendT(wave: number): number {
+    const i = biomeIndexForWave(wave);
+    const next = BIOMES[i + 1];
+    if (!next) return 0;
+    const transitionStart = next.startWave - BIOME_TRANSITION_WAVES;
+    if (wave < transitionStart) return 0;
+    return Math.min(1, Math.max(0, (wave - transitionStart) / BIOME_TRANSITION_WAVES));
+}
+
 // ── Interpolation helpers ────────────────────────────────────────────────────
 // The renderer modules blend whole biome records every frame, so these stay
 // allocation-light: colour lerps write into a caller-owned 3-tuple.

@@ -9,6 +9,7 @@ import { PauseScreen } from '../shared/ui/PauseScreen';
 import { PALETTE } from './rendering/StyleConstants';
 import { SceneHost } from './three/SceneHost';
 import { RendererHost } from './three/RendererHost';
+import { configureAssetLoaders } from './three/assets';
 import { disposeMesh } from './three/primitives';
 import { hasSound } from './three/audio';
 import type { RGBA } from './three/math';
@@ -106,6 +107,9 @@ export class Game {
             this.showGpuUnavailableBanner();
             return;
         }
+        // KTX2 transcoding needs the live GL context to pick a target format, so
+        // this has to happen after the renderer exists and before the first GLB load.
+        configureAssetLoaders(this.rendererHost.renderer);
         this.setClearColor(PALETTE.SKY);
         this.rendererHost.resize(this.canvas.clientWidth || window.innerWidth, this.canvas.clientHeight || window.innerHeight);
         this.updateOrthoBounds();
@@ -181,6 +185,9 @@ export class Game {
         const t0 = performance.now();
         const dt = Math.min((t0 - this._lastFrameAt) / 1000, 0.25);
         this._lastFrameAt = t0;
+        // Renderer info.autoReset is off (RendererHost) so the composer's several
+        // internal renders accumulate into ONE frame total. We own the reset.
+        this.rendererHost.beginFrame();
         if (!this._isPaused) {
             try {
                 this.stateManager.update(dt);

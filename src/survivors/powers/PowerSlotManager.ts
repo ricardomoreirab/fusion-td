@@ -9,6 +9,13 @@ export interface PowerSlot {
     state: PowerRuntimeState;
 }
 
+/** One equipped passive enchantment, as consumed by HeroBasicAttack per hit. */
+export interface ActiveEnchantment {
+    element: string;
+    level: number;
+    slot: PowerSlot;
+}
+
 export class PowerSlotManager {
     public static readonly MAX_SLOTS = 4;
     private slots: (PowerSlot | null)[] = [null, null, null, null];
@@ -28,6 +35,19 @@ export class PowerSlotManager {
     private pendingCasts: { slot: PowerSlot; timer: number }[] = [];
     /** Most recently cast slot — target for the Echo item effect's free recast. */
     private lastCastSlot: PowerSlot | null = null;
+    /** Derived views of `slots` rebuilt only when the loadout changes — both are
+     *  read every frame (element visuals) or every hit (enchantments), so
+     *  rebuilding them per read allocated a Set + an array + one record per
+     *  passive on the hottest paths in the game. Callers treat them as read-only. */
+    private readonly cachedElements = new Set<PowerElement>();
+    private readonly cachedElementList: PowerElement[] = [];
+    private readonly cachedEnchantments: ActiveEnchantment[] = [];
+    private derivedDirty = true;
+    /** Reused context for the per-frame `tick` hook ONLY. Tick implementations
+     *  read it synchronously and never retain it. `cast` is the opposite — its
+     *  projectile observers keep the context alive for the whole flight — so the
+     *  cast path still builds its own (that path is cooldown-gated, not per-frame). */
+    private readonly tickCtx: PowerContext;
 
     constructor(
         scene: SceneHost,
@@ -41,6 +61,13 @@ export class PowerSlotManager {
         this.enemyProvider = enemyProvider;
         this.damageMultiplierProvider = damageMultiplierProvider;
         this.cooldownMultiplierProvider = cooldownMultiplierProvider;
+        this.tickCtx = {
+            scene,
+            heroPosition: new Vector3(),
+            enemies: [],
+            damageMultiplier: 1,
+            element: 'physical',
+        };
     }
 
     public getSlots(): (PowerSlot | null)[] {
@@ -67,6 +94,7 @@ export class PowerSlotManager {
             state: { level: 1, cooldownRemaining: def.baseCooldown },
         };
         this.slots[idx] = slot;
+        this.derivedDirty = true;
         // Run init hook if present (Whirling Blades spawns its blade meshes here)
         if (def.init) {
             const ctx = this.buildContext();
@@ -121,6 +149,7 @@ export class PowerSlotManager {
             state: { level: 1, cooldownRemaining: resultDef.baseCooldown },
         };
         this.slots[idxA] = slot;
+        this.derivedDirty = true;
         if (resultDef.init) {
             const ctx = this.buildContext();
             resultDef.init(slot.state, ctx);
@@ -143,6 +172,7 @@ export class PowerSlotManager {
             state: { level: 1, cooldownRemaining: def.baseCooldown },
         };
         this.slots[index] = slot;
+        this.derivedDirty = true;
         if (def.init) {
             const ctx = this.buildContext();
             def.init(slot.state, ctx);
@@ -159,6 +189,7 @@ export class PowerSlotManager {
             this.slots[i] = slot;
             if (def.init) def.init(slot.state, this.buildContext());
         }
+        this.derivedDirty = true;
     }
 
     /** DEV/TEST: fill slots 0..N with DIFFERENT defs (each maxed), disposing prior
@@ -173,6 +204,7 @@ export class PowerSlotManager {
             this.slots[i] = slot;
             if (def.init) def.init(slot.state, this.buildContext());
         }
+        this.derivedDirty = true;
     }
 
     /** Register a callback fired every time a power-slot's cast() executes. */
@@ -247,11 +279,12 @@ export class PowerSlotManager {
             if (!slot) continue;
             // Persistent per-frame powers (e.g. Whirling Blades) update every frame —
             // independent of cooldown or whether an enemy is in range — and never
-            // trigger the hero attack animation.
+            // trigger the hero attack animation. The tick context is reused (see
+            // tickCtx); the cast context below is not, and must stay that way.
             if (slot.def.tick) {
-                if (!ctx) ctx = this.buildContext();
-                ctx.element = slot.def.element;
-                slot.def.tick(slot.state, ctx, deltaTime);
+                const tctx = this.tickContext();
+                tctx.element = slot.def.element;
+                slot.def.tick(slot.state, tctx, deltaTime);
             }
             // Skip passive enchantments — they have no cast loop
             if (slot.def.mode === 'passive') continue;
@@ -318,31 +351,58 @@ export class PowerSlotManager {
         return true;
     }
 
-    /**
-     * Returns the set of unique elements from all currently equipped power slots.
-     * Used to drive per-element weapon visual decorations on the Champion.
-     */
-    public getActiveElements(): Set<PowerElement> {
-        const set = new Set<PowerElement>();
+    /** Rebuild the derived loadout views if a slot changed since the last read. */
+    private refreshDerived(): void {
+        if (!this.derivedDirty) return;
+        this.derivedDirty = false;
+        this.cachedElements.clear();
+        this.cachedElementList.length = 0;
+        this.cachedEnchantments.length = 0;
         for (const slot of this.slots) {
-            if (slot) set.add(slot.def.element);
+            if (!slot) continue;
+            if (!this.cachedElements.has(slot.def.element)) {
+                this.cachedElements.add(slot.def.element);
+                this.cachedElementList.push(slot.def.element);
+            }
+            if (slot.def.mode === 'passive') {
+                this.cachedEnchantments.push({
+                    element: slot.def.element, level: slot.state.level, slot,
+                });
+            }
         }
-        return set;
     }
 
     /**
-     * Returns all passive (enchantment) slots with their element and level.
-     * Used by HeroBasicAttack to apply enchantments on every melee/projectile hit.
+     * The set of unique elements from all currently equipped power slots.
+     * Used to drive per-element weapon visual decorations on the Champion.
+     * Read every frame — returns the CACHED set; callers must not mutate it.
      */
-    public getActiveEnchantments(): { element: string; level: number; slot: PowerSlot }[] {
-        const result: { element: string; level: number; slot: PowerSlot }[] = [];
-        for (const slot of this.slots) {
-            if (!slot) continue;
-            if (slot.def.mode === 'passive') {
-                result.push({ element: slot.def.element, level: slot.state.level, slot });
-            }
+    public getActiveElements(): Set<PowerElement> {
+        this.refreshDerived();
+        return this.cachedElements;
+    }
+
+    /** The same elements as an array, for the colour-blend call sites (per swing
+     *  and per projectile). CACHED — callers must not mutate it. */
+    public getActiveElementList(): PowerElement[] {
+        this.refreshDerived();
+        return this.cachedElementList;
+    }
+
+    /**
+     * All passive (enchantment) slots with their element and level.
+     * Used by HeroBasicAttack to apply enchantments on every melee/projectile hit
+     * (i.e. per enemy per frame during Whirlwind) — returns the CACHED array;
+     * callers must not mutate it. `level` is refreshed on every read because a
+     * level-up does not go through a slot write.
+     */
+    public getActiveEnchantments(): ActiveEnchantment[] {
+        this.refreshDerived();
+        for (let i = 0; i < this.cachedEnchantments.length; i++) {
+            const e = this.cachedEnchantments[i];
+            e.level = e.slot.state.level;
         }
-        return result;
+        return this.cachedEnchantments;
     }
 
     /**
@@ -368,9 +428,12 @@ export class PowerSlotManager {
             this.disposeSlotData(slot);
         }
         this.slots = [null, null, null, null];
+        this.derivedDirty = true;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    /** A FRESH context. Required by cast()/init(): their projectile observers
+     *  keep reading ctx.scene/ctx.element long after the call returns. */
     private buildContext(): PowerContext {
         return {
             scene: this.scene,
@@ -379,6 +442,15 @@ export class PowerSlotManager {
             damageMultiplier: this.damageMultiplierProvider(),
             element: 'physical',
         };
+    }
+
+    /** The shared per-frame context for tick() hooks, refreshed in place. */
+    private tickContext(): PowerContext {
+        const c = this.tickCtx;
+        c.heroPosition = this.heroProvider();
+        c.enemies = this.enemyProvider();
+        c.damageMultiplier = this.damageMultiplierProvider();
+        return c;
     }
 
     private disposeSlotData(slot: PowerSlot | null): void {

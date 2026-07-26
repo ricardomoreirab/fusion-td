@@ -51,14 +51,28 @@ export class RendererHost {
         camera: Camera,
     ) {
         // FXAA is the AA (Babylon ran samples=1 + FXAA), so no MSAA here.
+        // depth/stencil false: EVERY frame goes through the EffectComposer, which
+        // renders the scene into its own depth-equipped render targets and only
+        // blits the final EffectPass (a depth-test-disabled fullscreen triangle)
+        // to the canvas. The default framebuffer's depth+stencil attachments are
+        // therefore never read or written — pure allocated bandwidth. If a direct
+        // renderer.render(scene, camera) to the canvas is ever added here, this
+        // must be reverted with it.
         this.renderer = new WebGLRenderer({
             canvas,
             antialias: false,
+            depth: false,
             stencil: false,
             powerPreference: 'high-performance',
         });
         this.renderer.shadowMap.enabled = true;
         this.renderer.shadowMap.type = PCFShadowMap;
+        // The composer issues several internal renders per frame (scene pass +
+        // effect passes) and three resets info at the top of EACH, so
+        // info.render.calls only ever reported the LAST sub-render. Owning the
+        // reset (Game.frameTick calls beginFrame) makes `drawCalls` a true
+        // whole-frame total instead of a misleading tail.
+        this.renderer.info.autoReset = false;
 
         this.composer = new EffectComposer(this.renderer, { frameBufferType: HalfFloatType });
         this.composer.addPass(new RenderPass(scene, camera));
@@ -90,6 +104,12 @@ export class RendererHost {
     /** Swap the active camera (menu ortho <-> gameplay perspective). */
     public setCamera(camera: Camera): void {
         this.composer.setMainCamera(camera);
+    }
+
+    /** Zero the per-frame draw counters. Called once at the TOP of the frame
+     *  because info.autoReset is off — see the constructor. */
+    public beginFrame(): void {
+        this.renderer.info.reset();
     }
 
     public render(deltaSeconds: number): void {

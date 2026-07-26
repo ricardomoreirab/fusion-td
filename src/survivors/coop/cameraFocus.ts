@@ -18,13 +18,24 @@ export interface Focus { x: number; z: number; distanceScale: number }
  * separation — zoom-to-fit — capped at `maxScale`. With no teammate, or zero separation,
  * the scale is exactly 1 so the framing is identical to solo play.
  */
-export function computeCameraFocus(self: Point2, mate: Point2 | null, opts: FocusOpts): Focus {
+export function computeCameraFocus(
+    self: Point2,
+    mate: Point2 | null,
+    opts: FocusOpts,
+    /** Optional caller-owned struct to write into — this runs every frame on the
+     *  co-op camera path, so the scene layer passes one in rather than allocating. */
+    out?: Focus,
+): Focus {
+    const o = out ?? { x: 0, z: 0, distanceScale: 1 };
     if (!mate) {
-        return { x: self.x, z: self.z, distanceScale: 1 };
+        o.x = self.x;
+        o.z = self.z;
+        o.distanceScale = 1;
+        return o;
     }
-    const midX = (self.x + mate.x) / 2;
-    const midZ = (self.z + mate.z) / 2;
     const sep = Math.hypot(self.x - mate.x, self.z - mate.z);
-    const distanceScale = Math.min(opts.maxScale, 1 + sep * opts.scalePerUnit);
-    return { x: midX, z: midZ, distanceScale };
+    o.x = (self.x + mate.x) / 2;
+    o.z = (self.z + mate.z) / 2;
+    o.distanceScale = Math.min(opts.maxScale, 1 + sep * opts.scalePerUnit);
+    return o;
 }

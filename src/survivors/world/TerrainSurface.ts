@@ -27,7 +27,14 @@ import { TERRAIN_EXTENT } from './WorldConstants';
  * which is what lets three biomes coexist without three texture sets resident.
  */
 
-const TERRAIN_SHADER_KEY = 'ktg-terrain-biome-v1';
+const TERRAIN_SHADER_KEY = 'ktg-terrain-biome-v2';
+
+/** Write an Rgb tuple into a Color. Indexed rather than `setRGB(...tuple)`:
+ *  the spread form allocates an arguments array per call, and setBiomes makes
+ *  eight of these every frame. */
+function setRgb(c: Color, rgb: readonly number[]): void {
+    c.setRGB(rgb[0], rgb[1], rgb[2]);
+}
 
 /** GLSL shared by the injection. Value noise + FBM + ridged noise for fissures. */
 const TERRAIN_GLSL = /* glsl */`
@@ -163,10 +170,26 @@ export class TerrainSurface {
                     .replace(
                         '#include <map_fragment>',
                         `#include <map_fragment>
-                         float crackA, crackB;
-                         vec3 gA = ktgBiomeGround(uBaseA, uPatchA, uCrackA, uDetailA, uCrackStrA, vTerrainWorld, crackA);
-                         vec3 gB = ktgBiomeGround(uBaseB, uPatchB, uCrackB, uDetailB, uCrackStrB, vTerrainWorld, crackB);
-                         diffuseColor.rgb *= mix(gA, gB, uBlend);`,
+                         /* ktgBiomeGround is ~60 hash evaluations. Evaluating BOTH
+                            biomes unconditionally doubled that for every pixel of a
+                            full-screen quad, even though uBlend sits at exactly 0 or
+                            1 outside the few seconds of a biome cross-fade. uBlend is
+                            a uniform, so this branch is fully coherent across the
+                            draw — free on every GPU, and it halves the ground shader
+                            for the overwhelming majority of a run. */
+                         float crackA = 0.0;
+                         float crackB = 0.0;
+                         vec3 ktgGround;
+                         if (uBlend <= 0.001) {
+                             ktgGround = ktgBiomeGround(uBaseA, uPatchA, uCrackA, uDetailA, uCrackStrA, vTerrainWorld, crackA);
+                         } else if (uBlend >= 0.999) {
+                             ktgGround = ktgBiomeGround(uBaseB, uPatchB, uCrackB, uDetailB, uCrackStrB, vTerrainWorld, crackB);
+                         } else {
+                             vec3 gA = ktgBiomeGround(uBaseA, uPatchA, uCrackA, uDetailA, uCrackStrA, vTerrainWorld, crackA);
+                             vec3 gB = ktgBiomeGround(uBaseB, uPatchB, uCrackB, uDetailB, uCrackStrB, vTerrainWorld, crackB);
+                             ktgGround = mix(gA, gB, uBlend);
+                         }
+                         diffuseColor.rgb *= ktgGround;`,
                     )
                     .replace(
                         '#include <emissivemap_fragment>',
@@ -210,18 +233,18 @@ export class TerrainSurface {
         if (!s) return; // not compiled yet; next frame picks it up
         const u = s.uniforms;
 
-        (u.uBaseA.value as Color).setRGB(...(a.ground.base as unknown as [number, number, number]));
-        (u.uPatchA.value as Color).setRGB(...(a.ground.patch as unknown as [number, number, number]));
-        (u.uCrackA.value as Color).setRGB(...(a.ground.crack as unknown as [number, number, number]));
-        (u.uEmisA.value as Color).setRGB(...(a.ground.emissive as unknown as [number, number, number]));
+        setRgb(u.uBaseA.value as Color, a.ground.base);
+        setRgb(u.uPatchA.value as Color, a.ground.patch);
+        setRgb(u.uCrackA.value as Color, a.ground.crack);
+        setRgb(u.uEmisA.value as Color, a.ground.emissive);
         u.uEmisStrA.value = a.ground.emissiveStrength;
         u.uDetailA.value = a.ground.detailScale;
         u.uCrackStrA.value = a.ground.crackStrength;
 
-        (u.uBaseB.value as Color).setRGB(...(b.ground.base as unknown as [number, number, number]));
-        (u.uPatchB.value as Color).setRGB(...(b.ground.patch as unknown as [number, number, number]));
-        (u.uCrackB.value as Color).setRGB(...(b.ground.crack as unknown as [number, number, number]));
-        (u.uEmisB.value as Color).setRGB(...(b.ground.emissive as unknown as [number, number, number]));
+        setRgb(u.uBaseB.value as Color, b.ground.base);
+        setRgb(u.uPatchB.value as Color, b.ground.patch);
+        setRgb(u.uCrackB.value as Color, b.ground.crack);
+        setRgb(u.uEmisB.value as Color, b.ground.emissive);
         u.uEmisStrB.value = b.ground.emissiveStrength;
         u.uDetailB.value = b.ground.detailScale;
         u.uCrackStrB.value = b.ground.crackStrength;

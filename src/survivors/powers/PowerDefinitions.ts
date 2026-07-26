@@ -18,6 +18,13 @@ import {
     fireSmokePuffConfig,
 } from '../fx/ElementParticles';
 
+// Module-level scratch shared by every homing-projectile observer: each one runs
+// to completion inside the onBeforeRender bus before the next starts, so one pair
+// covers all of them. getPosition() returns the enemy's LIVE vector by design —
+// copy into scratch, never mutate what it hands back.
+const _homeTarget = new Vector3();
+const _homeDir = new Vector3();
+
 export type PowerElement = 'fire' | 'ice' | 'arcane' | 'physical' | 'storm';
 export type ChampionType = 'barbarian' | 'ranger' | 'mage';
 
@@ -366,8 +373,8 @@ const mageFireDef: PowerDefinition = {
             }
             const dt = ctx.scene.deltaSeconds;
 
-            const tp = target.getPosition().clone(); tp.y = 1;
-            const dir = new Vector3().subVectors(tp, proj.position);
+            _homeTarget.copy(target.getPosition()); _homeTarget.y = 1;
+            const dir = _homeDir.subVectors(_homeTarget, proj.position);
             const dist = dir.length();
             const dirN = dir.normalize();
 
@@ -446,8 +453,8 @@ const mageIceDef: PowerDefinition = {
             }
             const dt = ctx.scene.deltaSeconds;
 
-            const tp = target.getPosition().clone(); tp.y = 1;
-            const dir = new Vector3().subVectors(tp, proj.position);
+            _homeTarget.copy(target.getPosition()); _homeTarget.y = 1;
+            const dir = _homeDir.subVectors(_homeTarget, proj.position);
             const dist = dir.length();
 
             if (dist < 0.4) {
@@ -901,8 +908,8 @@ const rangerFireDef: PowerDefinition = {
                 ctx.scene.onBeforeRender.remove(observer);
                 return;
             }
-            const tp = target.getPosition().clone(); tp.y = 1;
-            const dir = new Vector3().subVectors(tp, proj.position);
+            _homeTarget.copy(target.getPosition()); _homeTarget.y = 1;
+            const dir = _homeDir.subVectors(_homeTarget, proj.position);
             const dist = dir.length();
             const dirN = dir.normalize();
 
@@ -1104,8 +1111,8 @@ const rangerArcaneDef: PowerDefinition = {
                 ctx.scene.onBeforeRender.remove(observer);
                 return;
             }
-            const tp = target.getPosition().clone(); tp.y = 1;
-            const toTarget = new Vector3().subVectors(tp, proj.position);
+            _homeTarget.copy(target.getPosition()); _homeTarget.y = 1;
+            const toTarget = _homeDir.subVectors(_homeTarget, proj.position);
             const dist = toTarget.length();
 
             // Orient arrow toward velocity
@@ -1298,8 +1305,8 @@ const rangerStormDef: PowerDefinition = {
                 ctx.scene.onBeforeRender.remove(observer);
                 return;
             }
-            const tp = target.getPosition().clone(); tp.y = 1;
-            const dir = new Vector3().subVectors(tp, proj.position);
+            _homeTarget.copy(target.getPosition()); _homeTarget.y = 1;
+            const dir = _homeDir.subVectors(_homeTarget, proj.position);
             const dist = dir.length();
             const dirN = dir.normalize();
 

@@ -114,6 +114,8 @@ export class ParticleEffect implements SceneParticleSystem {
     private elapsed = 0;
     private completed = false;
     private disposed = false;
+    /** Reused argument for handle.update() — see tick(). */
+    private readonly _updateArg = { now: 1, delta: 0, elapsed: 0 };
 
     constructor(
         public readonly name: string,
@@ -164,7 +166,13 @@ export class ParticleEffect implements SceneParticleSystem {
         if (this.follow) this.syncFollow();
         this.nowMs += dtSeconds * 1000;
         this.elapsed += dtSeconds;
-        this.handle.update({ now: this.nowMs, delta: dtSeconds, elapsed: this.elapsed });
+        // Mutated in place: three-particles destructures the cycle data on entry
+        // ({ now, delta, elapsed }) and never retains the object, so one struct per
+        // system beats an allocation per live system per frame.
+        this._updateArg.now = this.nowMs;
+        this._updateArg.delta = dtSeconds;
+        this._updateArg.elapsed = this.elapsed;
+        this.handle.update(this._updateArg);
     }
 
     private syncFollow(): void {

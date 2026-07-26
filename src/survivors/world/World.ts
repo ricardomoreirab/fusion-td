@@ -1,6 +1,6 @@
 import type { SceneHost } from '../../engine/three/SceneHost';
 import {
-    BIOMES, biomeIndexForWave, resolveBiomeBlend, luminance,
+    BIOMES, biomeIndexForWave, resolveBiomeBlendT, luminance,
     GROUND_LUMINANCE_MIN, GROUND_LUMINANCE_MAX,
     type BiomeDef,
 } from './Biomes';
@@ -134,8 +134,8 @@ export class World {
     ): void {
         this.elapsed += deltaTime;
 
-        const blend = resolveBiomeBlend(wave);
-        this.biomeAxisTarget = this.debugAxisOverride ?? (biomeIndexForWave(wave) + blend.t);
+        this.biomeAxisTarget = this.debugAxisOverride
+            ?? (biomeIndexForWave(wave) + resolveBiomeBlendT(wave));
 
         // Ease toward the target so an integer wave step still reads as a
         // gradual grade rather than a snap.

@@ -4,6 +4,7 @@ import { HealerEnemy } from './HealerEnemy';
 import { acquireProjectile, releaseProjectile } from '../../engine/rendering/ProjectilePool';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
 import { createSphere, isMeshDisposed } from '../../engine/three/primitives';
+import type { UpdateToken } from '../../engine/three/SceneHost';
 import { emitCoopFx } from '../coop/CoopFx';
 
 /**
@@ -94,12 +95,16 @@ export class RedWizard extends HealerEnemy {
         const seekTarget = this.resolveSeekTarget();
         const startTime = performance.now();
 
-        const observer = this.scene.onBeforeRender.add(host => {
-            const cleanup = () => {
-                this.scene.onBeforeRender.remove(observer);
-                releaseProjectile(RedWizard.POOL_KEY, bolt);
-            };
+        // Hoisted above the observer: declared INSIDE the callback it allocated a
+        // fresh closure per bolt per frame. `observer` is assigned right after,
+        // and cleanup only ever runs from inside the callback (so it is set).
+        let observer: UpdateToken;
+        const cleanup = (): void => {
+            this.scene.onBeforeRender.remove(observer);
+            releaseProjectile(RedWizard.POOL_KEY, bolt);
+        };
 
+        observer = this.scene.onBeforeRender.add(host => {
             // Bail if the bolt/wizard/hero is gone, or the bolt has flown too long.
             if (isMeshDisposed(bolt) || !this.alive || !seekTarget
                 || seekTarget.isAlive?.() === false

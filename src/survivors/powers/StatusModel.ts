@@ -50,6 +50,13 @@ export class StatusStacks {
     private tracks = new Map<RichStatusKind, Track>();
     private burnTickAcc = 0;
     private curseTickAcc = 0;
+    /** Reused tick() result — one per enemy, reset at the top of each tick.
+     *  Same read-only contract as EMPTY_TICK_RESULT: the caller must consume it
+     *  before the next tick() on the SAME instance (Enemy.updateStatusEffects
+     *  does, within one frame). */
+    private readonly tickResult: StatusTickResult = {
+        burnDamage: 0, curseDamage: 0, chillSlowMultiplier: 1, expired: [],
+    };
 
     has(kind: RichStatusKind): boolean { return this.tracks.has(kind); }
     stacks(kind: RichStatusKind): number { return this.tracks.get(kind)?.stacks ?? 0; }
@@ -115,7 +122,11 @@ export class StatusStacks {
     /** Advance all timers by dtS; return DoT damage + chill slow + expiries. */
     tick(dtS: number, maxHp: number): StatusTickResult {
         if (this.tracks.size === 0) { this.burnTickAcc = 0; this.curseTickAcc = 0; return EMPTY_TICK_RESULT; }
-        const out: StatusTickResult = { burnDamage: 0, curseDamage: 0, chillSlowMultiplier: 1, expired: [] };
+        const out = this.tickResult;
+        out.burnDamage = 0;
+        out.curseDamage = 0;
+        out.chillSlowMultiplier = 1;
+        out.expired.length = 0;
 
         const burn = this.tracks.get('burn');
         if (burn) {
