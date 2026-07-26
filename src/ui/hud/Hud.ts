@@ -17,13 +17,12 @@ import {
 // Icon/colour maps for the HUD. Every one of these used to be a platform
 // emoji; they are now authored glyphs from src/ui/icons.ts.
 const ITEM_ICON: Record<ItemId, IconName> = {
-  extraLife: 'lifeRune', multishotCleave: 'cleave', knockback: 'impact',
+  extraLife: 'lifeRune', multishotCleave: 'cleave', knockback: 'impact', ricochet: 'ricochet',
   attackSpeed: 'bolt', elementalCore: 'gem',
 };
 const ITEM_COLOR: Record<ItemId, string> = {
-  extraLife: '#46e05a', multishotCleave: '#ffd84a', knockback: '#4ea7ff', attackSpeed: '#fff080', elementalCore: '#ff5a2e',
+  extraLife: '#46e05a', multishotCleave: '#ffd84a', knockback: '#4ea7ff', ricochet: '#4ea7ff', attackSpeed: '#fff080', elementalCore: '#ff5a2e',
 };
-const ITEM_IDS: ItemId[] = ['extraLife', 'multishotCleave', 'knockback', 'attackSpeed', 'elementalCore'];
 /** Unowned item sockets recede into the bronze chrome instead of flashing grey. */
 const ITEM_DORMANT = 'rgba(201, 162, 63, 0.42)';
 
@@ -70,8 +69,11 @@ export class Hud {
   private bannerTimer = 0;
 
   private powerSlots: IconSlotController[] = [];
+  /** The five item sockets this champion can own, in boss-tier order (the
+   *  tier-3 socket is Knockback or Ricochet depending on class). */
+  private readonly itemRow: ItemId[];
   private itemSlots: Record<ItemId, IconSlotController | null> = {
-    extraLife: null, multishotCleave: null, knockback: null, attackSpeed: null, elementalCore: null,
+    extraLife: null, multishotCleave: null, knockback: null, ricochet: null, attackSpeed: null, elementalCore: null,
   };
   private prevCooldownRemaining: number[] = [-1, -1, -1, -1];
   private cachedPowerEmpty: (boolean | null)[] = [null, null, null, null];
@@ -82,13 +84,13 @@ export class Hud {
   private cachedPowerLevel: (number | null)[] = [null, null, null, null];
   private cachedPowerCdFrac: number[] = [-1, -1, -1, -1];
   private itemPulse: Record<ItemId, boolean> = {
-    extraLife: false, multishotCleave: false, knockback: false, attackSpeed: false, elementalCore: false,
+    extraLife: false, multishotCleave: false, knockback: false, ricochet: false, attackSpeed: false, elementalCore: false,
   };
   private cachedItemOwned: Record<ItemId, boolean | null> = {
-    extraLife: null, multishotCleave: null, knockback: null, attackSpeed: null, elementalCore: null,
+    extraLife: null, multishotCleave: null, knockback: null, ricochet: null, attackSpeed: null, elementalCore: null,
   };
   private cachedItemStacks: Record<ItemId, number | null> = {
-    extraLife: null, multishotCleave: null, knockback: null, attackSpeed: null, elementalCore: null,
+    extraLife: null, multishotCleave: null, knockback: null, ricochet: null, attackSpeed: null, elementalCore: null,
   };
 
   private ultButtons: { root: HTMLDivElement; label: HTMLDivElement; cdText: HTMLDivElement; id: string }[] = [];
@@ -130,10 +132,11 @@ export class Hud {
   private cachedUltLabelOpacity: (number | null)[] = [];
   private cachedVignetteOpacity = -1;
 
-  constructor(gameUI: GameUI, abilityManager?: AbilityManager, game?: Game) {
+  constructor(gameUI: GameUI, abilityManager?: AbilityManager, game?: Game, championType?: string) {
     this.gameUI = gameUI;
     this.abilityManager = abilityManager ?? null;
     this.game = game ?? null;
+    this.itemRow = RunItems.itemRowForClass(championType ?? 'barbarian');
 
     this.root = el('div', { class: 'hud' });
     gameUI.layer('hud').appendChild(this.root);
@@ -204,7 +207,7 @@ export class Hud {
       powerRow.appendChild(slot.root);
     }
     const itemRow = el('div', { class: 'hud__row hud__row--items' });
-    for (const id of ITEM_IDS) {
+    for (const id of this.itemRow) {
       const slot = makeIconSlot('slot--item');
       slot.setIcon(ITEM_ICON[id], ITEM_DORMANT);
       slot.setAccent('#8a6d35');
@@ -415,7 +418,7 @@ export class Hud {
     }
 
     // Item row
-    for (const id of ITEM_IDS) {
+    for (const id of this.itemRow) {
       const ui = this.itemSlots[id];
       if (!ui) continue;
       const stacks = this.runItems?.getStacks(id) ?? 0;

@@ -125,6 +125,10 @@ const ICONS = {
   impact: {
     body: '<path d="M3.6 4.4v15.2"/><path d="M6.8 12h6.6M10.4 8.4 14 12l-3.6 3.6"/><path d="M17.2 6.6 21 12l-3.8 5.4"/>',
   },
+  /** Ricochet — an arrow's flight banking off a surface to a second target. */
+  ricochet: {
+    body: '<path d="M3.8 4.6 12 14.8 20.2 6.4"/><path d="M18.9 11.4 20.2 6.4l-4.9 1.5"/><path d="M8.4 18.6h7.2"/>',
+  },
   gem: {
     body: '<path d="M8.2 2.9h7.6L20.4 8 12 21 3.6 8z"/><path d="M3.6 8h16.8M8.2 2.9 12 8l3.8-5.1M12 8v13"/>',
   },

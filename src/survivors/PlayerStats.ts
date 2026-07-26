@@ -70,6 +70,9 @@ export class PlayerStats {
     public extraAttacks: number = 0;
     /** World units pushed radially away from the hero on each basic-attack hit. */
     public knockbackOnHit: number = 0;
+    /** Ricochet run-item (ranger): extra enemies each basic-attack projectile
+     *  bounces to after its first hit. RunItems is the only writer. */
+    public ricochetBounces: number = 0;
     /** Chance (0..1) for any damage dealt to crit. */
     public critChance: number = 0;
     /** Multiplier applied on a crit. Base 1.5×, each Savagery purchase adds +0.05. */

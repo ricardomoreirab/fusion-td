@@ -1,4 +1,4 @@
-import { Vector3, Mesh, Color, CircleGeometry, DoubleSide, MeshBasicMaterial, MeshPhongMaterial, AdditiveBlending, DataTexture, RGBAFormat, Texture } from 'three';
+import { Vector3, Mesh, Color, RingGeometry, DoubleSide, MeshBasicMaterial, MeshPhongMaterial, AdditiveBlending } from 'three';
 import { Champion } from './Champion';
 import { PowerSlotManager } from '../powers/PowerSlotManager';
 import { EnchantmentHitContext, PowerElement } from '../powers/PowerDefinitions';
@@ -21,50 +21,6 @@ const _scratchB = new Vector3();
 /** Shared empty element list for the "no power slots" paths (read-only). */
 const NO_ELEMENTS: PowerElement[] = [];
 
-// Shared radial-gradient texture for the melee cone telegraph — bright core
-// fading to fully transparent at the rim. CircleGeometry's UVs are a planar
-// projection centered at (0.5, 0.5), so sampling this with the wedge's own
-// UVs puts the bright core at the hero (geometry center) and fades toward
-// the far edge of the swing, matching the sector's own falloff. Cached +
-// never disposed (parity with getSoftParticleTexture); headless-safe.
-let _coneTelegraphTexture: Texture | null = null;
-function getConeTelegraphTexture(): Texture {
-    if (_coneTelegraphTexture) return _coneTelegraphTexture;
-
-    if (typeof document === 'undefined') {
-        const data = new Uint8Array([255, 255, 255, 255]);
-        const tex = new DataTexture(data, 1, 1, RGBAFormat);
-        tex.needsUpdate = true;
-        _coneTelegraphTexture = tex;
-        return _coneTelegraphTexture;
-    }
-
-    const size = 128;
-    const canvas = document.createElement('canvas');
-    canvas.width = size;
-    canvas.height = size;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) {
-        const data = new Uint8Array([255, 255, 255, 255]);
-        const tex = new DataTexture(data, 1, 1, RGBAFormat);
-        tex.needsUpdate = true;
-        _coneTelegraphTexture = tex;
-        return _coneTelegraphTexture;
-    }
-    const half = size / 2;
-    const gradient = ctx.createRadialGradient(half, half, 0, half, half, half);
-    gradient.addColorStop(0, 'rgba(255,255,255,0.95)');
-    gradient.addColorStop(0.35, 'rgba(255,255,255,0.55)');
-    gradient.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, size, size);
-
-    const tex = new Texture(canvas);
-    tex.needsUpdate = true;
-    _coneTelegraphTexture = tex;
-    return _coneTelegraphTexture;
-}
-
 export interface BasicAttackTarget {
     position: Vector3;
     takeDamage: (amount: number, element?: PowerElement) => void;
@@ -78,27 +34,47 @@ export type BasicAttackMode = 'projectile' | 'melee';
 
 export type ProjectileShape = 'sphere' | 'arrow' | 'mageBolt';
 
-/** Delay between the main melee swing and each queued follow-up spin. */
+/** Delay between the main melee slash and each queued follow-up wave. */
 const EXTRA_SPIN_DELAY = 0.15;
 
-/** Half-angle of the forward melee cone (full chop arc = 110°). */
-export const MELEE_CONE_HALF_ANGLE_RAD = (55 * Math.PI) / 180;
-
-/** Baseline shove every cone hit applies (world units). Small on purpose —
+/** Baseline shove every wave hit applies (world units). Small on purpose —
  *  it staggers the front rank without scattering the horde; the knockback
  *  item's per-stack push (1.0) stacks on top inside applyHit. */
 export const MELEE_BASE_KNOCKBACK = 0.5;
 
-/** Pure cone test: is the (dx, dz) offset within the cone around the unit
- *  facing (fx, fz)? Exported for Vitest. */
-export function isInMeleeCone(
+/** Half-width of the slash wave's damage corridor (world units, lateral). */
+export const SLASH_WAVE_HALF_WIDTH = 1.5;
+
+/** Forward speed of the wave crest (world units / s). */
+export const SLASH_WAVE_SPEED = 16;
+
+/** The sweep starts this far BEHIND the hero so enemies overlapping the
+ *  hero (already in contact range) are caught by the first step. */
+export const SLASH_WAVE_BACK_GRACE = 0.5;
+
+/** Radius of the crescent visual — sin(arc half-angle) × this ≈ the damage
+ *  corridor half-width, so the drawn arc matches where hits land. */
+const SLASH_WAVE_VISUAL_RADIUS = 1.9;
+const SLASH_WAVE_ARC_HALF_RAD = (50 * Math.PI) / 180;
+
+/** How far a ricochet bounce (ranger run-item) can reach for its next target. */
+const RICOCHET_RADIUS = 6;
+
+/** Pure corridor test for one step of the slash wave's sweep: does the
+ *  (dx, dz) offset from the wave origin fall inside the band the crest crossed
+ *  this frame — forward projection in (prevFront, newFront] along the unit
+ *  direction (dirX, dirZ), within halfWidth laterally? Band semantics make the
+ *  sweep tunnel-proof (any step size covers every point between the old and
+ *  new front) and hit-once (half-open interval). Exported for Vitest. */
+export function isInSlashBand(
     dx: number, dz: number,
-    fx: number, fz: number,
-    cosHalfAngle: number,
+    dirX: number, dirZ: number,
+    prevFront: number, newFront: number,
+    halfWidth: number,
 ): boolean {
-    const d = Math.hypot(dx, dz);
-    if (d < 1e-3) return true; // standing inside the hero — always hit
-    return (dx / d) * fx + (dz / d) * fz >= cosHalfAngle;
+    const forward = dx * dirX + dz * dirZ;
+    if (forward <= prevFront || forward > newFront) return false;
+    return Math.abs(dx * dirZ - dz * dirX) <= halfWidth;
 }
 
 /** In-flight projectile state, advanced by the ONE shared per-frame observer
@@ -116,6 +92,30 @@ interface ProjectileFlight {
     allEnemies: Enemy[];
     /** Seconds in flight — released at 3s as a safety net. */
     age: number;
+    /** Ricochet run-item: bounces this arrow still has after a hit. */
+    bouncesLeft: number;
+    /** Enemies already hit by this arrow (bounces never re-hit them). Null
+     *  when the flight has no bounces — avoids a Set per plain arrow. */
+    struck: Set<Enemy> | null;
+}
+
+/** In-flight slash wave (barbarian basic attack), advanced by the shared
+ *  per-frame observer. Damage comes from sweeping the corridor band the crest
+ *  crossed each frame — frame-rate-proof and hit-once per enemy. */
+interface SlashWaveFlight {
+    /** Hero position at cast (cloned — the hero keeps moving). */
+    origin: Vector3;
+    dirX: number;
+    dirZ: number;
+    /** Distance the crest has travelled from the origin (starts at
+     *  −SLASH_WAVE_BACK_GRACE so contact-range enemies are swept). */
+    front: number;
+    maxDist: number;
+    crest: Mesh;
+    trail: Mesh;
+    hit: Set<Enemy>;
+    /** Impact flashes spawned so far — capped per wave. */
+    flashes: number;
 }
 
 /** Fading trail puff driven by the shared observer (meshes pooled). */
@@ -157,8 +157,9 @@ export class HeroBasicAttack {
     // For melee: reference to full enemy list for AOE
     private enemyProvider: (() => Enemy[]) | null = null;
 
-    // Shared flight machinery: ONE observer advances every projectile + streak.
+    // Shared flight machinery: ONE observer advances every projectile + wave + streak.
     private liveProjectiles: ProjectileFlight[] = [];
+    private liveWaves: SlashWaveFlight[] = [];
     private liveStreaks: StreakPuff[] = [];
     private streakPool: Mesh[] = [];
     private flightToken: UpdateToken | null = null;
@@ -296,14 +297,14 @@ export class HeroBasicAttack {
             return;
         }
 
-        // Queued follow-up swings (barbarian extraAttacks) bypass the normal cooldown gate
+        // Queued follow-up waves (barbarian extraAttacks) bypass the normal cooldown gate
         // so they fire at the chosen cadence regardless of the base attack interval. Skip
-        // the swing if no enemy is in range (still drain the queue counter so we don't
+        // the wave if no enemy is in range (still drain the queue counter so we don't
         // pile up a backlog).
         if (this.queuedSwings > 0) {
             this.queuedSpinTimer -= deltaTime;
             if (this.queuedSpinTimer <= 0) {
-                if (this.hasMeleeTarget()) this.performMeleeSwing();
+                if (this.hasMeleeTarget()) this.performSlashWave();
                 this.queuedSwings--;
                 this.queuedSpinTimer = EXTRA_SPIN_DELAY;
             }
@@ -313,11 +314,11 @@ export class HeroBasicAttack {
         if (this.cooldown > 0) return;
 
         if (this.mode === 'melee') {
-            // Only swing if at least one enemy is within range — otherwise the
-            // cooldown holds and the next swing fires as soon as a mob walks in.
+            // Only slash if at least one enemy is within range — otherwise the
+            // cooldown holds and the next wave fires as soon as a mob walks in.
             if (!this.hasMeleeTarget()) return;
-            this.performMeleeSwing();
-            // After the main swing, queue any extra spins from RunItems.
+            this.performSlashWave();
+            // After the main wave, queue any extra follow-ups from RunItems.
             const extras = this.playerStats?.extraAttacks ?? 0;
             if (extras > 0) {
                 this.queuedSwings = extras;
@@ -382,7 +383,8 @@ export class HeroBasicAttack {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Melee — forward cone chop (aimed at the nearest enemy in range)
+    // Melee — slash wave: a crescent that launches toward the nearest enemy and
+    // damages everything in its corridor as it travels out to max range
     // ─────────────────────────────────────────────────────────────────────────
 
     /** True when at least one alive enemy is within the effective melee range. */
@@ -400,16 +402,15 @@ export class HeroBasicAttack {
         return false;
     }
 
-    private performMeleeSwing(): void {
+    private performSlashWave(): void {
         this.onAttack?.();
         const heroPos = this.getHeroPosition();
         const range = this.effectiveRange;
         const enemies = this.enemyProvider ? this.enemyProvider() : [];
-        const hitEnemies: Enemy[] = [];
         const rangeSq = range * range;
 
-        // Aim the chop at the nearest enemy in range — the swing only fires
-        // when one exists (hasMeleeTarget), so the cone always connects.
+        // Aim the wave at the nearest enemy in range — it only fires when one
+        // exists (hasMeleeTarget), so the crest always has a lane to travel.
         let aim: Enemy | null = null;
         let aimDistSq = Infinity;
         for (const e of enemies) {
@@ -424,52 +425,96 @@ export class HeroBasicAttack {
         let fz = aim.getPosition().z - heroPos.z;
         const fLen = Math.hypot(fx, fz);
         if (fLen > 1e-3) { fx /= fLen; fz /= fLen; } else { fx = 1; fz = 0; }
-        const cosHalf = Math.cos(MELEE_CONE_HALF_ANGLE_RAD);
 
-        for (const e of enemies) {
-            if (!e.isAlive()) continue;
-            const dx = e.getPosition().x - heroPos.x;
-            const dz = e.getPosition().z - heroPos.z;
-            if (dx * dx + dz * dz > rangeSq) continue;
-            if (!isInMeleeCone(dx, dz, fx, fz, cosHalf)) continue;
-            this.applyHit(e, heroPos, enemies);
-            // Baseline shove radiating from the hero — the chop staggers the
-            // front rank. Item knockback (applyHit) stacks on top.
-            const d = Math.hypot(dx, dz);
-            if (d > 0.001) e.applyKnockback(dx / d, dz / d, MELEE_BASE_KNOCKBACK);
-            hitEnemies.push(e);
-        }
-
-        // Forward chop-arc visual aligned to the cone.
         const facingAngle = Math.atan2(fz, fx);
-        this.spawnSwingCone(heroPos, range, facingAngle);
-        // Per-enemy impact flash — capped so a crowded chop doesn't spike
-        // draw calls; the cone arc + damage numbers carry the rest.
-        for (let i = 0; i < Math.min(hitEnemies.length, 4); i++) {
-            this.spawnImpactFlash(hitEnemies[i].getPosition());
-        }
-        // Co-op: broadcast the swing (range + facing) so the teammate sees the
-        // same cone arc. "range:angle" — old builds parseFloat the range prefix.
-        emitCoopFx('swing', heroPos.x, heroPos.z, undefined, undefined,
+        const { crest, trail } = this.spawnSlashWaveMeshes(facingAngle);
+        const wave: SlashWaveFlight = {
+            origin: heroPos.clone(),
+            dirX: fx,
+            dirZ: fz,
+            front: -SLASH_WAVE_BACK_GRACE,
+            maxDist: range,
+            crest,
+            trail,
+            hit: new Set(),
+            flashes: 0,
+        };
+        this.liveWaves.push(wave);
+        this.ensureFlightObserver();
+        // Zero-dt step places the crescent at the hero before the first render.
+        this.stepSlashWave(wave, 0);
+
+        // Co-op: broadcast the wave (range + facing) so the teammate sees the
+        // same crescent travel. "range:angle", mirroring the old swing payload.
+        emitCoopFx('slash', heroPos.x, heroPos.z, undefined, undefined,
             `${range}:${facingAngle.toFixed(3)}`);
 
-        // Weapon-trail FX (axe ribbon follows the weapon bone through the chop;
+        // Weapon-trail FX (axe ribbon follows the weapon bone through the slash;
         // also drives the procedural fallback's attack timer).
         const hero = this.hero as any;
         if (typeof hero.triggerSpinAttack === 'function') {
             hero.triggerSpinAttack();
         }
-        // GLB attack animation — face the cone's aim target so the chop clip
-        // points where the hits land; the clip compresses to the attack
-        // interval so fast builds swing visibly faster.
+        // GLB attack animation — face where the wave flies; the clip compresses
+        // to the attack interval so fast builds swing visibly faster.
         if (typeof hero.triggerAttack === 'function') {
             hero.triggerAttack(aim.getPosition(), this.effectiveInterval);
         }
     }
 
+    /** Advance one slash wave by dt: sweep the corridor band the crest crossed
+     *  (hitting each enemy at most once), then move/fade the crescent. Returns
+     *  false when the wave reached max range (meshes disposed). */
+    private stepSlashWave(w: SlashWaveFlight, dt: number): boolean {
+        const prev = w.front;
+        w.front = Math.min(w.front + SLASH_WAVE_SPEED * dt, w.maxDist);
+
+        // Live enemy list each step — enemies that walk into the lane mid-flight
+        // are still hit (the old instant cone only saw its cast-time snapshot).
+        const enemies = this.enemyProvider ? this.enemyProvider() : [];
+        for (const e of enemies) {
+            if (!e.isAlive() || w.hit.has(e)) continue;
+            const dx = e.getPosition().x - w.origin.x;
+            const dz = e.getPosition().z - w.origin.z;
+            if (!isInSlashBand(dx, dz, w.dirX, w.dirZ, prev, w.front, SLASH_WAVE_HALF_WIDTH)) continue;
+            w.hit.add(e);
+            this.applyHit(e, w.origin, enemies);
+            // Baseline shove along the travel direction — the crest carries the
+            // front rank with it. Item knockback (applyHit) stacks on top.
+            e.applyKnockback(w.dirX, w.dirZ, MELEE_BASE_KNOCKBACK);
+            // Per-enemy impact flash — capped so a packed lane doesn't spike
+            // draw calls; the crescent + damage numbers carry the rest.
+            if (w.flashes < 4) { w.flashes++; this.spawnImpactFlash(e.getPosition()); }
+        }
+
+        // The mesh origin (the arc's center of curvature) trails the crest by
+        // the arc radius so the leading edge sits exactly at `front`.
+        const t = Math.max(w.front, 0) / w.maxDist;
+        const scale = SLASH_WAVE_VISUAL_RADIUS * (0.85 + 0.3 * t);
+        const backset = w.front - scale;
+        w.crest.position.set(w.origin.x + w.dirX * backset, 0.35, w.origin.z + w.dirZ * backset);
+        w.trail.position.set(w.origin.x + w.dirX * backset, 0.3, w.origin.z + w.dirZ * backset);
+        // Local X is the travel depth, local Y the lateral spread (the x=π/2
+        // pitch maps it onto world XZ) — the wave widens as it travels.
+        w.crest.scale.set(scale, scale * (0.9 + 0.35 * t), 1);
+        w.trail.scale.set(scale * 0.92, scale * (0.85 + 0.3 * t), 1);
+        setMeshOpacity(w.crest, 0.85 * (1 - t * t));
+        setMeshOpacity(w.trail, 0.5 * (1 - t));
+
+        if (w.front >= w.maxDist) {
+            // disposeMesh frees the meshes + their setMeshOpacity clones (flagged
+            // ownedMaterial); cached shared materials/geometry are skipped —
+            // clearMaterialCache() frees them on run teardown.
+            disposeMesh(w.crest);
+            disposeMesh(w.trail);
+            return false;
+        }
+        return true;
+    }
+
     /** Apply one full basic-attack hit to a single enemy: effective damage
      *  (crit is rolled inside Enemy.takeDamage), lifesteal, knockback radiating
-     *  from `fromPos`, and element enchantments. Shared by the melee swing and
+     *  from `fromPos`, and element enchantments. Shared by the slash wave and
      *  Whirlwind ticks so both carry the exact same hit modifiers. */
     private applyHit(e: Enemy, fromPos: Vector3, enemies: Enemy[]): void {
         const dmg = this.effectiveDamage;
@@ -522,127 +567,77 @@ export class HeroBasicAttack {
         }
     }
 
-    /** Forward chop-arc visual: a faint wedge showing the full cone plus a
-     *  bright blade slice sweeping across it. `facingAngle` is the world XZ
-     *  angle of the cone center (atan2(dz, dx)).
+    /** Build the two crescent arcs of one slash wave: a bright leading crest
+     *  and a fainter, narrower trailing arc. Geometry is a cached unit ring
+     *  sector scaled per spawn (bounded key — disposeMesh skips it); materials
+     *  are cached by element tint (finitely many blends), and fades go through
+     *  setMeshOpacity (clone-on-write) so the shared material is never mutated.
      *
      *  Yaw math: geometry theta θ maps to world angle θ − rotation.y after the
      *  x=π/2 pitch (order 'YXZ'), so aiming geometry-center θ=0 at the facing
      *  means rotation.y = −facingAngle. */
-    private spawnSwingCone(center: Vector3, range: number, facingAngle: number): void {
-        const gradientMap = getConeTelegraphTexture();
+    private spawnSlashWaveMeshes(facingAngle: number): { crest: Mesh; trail: Mesh } {
         // Barbarian-only elemental tint: blend the colors of every active power
-        // element. No elements (or non-barbarian) → the classic gold arc.
+        // element. No elements (or non-barbarian) → the classic ember arc.
         const active = (this.powerSlots && (this.hero as any).championType === 'barbarian')
             ? this.powerSlots.getActiveElementList()
             : NO_ELEMENTS;
         const tint = active.length > 0 ? blendElements(active) : null;
-        const half = MELEE_CONE_HALF_ANGLE_RAD;
+        const half = SLASH_WAVE_ARC_HALF_RAD;
 
-        // Faint full-cone wedge — the hit-area readout. UNIT radius + a mesh
-        // scale of `range`: CircleGeometry's UVs are normalised by its radius,
-        // so a scaled unit wedge is pixel-identical to a per-swing geometry and
-        // costs no allocation. Cached (bounded key) — disposeMesh skips it.
-        const wedge = new Mesh(getCachedGeometry(
-            'meleeSwingWedge', () => new CircleGeometry(1, 24, -half, half * 2)));
-        wedge.name = 'swingCone';
-        this.scene.scene.add(wedge);
-        wedge.position.copy(center);
-        wedge.position.y = 0.3;
-        wedge.rotation.order = 'YXZ';
-        wedge.rotation.x = Math.PI / 2;
-        wedge.rotation.y = -facingAngle;
-        // Cache materials by tint hue — finitely many element blends, compiled
-        // once, reused forever. Fades go through setMeshOpacity (clone-on-write)
-        // so the shared cached material is NEVER mutated in place. `map` is
-        // the radial-gradient telegraph texture (bright at the hero, transparent
-        // at the far rim); additive blending + a soft edge replace the old flat
-        // translucent slab.
-        const wedgeMat = tint
-            ? getCachedMaterial('swingConeMatElem_' + tint.getHexString(), m => {
-                m.emissive.copy(tint).multiplyScalar(1.3);
+        const crest = new Mesh(getCachedGeometry(
+            'slashWaveCrest', () => new RingGeometry(0.82, 1.0, 20, 1, -half, half * 2)));
+        crest.name = 'slashWaveCrest';
+        const trail = new Mesh(getCachedGeometry(
+            'slashWaveTrail', () => new RingGeometry(0.52, 0.78, 20, 1, -half * 0.8, half * 1.6)));
+        trail.name = 'slashWaveTrail';
+
+        crest.material = tint
+            ? getCachedMaterial('slashWaveCrestMatElem_' + tint.getHexString(), m => {
+                m.emissive.copy(tint).multiplyScalar(1.5);
                 m.color.set(0, 0, 0); // emissive-only look
-                m.map = gradientMap;
-                m.transparent = true;
-                m.opacity = 0.55;
-                m.depthWrite = false;
-                m.blending = AdditiveBlending;
-                m.side = DoubleSide; // flat wedge must read from above regardless of winding
-            })
-            : getCachedMaterial('swingConeMat', m => {
-                m.emissive.set(1, 0.42, 0.12); // ember orange-red — barbarian default
-                m.color.set(0, 0, 0);
-                m.map = gradientMap;
-                m.transparent = true;
-                m.opacity = 0.55;
-                m.depthWrite = false;
-                m.blending = AdditiveBlending;
-                m.side = DoubleSide;
-            });
-        wedge.material = wedgeMat;
-        wedge.scale.setScalar(range * 0.75); // grows to full reach during the chop
-
-        // Bright blade slice sweeping edge-to-edge across the cone.
-        const bladeHalf = (14 * Math.PI) / 180;
-        const blade = new Mesh(getCachedGeometry(
-            'meleeSwingBlade', () => new CircleGeometry(1, 10, -bladeHalf, bladeHalf * 2)));
-        blade.name = 'swingBlade';
-        blade.scale.setScalar(range);
-        this.scene.scene.add(blade);
-        blade.position.copy(center);
-        blade.position.y = 0.35;
-        blade.rotation.order = 'YXZ';
-        blade.rotation.x = Math.PI / 2;
-        const bladeMat = tint
-            ? getCachedMaterial('swingBladeMatElem_' + tint.getHexString(), m => {
-                m.emissive.copy(tint).multiplyScalar(1.4);
-                m.color.set(0, 0, 0);
-                m.map = gradientMap;
                 m.transparent = true;
                 m.opacity = 0.85;
                 m.depthWrite = false;
                 m.blending = AdditiveBlending;
-                m.side = DoubleSide;
+                m.side = DoubleSide; // flat arc must read from above regardless of winding
             })
-            : getCachedMaterial('swingBladeMat', m => {
-                m.emissive.set(1, 0.75, 0.45); // white-hot ember edge
+            : getCachedMaterial('slashWaveCrestMat', m => {
+                m.emissive.set(1, 0.75, 0.45); // white-hot ember edge — barbarian default
                 m.color.set(0, 0, 0);
-                m.map = gradientMap;
                 m.transparent = true;
                 m.opacity = 0.85;
                 m.depthWrite = false;
                 m.blending = AdditiveBlending;
                 m.side = DoubleSide;
             });
-        blade.material = bladeMat;
+        trail.material = tint
+            ? getCachedMaterial('slashWaveTrailMatElem_' + tint.getHexString(), m => {
+                m.emissive.copy(tint).multiplyScalar(1.2);
+                m.color.set(0, 0, 0);
+                m.transparent = true;
+                m.opacity = 0.5;
+                m.depthWrite = false;
+                m.blending = AdditiveBlending;
+                m.side = DoubleSide;
+            })
+            : getCachedMaterial('slashWaveTrailMat', m => {
+                m.emissive.set(1, 0.42, 0.12); // ember orange-red
+                m.color.set(0, 0, 0);
+                m.transparent = true;
+                m.opacity = 0.5;
+                m.depthWrite = false;
+                m.blending = AdditiveBlending;
+                m.side = DoubleSide;
+            });
 
-        const duration = 0.3;
-        const sweep = half - bladeHalf; // blade center travels ±this around facing
-        let elapsed = 0;
-
-        let token: UpdateToken | null = null;
-        token = this.scene.onBeforeRender.add(() => {
-            elapsed += this.scene.deltaSeconds;
-            const t = Math.min(elapsed / duration, 1);
-
-            // Wedge: expand to full reach and fade.
-            const s = range * (0.75 + 0.25 * t);
-            wedge.scale.set(s, s, s);
-            setMeshOpacity(wedge, 0.4 * (1 - t));
-
-            // Blade: sweep across the cone (clockwise viewed from above) and fade.
-            blade.rotation.y = -(facingAngle + (1 - 2 * t) * sweep);
-            setMeshOpacity(blade, 0.75 * (1 - t * t));
-
-            if (t >= 1) {
-                // disposeMesh frees the meshes + their setMeshOpacity clones (flagged
-                // ownedMaterial); the cached shared materials are skipped —
-                // clearMaterialCache() frees them on run teardown.
-                disposeMesh(wedge);
-                disposeMesh(blade);
-                this.scene.onBeforeRender.remove(token);
-            }
-        });
+        for (const mesh of [crest, trail]) {
+            this.scene.scene.add(mesh);
+            mesh.rotation.order = 'YXZ';
+            mesh.rotation.x = Math.PI / 2;
+            mesh.rotation.y = -facingAngle;
+        }
+        return { crest, trail };
     }
 
     /** Small expanding shockwave ring at a struck enemy — the same cached-
@@ -744,7 +739,7 @@ export class HeroBasicAttack {
         const virtualTargetPos = new Vector3(from.x + rotX, target.position.y, from.z + rotZ);
         const virtualTarget: BasicAttackTarget = {
             position: virtualTargetPos,
-            takeDamage: (amount: number) => target.takeDamage(amount),
+            takeDamage: (amount, element) => target.takeDamage(amount, element),
             isAlive: () => target.isAlive(),
             enemy: target.enemy,
         };
@@ -796,7 +791,7 @@ export class HeroBasicAttack {
         for (const e of bestE) {
             out.push({
                 position: e.getPosition(),
-                takeDamage: (amount: number) => e.takeDamage(amount),
+                takeDamage: (amount, element) => e.takeDamage(amount, element),
                 isAlive: () => e.isAlive(),
                 enemy: e,
             });
@@ -856,6 +851,7 @@ export class HeroBasicAttack {
         }
 
         // Hand the flight to the single shared observer (see ensureFlightObserver).
+        const bounces = this.playerStats?.ricochetBounces ?? 0;
         this.liveProjectiles.push({
             proj,
             poolKey,
@@ -871,13 +867,15 @@ export class HeroBasicAttack {
             heroPos: from,
             allEnemies: this.enemyProvider ? this.enemyProvider() : [],
             age: 0,
+            bouncesLeft: bounces,
+            struck: bounces > 0 ? new Set<Enemy>() : null,
         });
         this.ensureFlightObserver();
     }
 
-    /** Lazily register the ONE observer that advances every live projectile and
-     *  trail puff. Replaces the old observer-per-projectile/per-puff pattern,
-     *  whose observer count scaled with attack speed. */
+    /** Lazily register the ONE observer that advances every live projectile,
+     *  slash wave, and trail puff. Replaces the old observer-per-projectile/
+     *  per-puff pattern, whose observer count scaled with attack speed. */
     private ensureFlightObserver(): void {
         if (this.flightToken) return;
         this.flightToken = this.scene.onBeforeRender.add(() => {
@@ -888,6 +886,13 @@ export class HeroBasicAttack {
                 if (!this.stepProjectile(this.liveProjectiles[i], dt)) {
                     this.liveProjectiles[i] = this.liveProjectiles[this.liveProjectiles.length - 1];
                     this.liveProjectiles.pop();
+                }
+            }
+
+            for (let i = this.liveWaves.length - 1; i >= 0; i--) {
+                if (!this.stepSlashWave(this.liveWaves[i], dt)) {
+                    this.liveWaves[i] = this.liveWaves[this.liveWaves.length - 1];
+                    this.liveWaves.pop();
                 }
             }
 
@@ -970,6 +975,29 @@ export class HeroBasicAttack {
                 // Item-effect hit hook — host/solo AND co-op guest (pre-crit, parity).
                 this.onHitCallback?.(hitEnemy, f.capturedDamage);
             }
+
+            // Ricochet (ranger wave-15 item): instead of expiring, the arrow
+            // banks toward the nearest fresh enemy and lands a full hit there —
+            // this same block runs again on each landing, so bounces carry
+            // damage, crit, lifesteal, enchantments, and the item hit hook.
+            if (f.bouncesLeft > 0 && f.struck) {
+                if (hitEnemy) f.struck.add(hitEnemy);
+                const next = this.pickRicochetTarget(target.position, f.struck);
+                if (next) {
+                    f.bouncesLeft--;
+                    f.target = {
+                        position: next.getPosition(),
+                        takeDamage: (amount, element) => next.takeDamage(amount, element),
+                        isAlive: () => next.isAlive(),
+                        enemy: next,
+                    };
+                    // Bounce flash at the impact + teammate-visible hop leg.
+                    this.spawnImpactFlash(target.position);
+                    emitCoopFx('proj', target.position.x, target.position.z,
+                        next.getPosition().x, next.getPosition().z, this.projectileShape);
+                    return true;
+                }
+            }
             releaseProjectile(f.poolKey, proj);
             return false;
         }
@@ -995,6 +1023,23 @@ export class HeroBasicAttack {
             return false;
         }
         return true;
+    }
+
+    /** Nearest alive enemy to `from` within RICOCHET_RADIUS that this arrow
+     *  hasn't struck yet, or null (the arrow expires). */
+    private pickRicochetTarget(from: Vector3, struck: Set<Enemy>): Enemy | null {
+        if (!this.enemyProvider) return null;
+        let best: Enemy | null = null;
+        let bestD2 = RICOCHET_RADIUS * RICOCHET_RADIUS;
+        for (const e of this.enemyProvider()) {
+            if (!e.isAlive() || struck.has(e)) continue;
+            const ep = e.getPosition();
+            const dx = ep.x - from.x;
+            const dz = ep.z - from.z;
+            const d2 = dx * dx + dz * dz;
+            if (d2 < bestD2) { best = e; bestD2 = d2; }
+        }
+        return best;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1058,8 +1103,8 @@ export class HeroBasicAttack {
         }
     }
 
-    /** Tear down the shared flight observer, live projectiles, and the streak
-     *  pool. Called from HeroController.dispose() on run exit. */
+    /** Tear down the shared flight observer, live projectiles/waves, and the
+     *  streak pool. Called from HeroController.dispose() on run exit. */
     public dispose(): void {
         if (this.flightToken) {
             this.scene.onBeforeRender.remove(this.flightToken);
@@ -1067,6 +1112,8 @@ export class HeroBasicAttack {
         }
         for (const f of this.liveProjectiles) releaseProjectile(f.poolKey, f.proj);
         this.liveProjectiles.length = 0;
+        for (const w of this.liveWaves) { disposeMesh(w.crest); disposeMesh(w.trail); }
+        this.liveWaves.length = 0;
         for (const s of this.liveStreaks) disposeMesh(s.mesh);
         this.liveStreaks.length = 0;
         for (const m of this.streakPool) disposeMesh(m);

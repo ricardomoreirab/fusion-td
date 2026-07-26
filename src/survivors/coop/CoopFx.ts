@@ -1,4 +1,4 @@
-import { CircleGeometry, Color, DoubleSide, Mesh, Vector3 } from 'three';
+import { AdditiveBlending, CircleGeometry, Color, DoubleSide, Mesh, RingGeometry, Vector3 } from 'three';
 import { SceneHost } from '../../engine/three/SceneHost';
 import { createDisc, createPlane, createSphere, createTorus, disposeMesh } from '../../engine/three/primitives';
 import { headingToYaw } from '../../engine/three/math';
@@ -267,7 +267,7 @@ export function spawnCosmeticSwingRing(
 ): void {
     let mesh: Mesh;
     if (facingAngle !== undefined) {
-        // Forward cone wedge matching HeroBasicAttack.spawnSwingCone (110°).
+        // Forward cone wedge matching the legacy melee chop (110°).
         const half = (55 * Math.PI) / 180;
         mesh = new Mesh(new CircleGeometry(range, 24, -half, half * 2));
         mesh.name = 'coopFxSwing';
@@ -304,5 +304,54 @@ export function spawnCosmeticSwingRing(
         mesh.scale.setScalar(0.7 + 0.3 * k);
         setMeshOpacity(mesh, baseOpacity * (1 - k)); // Babylon visibility × material alpha
         if (k >= 1) { disposeMesh(mesh); host.onBeforeRender.remove(token); }
+    });
+}
+
+/**
+ * Replay a teammate's slash wave: the barbarian's travelling crescent, flying from
+ * (x, z) along facingAngle out to `range`. Motion/fade mirror the local wave in
+ * HeroBasicAttack.stepSlashWave (speed 16 u/s, widening arc, quadratic fade).
+ * Cosmetic only — damage is authoritative on the host. Leak-safe: material cached
+ * by bounded key; setMeshOpacity clones it per-mesh and disposeMesh frees the
+ * clone + the per-spawn geometry.
+ */
+export function spawnCosmeticSlashWave(
+    host: SceneHost, x: number, z: number, range: number, facingAngle: number,
+): void {
+    if (!(range > 0.1)) range = 4.5; // malformed hint (NaN/0) → default barbarian range
+    const arcHalf = (50 * Math.PI) / 180;
+    const mesh = new Mesh(new RingGeometry(0.82, 1.0, 20, 1, -arcHalf, arcHalf * 2));
+    mesh.name = 'coopFxSlashWave';
+    host.scene.add(mesh);
+    mesh.rotation.order = 'YXZ';
+    mesh.rotation.x = Math.PI / 2;
+    mesh.rotation.y = -facingAngle; // geometry θ maps to world θ − yaw
+    mesh.material = getCachedMaterial('coopFxSlashWaveMat', m => {
+        m.emissive.setRGB(1, 0.75, 0.45);
+        m.color.setRGB(0, 0, 0);
+        m.transparent = true;
+        m.opacity = 0.85;
+        m.depthWrite = false;
+        m.blending = AdditiveBlending;
+        m.side = DoubleSide;
+    });
+
+    const dirX = Math.cos(facingAngle);
+    const dirZ = Math.sin(facingAngle);
+    const speed = 16; // matches SLASH_WAVE_SPEED
+    let front = 0;
+    const place = () => {
+        const t = front / range;
+        const scale = 1.9 * (0.85 + 0.3 * t);
+        const backset = front - scale;
+        mesh.position.set(x + dirX * backset, 0.35, z + dirZ * backset);
+        mesh.scale.set(scale, scale * (0.9 + 0.35 * t), 1);
+        setMeshOpacity(mesh, 0.85 * (1 - t * t));
+    };
+    place();
+    const token = host.onBeforeRender.add(() => {
+        front = Math.min(front + speed * host.deltaSeconds, range);
+        place();
+        if (front >= range) { disposeMesh(mesh); host.onBeforeRender.remove(token); }
     });
 }

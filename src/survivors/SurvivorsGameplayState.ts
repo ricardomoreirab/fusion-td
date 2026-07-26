@@ -64,7 +64,7 @@ import { formatBuckets } from '../engine/rendering/resourceBudget';
 import { CoopSession } from './coop/CoopSession';
 import { GuestEnemies } from './coop/GuestEnemies';
 import { computeCameraFocus } from './coop/cameraFocus';
-import { setCoopFxEmit, spawnCosmeticProjectile, spawnCosmeticSwingRing, spawnCosmeticEnemyProjectile, spawnCosmeticTelegraph, startCosmeticUltChannel, emitCoopFx, isCoopFxActive, isReplayingFx, withFxReplay } from './coop/CoopFx';
+import { setCoopFxEmit, spawnCosmeticProjectile, spawnCosmeticSwingRing, spawnCosmeticSlashWave, spawnCosmeticEnemyProjectile, spawnCosmeticTelegraph, startCosmeticUltChannel, emitCoopFx, isCoopFxActive, isReplayingFx, withFxReplay } from './coop/CoopFx';
 import {
     scheduleMeteorBarrage, createMeteorVisual, createFrostNovaVisual,
     spawnSmashShockwave, spawnExplosiveArrowFlight, spawnExplosionVisual,
@@ -191,6 +191,7 @@ const ITEM_DISPLAY_NAMES: Record<ItemId, string> = {
     extraLife: 'Extra Life',
     multishotCleave: 'Multishot',
     knockback: 'Knockback',
+    ricochet: 'Ricochet',
     attackSpeed: 'Attack Speed',
     elementalCore: 'Elemental Core',
 };
@@ -198,6 +199,7 @@ const ITEM_FLOAT_COLOR: Record<ItemId, string> = {
     extraLife: '#46e05a',
     multishotCleave: '#ffd84a',
     knockback: '#4ea7ff',
+    ricochet: '#4ea7ff',
     attackSpeed: '#fff080',
     elementalCore: '#ff5a2e',
 };
@@ -1341,7 +1343,7 @@ export class SurvivorsGameplayState implements GameState {
 
         // HUD (HP bar, gold, power slots, ultimate buttons)
         // Built AFTER configureForClass so HUD reads the correct ability IDs.
-        this.hud = new Hud(this.gameUI!, this.abilityManager, this.game);
+        this.hud = new Hud(this.gameUI!, this.abilityManager, this.game, this.currentChampionType);
 
         if (this.runItems) {
             this.hud.setRunItems(this.runItems);
@@ -1555,7 +1557,9 @@ export class SurvivorsGameplayState implements GameState {
     }
 
     private spawnItemDrop(position: Vector3, waveTier: number): void {
-        const itemId = RunItems.itemForTier(waveTier);
+        // Per-class resolution: each client maps the tier with its OWN champion,
+        // so in co-op a ranger guest gets Ricochet from the same broadcast tier.
+        const itemId = RunItems.itemForTier(waveTier, this.currentChampionType);
         if (!itemId) return;
         if (this.runItems?.hasItem(itemId)) return; // Already owned — no re-drop today.
 
@@ -2444,13 +2448,23 @@ export class SurvivorsGameplayState implements GameState {
                 break;
             }
             case 'swing': {
-                // "range" (legacy full-ring) or "range:facingAngle" (cone chop).
+                // Legacy peers only (pre-slash-wave builds): "range" (full ring)
+                // or "range:facingAngle" (cone chop).
                 const [rangePart, anglePart] = (m.hint ?? '').split(':');
                 const range = parseFloat(rangePart);
                 const angle = anglePart !== undefined ? parseFloat(anglePart) : NaN;
                 spawnCosmeticSwingRing(this.scene, m.x, m.z,
                     isNaN(range) ? 3.5 : range,
                     isNaN(angle) ? undefined : angle);
+                break;
+            }
+            case 'slash': {
+                // "range:facingAngle" — the barbarian's travelling crescent wave.
+                const [rangePart, anglePart] = (m.hint ?? '').split(':');
+                const range = parseFloat(rangePart);
+                const angle = parseFloat(anglePart ?? '');
+                spawnCosmeticSlashWave(this.scene, m.x, m.z, range,
+                    isNaN(angle) ? 0 : angle);
                 break;
             }
             case 'power':

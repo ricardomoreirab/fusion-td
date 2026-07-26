@@ -27,11 +27,29 @@ describe('RunItems.itemForTier', () => {
         expect(RunItems.itemForTier(5)).toBe('elementalCore');
     });
 
+    it('swaps the ranger tier-3 drop to ricochet, leaving other classes on knockback', () => {
+        expect(RunItems.itemForTier(3, 'ranger')).toBe('ricochet');
+        expect(RunItems.itemForTier(3, 'barbarian')).toBe('knockback');
+        expect(RunItems.itemForTier(3, 'mage')).toBe('knockback');
+        // Other tiers are untouched by the ranger override.
+        expect(RunItems.itemForTier(1, 'ranger')).toBe('extraLife');
+        expect(RunItems.itemForTier(5, 'ranger')).toBe('elementalCore');
+    });
+
     it('returns null for tiers outside 1-5', () => {
         expect(RunItems.itemForTier(0)).toBeNull();
         expect(RunItems.itemForTier(6)).toBeNull();
         expect(RunItems.itemForTier(-1)).toBeNull();
         expect(RunItems.itemForTier(99)).toBeNull();
+    });
+});
+
+describe('RunItems.itemRowForClass', () => {
+    it('returns the five sockets in tier order with the class tier-3 variant', () => {
+        expect(RunItems.itemRowForClass('barbarian')).toEqual(
+            ['extraLife', 'multishotCleave', 'knockback', 'attackSpeed', 'elementalCore']);
+        expect(RunItems.itemRowForClass('ranger')).toEqual(
+            ['extraLife', 'multishotCleave', 'ricochet', 'attackSpeed', 'elementalCore']);
     });
 });
 
@@ -75,6 +93,17 @@ describe('RunItems.grant — knockback', () => {
         expect(stats.knockbackOnHit).toBe(1);
         items.grant('knockback');
         expect(stats.knockbackOnHit).toBe(2);
+    });
+});
+
+describe('RunItems.grant — ricochet', () => {
+    it('grants 2 bounces per stack via assignment (RunItems is the only writer)', () => {
+        const { stats, items } = makeRunItems();
+        expect(stats.ricochetBounces).toBe(0);
+        items.grant('ricochet');
+        expect(stats.ricochetBounces).toBe(2);
+        items.grant('ricochet');
+        expect(stats.ricochetBounces).toBe(4);
     });
 });
 
