@@ -59,8 +59,6 @@ export class Champion extends Enemy {
     private _lastFiniteHeroPos: Vector3 = new Vector3(0, 0, 0);
 
     // Combat
-    private attackDamage: number = 40;
-    private attackRange: number = 3.0;
     private attackCooldown: number = 1.0; // seconds between attacks
     private attackTimer: number = 0;
     private blockRadius: number = 1.5;
@@ -1904,28 +1902,6 @@ vHeroRimView = normalize(-mvPosition.xyz);`,
         this.barbFootDustPs = ps;
     }
 
-    /** Barbarian-only: small red splatter at a target position on basic-attack hit. */
-    private spawnBloodSplatter(targetPos: Vector3): void {
-        const splatPos = targetPos.clone();
-        splatPos.y += 0.8;
-        new ParticleEffect('barbBloodSplatter', this.scene, {
-            looping: false,
-            duration: 0.6,
-            maxParticles: 10,
-            transform: { position: splatPos },
-            emission: { rateOverTime: 0, bursts: [{ time: 0, count: 10 }] },
-            startLifetime: { min: 0.25 / 0.6, max: 0.5 / 0.6 },
-            startSpeed: { min: 1 * 0.6 * 1.59, max: 2.5 * 0.6 * 1.59 },
-            startSize: { min: fxSize(0.08), max: fxSize(0.16) },
-            startColor: { min: { r: 0.45, g: 0.05, b: 0.02 }, max: { r: 0.70, g: 0.10, b: 0.05 } },
-            startOpacity: 1,
-            opacityOverLifetime: { isActive: true, lifetimeCurve: { type: LifeTimeCurve.EASING, curveFunction: (t: number) => 1 - t } },
-            gravity: 4 * 0.6 * 0.6,
-            shape: { shape: Shape.SPHERE, sphere: { radius: 0.1, radiusThickness: 1, arc: 360 } },
-            renderer: fxRenderer('additive'),
-        }, { autoDispose: true });
-    }
-
     /** Barbarian-only: animate the spin arc ring (scale out + fade) and tear down FX when done. */
     private tickBarbSpinFx(deltaTime: number): void {
         // Ring scale-out + fade
@@ -2005,29 +1981,6 @@ vHeroRimView = normalize(-mvPosition.xyz);`,
     }
 
     /**
-     * Find the closest enemy and deal damage on cooldown
-     */
-    private attackNearbyEnemies(deltaTime: number): void {
-        this.attackTimer -= deltaTime;
-        if (this.attackTimer > 0) return;
-
-        if (!this.enemyManager) return;
-        const target = this.enemyManager.getClosestEnemy(this.position, this.attackRange);
-        if (!target || !target.isAlive()) return;
-
-        target.takeDamage(this.attackDamage);
-        this.attackTimer = this.attackCooldown;
-
-        // Visual: sword swing flash (shared)
-        this.createAttackEffect(target.getPosition());
-
-        // Barbarian-only blood splatter on the target
-        if (this.championType === 'barbarian') {
-            this.spawnBloodSplatter(target.getPosition());
-        }
-    }
-
-    /**
      * Apply a brief slow to all enemies within block radius
      */
     private blockNearbyEnemies(): void {
@@ -2038,31 +1991,6 @@ vHeroRimView = normalize(-mvPosition.xyz);`,
                 enemy.applyStatusEffect(StatusEffect.SLOWED, 0.5, 0.8);
             }
         }
-    }
-
-    /**
-     * Create a visual slash effect when attacking
-     */
-    private createAttackEffect(targetPos: Vector3): void {
-        const midpoint = new Vector3().lerpVectors(this.position, targetPos, 0.5);
-        midpoint.y += 1.0;
-        // Old code ran at rate (emitRate=80, T=0.6 -> 48/s) for a 100ms window
-        // before stopping -> ~5 particles; ported to an equivalent one-shot burst.
-        new ParticleEffect('championSlash', this.scene, {
-            looping: false,
-            duration: 0.5,
-            maxParticles: 15,
-            transform: { position: midpoint },
-            emission: { rateOverTime: 0, bursts: [{ time: 0, count: 5 }] },
-            startLifetime: { min: 0.1 / 0.6, max: 0.3 / 0.6 },
-            startSpeed: { min: 1 * 0.6 * 1.78, max: 3 * 0.6 * 1.78 },
-            startSize: { min: fxSize(0.15), max: fxSize(0.4) },
-            startColor: { min: { r: 1, g: 0.7, b: 0.1 }, max: { r: 1, g: 0.85, b: 0.3 } },
-            startOpacity: 1,
-            opacityOverLifetime: { isActive: true, lifetimeCurve: { type: LifeTimeCurve.EASING, curveFunction: (t: number) => 1 - t } },
-            shape: { shape: Shape.SPHERE, sphere: { radius: 0.3, radiusThickness: 1, arc: 360 } },
-            renderer: fxRenderer('additive'),
-        }, { autoDispose: true });
     }
 
     /**
@@ -2448,12 +2376,14 @@ vHeroRimView = normalize(-mvPosition.xyz);`,
         if (this.glbWeaponAnchor && !isMeshDisposed(this.glbWeaponAnchor)) {
             return this.glbWeaponAnchor;
         }
+        // No trailing fallback: the switch is exhaustive over championType, so a
+        // widened union fails to compile here rather than silently returning
+        // undefined through an `Object3D | null` signature.
         switch (this.championType) {
             case 'barbarian': return this.barbAxeHead ?? this.swordArm;
             case 'ranger':    return this.rangerBow ?? this.swordArm;
             case 'mage':      return this.mageStaffOrb ?? this.swordArm;
         }
-        return null;
     }
 
     /** Tint the weapon with the blended element color ("the axe is frozen /
