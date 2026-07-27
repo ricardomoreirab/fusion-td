@@ -27,6 +27,10 @@ const OPTIMIZED_SOURCES = new Set(OPTIMIZED.map(optPathFor));
 // In production we drop the source map entirely — Cloudflare Workers caps
 // each asset at 25 MiB and the v9 bundle's source map is ~25.3 MiB. Dev
 // still gets a full source map for debugging.
+// `webpack serve --env lan` (npm run start:lan) opens the dev server to other
+// devices on the LAN, for testing on a real phone/tablet. Deliberately opt-in:
+// the default `npm start` stays bound to loopback, so a dev server is never
+// exposed to a shared network (a coffee-shop or office wifi) just by running it.
 module.exports = (env, argv) => ({
   entry: './src/index.ts',
   mode: argv.mode || 'development',
@@ -90,5 +94,15 @@ module.exports = (env, argv) => ({
     },
     compress: true,
     port: 9000,
+    // 0.0.0.0 rather than 'local-ipv4' so http://localhost:9000 keeps working
+    // alongside the LAN address; binding only the LAN interface would take
+    // loopback away.
+    host: env && env.lan ? '0.0.0.0' : 'localhost',
+    // The Host-header allowlist defaults to 'auto', which accepts only localhost
+    // and the configured host - a request addressed to 192.168.x.x is rejected
+    // with "Invalid Host header". Widened for LAN mode only; on the default
+    // loopback bind it still blocks DNS-rebinding (a page on the open internet
+    // pointing a hostname at 127.0.0.1 to reach this server through the browser).
+    allowedHosts: env && env.lan ? 'all' : 'auto',
   },
 }); 

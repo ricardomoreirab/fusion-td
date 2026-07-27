@@ -10,7 +10,8 @@ Vampire Survivors-style action game built with Three.js + TypeScript. Single her
 ```bash
 npm run build      # webpack production build → dist/
 npx tsc --noEmit   # type-check only (trust this; not the IDE)
-npm start          # dev server at localhost:9000
+npm start          # dev server at localhost:9000 (loopback only)
+npm run start:lan  # same, but reachable from other devices on the LAN (phone testing)
 npm test           # Vitest unit tests (pure-logic modules only)
 npm run test:watch # tests in watch mode
 ```
