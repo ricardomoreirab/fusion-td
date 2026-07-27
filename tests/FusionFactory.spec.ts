@@ -1,6 +1,21 @@
 import { describe, expect, it, vi } from 'vitest';
 import { makeFusionDef, fusionId, FUSION_DMG, FUSION_CD, FUSION_PASSIVE_BONUS } from '../src/survivors/powers/FusionFactory';
-import type { PowerDefinition } from '../src/survivors/powers/PowerDefinitions';
+import type { PowerContext, EnchantmentHitContext, PowerDefinition } from '../src/survivors/powers/PowerDefinitions';
+
+// Scene-free contexts. Nothing here touches the scene or the enemy list; the
+// parents under test are spies.
+function castCtx(over: Partial<PowerContext> = {}): PowerContext {
+    return {
+        scene: {} as never, heroPosition: {} as never, enemies: [],
+        damageMultiplier: 1, element: 'fire', range: 10, ...over,
+    };
+}
+function hitCtx(over: Partial<EnchantmentHitContext> = {}): EnchantmentHitContext {
+    return {
+        scene: {} as never, heroPosition: {} as never, enemies: [],
+        baseDamage: 10, element: 'fire', ...over,
+    };
+}
 
 // Minimal fake parent defs — no Babylon, no scene.
 function fakeAutocast(id: string, element: string, baseCd: number, baseDmg: number, castSpy = vi.fn()): PowerDefinition {
@@ -66,7 +81,7 @@ describe('makeFusionDef — autocast composition', () => {
         const b = fakeAutocast('mage_ice', 'ice', 1, 9, castB);
         const f = makeFusionDef(a, b);
         const state = { level: 4, cooldownRemaining: 0 };
-        const ctx = { scene: {} as never, heroPosition: {} as never, enemies: [], damageMultiplier: 2 };
+        const ctx = castCtx({ damageMultiplier: 2 });
         f.init?.(state, ctx);
         f.cast?.(state, ctx);
         expect(castA).toHaveBeenCalledTimes(1);
@@ -75,6 +90,28 @@ describe('makeFusionDef — autocast composition', () => {
         expect(castA.mock.calls[0][1].damageMultiplier).toBeCloseTo(2 * FUSION_DMG, 5);
         // …and a sub-state whose level mirrors the fusion's level.
         expect(castA.mock.calls[0][0].level).toBe(4);
+    });
+
+    it('hands both parents the FUSION\'s reach and committed target', () => {
+        // A fusion's range is max(parents) and that is what the card advertises and
+        // what the cast gate fires at. Running each parent at its OWN smaller range
+        // meant the shorter half found no target and silently dropped — half a
+        // volley missing from a shot the champion had already animated.
+        const castA = vi.fn();
+        const castB = vi.fn();
+        const a: PowerDefinition = { ...fakeAutocast('ranger_fire', 'fire', 2, 14, castA), baseRange: 14 };
+        const b: PowerDefinition = { ...fakeAutocast('ranger_physical', 'physical', 1, 9, castB), baseRange: 18 };
+        const f = makeFusionDef(a, b);
+        expect(f.baseRange).toBe(18);
+
+        const committedTarget = { alive: true } as never;
+        const state = { level: 1, cooldownRemaining: 0 };
+        f.cast?.(state, castCtx({ range: f.baseRange, committedTarget }));
+
+        for (const spy of [castA, castB]) {
+            expect(spy.mock.calls[0][1].range).toBe(18);
+            expect(spy.mock.calls[0][1].committedTarget).toBe(committedTarget);
+        }
     });
 });
 
@@ -87,7 +124,7 @@ describe('makeFusionDef — passive composition', () => {
         const f = makeFusionDef(a, b);
         const takeDamage = vi.fn();
         const enemy = { takeDamage } as never;
-        const ctx = { scene: {} as never, heroPosition: {} as never, enemies: [], baseDamage: 10 };
+        const ctx = hitCtx();
         f.onHit?.(enemy, 3, ctx);
         expect(hitA).toHaveBeenCalledTimes(1);
         expect(hitB).toHaveBeenCalledTimes(1);
@@ -109,7 +146,7 @@ describe('makeFusionDef — parent lifecycle (init/dispose)', () => {
         const b = fakeAutocast('mage_fire', 'fire', 1.4, 14);
         const f = makeFusionDef(a, b);
         const state = { level: 2, cooldownRemaining: 0 };
-        const ctx = { scene: {} as never, heroPosition: {} as never, enemies: [], damageMultiplier: 1 };
+        const ctx = castCtx();
 
         f.init?.(state, ctx);
         expect(initA).toHaveBeenCalledTimes(1);
@@ -130,7 +167,7 @@ describe('makeFusionDef — persistent tick forwarding (Whirling Blades in a fus
         const b = fakeAutocast('mage_fire', 'fire', 1.4, 14);
         const f = makeFusionDef(a, b);
         const state = { level: 3, cooldownRemaining: 0 };
-        const ctx = { scene: {} as never, heroPosition: {} as never, enemies: [], damageMultiplier: 1 };
+        const ctx = castCtx();
 
         expect(f.tick).toBeTypeOf('function');
         f.tick?.(state, ctx, 0.016);

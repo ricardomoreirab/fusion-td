@@ -174,6 +174,10 @@ export function makeFusionDef(a: PowerDefinition, b: PowerDefinition): PowerDefi
             const arch = getAutocastArchetype(archKey);
             if (arch) { arch(state, ctx, def.damageFor(state) * ctx.damageMultiplier, classType); return; }
             // Fallback (un-migrated pair): run both parents at the fusion damage bump.
+            // The spread hands both of them the FUSION's reach and committed target
+            // (ctx.range is max(parent ranges) — what the card advertises and what the
+            // cast gate tested), so the shorter-ranged parent can no longer come up
+            // empty on a shot the fusion already committed to.
             const subs = ensureSubStates(state, ctx);
             const synthCtx: PowerContext = { ...ctx, damageMultiplier: ctx.damageMultiplier * FUSION_DMG };
             for (const p of parents) {
@@ -202,6 +206,7 @@ export function makeFusionDef(a: PowerDefinition, b: PowerDefinition): PowerDefi
             synthCtx.heroPosition = ctx.heroPosition;
             synthCtx.enemies = ctx.enemies;
             synthCtx.element = ctx.element;
+            synthCtx.range = ctx.range;
             synthCtx.damageMultiplier = ctx.damageMultiplier * FUSION_DMG;
             for (const p of parents) {
                 if (!p.tick) continue;

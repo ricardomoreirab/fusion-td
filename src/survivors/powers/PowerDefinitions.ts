@@ -45,6 +45,53 @@ export interface PowerContext {
     damageMultiplier: number;
     /** Element of the casting power — colors the damage numbers it produces. */
     element: PowerElement;
+    /**
+     * Firing reach of the SLOT being cast — `slot.def.baseRange`, which for a
+     * fusion is the max of its parents' (and is the number its card shows).
+     *
+     * It is the context's job to carry this rather than each cast() reading its
+     * own def, because PowerSlotManager gates the cast animation on exactly this
+     * value: a cast that scans a SHORTER radius than the gate finds nothing,
+     * returns, and leaves the champion miming a shot it never fired. Route every
+     * target scan through `pickCastTarget` and gate and cast cannot disagree.
+     */
+    range: number;
+    /**
+     * The enemy the manager committed to when it started the cast animation.
+     * The wind-up (`castDelayProvider`) runs for up to 0.6s before cast() fires,
+     * and a ranger covers ~3 units in that time — so re-deriving the target at
+     * release would drop the shot the animation already promised. Honour it while
+     * it is alive, whatever its current distance. Absent for casts with no
+     * wind-up and for free recasts (Echo/Multishot), which mime nothing.
+     */
+    committedTarget?: Enemy | null;
+}
+
+/**
+ * The single target scan for autocast powers: the committed target while it
+ * lives, else the nearest live enemy inside the slot's own reach.
+ *
+ * Direct `alive`/`position` field reads, not the accessors — this runs over the
+ * whole horde on every cast of every slot (see the megamorphic-accessor note in
+ * CLAUDE.md).
+ */
+export function pickCastTarget(ctx: PowerContext): Enemy | null {
+    const committed = ctx.committedTarget;
+    if (committed && committed.alive) return committed;
+    let best: Enemy | null = null;
+    let bestDist2 = ctx.range * ctx.range;
+    const hx = ctx.heroPosition.x, hz = ctx.heroPosition.z;
+    const list = ctx.enemies;
+    for (let i = 0; i < list.length; i++) {
+        const e = list[i];
+        if (!e.alive) continue;
+        const p = e.position;
+        const dx = p.x - hx;
+        const dz = p.z - hz;
+        const d2 = dx * dx + dz * dz;
+        if (d2 < bestDist2) { bestDist2 = d2; best = e; }
+    }
+    return best;
 }
 
 /** Called on each basic-attack hit for passive enchantment powers. */
@@ -363,15 +410,7 @@ const mageFireDef: PowerDefinition = {
     cooldownFor: (s) => mageFireDef.baseCooldown * Math.pow(0.92, s.level - 1),
     damageFor:   (s) => mageFireDef.baseDamage  * Math.pow(1.25, s.level - 1),
     cast: (state, ctx) => {
-        let best: Enemy | null = null;
-        let bestDist2 = mageFireDef.baseRange * mageFireDef.baseRange;
-        for (const e of ctx.enemies) {
-            if (!e.isAlive()) continue;
-            const dx = e.getPosition().x - ctx.heroPosition.x;
-            const dz = e.getPosition().z - ctx.heroPosition.z;
-            const d2 = dx * dx + dz * dz;
-            if (d2 < bestDist2) { bestDist2 = d2; best = e; }
-        }
+        const best = pickCastTarget(ctx);
         if (!best) return;
 
         // The fireball IS its particles: a roiling LOCAL-space flame head on an
@@ -443,15 +482,7 @@ const mageIceDef: PowerDefinition = {
     cooldownFor: (s) => mageIceDef.baseCooldown * Math.pow(0.92, s.level - 1),
     damageFor:   (s) => mageIceDef.baseDamage  * Math.pow(1.25, s.level - 1),
     cast: (state, ctx) => {
-        let best: Enemy | null = null;
-        let bestDist2 = mageIceDef.baseRange * mageIceDef.baseRange;
-        for (const e of ctx.enemies) {
-            if (!e.isAlive()) continue;
-            const dx = e.getPosition().x - ctx.heroPosition.x;
-            const dz = e.getPosition().z - ctx.heroPosition.z;
-            const d2 = dx * dx + dz * dz;
-            if (d2 < bestDist2) { bestDist2 = d2; best = e; }
-        }
+        const best = pickCastTarget(ctx);
         if (!best) return;
 
         // The shard cluster IS its particles: tumbling octahedron MESH shards
@@ -808,15 +839,7 @@ const mageStormDef: PowerDefinition = {
     cooldownFor: (s) => mageStormDef.baseCooldown * Math.pow(0.92, s.level - 1),
     damageFor:   (s) => mageStormDef.baseDamage  * Math.pow(1.25, s.level - 1),
     cast: (state, ctx) => {
-        let first: Enemy | null = null;
-        let firstDist2 = mageStormDef.baseRange * mageStormDef.baseRange;
-        for (const e of ctx.enemies) {
-            if (!e.isAlive()) continue;
-            const dx = e.getPosition().x - ctx.heroPosition.x;
-            const dz = e.getPosition().z - ctx.heroPosition.z;
-            const d2 = dx * dx + dz * dz;
-            if (d2 < firstDist2) { firstDist2 = d2; first = e; }
-        }
+        const first = pickCastTarget(ctx);
         if (!first) return;
 
         const damage = mageStormDef.damageFor(state) * ctx.damageMultiplier;
@@ -888,15 +911,7 @@ const rangerFireDef: PowerDefinition = {
     cooldownFor: (s) => rangerFireDef.baseCooldown * Math.pow(0.92, s.level - 1),
     damageFor:   (s) => rangerFireDef.baseDamage  * Math.pow(1.25, s.level - 1),
     cast: (state, ctx) => {
-        let best: Enemy | null = null;
-        let bestDist2 = rangerFireDef.baseRange * rangerFireDef.baseRange;
-        for (const e of ctx.enemies) {
-            if (!e.isAlive()) continue;
-            const dx = e.getPosition().x - ctx.heroPosition.x;
-            const dz = e.getPosition().z - ctx.heroPosition.z;
-            const d2 = dx * dx + dz * dz;
-            if (d2 < bestDist2) { bestDist2 = d2; best = e; }
-        }
+        const best = pickCastTarget(ctx);
         if (!best) return;
 
         // Fire arrow: orange arrow shaft wrapped in a burning particle sheath
@@ -996,15 +1011,7 @@ const rangerIceDef: PowerDefinition = {
     cooldownFor: (s) => rangerIceDef.baseCooldown * Math.pow(0.92, s.level - 1),
     damageFor:   (s) => rangerIceDef.baseDamage  * Math.pow(1.25, s.level - 1),
     cast: (state, ctx) => {
-        let best: Enemy | null = null;
-        let bestDist2 = rangerIceDef.baseRange * rangerIceDef.baseRange;
-        for (const e of ctx.enemies) {
-            if (!e.isAlive()) continue;
-            const dx = e.getPosition().x - ctx.heroPosition.x;
-            const dz = e.getPosition().z - ctx.heroPosition.z;
-            const d2 = dx * dx + dz * dz;
-            if (d2 < bestDist2) { bestDist2 = d2; best = e; }
-        }
+        const best = pickCastTarget(ctx);
         if (!best) return;
 
         const direction = best.getPosition().clone().sub(ctx.heroPosition);
@@ -1090,15 +1097,7 @@ const rangerArcaneDef: PowerDefinition = {
     cooldownFor: (s) => rangerArcaneDef.baseCooldown * Math.pow(0.92, s.level - 1),
     damageFor:   (s) => rangerArcaneDef.baseDamage  * Math.pow(1.25, s.level - 1),
     cast: (state, ctx) => {
-        let best: Enemy | null = null;
-        let bestDist2 = rangerArcaneDef.baseRange * rangerArcaneDef.baseRange;
-        for (const e of ctx.enemies) {
-            if (!e.isAlive()) continue;
-            const dx = e.getPosition().x - ctx.heroPosition.x;
-            const dz = e.getPosition().z - ctx.heroPosition.z;
-            const d2 = dx * dx + dz * dz;
-            if (d2 < bestDist2) { bestDist2 = d2; best = e; }
-        }
+        const best = pickCastTarget(ctx);
         if (!best) return;
 
         // Seeking arrow: purple arrow wrapped in orbiting arcane motes (the
@@ -1184,15 +1183,7 @@ const rangerPhysicalDef: PowerDefinition = {
     cooldownFor: (s) => rangerPhysicalDef.baseCooldown * Math.pow(0.92, s.level - 1),
     damageFor:   (s) => rangerPhysicalDef.baseDamage  * Math.pow(1.25, s.level - 1),
     cast: (state, ctx) => {
-        let best: Enemy | null = null;
-        let bestDist2 = rangerPhysicalDef.baseRange * rangerPhysicalDef.baseRange;
-        for (const e of ctx.enemies) {
-            if (!e.isAlive()) continue;
-            const dx = e.getPosition().x - ctx.heroPosition.x;
-            const dz = e.getPosition().z - ctx.heroPosition.z;
-            const d2 = dx * dx + dz * dz;
-            if (d2 < bestDist2) { bestDist2 = d2; best = e; }
-        }
+        const best = pickCastTarget(ctx);
         if (!best) return;
 
         const direction = best.getPosition().clone().sub(ctx.heroPosition);
@@ -1286,15 +1277,7 @@ const rangerStormDef: PowerDefinition = {
     cooldownFor: (s) => rangerStormDef.baseCooldown * Math.pow(0.92, s.level - 1),
     damageFor:   (s) => rangerStormDef.baseDamage  * Math.pow(1.25, s.level - 1),
     cast: (state, ctx) => {
-        let best: Enemy | null = null;
-        let bestDist2 = rangerStormDef.baseRange * rangerStormDef.baseRange;
-        for (const e of ctx.enemies) {
-            if (!e.isAlive()) continue;
-            const dx = e.getPosition().x - ctx.heroPosition.x;
-            const dz = e.getPosition().z - ctx.heroPosition.z;
-            const d2 = dx * dx + dz * dz;
-            if (d2 < bestDist2) { bestDist2 = d2; best = e; }
-        }
+        const best = pickCastTarget(ctx);
         if (!best) return;
 
         // Lightning Arrow: yellow arrow wrapped in a crackling spark sheath

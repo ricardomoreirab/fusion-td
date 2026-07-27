@@ -191,13 +191,15 @@ describe('PowerSlotManager — per-power cast range gate', () => {
     });
 
     it('holds the cooldown while out of range so it fires the instant range is met', () => {
-        let dist = 15;
-        const pos = new Vector3(dist, 0, 0);
+        // The scan reads `alive`/`position` directly (megamorphic-accessor rule),
+        // so the double has to MOVE its own vector — a getPosition() that computes
+        // a fresh answer is invisible to it.
+        const pos = new Vector3(15, 0, 0);
         const enemy = {
             alive: true,
             position: pos,
             isAlive: () => true,
-            getPosition: () => pos.set(dist, 0, 0),
+            getPosition: () => pos,
         } as unknown as FakeEnemy;
         const mgr = new PowerSlotManager(host, () => new Vector3(0, 0, 0), () => [enemy]);
         const cast = vi.fn();
@@ -207,7 +209,7 @@ describe('PowerSlotManager — per-power cast range gate', () => {
         expect(cast).not.toHaveBeenCalled();
         expect(mgr.getSlots()[0]!.state.cooldownRemaining).toBeLessThanOrEqual(0);
 
-        dist = 6; // enemy closes to inside the 11u reach
+        pos.set(6, 0, 0); // enemy closes to inside the 11u reach
         mgr.update(0.016);
         expect(cast).toHaveBeenCalledTimes(1);
     });
@@ -225,14 +227,92 @@ describe('PowerSlotManager — per-power cast range gate', () => {
         expect(longCast).toHaveBeenCalledTimes(1);
     });
 
-    it('allows a 1u wind-up margin so an enemy arriving mid-animation still gets hit', () => {
+    it('gives the gate NO slack over the power\'s own range', () => {
+        // The gate used to add a 1u wind-up margin, on the theory that a closing
+        // enemy would arrive by the release point. When it did not — a kiting
+        // hero, a ranged enemy holding its distance — the cast() scan came up
+        // empty and the champion mimed the shot. Slack belongs in the commitment
+        // (below), not in the gate.
         const mgr = managerWithEnemyAt(11.5); // just past an 11u power
+        const cast = vi.fn();
+        const onCast = vi.fn();
+        mgr.setOnCast(onCast);
+        mgr.getSlots()[0] = { def: rangedDef(11, cast), state: { level: 1, cooldownRemaining: 0 } };
+
+        mgr.update(0.016);
+
+        expect(cast).not.toHaveBeenCalled();
+        expect(onCast).not.toHaveBeenCalled();
+    });
+
+    it('hands the cast the target it gated on, so gate and cast cannot disagree', () => {
+        const mgr = managerWithEnemyAt(9);
         const cast = vi.fn();
         mgr.getSlots()[0] = { def: rangedDef(11, cast), state: { level: 1, cooldownRemaining: 0 } };
 
         mgr.update(0.016);
 
+        const ctx = cast.mock.calls[0][1];
+        expect(ctx.range).toBe(11);                       // the slot's own reach
+        expect(ctx.committedTarget?.position.x).toBe(9);
+    });
+});
+
+describe('PowerSlotManager — the cast animation\'s wind-up commitment', () => {
+    type FakeEnemy = import('../src/survivors/enemies/Enemy').Enemy;
+
+    /** Hero + one enemy, both movable, and a cast wind-up of `delay` seconds. */
+    function scene(delay: number, startDist: number) {
+        const heroPos = new Vector3(0, 0, 0);
+        const enemyPos = new Vector3(startDist, 0, 0);
+        const enemy = {
+            alive: true,
+            position: enemyPos,
+            isAlive: () => enemy.alive,
+            getPosition: () => enemyPos,
+        } as unknown as FakeEnemy & { alive: boolean };
+        const mgr = new PowerSlotManager(host, () => heroPos, () => [enemy]);
+        mgr.setCastDelayProvider(() => delay);
+        const cast = vi.fn();
+        mgr.getSlots()[0] = {
+            def: {
+                id: 'wind_up', name: 'Wind Up', element: 'ice', icon: 'W',
+                baseCooldown: 5, baseDamage: 4, baseRange: 11, maxLevel: 5, mode: 'autocast',
+                cooldownFor: () => 5, damageFor: () => 4, cast,
+            },
+            state: { level: 1, cooldownRemaining: 0 },
+        };
+        return { mgr, cast, heroPos, enemy };
+    }
+
+    it('fires at the committed target even though the hero ran out of range mid-wind-up', () => {
+        // THE ranger bug: the animation starts with the target at 9u, the hero
+        // backpedals ~3u over the 0.35s draw, and the release-time scan — which
+        // only ever looked inside 11u from wherever the hero now stands — found
+        // nothing and dropped the shot the animation had already promised.
+        const { mgr, cast, heroPos } = scene(0.35, 9);
+
+        mgr.update(0.016);
+        expect(cast).not.toHaveBeenCalled(); // still winding up
+
+        heroPos.set(-3, 0, 0); // enemy is now 12u out, past the 11u reach
+        for (let i = 0; i < 30; i++) mgr.update(0.016);
+
         expect(cast).toHaveBeenCalledTimes(1);
+        expect(cast.mock.calls[0][1].committedTarget?.position.x).toBe(9);
+    });
+
+    it('releases the commitment when the committed target dies mid-wind-up', () => {
+        const { mgr, cast, enemy } = scene(0.35, 9);
+
+        mgr.update(0.016);
+        enemy.alive = false;
+        for (let i = 0; i < 30; i++) mgr.update(0.016);
+
+        // The cast still runs — it may find another target — but it must not be
+        // handed a corpse to home in on.
+        expect(cast).toHaveBeenCalledTimes(1);
+        expect(cast.mock.calls[0][1].committedTarget).toBeNull();
     });
 });
 

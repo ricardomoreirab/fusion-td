@@ -31,8 +31,10 @@ export class PowerSlotManager {
      *  (the clip's visual release point). Default 0 = fire immediately, which
      *  keeps procedural champions and unit tests on the old same-frame behavior. */
     private castDelayProvider: () => number = () => 0;
-    /** Casts waiting for their animation wind-up to reach the release point. */
-    private pendingCasts: { slot: PowerSlot; timer: number }[] = [];
+    /** Casts waiting for their animation wind-up to reach the release point.
+     *  `target` is the enemy the cast was committed to when the animation started
+     *  — see PowerContext.committedTarget. */
+    private pendingCasts: { slot: PowerSlot; timer: number; target: Enemy | null }[] = [];
     /** Most recently cast slot — target for the Echo item effect's free recast. */
     private lastCastSlot: PowerSlot | null = null;
     /** Derived views of `slots` rebuilt only when the loadout changes — both are
@@ -67,6 +69,7 @@ export class PowerSlotManager {
             enemies: [],
             damageMultiplier: 1,
             element: 'physical',
+            range: 0,
         };
     }
 
@@ -97,7 +100,7 @@ export class PowerSlotManager {
         this.derivedDirty = true;
         // Run init hook if present (Whirling Blades spawns its blade meshes here)
         if (def.init) {
-            const ctx = this.buildContext();
+            const ctx = this.buildContext(def.baseRange);
             def.init(slot.state, ctx);
         }
         return true;
@@ -151,7 +154,7 @@ export class PowerSlotManager {
         this.slots[idxA] = slot;
         this.derivedDirty = true;
         if (resultDef.init) {
-            const ctx = this.buildContext();
+            const ctx = this.buildContext(resultDef.baseRange);
             resultDef.init(slot.state, ctx);
         }
         return true;
@@ -174,7 +177,7 @@ export class PowerSlotManager {
         this.slots[index] = slot;
         this.derivedDirty = true;
         if (def.init) {
-            const ctx = this.buildContext();
+            const ctx = this.buildContext(def.baseRange);
             def.init(slot.state, ctx);
         }
         return true;
@@ -187,7 +190,7 @@ export class PowerSlotManager {
             this.disposeSlotData(this.slots[i]);
             const slot: PowerSlot = { def, state: { level: def.maxLevel, cooldownRemaining: 0 } };
             this.slots[i] = slot;
-            if (def.init) def.init(slot.state, this.buildContext());
+            if (def.init) def.init(slot.state, this.buildContext(def.baseRange));
         }
         this.derivedDirty = true;
     }
@@ -202,7 +205,7 @@ export class PowerSlotManager {
             this.disposeSlotData(this.slots[i]);
             const slot: PowerSlot = { def, state: { level: def.maxLevel, cooldownRemaining: 0 } };
             this.slots[i] = slot;
-            if (def.init) def.init(slot.state, this.buildContext());
+            if (def.init) def.init(slot.state, this.buildContext(def.baseRange));
         }
         this.derivedDirty = true;
     }
@@ -219,35 +222,29 @@ export class PowerSlotManager {
         this.castDelayProvider = fn;
     }
 
-    /** Slack added to a power's own reach when deciding whether to fire. Covers the
-     *  ground a seeking enemy closes during the cast wind-up (castDelayProvider),
-     *  so a target arriving mid-animation still gets hit. Deliberately small: this
-     *  gate is what stops the hero playing a cast animation at enemies the power
-     *  cannot reach, and every extra unit here reintroduces that. */
-    private static readonly CAST_REACH_MARGIN = 1.0;
-
-    /** A slot's firing reach — its own declared range plus the wind-up margin.
-     *  Hero-centred AOE powers (Arcane Nova) declare their radius as baseRange,
-     *  so the same test covers projectile and burst powers alike. */
-    private static castReachFor(slot: PowerSlot): number {
-        return slot.def.baseRange + PowerSlotManager.CAST_REACH_MARGIN;
-    }
-
-    /** Squared distance to the nearest live enemy, or Infinity when the arena is
-     *  empty. Computed at most once per frame and compared against each ready
-     *  slot's own reach — one O(n) scan, not one per slot. */
-    private nearestEnemyDistanceSq(): number {
+    /** Nearest live enemy to the hero and its squared distance (`null`/Infinity
+     *  when the arena is empty). Computed at most once per frame and compared
+     *  against each ready slot's own reach — one O(n) scan, not one per slot.
+     *
+     *  The ENEMY, not just the distance: whichever slot fires this frame commits
+     *  to it (PowerContext.committedTarget), which is what keeps the cast that
+     *  lands after the animation wind-up from re-deriving a different answer. */
+    private nearestEnemy(): { enemy: Enemy | null; dist2: number } {
         const heroPos = this.heroProvider();
-        let best = Infinity;
-        for (const e of this.enemyProvider()) {
-            if (!e.isAlive()) continue;
-            const ePos = e.getPosition();
-            const dx = ePos.x - heroPos.x;
-            const dz = ePos.z - heroPos.z;
+        const hx = heroPos.x, hz = heroPos.z;
+        let best: Enemy | null = null;
+        let bestD2 = Infinity;
+        const list = this.enemyProvider();
+        for (let i = 0; i < list.length; i++) {
+            const e = list[i];
+            if (!e.alive) continue;
+            const p = e.position;
+            const dx = p.x - hx;
+            const dz = p.z - hz;
             const d2 = dx * dx + dz * dz;
-            if (d2 < best) best = d2;
+            if (d2 < bestD2) { bestD2 = d2; best = e; }
         }
-        return best;
+        return { enemy: best, dist2: bestD2 };
     }
 
     public update(deltaTime: number): void {
@@ -263,8 +260,15 @@ export class PowerSlotManager {
                 this.pendingCasts.splice(i, 1);
                 // The slot may have been replaced/fused mid-wind-up — skip if gone.
                 if (!this.slots.includes(pending.slot) || !pending.slot.def.cast) continue;
-                const castCtx = this.buildContext();
+                const castCtx = this.buildContext(pending.slot.def.baseRange);
                 castCtx.element = pending.slot.def.element;
+                // Honour the target the animation was started for. It may well be
+                // out of range by now — the hero has been moving for the whole
+                // wind-up — and re-deriving it here is exactly how the champion
+                // ends up miming a shot it already committed to. A target that
+                // DIED mid-wind-up releases the commitment (null → the cast falls
+                // back to its own scan).
+                castCtx.committedTarget = pending.target?.alive ? pending.target : null;
                 pending.slot.def.cast(pending.slot.state, castCtx);
                 this.lastCastSlot = pending.slot;
             }
@@ -273,7 +277,7 @@ export class PowerSlotManager {
         // slot reaches ready. Defer the O(n) target scan and the context object
         // allocation until a slot is actually ready to fire — when nothing fires
         // this loop does no allocation and no enemy scan at all.
-        let nearestD2 = -1; // <0 = not yet computed this frame
+        let nearest: { enemy: Enemy | null; dist2: number } | null = null; // lazily, once per frame
         for (const slot of this.slots) {
             if (!slot) continue;
             // Persistent per-frame powers (e.g. Whirling Blades) update every frame —
@@ -281,7 +285,7 @@ export class PowerSlotManager {
             // trigger the hero attack animation. The tick context is reused (see
             // tickCtx); the cast context below is not, and must stay that way.
             if (slot.def.tick) {
-                const tctx = this.tickContext();
+                const tctx = this.tickContext(slot.def.baseRange);
                 tctx.element = slot.def.element;
                 slot.def.tick(slot.state, tctx, deltaTime);
             }
@@ -294,15 +298,22 @@ export class PowerSlotManager {
                 // every slot made the hero play the cast animation at enemies the
                 // power could not reach — the cast() then found nothing in range
                 // and silently dropped, so the champion mimed shots into space.
-                if (nearestD2 < 0) nearestD2 = this.nearestEnemyDistanceSq();
-                const reach = PowerSlotManager.castReachFor(slot);
-                if (nearestD2 > reach * reach) continue; // hold the cooldown, stay idle
+                //
+                // The reach is the slot's declared range EXACTLY — no slack. Slack
+                // is what the commitment below is for: an enemy one frame outside
+                // reach simply holds the (already-ready) cooldown and fires the
+                // frame it steps inside, whereas a gate wider than the cast's own
+                // scan is a mimed shot every time the target never closes.
+                nearest ??= this.nearestEnemy();
+                const reach = slot.def.baseRange;
+                if (nearest.dist2 > reach * reach) continue; // hold the cooldown, stay idle
                 if (slot.def.cast) {
                     const delay = this.castDelayProvider();
                     if (delay > 0) {
                         // Animation starts now (callback below); the actual cast fires
-                        // at the clip's release point.
-                        this.pendingCasts.push({ slot, timer: delay });
+                        // at the clip's release point — against THIS target, not
+                        // whatever is nearest once the wind-up ends.
+                        this.pendingCasts.push({ slot, timer: delay, target: nearest.enemy });
                     } else {
                         // ONE CONTEXT PER CAST — never shared between slots. A
                         // cast's projectile observer holds this object for the
@@ -312,8 +323,9 @@ export class PowerSlotManager {
                         // with ITS element. buildContext() is reached only when a
                         // slot actually fires, so an idle frame still allocates
                         // nothing (that is what the lazy build was really for).
-                        const castCtx = this.buildContext();
+                        const castCtx = this.buildContext(reach);
                         castCtx.element = slot.def.element;
+                        castCtx.committedTarget = nearest.enemy;
                         slot.def.cast(slot.state, castCtx);
                         this.lastCastSlot = slot;
                     }
@@ -340,7 +352,7 @@ export class PowerSlotManager {
             // One context per cast, same contract as update(): this burst fires
             // several slots back to back, so a shared object would hand every
             // projectile in flight the LAST slot's element.
-            const castCtx = this.buildContext();
+            const castCtx = this.buildContext(slot.def.baseRange);
             castCtx.element = slot.def.element;
             slot.def.cast(slot.state, castCtx);
             this.lastCastSlot = slot;
@@ -355,7 +367,7 @@ export class PowerSlotManager {
     public recastFree(): boolean {
         const slot = this.lastCastSlot;
         if (!slot || !this.slots.includes(slot) || !slot.def.cast) return false;
-        const ctx = this.buildContext();
+        const ctx = this.buildContext(slot.def.baseRange);
         ctx.element = slot.def.element;
         slot.def.cast(slot.state, ctx);
         return true;
@@ -377,7 +389,7 @@ export class PowerSlotManager {
         }
         if (!slot || !slot.def.cast) return false;
         // ONE fresh context per cast — the documented rule for this manager.
-        const ctx = this.buildContext();
+        const ctx = this.buildContext(slot.def.baseRange);
         ctx.element = slot.def.element;
         slot.def.cast(slot.state, ctx);
         return true;
@@ -467,23 +479,29 @@ export class PowerSlotManager {
     /** A FRESH context, and it must stay one PER CALL. cast()/init() hand this
      *  object to projectile observers that keep reading ctx.scene/ctx.element
      *  long after the call returns, so two casts may never share one. Only the
-     *  per-frame tick path reuses a context (tickContext). */
-    private buildContext(): PowerContext {
+     *  per-frame tick path reuses a context (tickContext).
+     *
+     *  `range` is the firing reach of the slot the context is being built for —
+     *  the same number the cast gate tests, which is the whole point of carrying
+     *  it on the context at all (see PowerContext.range). */
+    private buildContext(range: number): PowerContext {
         return {
             scene: this.scene,
             heroPosition: this.heroProvider(),
             enemies: this.enemyProvider(),
             damageMultiplier: this.damageMultiplierProvider(),
             element: 'physical',
+            range,
         };
     }
 
     /** The shared per-frame context for tick() hooks, refreshed in place. */
-    private tickContext(): PowerContext {
+    private tickContext(range: number): PowerContext {
         const c = this.tickCtx;
         c.heroPosition = this.heroProvider();
         c.enemies = this.enemyProvider();
         c.damageMultiplier = this.damageMultiplierProvider();
+        c.range = range;
         return c;
     }
 
