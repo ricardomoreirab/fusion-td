@@ -6,7 +6,7 @@ import { PALETTE } from '../../engine/rendering/StyleConstants';
 import { AnimGroup } from '../../engine/three/AnimGroup';
 import type { GlbContainer } from '../../engine/three/assets';
 import { headingToYaw } from '../../engine/three/math';
-import { createBox, createCylinder, createIcoSphere, createPolyhedron, createSphere, createTransformHost } from '../../engine/three/primitives';
+import { createBox, createCylinder, createIcoSphere, createPolyhedron, createSphere, createTransformHost, isMeshDisposed } from '../../engine/three/primitives';
 import { acquireProjectile, releaseProjectile } from '../../engine/rendering/ProjectilePool';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
 import { arcProjectile, emitGroundFx, spawnGroundShockwave, spawnGroundTelegraph } from './EnemyGroundFx';
@@ -70,6 +70,16 @@ export class TankEnemy extends Enemy {
      *  every other time — including after the golem is KILLED mid-flight, which
      *  deliberately still lands (the rock was already thrown). */
     private boulderInFlight: { abort(): void } | null = null;
+
+    /** GLB root scale + ground offset as built, so a subclass can pose the body
+     *  as a multiplier of them and release back to exactly these. */
+    protected glbBaseScale: number = 1;
+    protected glbBaseRootY: number = 0;
+    /** Height above the ground plane this frame, for a special that leaves it
+     *  (the turtle's slam). Applied at the very END of update(), because both the
+     *  parent's seek branch and the GLB block rewrite mesh.y from the ground
+     *  position every frame — anywhere earlier it is simply overwritten. */
+    protected specialLiftHeight: number = 0;
 
     constructor(game: Game, position: Vector3, path: Vector3[]) {
         // Tank enemy has low speed, 5x health, high damage, and high reward
@@ -135,6 +145,10 @@ export class TankEnemy extends Enemy {
         const bbox = new Box3().setFromObject(this.mesh);
         const feetOffset = -bbox.min.y;
         root.position.y += feetOffset;
+        // Captured AFTER the grounding so a subclass coiling the body (the dragon
+        // turtle's slam) has the real resting pose to scale from and return to.
+        this.glbBaseScale = this.glbScale;
+        this.glbBaseRootY = root.position.y;
 
         // Categorize animation clips for walk/attack/idle state.
         // Register groups on the base class so the release path can stop them
@@ -471,6 +485,7 @@ export class TankEnemy extends Enemy {
             } else {
                 this.playGlbAnim(this.glbWalkAnim, true);
             }
+            this.applySpecialLift();
             return result;
         }
 
@@ -490,7 +505,18 @@ export class TankEnemy extends Enemy {
             }
         }
 
+        this.applySpecialLift();
         return result;
+    }
+
+    /** Lift the model off the ground for an airborne special. Called at both exits
+     *  of update() — after the GLB block and after the procedural pose, each of
+     *  which has just rewritten mesh.y from the ground-plane position. */
+    private applySpecialLift(): void {
+        if (this.specialLiftHeight <= 0) return;
+        if (this.mesh && !isMeshDisposed(this.mesh)) {
+            this.mesh.position.y = this.position.y + this.specialLiftHeight;
+        }
     }
 
     /**

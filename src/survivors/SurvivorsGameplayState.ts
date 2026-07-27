@@ -169,6 +169,46 @@ function loadEnemyAsset(enemyType: string): Promise<GlbContainer> | null {
     return loadAsset(ENEMY_GLB_PATHS, enemyType);
 }
 
+/**
+ * DEV (`?test`, key `p`): the whole enemy roster, one of each — every archetype
+ * that has its own behaviour, across all three wave tiers plus every boss.
+ *
+ * Kept in one ordered list rather than derived from the spawn switch, because
+ * several entries are not a bare type string: the AOE super wizard is a
+ * `healer_red` that rolled elite, and each boss tier needs its own number.
+ *
+ * `mini` is absent on purpose — fenrir cubs have no direct spawn path, they only
+ * come from splitting the fenrir that is already in this list.
+ */
+const DEV_ROSTER: ReadonlyArray<{ type: string; elite?: string; bossTier?: number }> = [
+    // Waves 1-9.
+    { type: 'basic' },
+    { type: 'fast' },
+    { type: 'tank' },
+    { type: 'healer' },
+    { type: 'splitting' },
+    { type: 'shield' },
+    // Wave 10+ red tier (redSwap.ts).
+    { type: 'basic_red' },
+    { type: 'fast_red' },
+    { type: 'healer_red' },
+    { type: 'tank_red' },
+    // Wave 15+ tier. The elite red wizard is the AOE super wizard from wave 15;
+    // below it, an elite plain RedWizard — spawnOneOfEach logs whichever it got.
+    { type: 'fire_beetle' },
+    { type: 'horned_lizard' },
+    { type: 'healer_red', elite: 'arcane' },
+    // Milestone bosses (normally waves 5/10/15/20/25). Tiers 3+ each spawn a
+    // twin of their own, so the field ends up with more than this list's length.
+    { type: 'boss', bossTier: 1 },
+    { type: 'boss', bossTier: 2 },
+    { type: 'boss', bossTier: 3 },
+    { type: 'boss', bossTier: 4 },
+    { type: 'boss', bossTier: 5 },
+];
+/** Ring radius for the dev roster — see spawnOneOfEach for why this distance. */
+const DEV_ROSTER_RADIUS = 13;
+
 /** Synchronously fetch a preloaded enemy GLB from the module cache (populated by
  *  enter()'s preload), or null if not cached / no GLB for this type. Lets the
  *  guest stage the same model the host renders instead of the procedural mesh. */
@@ -1489,6 +1529,9 @@ export class SurvivorsGameplayState implements GameState {
             }
             else if (this.testMode && key === ']') this.cycleTestFusion();
             else if (this.testMode && key === '\\') this.stressLoad();
+            // DEV: one of every enemy, ringed around the hero, for eyeballing
+            // per-archetype behaviour without playing to the wave that spawns it.
+            else if (this.testMode && key === 'p') this.spawnOneOfEach();
             // DEV: grant ascension XP directly so the trees are reviewable without
             // a 20-minute run to wave 36. [ = +1 level, { (shift+[) = +10.
             else if (this.testMode && key === '[') this.devGrantAscension(e.shiftKey ? 10 : 1);
@@ -1506,6 +1549,7 @@ export class SurvivorsGameplayState implements GameState {
             this.testFusions = getFusionsForClass(this.currentChampionType);
             this.testFusionIndex = 0;
             if (this.heroController) this.heroController.debugInvulnerable = true; // survive the stress horde
+            console.info('[test] hotkeys — \\ stress horde · ] cycle fusion · [ +ascension · p one of every enemy');
         }
 
         // DEV ?shopdemo[=id,id,…] → open Gribble's shop straight away, stocked with
@@ -4908,6 +4952,49 @@ export class SurvivorsGameplayState implements GameState {
         const total = this.enemyManager?.getEnemies().length ?? 0;
         console.info(`[stress] +${n} enemies (total ${total}); 4 diverse fusions equipped. Watch [freeze:frame].`);
         this.showTestLabel(`[STRESS] +${n} enemies (total ${total}) · 4 diverse fusions · press \\ for more`);
+    }
+
+    /**
+     * DEV (`?test`, key `p`): put one of every enemy on the field at once.
+     *
+     * Each archetype now has its own signature move, and most of them only show
+     * up at the wave that spawns them — a dragon turtle is a wave-10 enemy, a
+     * horned lizard wave-15, the Apex boss wave-20. This drops the whole roster
+     * in one ring so a behaviour change can be watched across all of them
+     * side by side instead of played to, one wave at a time.
+     *
+     * Ringed at DEV_ROSTER_RADIUS rather than dropped on the spawn ring: it sits
+     * inside every ranged archetype's reach (mage 10u, lance 11u, lizard charge
+     * 12.9u) so every special starts firing immediately, and far enough out that
+     * the leapers actually leap rather than swinging in place.
+     */
+    private spawnOneOfEach(): void {
+        if (!this.enemyManager || !this.hero) return;
+        const heroPos = this.hero.getPosition();
+        const spawned: string[] = [];
+
+        DEV_ROSTER.forEach((entry, i) => {
+            const enemy = this.enemyManager!.spawnSurvivorsEnemy(
+                entry.type, entry.elite, 1, entry.bossTier,
+            );
+            if (!enemy) return;
+            // Even ring, so nothing is hidden inside anything else.
+            const angle = (i / DEV_ROSTER.length) * Math.PI * 2;
+            enemy.position.set(
+                heroPos.x + Math.cos(angle) * DEV_ROSTER_RADIUS,
+                enemy.position.y,
+                heroPos.z + Math.sin(angle) * DEV_ROSTER_RADIUS,
+            );
+            // Report the CONSTRUCTED class, not the requested type: several type
+            // strings resolve by wave (a 'healer_red' elite is only the AOE super
+            // wizard from wave 15), so this is the honest answer to "what is on
+            // the field" rather than what was asked for.
+            spawned.push(enemy.constructor.name);
+        });
+
+        const total = this.enemyManager.getEnemies().length;
+        console.info(`[roster] +${spawned.length} enemies (total ${total}): ${spawned.join(', ')}`);
+        this.showTestLabel(`[ROSTER] one of each — ${spawned.length} spawned (total ${total})`);
     }
 
     private applyTestFusion(): void {

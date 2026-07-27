@@ -14,6 +14,7 @@ import {
     FRENZY_SPEED_FACTOR,
 } from './bossTiers';
 import { emitGroundFx, spawnGroundShockwave } from './EnemyGroundFx';
+import { applyBodyCoil, easeInCoil, leapHeightAt, resolveLeapFlight, type LeapSpec } from './leapMotion';
 import {
     ENRAGE_HEALTH_FRACTION, ENRAGE_TANK_FACTOR, ENRAGE_SPEED_FACTOR, ENRAGE_DAMAGE_FACTOR,
     ENRAGE_COOLDOWN_FACTOR, isMovementImpairing, specialCooldownScale,
@@ -90,37 +91,24 @@ const LEAP_DISTANCE = 14.0;
 /** Lands this far short of the committed point so the boss arrives in front of
  *  the hero and slashes through, rather than landing on top of them. */
 const LEAP_STOP_SHORT = 1.4;
-/** Top travel speed of a leap. The AIR TIME is derived from it (distance ÷
- *  speed), not the other way around — sizing every leap to one fixed window made
- *  a short hop crawl across it. */
-const LEAP_SPEED = 24.0;
-/** Floor on the air time. A hero stood on top of the boss leaves almost nothing
- *  to leap, and a leap that lasts two frames has no arc to read. A leap shorter
- *  than this is SLOWED to fill it rather than finishing early and waiting, so the
- *  boss is never stood still between landing and dashing. */
-const LEAP_MIN_AIR_S = 0.30;
-
+/** The boss's leap, resolved per jump by `resolveLeapFlight`. */
+const BOSS_LEAP: LeapSpec = {
+    maxDistance: LEAP_DISTANCE,
+    topSpeed: 24.0,
+    minAirTime: 0.30,
+    stopShort: LEAP_STOP_SHORT,
+    arcHeight: 4.0,
+    arcMinFraction: 0.55,
+};
 /** The gather before the jump. Rooted, and the body visibly coils — this is the
  *  anticipation that makes the launch read as a launch rather than as the boss
  *  suddenly sliding. Replaces the flat rooted pause the painted lane used to
  *  fill. */
 const LEAP_CHARGE_S = 0.38;
-/** Peak height of a FULL-distance arc. A leap that stays on the ground is just a
- *  dash, and this is the single thing that most makes it read as a jump —
- *  comfortably over the boss's own head. */
-const LEAP_ARC_HEIGHT = 4.0;
-/** Fraction of that height a zero-distance leap still gets. The arc scales with
- *  the ground covered between the two: at full height a short hop would look
- *  like the boss jumping straight up on the spot, and at no height it would stop
- *  being a leap at all. */
-const LEAP_ARC_MIN_FRACTION = 0.55;
-/** How hard the body coils on the charge and stretches out of the launch, as a
- *  fraction of its own height. Volume-preserving-ish: what Y loses, XZ gains. */
+/** How hard the body coils on the charge and stretches out of the launch. */
 const LEAP_COIL = 0.26;
 /** Radius of the ring thrown out where the boss lands. */
 const LEAP_SLAM_RADIUS = 4.5;
-/** Quadratic ease so the coil is slow to start and snaps tight at the launch. */
-const easeIn = (t: number): number => t * t;
 
 const TELEGRAPH_DURATION = 0.6;  // seconds rooted before the special fires
 const DASH_DURATION      = 0.5;  // seconds of dash motion (≈6 units at 12 u/s)
@@ -173,12 +161,11 @@ export class MilestoneBoss extends BossEnemy {
     private dashHasHit: boolean = false;
     /** Distance left in the opening leap (tier 1/4). 0 = not leaping. */
     private leapRemaining: number = 0;
-    /** This leap's travel speed — at most LEAP_SPEED, reduced when the leap is
-     *  short enough that it would otherwise finish before the minimum air time. */
-    private leapSpeed: number = LEAP_SPEED;
-    private leapAirTime: number = LEAP_MIN_AIR_S;
-    /** This leap's peak height — scaled from LEAP_ARC_HEIGHT by how far it goes. */
-    private leapArcHeight: number = LEAP_ARC_HEIGHT;
+    /** This leap's flight, resolved at launch by resolveLeapFlight — the speed is
+     *  at most BOSS_LEAP.topSpeed and the arc scales with the ground covered. */
+    private leapSpeed: number = BOSS_LEAP.topSpeed;
+    private leapAirTime: number = BOSS_LEAP.minAirTime;
+    private leapArcHeight: number = BOSS_LEAP.arcHeight;
     /** Height above the ground plane this frame; added to the mesh at the end of
      *  update(), after the GLB block has reset it to the ground. */
     private leapHeight: number = 0;
@@ -491,7 +478,7 @@ export class MilestoneBoss extends BossEnemy {
                 // The coil deepens across the charge, so the wind-up is readable
                 // as "about to launch" rather than as a pause.
                 if (this.leapPending) {
-                    this.poseLeapBody(-easeIn(1 - Math.max(0, this.stateTimer) / LEAP_CHARGE_S));
+                    this.poseLeapBody(-easeInCoil(1 - Math.max(0, this.stateTimer) / LEAP_CHARGE_S));
                 }
                 if (this.stateTimer <= 0) {
                     if (this.pendingAction === 'pull') this.enterPull();
@@ -616,25 +603,19 @@ export class MilestoneBoss extends BossEnemy {
         const gap = heroPos
             ? Math.hypot(heroPos.x - this.position.x, heroPos.z - this.position.z)
             : LEAP_DISTANCE;
-        this.leapRemaining = Math.max(0, Math.min(LEAP_DISTANCE, gap - LEAP_STOP_SHORT));
         if (heroPos && gap > 0.001) {
             // Re-aim at the launch instant. Only the direction — the distance is
-            // already fixed — so this sharpens the jump without making it homing.
+            // fixed below — so this sharpens the jump without making it homing.
             this.dashDirX = (heroPos.x - this.position.x) / gap;
             this.dashDirZ = (heroPos.z - this.position.z) / gap;
         }
 
-        // Air time from the distance, then speed back from the air time, so the
-        // arc is always fully travelled and the dash follows the landing with no
-        // pause — whatever gap is being closed.
-        this.leapAirTime = Math.max(LEAP_MIN_AIR_S, this.leapRemaining / LEAP_SPEED);
-        this.stateTimer = this.leapAirTime;
-        this.leapSpeed = this.leapRemaining / this.leapAirTime;
-        // Arc scales with the ground actually covered, so a hop onto an adjacent
-        // hero is a hop and not a vertical pop on the spot.
-        const reach = Math.min(1, this.leapRemaining / LEAP_DISTANCE);
-        this.leapArcHeight = LEAP_ARC_HEIGHT
-            * (LEAP_ARC_MIN_FRACTION + (1 - LEAP_ARC_MIN_FRACTION) * reach);
+        const flight = resolveLeapFlight(gap, BOSS_LEAP);
+        this.leapRemaining = flight.distance;
+        this.leapAirTime = flight.airTime;
+        this.leapSpeed = flight.speed;
+        this.leapArcHeight = flight.arcHeight;
+        this.stateTimer = flight.airTime;
         this.faceHeading(this.dashDirX, this.dashDirZ);
     }
 
@@ -651,13 +632,12 @@ export class MilestoneBoss extends BossEnemy {
         this.position.x += this.dashDirX * step;
         this.position.z += this.dashDirZ * step;
 
-        // 4t(1−t) peaks at 1 halfway and is 0 at both ends, so the boss leaves and
-        // meets the ground exactly. Progress comes from the TIMER, not from
-        // distance, so a near-zero-distance leap still arcs.
+        // Progress comes from the TIMER, not from distance, so a near-zero
+        // distance leap still arcs.
         const t = this.leapAirTime > 0
             ? 1 - Math.max(0, this.stateTimer) / this.leapAirTime
             : 1;
-        this.leapHeight = this.leapArcHeight * 4 * t * (1 - t);
+        this.leapHeight = leapHeightAt(t, this.leapArcHeight);
         // Stretch out of the launch, easing back to neutral by the apex.
         this.poseLeapBody(Math.max(0, 1 - t * 2));
 
@@ -675,11 +655,7 @@ export class MilestoneBoss extends BossEnemy {
     private poseLeapBody(amount: number): void {
         const root = this.glbInstance?.root;
         if (!root) return;
-        const a = Math.max(-1, Math.min(1, amount));
-        const sy = 1 + LEAP_COIL * a;
-        const sxz = 1 - LEAP_COIL * a * 0.5;
-        root.scale.set(this.glbBaseScale * sxz, this.glbBaseScale * sy, this.glbBaseScale * sxz);
-        root.position.y = this.glbBaseRootY * sy;
+        applyBodyCoil(root, this.glbBaseScale, this.glbBaseRootY, amount, LEAP_COIL);
     }
 
     /** Land: put the body back to neutral and throw a ring out from the impact.
