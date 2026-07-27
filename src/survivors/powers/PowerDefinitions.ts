@@ -9,6 +9,8 @@ import { StatusEffect } from '../GameTypes';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
 import { buildArrowMesh, ARROW_FLIGHT_HEIGHT } from './ArrowMesh';
 import { ParticleEffect } from '../../engine/three/particles/ParticleEffect';
+import { spawnPooledBurst } from '../../engine/three/particles/BurstPool';
+import { spawnFieldBurst } from '../../engine/three/particles/BurstField';
 import {
     elementFlashConfig,
     elementImpactConfig,
@@ -164,9 +166,26 @@ export function autocastStatRows(def: PowerDefinition, level: number, next: numb
 // meshes left are gameplay-readable bodies (arrows, shurikens, lightning bolts).
 // =============================================================================
 
-/** One-shot particle burst at a world position; auto-disposes on completion. */
+/** One-shot particle burst at a world position; auto-disposes on completion.
+ *
+ *  `name` doubles as the shared-material key: every call site passes a literal
+ *  paired with one fixed recipe, so the key set is bounded by the call sites.
+ *  This is the highest-rate spawner in the game - a maxed 4-fusion loadout
+ *  against a horde runs it ~780 times a SECOND (see ParticleEffect's
+ *  sharedMaterials note for the measured cost of not sharing).
+ *
+ *  Which is why it goes through three tiers, cheapest first:
+ *   1. BurstField - every live burst of the recipe is ONE scene object and ONE
+ *      library system, so a spawn costs a queued position and nothing else;
+ *   2. BurstPool - a recycled per-spawn system (~2.3us) for recipes a field
+ *      cannot merge, or when the field is full for this frame;
+ *   3. the original one-shot below (~15.8us to build and tear down).
+ *  Each tier declines anything it cannot reproduce exactly. */
 function spawnFx(scene: SceneHost, name: string, config: ParticleSystemConfig, position: Vector3): void {
-    new ParticleEffect(name, scene, config, { autoDispose: true }).object.position.copy(position);
+    if (spawnFieldBurst(name, scene, config, position)) return;
+    if (spawnPooledBurst(name, scene, config, position)) return;
+    new ParticleEffect(name, scene, config, { autoDispose: true, sharedMaterial: name })
+        .object.position.copy(position);
 }
 
 /**

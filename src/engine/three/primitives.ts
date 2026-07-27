@@ -54,6 +54,38 @@ function finish(name: string, geo: BufferGeometry, host?: SceneHost): Mesh {
     return mesh;
 }
 
+/**
+ * Geometry-less `Mesh` used purely as a transform parent - the GLB enemy/hero
+ * roots and the procedural rigs' scale groups. It can never draw, but THREE
+ * walks it anyway: once it is on screen (an empty geometry's bounding sphere
+ * has radius -1, so the frustum test degenerates to a point test) it is
+ * `objects.update`d, pushed into the render list and sorted, and
+ * `renderBufferDirect` then runs a full `setProgram` + `state.setMaterial`
+ * before bailing out on `drawCount === Infinity`. Each `new Mesh()` carries
+ * its OWN MeshBasicMaterial, so every host is a distinct `material.id` - the
+ * worst case for THREE's uniform cache (see the GLB-material-sharing
+ * invariant in CLAUDE.md). One host per enemy is ~200 of those per frame at
+ * horde scale, plus a second walk in the shadow pass. Measured at ~3 us per
+ * host per frame; removing them cut a converged 206-enemy frame 10.2%.
+ *
+ * `layers.disableAll()` is the one switch that drops the node itself from both
+ * passes while leaving its children alone: `WebGLRenderer.projectObject` and
+ * `WebGLShadowMap.renderObject` each gate only the object's OWN work on
+ * `object.layers.test(camera.layers)` and recurse into `object.children`
+ * OUTSIDE that test. `visible = false` cannot express this - it returns before
+ * the children loop and would hide the whole rig. Nothing else here reads
+ * layers (the only Raycaster intersects a math Plane, never scene objects) and
+ * `Box3.expandByObject` ignores them, so the feet-offset measurement every
+ * host performs is unaffected.
+ */
+export function createTransformHost(name: string, host?: SceneHost): Mesh {
+    const mesh = new Mesh();
+    mesh.name = name;
+    mesh.layers.disableAll();
+    host?.scene.add(mesh);
+    return mesh;
+}
+
 export interface BoxOptions { size?: number; width?: number; height?: number; depth?: number }
 
 export function createBox(name: string, opts: BoxOptions, host?: SceneHost): Mesh {

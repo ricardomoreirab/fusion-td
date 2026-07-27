@@ -45,7 +45,7 @@ function gemBurstConfig(): ParticleSystemConfig {
 export function spawnKillGems(scene: SceneHost, x: number, z: number): void {
     if (activeBursts >= MAX_ACTIVE_BURSTS) return;
     activeBursts++;
-    const fx = new ParticleEffect('killGems', scene, gemBurstConfig(), { autoDispose: true });
+    const fx = new ParticleEffect('killGems', scene, gemBurstConfig(), { autoDispose: true, sharedMaterial: 'killGems' });
     fx.object.position.set(x, 0.5, z);
     fx.onDispose = () => { activeBursts = Math.max(0, activeBursts - 1); };
 }

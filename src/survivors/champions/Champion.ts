@@ -14,7 +14,7 @@ import { elementAuraConfig, elementBurstConfig } from '../fx/ElementParticles';
 import { GlbContainer, ContainerInstance } from '../../engine/three/assets';
 import { AnimGroup } from '../../engine/three/AnimGroup';
 import { findSkeletonRootName, splitClipByBody } from '../../engine/three/clipMask';
-import { createBox, createCylinder, createSphere, createTorus, createPolyhedron, disposeMesh, isMeshDisposed } from '../../engine/three/primitives';
+import { createBox, createCylinder, createSphere, createTorus, createPolyhedron, createTransformHost, disposeMesh, isMeshDisposed } from '../../engine/three/primitives';
 import { headingToYaw } from '../../engine/three/math';
 
 /** Any material carrying an emissive color (Phong for procedural parts,
@@ -422,15 +422,18 @@ export class Champion extends Enemy {
         const host = this.scene;
 
         // Empty transform host that Champion's existing position/rotation pipeline drives.
-        this.mesh = new Mesh();
-        this.mesh.name = 'rangerRoot';
-        host.scene.add(this.mesh);
+        this.mesh = createTransformHost('rangerRoot', host);
         this.mesh.position.copy(this.position);
 
         // instantiate() does a full skinned clone (SkeletonUtils) so the geometry +
-        // skeleton are independent of the source, and clones every material per
-        // instance (Babylon's cloneMaterials: true equivalent).
+        // skeleton are independent of the source.
         const inst = asset.instantiate(host, 'ranger_');
+        // The hero MUTATES its materials — the weapon emissive tint below, the
+        // element flash, the rim-light onBeforeCompile — so it takes private
+        // copies. Instances share the container's materials by default (see
+        // ensureOwnMaterials); without this, a co-op ghost or a second champion
+        // of the same class would inherit every one of those writes.
+        inst.ensureOwnMaterials();
         this.containerInstance = inst;
         this._rigRootName = findSkeletonRootName(inst.root);
         const RANGER_SCALE = 1.5;

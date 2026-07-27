@@ -11,6 +11,10 @@ import { headingToYaw } from '../../engine/three/math';
 import { fxRenderer, fxSize, getSoftParticleTexture, ParticleEffect } from '../../engine/three/particles/ParticleEffect';
 import { LifeTimeCurve, Shape } from '@newkrok/three-particles';
 import { elementStatusConfig } from '../fx/ElementParticles';
+import {
+    collectHitFlash, restoreHitFlash,
+    type FlashSwap, type FlashTarget, type FlashTint,
+} from './hitFlash';
 import { createSphere, disposeMesh, isMeshDisposed } from '../../engine/three/primitives';
 import type { SceneHost, UpdateToken } from '../../engine/three/SceneHost';
 import type { SnapshotEnemy } from '../../net/Protocol';
@@ -53,9 +57,6 @@ const MELEE_PHASE_CODE = { idle: 0, windup: 1, strike: 2, cooldown: 3 } as const
 export interface MeleeDisplay { phase: number; progress: number }
 const _meleeDisplayOut: MeleeDisplay = { phase: 0, progress: 0 };
 
-// Per-hit emissive tint — module-level constant so flashHit doesn't allocate
-// a fresh Color on every damage event (every chain-lightning sub-hit etc.).
-const HIT_TINT = new Color(0.85, 0.10, 0.05);
 const HIT_FLASH_DURATION_S = 0.1;
 
 // Shared texture for status-effect particle systems — the same procedural
@@ -198,14 +199,32 @@ export class Enemy {
      *  so a release after teardown targets the field that issued the slot. */
     private _barField: HealthBarField | null = null;
     protected bossLabel: string | null = null;
-    protected position: Vector3;
+    /**
+     * Live world position, mutated in place by movement/knockback.
+     *
+     * PUBLIC rather than protected purely for the horde-scale scan cost. The FX
+     * and targeting layer walks the whole live list many times per frame (measured
+     * ~62,000 iterations per frame at a maxed 4-fusion loadout against ~270
+     * enemies — chain hops, volley collision, AoE radii, nearest-target picks), and
+     * with nine Enemy subclasses on the field EVERY such call site is megamorphic:
+     * `e.getPosition()` + `e.isAlive()` cost ~10.5 ns per iteration against ~5.2 ns
+     * for the equivalent direct field reads (measured in-page on the real horde,
+     * three interleaved rounds, loop form held constant — the accessor calls are
+     * the entire difference, an index loop with methods reads the same as for..of
+     * with methods). getPosition() already hands out this exact Vector3 by
+     * reference, so nothing is newly exposed; the accessors stay as the API.
+     */
+    public position: Vector3;
     protected speed: number;
     protected originalSpeed: number; // Store original speed for status effects
     protected health: number;
     protected maxHealth: number;
     protected damage: number; // Damage to player when reaching the end
     protected reward: number; // Money reward when killed
-    protected alive: boolean = true;
+    /** Live/dead flag. PUBLIC for the same reason as `position` above — it is read
+     *  once per enemy per scan, i.e. tens of thousands of times per frame.
+     *  `isAlive()` remains the API and returns exactly this. */
+    public alive: boolean = true;
     protected path: Vector3[] = [];
     protected currentPathIndex: number = 0;
     protected originalScale: number = 1.0; // Store original scale for health-based scaling
@@ -356,11 +375,21 @@ export class Enemy {
             ps.object.visible = active;
         }
 
-        this.setAnimationLod(active ? this._visibleAnimLod : 'reduced');
+        // A parked enemy is DETACHED, so its skeleton is not drawn, not walked by
+        // scene.updateMatrixWorld and not read by anything else - posing it is
+        // pure waste, and 'off' removes it outright rather than throttling it to
+        // 10 Hz (measured 1.27 us per parked enemy per frame at 250 enemies).
+        // The frozen interval is carried and replayed by the first update after
+        // un-parking, which happens in the SAME frame: the cull runs inside
+        // EnemyManager.update, and Game.frameTick runs the state update before
+        // SceneHost.tick's animation bus. Clip switching here is driven by
+        // gameplay state and every clip loops, so a frozen mixer cannot strand an
+        // enemy in the wrong animation either.
+        this.setAnimationLod(active ? this._visibleAnimLod : 'off');
     }
 
     /** Animation tier used while this enemy is ON screen. `setRenderActive`
-     *  overrides it with 'reduced' whenever the enemy is parked. */
+     *  overrides it with 'off' whenever the enemy is parked. */
     private _visibleAnimLod: AnimationLod = 'full';
     private _appliedAnimLod: AnimationLod = 'full';
 
@@ -376,7 +405,7 @@ export class Enemy {
      * per frame across ~200 enemies at 'full', 1.09 ms at 'reduced'), and it runs
      * whether or not the player could tell — so EnemyManager grades it by distance
      * from the hero. Applied immediately when the enemy is on screen; a parked
-     * enemy stays on 'reduced' until the cull brings it back.
+     * enemy stays on 'off' until the cull brings it back.
      */
     public setVisibleAnimationLod(lod: AnimationLod): void {
         this._visibleAnimLod = lod;
@@ -450,13 +479,12 @@ export class Enemy {
     private _scratchDir: Vector3 = new Vector3();
     private _scratchMovement: Vector3 = new Vector3();
 
-    // Hit-flash state: per-instance restore cache + countdown timer. We store the
-    // material's ORIGINAL emissive Color object by reference (not r/g/b numbers and
-    // not a clone) — restore reassigns it, so there's zero per-hit allocation AND
-    // we never mutate the shared HIT_TINT constant (the old `.set()` path mutated
-    // it in place, which corrupted the tint for the whole run). Driven by
-    // Enemy.update() — no setTimeout pile-up.
-    private _flashRestore: { mat: MeshPhongMaterial; original: Color }[] = [];
+    // Hit-flash state: per-instance restore caches + countdown timer. See
+    // hitFlash.ts for the two tint mechanisms and why owned and container-shared
+    // materials cannot use the same one. Driven by Enemy.update() — no
+    // setTimeout pile-up.
+    private _flashRestore: FlashTint[] = [];
+    private _flashSwaps: FlashSwap[] = [];
     private _flashTimeRemaining: number = 0;
 
     constructor(game: Game, position: Vector3, path: Vector3[], speed: number, health: number, damage: number, reward: number) {
@@ -1182,6 +1210,20 @@ export class Enemy {
     protected createStatusEffectParticles(effect: StatusEffect): void {
         if (!this.mesh) return;
 
+        // A dead enemy must never gain an aura. Powers damage first and apply
+        // their status second (takeDamage(...) then applyStatusEffect(...)), so a
+        // killing blow that also burns landed here AFTER die() had freed this map
+        // and handed the enemy to the corpse list, and from that point nothing
+        // owned the map: disposeCorpse() releases the corpse, and dispose() (which
+        // does clear it) is not on that path. The system was stranded forever,
+        // still simulating on the particle bus and still drawing as a scene-root
+        // THREE.Points at the spot the enemy died, and still holding one slot of
+        // the status-visual budget below. Measured at 123 live `burningParticles`
+        // after ~2 minutes of stress play, ~14 us each per frame, growing without
+        // bound. die() already documents that a corpse shows no status particles;
+        // this is what makes that true from every direction.
+        if (!this.alive) return;
+
         // Idempotent: keep a running effect instead of dispose+recreate on every
         // status re-apply (Frostfire etc. refresh BURNING/CHILL each cast). Recreating the
         // system per apply churns GPU buffers across many enemies = a per-frame hitch. It
@@ -1209,6 +1251,8 @@ export class Enemy {
         try {
             particleSystem = new ParticleEffect(`${effect}Particles`, this.scene, config, {
                 follow: this.mesh,
+                // One recipe per StatusEffect, so the key set is the enum.
+                sharedMaterial: `${effect}Particles`,
             });
         } catch (err) {
             // A slot reserved for a system that never existed would permanently
@@ -1348,26 +1392,11 @@ export class Enemy {
             return;
         }
 
-        // Snapshot emissive colors for restore, then overwrite. Walk the tree once.
+        // Snapshot the restore state, then tint. Walk the tree once.
         this._flashRestore.length = 0;
-        this.mesh.traverse(node => this._collectFlashEmissive(node as Mesh));
+        this._flashSwaps.length = 0;
+        this.mesh.traverse(node => collectHitFlash(node as FlashTarget, this._flashSwaps, this._flashRestore));
         this._flashTimeRemaining = HIT_FLASH_DURATION_S;
-    }
-
-    /** Push one mesh's emissive into the flash restore cache and tint it. */
-    private _collectFlashEmissive(mesh: { material?: unknown }): void {
-        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-        for (const raw of mats) {
-            const mat = raw as MeshPhongMaterial | null | undefined;
-            if (!mat || mat.emissive === undefined) continue;
-            // Material already shows the shared HIT_TINT (another enemy sharing a
-            // cached material is mid-flash) — don't capture/re-tint it. Capturing
-            // HIT_TINT as the "original" would leave it stuck red once we restore,
-            // and the other enemy already owns the restore.
-            if (mat.emissive === HIT_TINT) continue;
-            this._flashRestore.push({ mat, original: mat.emissive });
-            mat.emissive = HIT_TINT;
-        }
     }
 
     /** Tick the hit-flash timer. Called from update() — restores original
@@ -1384,11 +1413,7 @@ export class Enemy {
      *  Called when the flash window expires, and on death/dispose so a flash
      *  that's interrupted by death doesn't leave a shared material stuck red. */
     private _restoreFlash(): void {
-        for (let i = 0; i < this._flashRestore.length; i++) {
-            const e = this._flashRestore[i];
-            try { e.mat.emissive = e.original; } catch (_) { /* mat disposed */ }
-        }
-        this._flashRestore.length = 0;
+        restoreHitFlash(this._flashSwaps, this._flashRestore);
         this._flashTimeRemaining = 0;
     }
 
@@ -1529,6 +1554,14 @@ export class Enemy {
     protected _beginDeathSequence(): void {
         this.corpseBaseScale = this.mesh ? this.mesh.scale.x : 1;
 
+        // An enemy killed off screen was parked at 'off', banking every second it
+        // spent there. _beginCorpse un-parks it (a corpse leaves enemies[], so
+        // the cull stops maintaining it), and replaying that bank would run the
+        // one-shot death clip straight to its clamped end on the frame it starts.
+        // The looping clips below it are what the banked time exists for; this
+        // one is not.
+        this.glbInstance?.resetAnimationClock();
+
         if (this.glbAnimationGroups.length > 0) {
             for (const ag of this.glbAnimationGroups) {
                 try { ag.stop(); } catch (_) { /* already stopped */ }
@@ -1617,6 +1650,14 @@ export class Enemy {
         this.disposeAuxVisuals();
         this._releaseMeshAndAnimations();
         this._disposeHealthBarMeshes();   // also free the health bar (idempotent; safe after die())
+        // Terminal release for BOTH corpse paths (local + co-op guest), so this is
+        // the last chance any status aura still in the map has to be freed. die()
+        // and playDeathAnimThenDispose() both clear it before we get here and
+        // createStatusEffectParticles refuses to refill it once `alive` is false,
+        // so this is normally a no-op. It is what keeps a future post-death apply
+        // path from stranding a scene-root Points + a status-visual slot again.
+        this.statusEffectParticles.forEach(particleSystem => particleSystem.dispose());
+        this.statusEffectParticles.clear();
         const done = this._netCorpseOnDisposed;
         this._netCorpseOnDisposed = null;
         if (done) done();
@@ -1650,7 +1691,7 @@ export class Enemy {
                     transform: { position: deathPos.clone(), rotation: new Vector3(-Math.PI / 2, 0, 0) },
                     renderer: fxRenderer('additive'),
                 },
-                { autoDispose: true }
+                { autoDispose: true, sharedMaterial: 'deathBurst' }
             );
             scheduleDeathBurstTeardown(this.scene, ps);
         }

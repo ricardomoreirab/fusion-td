@@ -127,12 +127,14 @@ describe('elementImpactConfig', () => {
         }
     });
 
-    it('returns a fresh object per call', () => {
-        const a = elementImpactConfig('fire');
-        const b = elementImpactConfig('fire');
-        expect(a).not.toBe(b);
-        expect(a.emission).not.toBe(b.emission);
-        expect(a.emission?.bursts).not.toBe(b.emission?.bursts);
+    // One-shot recipes are MEMOISED, unlike the looping ones above: BurstPool
+    // keys its free lists on the config object's identity, so a builder handing
+    // back a fresh literal every call would silently disable pooling. Callers
+    // must treat the result as read-only.
+    it('returns the same object for the same recipe, and distinct objects per recipe', () => {
+        expect(elementImpactConfig('fire')).toBe(elementImpactConfig('fire'));
+        expect(elementImpactConfig('fire')).not.toBe(elementImpactConfig('ice'));
+        expect(elementImpactConfig('fire')).not.toBe(elementImpactConfig('fire', 0.6));
     });
 
     it('is a one-shot burst (looping false, burst at t=0, duration = max lifetime + 0.1)', () => {
@@ -280,11 +282,9 @@ describe('elementFlashConfig', () => {
         }
     });
 
-    it('returns a fresh object per call', () => {
-        const a = elementFlashConfig('storm');
-        const b = elementFlashConfig('storm');
-        expect(a).not.toBe(b);
-        expect(a.emission?.bursts).not.toBe(b.emission?.bursts);
+    it('returns the same object for the same recipe (the BurstPool key)', () => {
+        expect(elementFlashConfig('storm')).toBe(elementFlashConfig('storm'));
+        expect(elementFlashConfig('storm')).not.toBe(elementFlashConfig('storm', 1.4));
     });
 
     it('is a tiny one-shot burst (looping false, burst at t=0, duration = max lifetime + 0.1)', () => {
@@ -347,10 +347,9 @@ describe('elementNovaConfig', () => {
         }
     });
 
-    it('returns a fresh object per call', () => {
-        const a = elementNovaConfig('arcane', RADIUS);
-        const b = elementNovaConfig('arcane', RADIUS);
-        expect(a).not.toBe(b);
+    it('returns the same object for the same recipe (the BurstPool key)', () => {
+        expect(elementNovaConfig('arcane', RADIUS)).toBe(elementNovaConfig('arcane', RADIUS));
+        expect(elementNovaConfig('arcane', RADIUS)).not.toBe(elementNovaConfig('arcane', RADIUS, 2));
     });
 
     it('is a one-shot CIRCLE burst laid flat via transform.rotation', () => {

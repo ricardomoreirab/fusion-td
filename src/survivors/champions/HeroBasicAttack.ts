@@ -561,10 +561,13 @@ export class HeroBasicAttack {
         const heroPos = this.getHeroPosition();
         const range = this.effectiveRange;
         const rangeSq = range * range;
-        for (const e of this.enemyProvider()) {
-            if (!e.isAlive()) continue;
-            const dx = e.getPosition().x - heroPos.x;
-            const dz = e.getPosition().z - heroPos.z;
+        const live = this.enemyProvider();
+        for (let i = 0; i < live.length; i++) {
+            const e = live[i];
+            if (!e.alive) continue;
+            const p = e.position;
+            const dx = p.x - heroPos.x;
+            const dz = p.z - heroPos.z;
             if (dx * dx + dz * dz <= rangeSq) return true;
         }
         return false;
@@ -582,10 +585,12 @@ export class HeroBasicAttack {
         // exists (hasMeleeTarget), so the crest always has a lane to travel.
         let aim: Enemy | null = null;
         let aimDistSq = Infinity;
-        for (const e of enemies) {
-            if (!e.isAlive()) continue;
-            const dx = e.getPosition().x - heroPos.x;
-            const dz = e.getPosition().z - heroPos.z;
+        for (let i = 0; i < enemies.length; i++) {
+            const e = enemies[i];
+            if (!e.alive) continue;
+            const p = e.position;
+            const dx = p.x - heroPos.x;
+            const dz = p.z - heroPos.z;
             const dSq = dx * dx + dz * dz;
             if (dSq <= rangeSq && dSq < aimDistSq) { aim = e; aimDistSq = dSq; }
         }
@@ -643,11 +648,15 @@ export class HeroBasicAttack {
         // Live enemy list each step — enemies that walk into the lane mid-flight
         // are still hit (the old instant cone only saw its cast-time snapshot).
         const enemies = this.enemyProvider ? this.enemyProvider() : [];
-        for (const e of enemies) {
-            if (!e.isAlive() || w.hit.has(e)) continue;
-            const dx = e.getPosition().x - w.origin.x;
-            const dz = e.getPosition().z - w.origin.z;
+        const ox = w.origin.x, oz = w.origin.z;
+        for (let i = 0; i < enemies.length; i++) {
+            const e = enemies[i];
+            if (!e.alive) continue;
+            const p = e.position;
+            const dx = p.x - ox;
+            const dz = p.z - oz;
             if (!isInSlashBand(dx, dz, w.dirX, w.dirZ, prev, w.front, halfWidth)) continue;
+            if (w.hit.has(e)) continue;
             w.hit.add(e);
             this.applyHit(e, w.origin, enemies);
             // Baseline shove along the travel direction — the crest carries the
@@ -731,10 +740,14 @@ export class HeroBasicAttack {
         this.onSwingCallback?.(center.x, center.z);
         const enemies = this.enemyProvider ? this.enemyProvider() : [];
         const rSq = radius * radius;
-        for (const e of enemies) {
-            if (!e.isAlive()) continue;
-            const dx = e.getPosition().x - center.x;
-            const dz = e.getPosition().z - center.z;
+        // `center` is deliberately re-read per enemy, not hoisted: the caller owns
+        // that Vector3 (Whirlwind hands in the hero's live position).
+        for (let i = 0; i < enemies.length; i++) {
+            const e = enemies[i];
+            if (!e.alive) continue;
+            const p = e.position;
+            const dx = p.x - center.x;
+            const dz = p.z - center.z;
             if (dx * dx + dz * dz <= rSq) {
                 this.applyHit(e, center, enemies);
             }
@@ -942,9 +955,11 @@ export class HeroBasicAttack {
         const need = total - 1;
         const bestE: Enemy[] = [];
         const bestD2: number[] = [];
-        for (const e of this.enemyProvider()) {
-            if (!e.isAlive()) continue;
-            const ep = e.getPosition();
+        const liveForVolley = this.enemyProvider();
+        for (let i = 0; i < liveForVolley.length; i++) {
+            const e = liveForVolley[i];
+            if (!e.alive) continue;
+            const ep = e.position;
             // Skip the primary target — compare positions (BasicAttackTarget hides identity).
             const dxp = ep.x - primary.position.x;
             const dzp = ep.z - primary.position.z;
@@ -1248,9 +1263,11 @@ export class HeroBasicAttack {
         const reach = this.effectiveRange;
         let best: Enemy | null = null;
         let bestForward = Infinity;
-        for (const e of this.enemyProvider()) {
-            if (!e.isAlive() || f.struck.has(e)) continue;
-            const ep = e.getPosition();
+        const live = this.enemyProvider();
+        for (let i = 0; i < live.length; i++) {
+            const e = live[i];
+            if (!e.alive || f.struck.has(e)) continue;
+            const ep = e.position;
             const dx = ep.x - from.x;
             const dz = ep.z - from.z;
             const forward = dx * f.pierceDirX + dz * f.pierceDirZ;
@@ -1269,9 +1286,11 @@ export class HeroBasicAttack {
         let best: Enemy | null = null;
         const rr = this.pol.ricochetRadius() || RICOCHET_RADIUS;
         let bestD2 = rr * rr;
-        for (const e of this.enemyProvider()) {
-            if (!e.isAlive() || struck.has(e)) continue;
-            const ep = e.getPosition();
+        const live = this.enemyProvider();
+        for (let i = 0; i < live.length; i++) {
+            const e = live[i];
+            if (!e.alive || struck.has(e)) continue;
+            const ep = e.position;
             const dx = ep.x - from.x;
             const dz = ep.z - from.z;
             const d2 = dx * dx + dz * dz;

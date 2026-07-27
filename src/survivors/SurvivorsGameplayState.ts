@@ -67,6 +67,9 @@ import { DifficultyTuning } from './DifficultyTuning';
 import { GameSettings, bladeCountForQuality } from '../shared/GameSettings';
 import { clearMaterialCache, getCachedMaterial, getMaterialCacheSize } from '../engine/rendering/MaterialCache';
 import { clearProjectilePools } from '../engine/rendering/ProjectilePool';
+import { clearParticleMaterialCache } from '../engine/three/particles/ParticleEffect';
+import { clearBurstPool } from '../engine/three/particles/BurstPool';
+import { clearBurstFields } from '../engine/three/particles/BurstField';
 import { formatBuckets } from '../engine/rendering/resourceBudget';
 import { CoopSession } from './coop/CoopSession';
 import { GuestEnemies } from './coop/GuestEnemies';
@@ -3084,6 +3087,16 @@ export class SurvivorsGameplayState implements GameState {
         // acquire, so clearing the cache never leaves a pooled mesh on a dead material.
         clearMaterialCache();
         clearProjectilePools();
+        // Same contract, for the per-recipe particle materials: every live
+        // ParticleEffect has been disposed by now (its own material went back to
+        // it first — see ParticleEffect.dispose), so nothing is still drawing
+        // through these.
+        // Merged burst fields and pooled burst effects outlive their own spawn by
+        // design, so they have to be released BEFORE the materials they draw
+        // through.
+        clearBurstFields();
+        clearBurstPool();
+        clearParticleMaterialCache();
 
         // Restore the render-quality baseline if the late-wave trim engaged this
         // run (the pipeline is persistent, Game-owned, so it would otherwise
@@ -4578,9 +4591,11 @@ export class SurvivorsGameplayState implements GameState {
             enemiesNearCount: (x, z, radius) => {
                 const rSq = radius * radius;
                 let n = 0;
-                for (const e of this.activeAttackEnemies()) {
-                    if (!e.isAlive()) continue;
-                    const p = e.getPosition();
+                const live = this.activeAttackEnemies();
+                for (let i = 0; i < live.length; i++) {
+                    const e = live[i];
+                    if (!e.alive) continue;
+                    const p = e.position;
                     const dx = p.x - x, dz = p.z - z;
                     if (dx * dx + dz * dz <= rSq) n++;
                 }
@@ -4588,9 +4603,11 @@ export class SurvivorsGameplayState implements GameState {
             },
             forEachEnemyNear: (x, z, radius, cb) => {
                 const rSq = radius * radius;
-                for (const e of this.activeAttackEnemies()) {
-                    if (!e.isAlive()) continue;
-                    const p = e.getPosition();
+                const live = this.activeAttackEnemies();
+                for (let i = 0; i < live.length; i++) {
+                    const e = live[i];
+                    if (!e.alive) continue;
+                    const p = e.position;
                     const dx = p.x - x, dz = p.z - z;
                     if (dx * dx + dz * dz <= rSq) cb(e as unknown as AscEnemy);
                 }

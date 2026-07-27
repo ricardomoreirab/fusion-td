@@ -45,7 +45,6 @@ export class EnemyManager {
      *  one, matching getEnemyById's existing behavior of never matching those. */
     private enemiesById: Map<number, Enemy> = new Map();
     private playerStats: PlayerStats | null = null;
-    private compositePath: Vector3[] | null = null;
     private splitHandler: ((e: Event) => void) | null = null;
     private healHandler: ((e: Event) => void) | null = null;
     private cloneHandler: ((e: Event) => void) | null = null;
@@ -433,9 +432,9 @@ export class EnemyManager {
      * near-miss renders rather than pops.
      *
      * The animation grade rides along here because it needs the same per-enemy
-     * position read: parked enemies drop to 'reduced' (they are not drawn at
-     * all), visible enemies far from the hero to 'half', and only the ones in
-     * the actual fight stay on 'full'.
+     * position read: parked enemies drop to 'off' (they are detached, so nothing
+     * can read the pose), visible enemies far from the hero to 'half', and only
+     * the ones in the actual fight stay on 'full'.
      */
     private _cullOffscreen(): void {
         const camera = this.cullCamera;
@@ -448,8 +447,10 @@ export class EnemyManager {
         const hero = this.heroProvider?.getPosition() ?? null;
         const fullSq = EnemyManager.ANIM_FULL_RATE_RADIUS * EnemyManager.ANIM_FULL_RATE_RADIUS;
 
-        for (const enemy of this.enemies) {
-            const p = enemy.getPosition();
+        const list = this.enemies;
+        for (let i = 0; i < list.length; i++) {
+            const enemy = list[i];
+            const p = enemy.position;
             this._cullSphere.center.set(p.x, p.y + 1, p.z);
             // Shadow casters get a padded radius: the key light is high and its
             // map only spans ±42 around the hero, so anything that could throw a
@@ -752,13 +753,6 @@ export class EnemyManager {
     }
 
     /**
-     * Set the composite path (spanning all segments) for new enemy spawning.
-     */
-    public setCompositePath(path: Vector3[]): void {
-        this.compositePath = path;
-    }
-
-    /**
      * Extend paths of all currently in-flight enemies with bridge + new segment waypoints.
      */
     public extendAllEnemyPaths(additionalPoints: Vector3[]): void {
@@ -921,9 +915,11 @@ export class EnemyManager {
         const rangeSq = range * range;
         const out = this._inRangeResult;
         out.length = 0;
-        for (const enemy of this.enemies) {
-            if (!enemy.isAlive()) continue;
-            const ep = enemy.getPosition();
+        const list = this.enemies;
+        for (let i = 0; i < list.length; i++) {
+            const enemy = list[i];
+            if (!enemy.alive) continue;
+            const ep = enemy.position;
             const dx = ep.x - position.x;
             const dy = ep.y - position.y;
             const dz = ep.z - position.z;
@@ -940,10 +936,12 @@ export class EnemyManager {
         // Track squared distance to avoid a sqrt per enemy — ordering is identical.
         let closestDistanceSq = maxRange !== undefined ? maxRange * maxRange : Number.MAX_VALUE;
 
-        for (const enemy of this.enemies) {
-            if (!enemy.isAlive()) continue;
+        const list = this.enemies;
+        for (let i = 0; i < list.length; i++) {
+            const enemy = list[i];
+            if (!enemy.alive) continue;
 
-            const ep = enemy.getPosition();
+            const ep = enemy.position;
             const dx = ep.x - position.x;
             const dy = ep.y - position.y;
             const dz = ep.z - position.z;

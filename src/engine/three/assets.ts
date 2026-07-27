@@ -7,12 +7,17 @@
  * caller an independent skinned clone via SkeletonUtils.clone plus its own
  * AnimationMixer and one AnimGroup per clip.
  *
+ * Materials are SHARED with the container by default and cloned only on demand
+ * (ensureOwnMaterials) - see the comment on that method for why the default
+ * matters at horde scale.
+ *
  * Disposal invariants (see glb_skeleton_and_lifecycle_leaks):
- *   - instance dispose: cloned MATERIALS are disposed (clones share the
- *     source textures - those are container-owned and must NOT be freed
- *     per instance), every SkinnedMesh's skeleton is disposed (frees the
+ *   - instance dispose: materials this instance CLONED are disposed (clones
+ *     share the source textures - those are container-owned and must NOT be
+ *     freed per instance), every SkinnedMesh's skeleton is disposed (frees the
  *     per-clone bone matrix texture), the mixer is fully uncached, and the
- *     mixer's update hook leaves the SceneHost animation bus.
+ *     mixer's update hook leaves the SceneHost animation bus. An instance that
+ *     never took ownership has nothing of its own to free.
  *   - clearContainerCache(): frees source geometries, materials, and
  *     textures. Call only when no instances are alive.
  */
@@ -28,6 +33,10 @@ import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js';
 import { MeshoptDecoder } from 'meshoptimizer/meshopt_decoder.module.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { AnimGroup } from './AnimGroup';
+import { boneNamesDrivenByEuler, detachBoneEulerMirror } from './boneEulerMirror';
+import { installFlatSkeletonUpdate } from './flatSkeletonMatrices';
+import { hideBoneSubtrees } from './hideBoneSubtrees';
+import { pruneStaticTracks } from './pruneStaticTracks';
 import type { SceneHost, UpdateToken } from './SceneHost';
 
 /**
@@ -37,13 +46,19 @@ import type { SceneHost, UpdateToken } from './SceneHost';
  *             that a two-frame pose hold is below the threshold of noticing.
  *   reduced - mixer.update at REDUCED_ANIM_HZ, folding the skipped frames into
  *             one larger step so the clip never drifts out of phase.
- *   off     - frozen pose; the elapsed time is still carried so resuming does
- *             not lose the clip's position.
+ *   off     - frozen pose; the elapsed time is still carried, and the FIRST
+ *             update after resuming advances the mixer by the whole frozen
+ *             interval. Clip time is therefore linear in wall time no matter how
+ *             long the freeze lasted, so the resumed pose is exactly the one a
+ *             never-frozen mixer would be holding. For an entity that is not in
+ *             the scene graph at all this is strictly free.
  */
 export type AnimationLod = 'full' | 'half' | 'reduced' | 'off';
 
-/** Update rate of the `reduced` tier. Off-screen skeletons are never sampled by
- *  the renderer, so their only visible artefact is the pose they resume on. */
+/** Update rate of the `reduced` tier - for an entity that is still IN the scene
+ *  graph but whose pose the player cannot resolve. An entity the owner has
+ *  detached belongs on `off` instead: throttling costs a tenth of the posing to
+ *  produce a pose nothing can read. */
 const REDUCED_ANIM_HZ = 10;
 const REDUCED_ANIM_STEP = 1 / REDUCED_ANIM_HZ;
 
@@ -61,16 +76,106 @@ export interface ContainerInstance {
     /**
      * Throttle this instance's skeleton evaluation. At horde scale mixer.update
      * is the dominant per-entity CPU cost and it runs regardless of visibility -
-     * the renderer's frustum culling only skips DRAWING, never posing. Owners
-     * that know an entity is off-screen should drop it to 'reduced'; visible but
-     * distant entities belong on 'half'.
+     * the renderer's frustum culling only skips DRAWING, never posing. An owner
+     * that has taken the instance OUT of the scene graph should drop it to 'off'
+     * (nothing can read the pose, and resuming replays the frozen interval);
+     * visible but distant entities belong on 'half'.
+     *
+     * Resuming is only seamless because the owner un-parks BEFORE the animation
+     * bus runs for that frame - Game.frameTick is state update, then
+     * SceneHost.tick - so the catch-up lands on the same frame the entity is
+     * drawn again.
      */
     setAnimationLod(lod: AnimationLod): void;
+    /**
+     * Discard time banked by a throttled/frozen tier without applying it.
+     *
+     * The tiers are time-preserving by design: whatever they skip is replayed on
+     * the next update, so a resumed clip is exactly where a full-rate one would
+     * be. That is right for the looping clips an entity holds indefinitely and
+     * wrong for a ONE-SHOT clip the owner is starting right now - replaying a
+     * long freeze would run it to its clamped end on the frame it began. Call
+     * this immediately before starting such a clip.
+     */
+    resetAnimationClock(): void;
+    /**
+     * Replace this instance's materials with private clones.
+     *
+     * Instances SHARE the container's materials by default, because at horde
+     * scale the material IDENTITY is one of the largest costs in the frame:
+     * three's renderer re-uploads a draw's whole uniform list whenever
+     * `material.id` differs from the previous draw, so 250 clones mean 250 full
+     * uniform refreshes per frame instead of one. (It also unblocks the depth
+     * sort — the opaque list orders by `renderOrder`, then `material.id`, and
+     * only then by depth, so distinct ids mean the horde draws in spawn order.
+     * That part turns out to be worth nothing on a tile-based deferred GPU,
+     * which resolves visibility before shading; the uniform refresh is the win.)
+     *
+     * Measured at ~260 enemies by flipping the variant on EVERY frame and
+     * bucketing that frame's wall clock by variant, then repeating with the
+     * parity inverted: 8.99 -> 8.01 ms/frame, -10.8%, reproduced in two
+     * sessions. Block-level A/B cannot see this — see CLAUDE.md.
+     *
+     * Call this from any owner that MUTATES its materials (the hero tints its
+     * weapon emissive and injects a rim-light `onBeforeCompile`). Idempotent.
+     * Enemies deliberately do not: their only material mutation is the hit
+     * flash, which swaps to a shared flash variant instead (see Enemy.flashHit).
+     */
+    ensureOwnMaterials(): void;
     dispose(): void;
 }
 
+/** Flag a container's source materials as container-owned and shared by every
+ *  instance. `cached` is the project-wide "only its owner may dispose this"
+ *  marker that disposeMesh honours; `glbShared` additionally tells per-instance
+ *  visual effects that mutating this material in place would bleed across the
+ *  whole horde. */
+function markSharedMaterials(scene: Object3D): void {
+    scene.traverse(node => {
+        const mesh = node as Mesh;
+        if (!mesh.isMesh || !mesh.material) return;
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        for (const mat of mats) {
+            mat.userData.cached = true;
+            mat.userData.glbShared = true;
+        }
+    });
+}
+
+/** Clone a shared source material into one this instance owns outright. The
+ *  shared markers must not survive the clone - a private copy is exactly the
+ *  thing effects are allowed to mutate, and its owner disposes it. */
+function cloneOwned(source: Material, out: Material[]): Material {
+    const clone = source.clone(); // shares the source textures
+    delete clone.userData.cached;
+    delete clone.userData.glbShared;
+    out.push(clone);
+    return clone;
+}
+
 export class GlbContainer {
-    constructor(public readonly gltf: GLTF) {}
+    /** Bones any clip poses through `.rotation`; they keep THREE's Euler mirror.
+     *  Empty on every shipped rig - see boneEulerMirror. */
+    private readonly eulerDrivenBones: ReadonlySet<string>;
+
+    constructor(public readonly gltf: GLTF) {
+        // Once per loaded URL (containers are cached), before any instance can
+        // exist: the exported rigs carry a constant-at-bind `.scale` track for
+        // every bone and a constant `.position` track for most, and every one of
+        // them costs an interpolant + a property-mixer write per instance per
+        // frame. See pruneStaticTracks for why removal is provably inert.
+        pruneStaticTracks(this.gltf.scene, this.gltf.animations);
+        markSharedMaterials(this.gltf.scene);
+        // Bones are 83-95% of a rig's nodes and the renderer walks every one of
+        // them - once building the render list, again per shadow update - to
+        // find nothing drawable. Hiding the skeleton root prunes the subtree
+        // from both walks while leaving the world-matrix pass (which skinning
+        // reads) untouched. Set on the CONTAINER so every clone inherits it:
+        // Object3D.copy carries `visible` across, and SkeletonUtils.clone's own
+        // traversals ignore it.
+        hideBoneSubtrees(this.gltf.scene);
+        this.eulerDrivenBones = boneNamesDrivenByEuler(this.gltf.animations);
+    }
 
     public instantiate(host: SceneHost, namePrefix = ''): ContainerInstance {
         const root = cloneSkinned(this.gltf.scene) as Group;
@@ -80,25 +185,36 @@ export class GlbContainer {
         // the model T-poses. The root Group itself is never a track target.
         if (namePrefix) root.name = `${namePrefix}${root.name}`;
 
-        // Per-instance material clones so tint/flash effects never bleed
-        // across instances (Babylon's cloneMaterials: true). Clones share
-        // the source textures.
+        // Bones are ~83% of the scene graph and the one full-graph walk they
+        // cannot be pruned from is the world-matrix pass skinning reads. Swap
+        // THREE's recursion over this clone's skeleton for the equivalent flat
+        // loop (bit-identical output, ~40% of the pass). Per INSTANCE, not per
+        // container: Object3D.copy carries data fields across a clone but not
+        // own methods.
+        installFlatSkeletonUpdate(root);
+
+        // THREE mirrors every quaternion write back into an Euler nobody reads,
+        // at the cost of a matrix compose plus an asin and two atan2 per bone
+        // per frame - a third of the animation bus at horde scale. Per INSTANCE
+        // for the same reason as above: the mirror is a callback on the
+        // quaternion, which a clone re-attaches.
+        detachBoneEulerMirror(root, this.eulerDrivenBones);
+
+        // Materials stay shared with the container until an owner asks for its
+        // own — see ensureOwnMaterials for what that default is worth.
         const clonedMaterials: Material[] = [];
-        root.traverse(node => {
-            const mesh = node as Mesh;
-            if (!mesh.isMesh || !mesh.material) return;
-            if (Array.isArray(mesh.material)) {
-                mesh.material = mesh.material.map(m => {
-                    const c = m.clone();
-                    clonedMaterials.push(c);
-                    return c;
-                });
-            } else {
-                const c = mesh.material.clone();
-                clonedMaterials.push(c);
-                mesh.material = c;
-            }
-        });
+        let ownsMaterials = false;
+        const ensureOwnMaterials = (): void => {
+            if (ownsMaterials) return;
+            ownsMaterials = true;
+            root.traverse(node => {
+                const mesh = node as Mesh;
+                if (!mesh.isMesh || !mesh.material) return;
+                mesh.material = Array.isArray(mesh.material)
+                    ? mesh.material.map(m => cloneOwned(m, clonedMaterials))
+                    : cloneOwned(mesh.material, clonedMaterials);
+            });
+        };
 
         const mixer = new AnimationMixer(root);
         const animationGroups = this.gltf.animations.map(clip => new AnimGroup(mixer, clip));
@@ -120,6 +236,8 @@ export class GlbContainer {
             animationGroups,
             mixer,
             setAnimationLod: (next: AnimationLod) => { lod = next; },
+            resetAnimationClock: () => { carried = 0; },
+            ensureOwnMaterials,
             dispose: () => {
                 if (disposed) return;
                 disposed = true;

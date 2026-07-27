@@ -6,7 +6,7 @@ import { PALETTE } from '../../engine/rendering/StyleConstants';
 import { AnimGroup } from '../../engine/three/AnimGroup';
 import type { GlbContainer } from '../../engine/three/assets';
 import { headingToYaw } from '../../engine/three/math';
-import { createBox, createCylinder, createPolyhedron, createSphere, disposeMesh, isMeshDisposed } from '../../engine/three/primitives';
+import { createBox, createCylinder, createPolyhedron, createSphere, createTransformHost, disposeMesh, isMeshDisposed } from '../../engine/three/primitives';
 
 /** NORMAL-tier health-bar fill size for this class. Module-level + frozen: it is
  *  read on every bar rebuild and must never be a per-instance literal. */
@@ -94,9 +94,7 @@ export class FastEnemy extends Enemy {
 
     private createMeshFromGLB(asset: GlbContainer): void {
         this.usingGLB = true;
-        this.mesh = new Mesh();
-        this.mesh.name = 'fastEnemyGlbRoot';
-        this.scene.scene.add(this.mesh);
+        this.mesh = createTransformHost('fastEnemyGlbRoot', this.scene);
         this.mesh.position.copy(this.position);
 
         const inst = asset.instantiate(this.scene, 'fast_');

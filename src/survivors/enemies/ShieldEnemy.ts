@@ -8,7 +8,7 @@ import type { GlbContainer } from '../../engine/three/assets';
 import { headingToYaw } from '../../engine/three/math';
 import { fxRenderer, fxSize, ParticleEffect } from '../../engine/three/particles/ParticleEffect';
 import { LifeTimeCurve, Shape } from '@newkrok/three-particles';
-import { createBox, createCylinder, createSphere, disposeMesh } from '../../engine/three/primitives';
+import { createBox, createCylinder, createSphere, createTransformHost, disposeMesh } from '../../engine/three/primitives';
 
 export class ShieldEnemy extends Enemy {
     /** Static slot used by EnemyManager.spawnSurvivorsEnemy to stage a preloaded GLB
@@ -88,9 +88,7 @@ export class ShieldEnemy extends Enemy {
 
     private createMeshFromGLB(asset: GlbContainer): void {
         this.usingGLB = true;
-        this.mesh = new Mesh(); // empty transform host (renders nothing)
-        this.mesh.name = 'shieldEnemyGlbRoot';
-        this.scene.scene.add(this.mesh);
+        this.mesh = createTransformHost('shieldEnemyGlbRoot', this.scene);
         this.mesh.position.copy(this.position);
 
         const inst = asset.instantiate(this.scene, 'shield_');
@@ -729,7 +727,7 @@ export class ShieldEnemy extends Enemy {
                 map: getStatusEffectTexture(),
                 renderer: fxRenderer('additive'),
             },
-            { autoDispose: true }
+            { autoDispose: true, sharedMaterial: 'deathParticles' }
         );
 
         // Play sound effect

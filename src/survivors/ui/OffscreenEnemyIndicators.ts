@@ -1,6 +1,7 @@
 import { Camera, Vector3 } from 'three';
 import { Enemy } from '../enemies/Enemy';
 import { BossEnemy } from '../enemies/BossEnemy';
+import { observeCanvasSize, type CanvasSize } from '../../engine/canvasSize';
 
 const ELEMENT_HEX: Record<string, string> = {
     fire:     '#ff5500',
@@ -23,17 +24,29 @@ interface Dot {
     top: number;
 }
 
+
 /**
  * Screen-edge dots for off-screen enemies (DOM port of the old Babylon-GUI
  * version). One absolutely-positioned circular div per off-screen enemy,
  * pooled per enemy in `active` exactly like the old Rectangle pool.
  *
  * The camera is threaded as a direct reference (same as the Babylon version,
- * which received heroController.getCamera()). Render size comes from
- * canvas.clientWidth/Height.
+ * which received heroController.getCamera()). Render size comes from the
+ * observed canvas size rather than a direct `clientWidth` read: this pass runs
+ * right after the HUD's per-frame style writes, so measuring here forced a
+ * synchronous layout of the whole document — including every dot — once a frame.
+ *
+ * Dots are placed with `transform`, not `left`/`top`. A streaming horde puts
+ * 60-80% of its enemies off screen, so this moves ~150 absolutely-positioned
+ * elements per frame, and `left`/`top` dirties layout for every one of them.
+ * Centring is a negative margin rather than the `translate(-50%, -50%)` the
+ * Babylon port used: the dot's box is a fixed pixel size, so the two are
+ * identical on screen, and it keeps the per-frame transform down to one short
+ * translate instead of a two-function string with percentages to resolve.
+ * Measured over 150 dots: left/top 664us, percentage transform 604us,
+ * margin-centred transform 454us per frame.
  */
 export class OffscreenEnemyIndicators {
-    private canvas: HTMLCanvasElement;
     private camera: Camera;
     private getEnemies: () => Enemy[];
     /** Layer the dots mount into — pointer-events: none, viewport-covering. */
@@ -44,6 +57,8 @@ export class OffscreenEnemyIndicators {
     private _seen: Set<Enemy> = new Set<Enemy>();
     /** Scratch vector reused per enemy per frame so the projection allocates nothing. */
     private _scratchProject: Vector3 = new Vector3();
+    /** Layout-free canvas size (see the class comment). */
+    private viewport: CanvasSize;
 
     constructor(
         canvas: HTMLCanvasElement,
@@ -51,16 +66,16 @@ export class OffscreenEnemyIndicators {
         getEnemies: () => Enemy[],
         parent?: HTMLElement,
     ) {
-        this.canvas = canvas;
         this.camera = camera;
         this.getEnemies = getEnemies;
         this.layer = parent ?? document.getElementById('ui-root') ?? document.body;
+        this.viewport = observeCanvasSize(canvas);
     }
 
     public update(): void {
         const enemies = this.getEnemies();
-        const sw = this.canvas.clientWidth;
-        const sh = this.canvas.clientHeight;
+        const sw = this.viewport.width;
+        const sh = this.viewport.height;
         if (sw === 0 || sh === 0) return;
         this._seen.clear();
         const seen = this._seen;
@@ -70,14 +85,15 @@ export class OffscreenEnemyIndicators {
         this.camera.updateMatrixWorld();
         const sp = this._scratchProject;
 
-        for (const e of enemies) {
-            if (!e.isAlive()) continue;
+        for (let i = 0; i < enemies.length; i++) {
+            const e = enemies[i];
+            if (!e.alive) continue;
             seen.add(e);
 
             // Project world → screen via the shared scratch Vector3. View space
             // first: the camera looks down -Z, so viewZ > 0 means behind it
             // (Babylon's sp.z < 0 case).
-            sp.copy(e.getPosition()).applyMatrix4(this.camera.matrixWorldInverse);
+            sp.copy(e.position).applyMatrix4(this.camera.matrixWorldInverse);
             const inFront = sp.z < 0;
             sp.applyMatrix4(this.camera.projectionMatrix); // NDC (perspective divide)
             const sx = (sp.x * 0.5 + 0.5) * sw;
@@ -126,9 +142,10 @@ export class OffscreenEnemyIndicators {
                 const el = document.createElement('div');
                 el.style.position = 'absolute';
                 el.style.pointerEvents = 'none';
-                // Centre the dot on its (left, top) point, like the old
-                // centre-aligned ADT control.
-                el.style.transform = 'translate(-50%, -50%)';
+                // Anchor at the layer origin once; the per-frame position rides
+                // the transform, which keeps it off the layout path.
+                el.style.left = '0';
+                el.style.top = '0';
                 el.style.boxSizing = 'border-box';
                 el.style.borderRadius = '50%';
                 dot = { el, styleCode: -1, left: Number.NaN, top: Number.NaN };
@@ -142,11 +159,15 @@ export class OffscreenEnemyIndicators {
                 this.applyStyle(dot.el, size, tier, elemIdx);
             }
             // Sub-pixel churn is invisible but each write costs a style recalc, so
-            // round and dirty-check both offsets.
+            // round and dirty-check both offsets. One transform carries both, so a
+            // dot that moved on either axis costs a single write.
             const left = Math.round(ex);
             const top  = Math.round(ey);
-            if (left !== dot.left) { dot.left = left; dot.el.style.left = `${left}px`; }
-            if (top !== dot.top)   { dot.top  = top;  dot.el.style.top  = `${top}px`; }
+            if (left !== dot.left || top !== dot.top) {
+                dot.left = left;
+                dot.top = top;
+                dot.el.style.transform = `translate(${left}px,${top}px)`;
+            }
         }
 
         // Clean up stale entries (dead enemies)
@@ -161,6 +182,10 @@ export class OffscreenEnemyIndicators {
     private applyStyle(el: HTMLDivElement, size: number, tier: number, elemIdx: number): void {
         el.style.width      = `${size}px`;
         el.style.height     = `${size}px`;
+        // Half the (border-box) size, so the transform target lands on the dot's
+        // centre. Re-applied with the size because the tiers differ.
+        el.style.marginLeft = `${-size / 2}px`;
+        el.style.marginTop  = `${-size / 2}px`;
         el.style.border     = tier > 0 ? '2px solid #ffffff' : 'none';
         el.style.background = tier === 2
             ? '#ff3333'
@@ -174,5 +199,6 @@ export class OffscreenEnemyIndicators {
             dot.el.remove();
         }
         this.active.clear();
+        this.viewport.dispose();
     }
 }

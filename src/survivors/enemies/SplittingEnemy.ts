@@ -7,7 +7,7 @@ import { PALETTE } from '../../engine/rendering/StyleConstants';
 import { AnimGroup } from '../../engine/three/AnimGroup';
 import type { GlbContainer } from '../../engine/three/assets';
 import { headingToYaw } from '../../engine/three/math';
-import { createBox, createCylinder, createDisc, disposeMesh, isMeshDisposed } from '../../engine/three/primitives';
+import { createBox, createCylinder, createDisc, createTransformHost, disposeMesh, isMeshDisposed } from '../../engine/three/primitives';
 
 export class SplittingEnemy extends Enemy {
     /** Static slot used by EnemyManager.spawnSurvivorsEnemy to stage a preloaded GLB
@@ -71,9 +71,7 @@ export class SplittingEnemy extends Enemy {
 
     private createMeshFromGLB(asset: GlbContainer): void {
         this.usingGLB = true;
-        this.mesh = new Mesh(); // empty transform host (renders nothing)
-        this.mesh.name = 'splittingEnemyGlbRoot';
-        this.scene.scene.add(this.mesh);
+        this.mesh = createTransformHost('splittingEnemyGlbRoot', this.scene);
         this.mesh.position.copy(this.position);
 
         const inst = asset.instantiate(this.scene, 'splitting_');
