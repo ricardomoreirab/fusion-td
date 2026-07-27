@@ -69,6 +69,7 @@ import { clearMaterialCache, getCachedMaterial, getMaterialCacheSize } from '../
 import { clearProjectilePools } from '../engine/rendering/ProjectilePool';
 import { clearParticleMaterialCache } from '../engine/three/particles/ParticleEffect';
 import { clearBurstPool } from '../engine/three/particles/BurstPool';
+import { clearBurstFields } from '../engine/three/particles/BurstField';
 import { formatBuckets } from '../engine/rendering/resourceBudget';
 import { CoopSession } from './coop/CoopSession';
 import { GuestEnemies } from './coop/GuestEnemies';
@@ -3090,8 +3091,10 @@ export class SurvivorsGameplayState implements GameState {
         // ParticleEffect has been disposed by now (its own material went back to
         // it first — see ParticleEffect.dispose), so nothing is still drawing
         // through these.
-        // Pooled burst effects outlive their own spawn by design, so they have to
-        // be released BEFORE the materials they draw through.
+        // Merged burst fields and pooled burst effects outlive their own spawn by
+        // design, so they have to be released BEFORE the materials they draw
+        // through.
+        clearBurstFields();
         clearBurstPool();
         clearParticleMaterialCache();
 

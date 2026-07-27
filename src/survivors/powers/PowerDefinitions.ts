@@ -10,6 +10,7 @@ import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
 import { buildArrowMesh, ARROW_FLIGHT_HEIGHT } from './ArrowMesh';
 import { ParticleEffect } from '../../engine/three/particles/ParticleEffect';
 import { spawnPooledBurst } from '../../engine/three/particles/BurstPool';
+import { spawnFieldBurst } from '../../engine/three/particles/BurstField';
 import {
     elementFlashConfig,
     elementImpactConfig,
@@ -173,11 +174,15 @@ export function autocastStatRows(def: PowerDefinition, level: number, next: numb
  *  against a horde runs it ~780 times a SECOND (see ParticleEffect's
  *  sharedMaterials note for the measured cost of not sharing).
  *
- *  Which is why it goes through BurstPool first: a recycled system costs ~2.3us
- *  against ~15.8us to build and tear one down. The pool declines anything whose
- *  recipe it cannot recycle without changing what is drawn, and that path is the
- *  original one-shot below. */
+ *  Which is why it goes through three tiers, cheapest first:
+ *   1. BurstField - every live burst of the recipe is ONE scene object and ONE
+ *      library system, so a spawn costs a queued position and nothing else;
+ *   2. BurstPool - a recycled per-spawn system (~2.3us) for recipes a field
+ *      cannot merge, or when the field is full for this frame;
+ *   3. the original one-shot below (~15.8us to build and tear down).
+ *  Each tier declines anything it cannot reproduce exactly. */
 function spawnFx(scene: SceneHost, name: string, config: ParticleSystemConfig, position: Vector3): void {
+    if (spawnFieldBurst(name, scene, config, position)) return;
     if (spawnPooledBurst(name, scene, config, position)) return;
     new ParticleEffect(name, scene, config, { autoDispose: true, sharedMaterial: name })
         .object.position.copy(position);
