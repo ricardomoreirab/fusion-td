@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { AnimationClip, Bone, Group, Object3D, QuaternionKeyframeTrack, VectorKeyframeTrack } from 'three';
-import { findSkeletonRootName, isLowerBodyBone, splitClipByBody, trackTargetName } from '../src/engine/three/clipMask';
+import { AnimationClip, Bone, Group, Object3D, Quaternion, QuaternionKeyframeTrack, Vector3, VectorKeyframeTrack } from 'three';
+import { findSkeletonRootName, isLowerBodyBone, scaleClipRotationSwing, splitClipByBody, trackTargetName } from '../src/engine/three/clipMask';
 
 /** The real Biped bone set shipped by the champion GLBs. */
 const BIPED = [
@@ -110,5 +110,80 @@ describe('findSkeletonRootName', () => {
 
     it('returns undefined for a rig with no bones', () => {
         expect(findSkeletonRootName(new Group())).toBeUndefined();
+    });
+});
+
+describe('scaleClipRotationSwing', () => {
+    /** A bone swinging +-90 degrees about X, plus a constant position track. */
+    function swingClip(): AnimationClip {
+        const q = new Quaternion();
+        const keys: number[] = [];
+        for (const ang of [-Math.PI / 2, 0, Math.PI / 2, 0]) {
+            q.setFromAxisAngle(new Vector3(1, 0, 0), ang);
+            keys.push(q.x, q.y, q.z, q.w);
+        }
+        return new AnimationClip('run__lower', 1, [
+            new QuaternionKeyframeTrack('Bip001 L Thigh.quaternion', [0, 0.25, 0.5, 0.75], keys),
+            new VectorKeyframeTrack('Bip001.position', [0, 0.5], [0, 1, 0, 0, 1.4, 0]),
+        ]);
+    }
+
+    /** Peak-to-peak angle across a quaternion track. */
+    function swingDeg(track: QuaternionKeyframeTrack): number {
+        const v = track.values;
+        const a = new Quaternion(), b = new Quaternion();
+        let max = 0;
+        for (let i = 0; i + 4 <= v.length; i += 4) {
+            a.set(v[i], v[i + 1], v[i + 2], v[i + 3]);
+            for (let j = i + 4; j + 4 <= v.length; j += 4) {
+                b.set(v[j], v[j + 1], v[j + 2], v[j + 3]);
+                max = Math.max(max, a.angleTo(b) * 180 / Math.PI);
+            }
+        }
+        return max;
+    }
+
+    it('shrinks the rotation swing by the requested factor', () => {
+        const src = swingClip();
+        const before = swingDeg(src.tracks[0] as QuaternionKeyframeTrack);
+        expect(before).toBeCloseTo(180, 0);
+        const out = scaleClipRotationSwing(src, 'damped', 0.75);
+        expect(swingDeg(out.tracks[0] as QuaternionKeyframeTrack)).toBeCloseTo(before * 0.75, 0);
+    });
+
+    it('leaves position tracks untouched — body height and travel stay authored', () => {
+        const out = scaleClipRotationSwing(swingClip(), 'damped', 0.5);
+        const pos = out.tracks.find(t => t.name.endsWith('.position'))!;
+        const expected = [0, 1, 0, 0, 1.4, 0];
+        Array.from(pos.values).forEach((v, i) => expect(v).toBeCloseTo(expected[i], 5));
+    });
+
+    it('keeps the mean pose, so the stance neither sinks nor leans', () => {
+        // The authored swing is symmetric about identity, so the damped clip must
+        // still pass through identity at the same keys.
+        const out = scaleClipRotationSwing(swingClip(), 'damped', 0.5);
+        const v = (out.tracks[0] as QuaternionKeyframeTrack).values;
+        const mid = new Quaternion(v[4], v[5], v[6], v[7]);
+        expect(mid.angleTo(new Quaternion())).toBeCloseTo(0, 4);
+    });
+
+    it('preserves name, duration and track count', () => {
+        const src = swingClip();
+        const out = scaleClipRotationSwing(src, 'damped', 0.75);
+        expect(out.name).toBe('damped');
+        expect(out.duration).toBe(src.duration);
+        expect(out.tracks.length).toBe(src.tracks.length);
+    });
+
+    it('amount >= 1 hands back the clip unchanged', () => {
+        const src = swingClip();
+        expect(scaleClipRotationSwing(src, 'damped', 1)).toBe(src);
+    });
+
+    it('does not mutate the source clip', () => {
+        const src = swingClip();
+        const before = Array.from(src.tracks[0].values);
+        scaleClipRotationSwing(src, 'damped', 0.5);
+        expect(Array.from(src.tracks[0].values)).toEqual(before);
     });
 });

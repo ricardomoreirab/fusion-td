@@ -71,6 +71,17 @@ export class AnimGroup {
         this.action.time = 0;
     }
 
+    /** Playback head in clip seconds. Writable so a caller handing one cyclic
+     *  clip off to an equivalent one (a locomotion cycle and its bone-masked
+     *  half) can carry the phase across instead of restarting the cycle. */
+    public get time(): number {
+        return this.action.time;
+    }
+
+    public set time(t: number) {
+        this.action.time = t;
+    }
+
     public get isPlaying(): boolean {
         return this.action.isRunning();
     }

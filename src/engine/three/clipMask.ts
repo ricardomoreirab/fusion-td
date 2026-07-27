@@ -15,7 +15,14 @@
  * Pure and Three-only (no DOM/WebGL) - covered by Vitest.
  */
 
-import { AnimationClip, Bone, type KeyframeTrack, type Object3D } from 'three';
+import {
+    AnimationClip,
+    Bone,
+    Quaternion,
+    QuaternionKeyframeTrack,
+    type KeyframeTrack,
+    type Object3D,
+} from 'three';
 
 /**
  * Name of the skeleton's root bone — the one whose parent is not itself a bone.
@@ -77,6 +84,66 @@ export function filterClipTracks(
     const tracks: KeyframeTrack[] = clip.tracks.filter(t => keep(trackTargetName(t.name)));
     // Keep the ORIGINAL duration, not the filtered tracks' extent: a derived
     // clip must stay the same length as its source or the two layers drift.
+    return new AnimationClip(name, clip.duration, tracks);
+}
+
+/**
+ * A copy of `clip` whose ROTATION swing is scaled by `amount` about each track's
+ * own mean pose. 1 is the authored clip; 0.75 keeps three quarters of the swing.
+ *
+ * Scaling about the clip's OWN mean rather than the rig's bind pose is what
+ * keeps the stance: the average pose over the cycle is unchanged, so the body
+ * neither sinks, leans nor drifts - only the size of the motion changes. Only
+ * quaternion tracks are touched, so the root's travel and the body's height
+ * stay exactly as authored (knee lift is rotation, and that is what a shrunk
+ * stride needs to lose).
+ *
+ * Used for the locomotion half of the split combat layers: at full amplitude a
+ * run playing under a rooted torso reads as over-animated, because none of the
+ * counter-motion the authored run puts in the spine and arms is there to
+ * balance it.
+ */
+export function scaleClipRotationSwing(
+    clip: AnimationClip,
+    name: string,
+    amount: number,
+): AnimationClip {
+    if (amount >= 1) return clip;
+    const a = Math.max(0, amount);
+    const mean = new Quaternion();
+    const key = new Quaternion();
+    const tracks = clip.tracks.map(track => {
+        if (!(track instanceof QuaternionKeyframeTrack)) return track;
+        const v = track.values;
+        const n = Math.floor(v.length / 4);
+        if (n < 2) return track;
+        // Mean pose: linear average with every key pulled into the FIRST key's
+        // hemisphere. q and -q are the same rotation, so averaging across a sign
+        // flip would cancel the motion out and hand back a garbage reference.
+        let sx = 0, sy = 0, sz = 0, sw = 0;
+        for (let i = 0; i < n; i++) {
+            const o = i * 4;
+            const dot = v[o] * v[0] + v[o + 1] * v[1] + v[o + 2] * v[2] + v[o + 3] * v[3];
+            const s = dot < 0 ? -1 : 1;
+            sx += s * v[o]; sy += s * v[o + 1]; sz += s * v[o + 2]; sw += s * v[o + 3];
+        }
+        mean.set(sx / n, sy / n, sz / n, sw / n);
+        if (mean.lengthSq() < 1e-8) return track; // degenerate — leave it authored
+        mean.normalize();
+
+        const out = new Float32Array(v.length);
+        for (let i = 0; i < n; i++) {
+            const o = i * 4;
+            key.set(v[o], v[o + 1], v[o + 2], v[o + 3]);
+            // Interpolate FROM the mean TOWARDS the authored key: a < 1 shrinks
+            // the excursion, a === 1 reproduces it exactly.
+            const scaled = mean.clone().slerp(key, a);
+            out[o] = scaled.x; out[o + 1] = scaled.y; out[o + 2] = scaled.z; out[o + 3] = scaled.w;
+        }
+        const scaledTrack = new QuaternionKeyframeTrack(track.name, Array.from(track.times), Array.from(out));
+        scaledTrack.setInterpolation(track.getInterpolation());
+        return scaledTrack as KeyframeTrack;
+    });
     return new AnimationClip(name, clip.duration, tracks);
 }
 

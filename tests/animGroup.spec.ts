@@ -147,6 +147,88 @@ describe('AnimGroup', () => {
         expect(group.isPlaying).toBe(false);
     });
 
+    it('weight = 0 mutes a clip but keeps it ticking', () => {
+        const { root, mixer, group } = makeRig();
+        group.start(true);
+        group.weight = 0;
+        mixer.update(0.5);
+        expect(root.position.x).toBe(0); // contributed nothing
+        group.weight = 1;
+        mixer.update(0); // no time passes — read the pose it was silently holding
+        expect(root.position.x).toBeCloseTo(5);
+    });
+
+    it('crossFrom rewinds the incoming clip to frame 0', () => {
+        // Documented because it is the trap behind the champion's shuffling run:
+        // the rig hands locomotion between the full run clip and its lower-body
+        // half twice per swing, and each hand-off restarted the stride.
+        const { root, mixer, group } = makeRig();
+        const other = makeRig();
+        group.start(true);
+        mixer.update(0.8);
+        expect(group.time).toBeCloseTo(0.8);
+        group.crossFrom(other.group, 0.1, true);
+        expect(group.time).toBe(0);
+        mixer.update(0.1);
+        expect(root.position.x).toBeCloseTo(1); // 0.1s in, not 0.9s in
+    });
+
+    it('time is writable, so a cycle can be handed to an equivalent clip in phase', () => {
+        const root = new Object3D();
+        const mixer = new AnimationMixer(root);
+        // Two representations of ONE cycle: same duration, same curve.
+        const full = new AnimationClip('run', 1, [new NumberKeyframeTrack('.position[x]', [0, 1], [0, 10])]);
+        const half = new AnimationClip('run__lower', 1, [new NumberKeyframeTrack('.position[x]', [0, 1], [0, 10])]);
+        const a = new AnimGroup(mixer, full);
+        const b = new AnimGroup(mixer, half);
+        a.start(true);
+        mixer.update(0.7);
+        expect(a.time).toBeCloseTo(0.7);
+
+        const phase = a.time;
+        b.crossFrom(a, 0, true);
+        b.time = phase; // the hand-off: carry the stride's phase across
+        expect(b.time).toBeCloseTo(0.7);
+        mixer.update(0.1);
+        expect(b.time).toBeCloseTo(0.8); // continued the stride, did not restart it
+    });
+
+    it('two clips at weight 1 on the same track AVERAGE — why combat layers must be disjoint', () => {
+        // The bug behind the champion's half-height stride: the full-body attack
+        // and the lower-body run both drove the legs, so the stride came out at
+        // half amplitude. There is no bone mask to prevent this; the only fix is
+        // for one of the two to leave the blend.
+        const root = new Object3D();
+        const mixer = new AnimationMixer(root);
+        const stride = new AnimationClip('stride', 1, [new NumberKeyframeTrack('.position[x]', [0, 1], [10, 10])]);
+        const rooted = new AnimationClip('rooted', 1, [new NumberKeyframeTrack('.position[x]', [0, 1], [0, 0])]);
+        const legs = new AnimGroup(mixer, stride);
+        const swing = new AnimGroup(mixer, rooted);
+        legs.start(true);
+        swing.start(true);
+        mixer.update(0.1);
+        expect(root.position.x).toBeCloseTo(5); // half stride, not 10
+
+        swing.weight = 0; // the fix: the full-body copy leaves the blend
+        mixer.update(0.1);
+        expect(root.position.x).toBeCloseTo(10);
+    });
+
+    it('negative speedRatio runs a looping clip backwards', () => {
+        // The backpedal: no rig ships a reverse-run clip, so the locomotion cycle
+        // is time-scaled negative instead.
+        const { root, mixer, group } = makeRig();
+        group.start(true);
+        mixer.update(0.5);
+        expect(root.position.x).toBeCloseTo(5);
+        group.speedRatio = -1;
+        mixer.update(0.2);
+        expect(root.position.x).toBeCloseTo(3);
+        mixer.update(0.5); // wraps past 0 back around the loop
+        expect(group.isPlaying).toBe(true);
+        expect(root.position.x).toBeCloseTo(8);
+    });
+
     it('dispose detaches the finished listener', () => {
         const { mixer, group } = makeRig();
         let ended = 0;
