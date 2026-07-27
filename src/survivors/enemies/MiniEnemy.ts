@@ -1,4 +1,4 @@
-import { Box3, Mesh, Vector3 } from 'three';
+import { Box3, Vector3 } from 'three';
 import { Game } from '../../engine/Game';
 import { Enemy, tryAcquireDeathBurst, scheduleDeathBurstTeardown } from './Enemy';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../engine/rendering/LowPolyMaterial';
@@ -8,7 +8,7 @@ import type { GlbContainer } from '../../engine/three/assets';
 import { headingToYaw } from '../../engine/three/math';
 import { fxRenderer, fxSize, ParticleEffect } from '../../engine/three/particles/ParticleEffect';
 import { LifeTimeCurve, Shape } from '@newkrok/three-particles';
-import { createBox, createCylinder } from '../../engine/three/primitives';
+import { createBox, createCylinder, createTransformHost } from '../../engine/three/primitives';
 
 /**
  * MiniEnemy — spawned when a SplittingEnemy dies.
@@ -71,9 +71,7 @@ export class MiniEnemy extends Enemy {
 
     private createMeshFromGLB(asset: GlbContainer): void {
         this.usingGLB = true;
-        this.mesh = new Mesh();
-        this.mesh.name = 'miniEnemyGlbRoot';
-        this.scene.scene.add(this.mesh);
+        this.mesh = createTransformHost('miniEnemyGlbRoot', this.scene);
         this.mesh.position.copy(this.position);
 
         const inst = asset.instantiate(this.scene, 'mini_');

@@ -8,7 +8,7 @@ import type { GlbContainer } from '../../engine/three/assets';
 import { headingToYaw } from '../../engine/three/math';
 import { fxRenderer, fxSize, ParticleEffect } from '../../engine/three/particles/ParticleEffect';
 import { LifeTimeCurve, Shape } from '@newkrok/three-particles';
-import { createBox, createCylinder } from '../../engine/three/primitives';
+import { createBox, createCylinder, createTransformHost } from '../../engine/three/primitives';
 
 export class BasicEnemy extends Enemy {
     /** Static slot used by EnemyManager.spawnSurvivorsEnemy to stage a preloaded GLB
@@ -78,9 +78,7 @@ export class BasicEnemy extends Enemy {
         this.usingGLB = true;
         // Empty root mesh — invisible transform host. Enemy.update sets its position
         // each frame from this.position via mesh.position.copy.
-        this.mesh = new Mesh();
-        this.mesh.name = 'basicEnemyGlbRoot';
-        this.scene.scene.add(this.mesh);
+        this.mesh = createTransformHost('basicEnemyGlbRoot', this.scene);
         this.mesh.position.copy(this.position);
 
         const inst = asset.instantiate(this.scene, 'basic_');

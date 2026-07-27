@@ -1,6 +1,6 @@
 import { Vector3, Mesh, Color } from 'three';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../engine/rendering/LowPolyMaterial';
-import { createBox, createCylinder, createSphere, createPolyhedron } from '../../engine/three/primitives';
+import { createBox, createCylinder, createSphere, createPolyhedron, createTransformHost } from '../../engine/three/primitives';
 import type { SceneHost } from '../../engine/three/SceneHost';
 
 export interface BarbarianMeshParts {
@@ -39,9 +39,7 @@ export function buildBarbarianMesh(scene: SceneHost, position: Vector3): Barbari
     // --- Body: wide muscular bare-chested torso ---
     // rootMesh is an invisible parent so we can z-scale the visible torso (`barbBodyVis`)
     // into an oval cross-section without squishing every other child of the body.
-    const rootMesh = new Mesh();
-    rootMesh.name = 'barbBody';
-    scene.scene.add(rootMesh);
+    const rootMesh = createTransformHost('barbBody', scene);
     rootMesh.position.copy(position);
     rootMesh.position.y += 2.0;
 
@@ -58,8 +56,7 @@ export function buildBarbarianMesh(scene: SceneHost, position: Vector3): Barbari
 
     // Chest-pulse parent: groups pecs + chest war-paint stripe so the breath
     // pulse animation can scale them together. Empty Mesh — no geometry.
-    const chestPulseGroup = new Mesh();
-    chestPulseGroup.name = 'barbChestGroup';
+    const chestPulseGroup = createTransformHost('barbChestGroup');
     rootMesh.add(chestPulseGroup);
     chestPulseGroup.position.set(0, 0, 0);
 

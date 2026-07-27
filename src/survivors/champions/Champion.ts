@@ -14,7 +14,7 @@ import { elementAuraConfig, elementBurstConfig } from '../fx/ElementParticles';
 import { GlbContainer, ContainerInstance } from '../../engine/three/assets';
 import { AnimGroup } from '../../engine/three/AnimGroup';
 import { findSkeletonRootName, splitClipByBody } from '../../engine/three/clipMask';
-import { createBox, createCylinder, createSphere, createTorus, createPolyhedron, disposeMesh, isMeshDisposed } from '../../engine/three/primitives';
+import { createBox, createCylinder, createSphere, createTorus, createPolyhedron, createTransformHost, disposeMesh, isMeshDisposed } from '../../engine/three/primitives';
 import { headingToYaw } from '../../engine/three/math';
 
 /** Any material carrying an emissive color (Phong for procedural parts,
@@ -422,9 +422,7 @@ export class Champion extends Enemy {
         const host = this.scene;
 
         // Empty transform host that Champion's existing position/rotation pipeline drives.
-        this.mesh = new Mesh();
-        this.mesh.name = 'rangerRoot';
-        host.scene.add(this.mesh);
+        this.mesh = createTransformHost('rangerRoot', host);
         this.mesh.position.copy(this.position);
 
         // instantiate() does a full skinned clone (SkeletonUtils) so the geometry +

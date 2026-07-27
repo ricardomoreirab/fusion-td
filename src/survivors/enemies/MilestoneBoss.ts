@@ -7,7 +7,7 @@ import { emitCoopFx } from '../coop/CoopFx';
 import { AnimGroup } from '../../engine/three/AnimGroup';
 import type { GlbContainer } from '../../engine/three/assets';
 import { headingToYaw } from '../../engine/three/math';
-import { createDisc, createPlane, disposeMesh, isMeshDisposed } from '../../engine/three/primitives';
+import { createDisc, createPlane, createTransformHost, disposeMesh, isMeshDisposed } from '../../engine/three/primitives';
 
 /**
  * Special-move state machine. The boss alternates between free movement
@@ -250,9 +250,7 @@ export class MilestoneBoss extends BossEnemy {
 
     private createMeshFromGLB(asset: GlbContainer): void {
         this.usingGLB = true;
-        this.mesh = new Mesh(); // empty transform host (renders nothing)
-        this.mesh.name = 'milestoneBossGlbRoot';
-        this.scene.scene.add(this.mesh);
+        this.mesh = createTransformHost('milestoneBossGlbRoot', this.scene);
         this.mesh.position.copy(this.position);
 
         const inst = asset.instantiate(this.scene, 'boss_');
