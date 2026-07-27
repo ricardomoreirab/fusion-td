@@ -15,6 +15,37 @@ const sharedShardGeometry = new OctahedronGeometry(0.07, 0);
 // Module-level, never disposed - same bounded-resource pattern as above.
 const sharedEmberGeometry = new TetrahedronGeometry(0.05, 0);
 
+/**
+ * One config object per ONE-SHOT recipe, reused for every spawn of it.
+ *
+ * This is not (only) about the allocation: BurstPool keys its free lists on the
+ * config object's IDENTITY, which is what lets it recycle a system without a
+ * deep comparison per spawn. A builder that returned a fresh literal every call
+ * would give every spawn its own pool entry, so the memo is what makes pooling
+ * reachable at all.
+ *
+ * The key must be BOUNDED, same contract as MaterialCache: it is built from the
+ * element plus a size/radius that the power tables derive from a LEVEL, so the
+ * set is finite. `CONFIG_CACHE_LIMIT` is the backstop - past it the builder goes
+ * back to returning fresh objects (correct, just unpooled) rather than growing
+ * a map without end.
+ *
+ * Callers must treat the result as READ-ONLY. `ParticleEffect` writes `map` and
+ * `onComplete` on it, both of which the library copies into the per-system
+ * normalized config during the same synchronous construction, so a later write
+ * cannot reach an existing system.
+ */
+const CONFIG_CACHE_LIMIT = 64;
+const oneShotConfigs = new Map<string, ParticleSystemConfig>();
+
+function oneShot(key: string, build: () => ParticleSystemConfig): ParticleSystemConfig {
+    const hit = oneShotConfigs.get(key);
+    if (hit) return hit;
+    const built = build();
+    if (oneShotConfigs.size < CONFIG_CACHE_LIMIT) oneShotConfigs.set(key, built);
+    return built;
+}
+
 function fireConfig(
     maxParticles: number, rate: number, radius: number, maxLifetime: number,
     minSpeed: number, maxSpeed: number
@@ -394,19 +425,21 @@ function physicalImpactConfig(sizeScale: number): ParticleSystemConfig {
 /** One-shot burst for hits/explosions. sizeScale lets callers match an
  *  explosion's own AOE radius/impact strength without a second recipe. */
 export function elementImpactConfig(element: PowerElement, sizeScale: number = 1): ParticleSystemConfig {
-    switch (element) {
-        case 'fire':
-            return fireImpactConfig(sizeScale);
-        case 'ice':
-            return iceImpactConfig(sizeScale);
-        case 'arcane':
-            return arcaneImpactConfig(sizeScale);
-        case 'storm':
-            return stormImpactConfig(sizeScale);
-        case 'physical':
-        default:
-            return physicalImpactConfig(sizeScale);
-    }
+    return oneShot(`impact|${element}|${sizeScale}`, () => {
+        switch (element) {
+            case 'fire':
+                return fireImpactConfig(sizeScale);
+            case 'ice':
+                return iceImpactConfig(sizeScale);
+            case 'arcane':
+                return arcaneImpactConfig(sizeScale);
+            case 'storm':
+                return stormImpactConfig(sizeScale);
+            case 'physical':
+            default:
+                return physicalImpactConfig(sizeScale);
+        }
+    });
 }
 
 function fireTrailConfig(): ParticleSystemConfig {
@@ -582,29 +615,31 @@ function novaRingConfig(
  *  `waves` > 1 fires extra staggered rings from the same system (one burst
  *  each, NOVA_WAVE_GAP apart) - cheaper than stacking systems. */
 export function elementNovaConfig(element: PowerElement, radius: number, waves: number = 1): ParticleSystemConfig {
-    switch (element) {
-        case 'fire':
-            return novaRingConfig(radius, 0.5, 28,
-                { r: 1, g: 0.55, b: 0.1 }, { r: 1, g: 0.85, b: 0.4 },
-                { min: fxSize(0.1), max: fxSize(0.2) }, waves);
-        case 'ice':
-            return novaRingConfig(radius, 0.55, 28,
-                { r: 0.5, g: 0.85, b: 1 }, { r: 0.8, g: 0.97, b: 1 },
-                { min: fxSize(0.1), max: fxSize(0.2) }, waves);
-        case 'arcane':
-            return novaRingConfig(radius, 0.5, 32,
-                { r: 0.65, g: 0.3, b: 1 }, { r: 0.88, g: 0.55, b: 1 },
-                { min: fxSize(0.1), max: fxSize(0.2) }, waves);
-        case 'storm':
-            return novaRingConfig(radius, 0.4, 32,
-                { r: 1, g: 0.95, b: 0.6 }, { r: 1, g: 1, b: 0.9 },
-                { min: fxSize(0.08), max: fxSize(0.16) }, waves);
-        case 'physical':
-        default:
-            return novaRingConfig(radius, 0.45, 24,
-                { r: 0.8, g: 0.77, b: 0.7 }, { r: 0.95, g: 0.92, b: 0.85 },
-                { min: fxSize(0.1), max: fxSize(0.18) }, waves);
-    }
+    return oneShot(`nova|${element}|${radius}|${waves}`, () => {
+        switch (element) {
+            case 'fire':
+                return novaRingConfig(radius, 0.5, 28,
+                    { r: 1, g: 0.55, b: 0.1 }, { r: 1, g: 0.85, b: 0.4 },
+                    { min: fxSize(0.1), max: fxSize(0.2) }, waves);
+            case 'ice':
+                return novaRingConfig(radius, 0.55, 28,
+                    { r: 0.5, g: 0.85, b: 1 }, { r: 0.8, g: 0.97, b: 1 },
+                    { min: fxSize(0.1), max: fxSize(0.2) }, waves);
+            case 'arcane':
+                return novaRingConfig(radius, 0.5, 32,
+                    { r: 0.65, g: 0.3, b: 1 }, { r: 0.88, g: 0.55, b: 1 },
+                    { min: fxSize(0.1), max: fxSize(0.2) }, waves);
+            case 'storm':
+                return novaRingConfig(radius, 0.4, 32,
+                    { r: 1, g: 0.95, b: 0.6 }, { r: 1, g: 1, b: 0.9 },
+                    { min: fxSize(0.08), max: fxSize(0.16) }, waves);
+            case 'physical':
+            default:
+                return novaRingConfig(radius, 0.45, 24,
+                    { r: 0.8, g: 0.77, b: 0.7 }, { r: 0.95, g: 0.92, b: 0.85 },
+                    { min: fxSize(0.1), max: fxSize(0.18) }, waves);
+        }
+    });
 }
 
 // =============================================================================
@@ -796,24 +831,30 @@ function flashConfig(
 /** One-shot bright bloom at an impact/cast point (the particle replacement
  *  for the old expanding-flash-sphere mesh hack). */
 export function elementFlashConfig(element: PowerElement, sizeScale: number = 1): ParticleSystemConfig {
-    switch (element) {
-        case 'fire':
-            return flashConfig({ r: 1, g: 0.85, b: 0.45 }, { r: 1, g: 0.95, b: 0.7 }, sizeScale);
-        case 'ice':
-            return flashConfig({ r: 0.6, g: 0.9, b: 1 }, { r: 0.85, g: 0.97, b: 1 }, sizeScale);
-        case 'arcane':
-            return flashConfig({ r: 0.8, g: 0.5, b: 1 }, { r: 0.9, g: 0.7, b: 1 }, sizeScale);
-        case 'storm':
-            return flashConfig({ r: 1, g: 0.97, b: 0.7 }, { r: 1, g: 1, b: 0.95 }, sizeScale);
-        case 'physical':
-        default:
-            return flashConfig({ r: 0.85, g: 0.83, b: 0.78 }, { r: 0.95, g: 0.93, b: 0.88 }, sizeScale);
-    }
+    return oneShot(`flash|${element}|${sizeScale}`, () => {
+        switch (element) {
+            case 'fire':
+                return flashConfig({ r: 1, g: 0.85, b: 0.45 }, { r: 1, g: 0.95, b: 0.7 }, sizeScale);
+            case 'ice':
+                return flashConfig({ r: 0.6, g: 0.9, b: 1 }, { r: 0.85, g: 0.97, b: 1 }, sizeScale);
+            case 'arcane':
+                return flashConfig({ r: 0.8, g: 0.5, b: 1 }, { r: 0.9, g: 0.7, b: 1 }, sizeScale);
+            case 'storm':
+                return flashConfig({ r: 1, g: 0.97, b: 0.7 }, { r: 1, g: 1, b: 0.95 }, sizeScale);
+            case 'physical':
+            default:
+                return flashConfig({ r: 0.85, g: 0.83, b: 0.78 }, { r: 0.95, g: 0.93, b: 0.88 }, sizeScale);
+        }
+    });
 }
 
 /** One-shot rising smoke puff for fire explosions (normal blending - reads
  *  as occluding smoke over the bright field, not additive glow). */
 export function fireSmokePuffConfig(sizeScale: number = 1): ParticleSystemConfig {
+    return oneShot(`smoke|${sizeScale}`, () => smokePuffConfig(sizeScale));
+}
+
+function smokePuffConfig(sizeScale: number): ParticleSystemConfig {
     const lifetime = 1.1;
     return {
         looping: false,

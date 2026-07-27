@@ -106,6 +106,52 @@ describe('ParticleEffect', () => {
         expect(effect.object.parent).toBeNull();
     });
 
+    it('installs its onComplete hook flat, not nested, when a config is reused', () => {
+        // Recipe configs are memoised, so ONE object is handed to thousands of
+        // effects over a run. Chaining a wrapper per construction adds a stack
+        // frame per spawn and eventually overflows on the first completion, so
+        // assert the call depth is INDEPENDENT of how many effects share the
+        // config rather than merely that a few thousand happen to fit.
+        const host = new SceneHost();
+        const config = burstConfig({ maxParticles: 1, emission: { rateOverTime: 0, bursts: [{ time: 0, count: 1 }] } });
+        const previousLimit = Error.stackTraceLimit;
+        Error.stackTraceLimit = 2000;
+        let depth = 0;
+        config.onComplete = () => { depth = (new Error().stack ?? '').split('\n').length; };
+        const effects: ParticleEffect[] = [];
+        try {
+            effects.push(new ParticleEffect('burst', host, config));
+            (config.onComplete as () => void)();
+            const afterOne = depth;
+
+            for (let i = 0; i < 300; i++) effects.push(new ParticleEffect('burst', host, config));
+            (config.onComplete as () => void)();
+
+            expect(depth).toBe(afterOne);
+        } finally {
+            Error.stackTraceLimit = previousLimit;
+            for (const effect of effects) effect.dispose();
+        }
+    });
+
+    it('keeps the caller onComplete callback across reuses of one config', () => {
+        const host = new SceneHost();
+        const config = burstConfig();
+        let calls = 0;
+        config.onComplete = () => { calls++; };
+
+        const a = new ParticleEffect('burst', host, config, { autoDispose: true });
+        const b = new ParticleEffect('burst', host, config, { autoDispose: true });
+        host.tick(0.1);
+        host.tick(0.2);
+        host.tick(0.1);
+
+        // Once per system - never once per system per construction before it.
+        expect(calls).toBe(2);
+        a.dispose();
+        b.dispose();
+    });
+
     it('does not auto-dispose when autoDispose is false, even past duration', () => {
         const host = new SceneHost();
         const effect = new ParticleEffect('burst-no-autodispose', host, burstConfig());

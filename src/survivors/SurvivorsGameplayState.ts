@@ -68,6 +68,7 @@ import { GameSettings, bladeCountForQuality } from '../shared/GameSettings';
 import { clearMaterialCache, getCachedMaterial, getMaterialCacheSize } from '../engine/rendering/MaterialCache';
 import { clearProjectilePools } from '../engine/rendering/ProjectilePool';
 import { clearParticleMaterialCache } from '../engine/three/particles/ParticleEffect';
+import { clearBurstPool } from '../engine/three/particles/BurstPool';
 import { formatBuckets } from '../engine/rendering/resourceBudget';
 import { CoopSession } from './coop/CoopSession';
 import { GuestEnemies } from './coop/GuestEnemies';
@@ -3089,6 +3090,9 @@ export class SurvivorsGameplayState implements GameState {
         // ParticleEffect has been disposed by now (its own material went back to
         // it first — see ParticleEffect.dispose), so nothing is still drawing
         // through these.
+        // Pooled burst effects outlive their own spawn by design, so they have to
+        // be released BEFORE the materials they draw through.
+        clearBurstPool();
         clearParticleMaterialCache();
 
         // Restore the render-quality baseline if the late-wave trim engaged this

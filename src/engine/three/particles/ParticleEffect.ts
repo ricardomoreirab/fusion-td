@@ -18,6 +18,7 @@ import {
     type Renderer as LibRenderer,
 } from '@newkrok/three-particles';
 import type { SceneHost, SceneParticleSystem } from '../SceneHost';
+import type { PooledBurstRecipe } from './BurstPool';
 
 /**
  * Converts a world-unit particle size to the library's point-size scale.
@@ -196,6 +197,12 @@ export function particleMaterialCacheSize(): number {
     return sharedMaterials.size;
 }
 
+/** Marks the `onComplete` hook ParticleEffect installs, so a later effect built
+ *  from the same (memoised) config recovers the caller's original callback
+ *  instead of wrapping the wrapper. */
+const USER_ON_COMPLETE = Symbol('particleEffect.userOnComplete');
+type WrappedOnComplete = (() => void) & { [USER_ON_COMPLETE]?: (() => void) | undefined };
+
 export interface ParticleEffectOptions {
     /** Parent object the instance is added under. Defaults to the scene root. */
     parent?: Object3D;
@@ -219,6 +226,12 @@ export interface ParticleEffectOptions {
      * literal, or an enum-derived name - never an instance id.
      */
     sharedMaterial?: string;
+    /**
+     * Build this effect as a POOL MEMBER of the given recipe (BurstPool owns
+     * these; nothing else should pass it). It is born retired - paused, out of
+     * the scene and off the tick registry - and only `arm()` puts it on screen.
+     */
+    burst?: PooledBurstRecipe;
 }
 
 export class ParticleEffect implements SceneParticleSystem {
@@ -228,16 +241,33 @@ export class ParticleEffect implements SceneParticleSystem {
     /** Optional teardown hook (parity with the old ParticleSystem.onDispose). */
     public onDispose: (() => void) | null = null;
 
+    /** Pool members only: fired once the armed burst's last particle is gone, so
+     *  BurstPool can put the effect back on its free list. */
+    public onBurstFinished: ((effect: ParticleEffect) => void) | null = null;
+
     private readonly host: SceneHost;
     private readonly handle: LibParticleSystem;
     private readonly autoDispose: boolean;
     private readonly follow: Object3D | null;
     private readonly followOffset: Vector3 | null;
 
-    private nowMs = 1;
+    /** The library's `creationTime` for this system: `createParticleSystem` is
+     *  handed exactly this value and `startDelay` is 0 on every recipe, so
+     *  `lifetime === nowMs - CREATION_NOW_MS` for the whole life of the object.
+     *  arm() computes iteration boundaries off it. */
+    private static readonly CREATION_NOW_MS = 1;
+
+    private nowMs = ParticleEffect.CREATION_NOW_MS;
     private elapsed = 0;
     private completed = false;
     private disposed = false;
+
+    private readonly burst: PooledBurstRecipe | null;
+    /** Which library iteration this pool member is currently living in. Bumped
+     *  by every arm(), which is what re-arms the burst states. */
+    private burstIteration = 0;
+    private burstFiredAtMs = 0;
+    private armed = false;
     /** The library-built material this instance is NOT drawing through, held so
      *  dispose() can hand it back before the library frees it. Null when the
      *  instance kept its own. */
@@ -255,11 +285,23 @@ export class ParticleEffect implements SceneParticleSystem {
         this.autoDispose = opts.autoDispose ?? false;
 
         config.map ??= getSoftParticleTexture();
-        const userOnComplete = config.onComplete;
-        config.onComplete = () => {
+        // Recipe configs are MEMOISED per call site (see ElementParticles), so
+        // this hook is installed on the SAME object once per effect. Unwrap a
+        // previous installation instead of chaining onto it: the naive
+        // `const user = config.onComplete` version nests one closure per spawn
+        // and blows the stack after a few thousand of them. The library copies
+        // whatever is here into the system's own config during construction, so
+        // each effect keeps the wrapper that closes over IT.
+        const previous = config.onComplete as WrappedOnComplete | undefined;
+        const userOnComplete = previous && USER_ON_COMPLETE in previous
+            ? previous[USER_ON_COMPLETE]
+            : previous;
+        const wrapper: WrappedOnComplete = () => {
             if (this.autoDispose) this.completed = true;
             userOnComplete?.();
         };
+        wrapper[USER_ON_COMPLETE] = userOnComplete;
+        config.onComplete = wrapper;
 
         this.handle = createParticleSystem(config, this.nowMs);
         this.object = this.handle.instance;
@@ -267,11 +309,84 @@ export class ParticleEffect implements SceneParticleSystem {
         if (opts.sharedMaterial) this._adoptSharedMaterial(opts.sharedMaterial);
         this.follow = opts.follow ?? null;
         this.followOffset = this.follow ? this.object.position.clone() : null;
+        this.burst = opts.burst ?? null;
+
+        if (this.burst) {
+            // A pool member is born retired: nothing draws it and nothing ticks
+            // it until arm() hands it to the scene.
+            this.handle.pauseEmitter();
+            return;
+        }
+
         (opts.parent ?? host.scene).add(this.object);
         if (this.follow) this.syncFollow();
         host.registerParticleSystem(this);
 
         if (opts.startPaused) this.handle.pauseEmitter();
+    }
+
+    /**
+     * POOL ONLY. Re-arm this effect at `position` and put it back on screen.
+     *
+     * Both library steps run while the object is DETACHED, which is not an
+     * optimisation but a requirement: the library calls
+     * `particleSystem.parent.updateMatrixWorld()` for every WORLD-space system,
+     * and SceneHost only suppresses the scene's full-graph walk from inside its
+     * own particle loop. arm() is called from gameplay code, so a parented
+     * update here would walk the whole scene graph twice PER SPAWN. With no
+     * parent the library falls through to `sourceWorldMatrix.copy(matrix)`,
+     * which is the same matrix a scene-root child would have produced.
+     */
+    public arm(position: Vector3): void {
+        const recipe = this.burst;
+        if (this.disposed || !recipe) return;
+
+        this.object.position.copy(position);
+        this.handle.resumeEmitter();
+        this.burstIteration++;
+
+        // Step 1 - the start of a fresh iteration. Every burst time sits at
+        // `leadMs > 0`, so this resets all of them and emits nothing.
+        this.nowMs = ParticleEffect.CREATION_NOW_MS + this.burstIteration * recipe.periodMs;
+        this._pump();
+        // Step 2 - the lead. The time-0 wave fires inside this call, so the
+        // effect is fully live on the frame it was asked for.
+        this.nowMs += recipe.leadMs;
+        this._pump();
+
+        // A WORLD-space system's particle positions ARE its geometry, and THREE
+        // computes a geometry's bounding sphere once and caches it forever. A
+        // fresh system therefore gets a sphere around its own burst; a RECYCLED
+        // one would keep the sphere of the burst before it and be frustum-culled
+        // the moment the two are far apart. Dropping it here is what makes the
+        // second use of a pooled effect render at all - and it costs one
+        // recompute over `maxParticles` per spawn, not per frame.
+        const geometry = (this.object as Object3D & { geometry?: { boundingSphere: unknown } }).geometry;
+        if (geometry) geometry.boundingSphere = null;
+
+        this.burstFiredAtMs = this.nowMs;
+        this.armed = true;
+        this.host.scene.add(this.object);
+        this.host.registerParticleSystem(this);
+    }
+
+    /** POOL ONLY. Takes the effect off screen and off the tick registry without
+     *  disposing it. Idempotent. */
+    public retire(): void {
+        if (this.disposed) return;
+        this.armed = false;
+        this.handle.pauseEmitter();
+        this.object.removeFromParent();
+        this.host.unregisterParticleSystem(this);
+    }
+
+    /** Drives the library at the current clock with no elapsed time - used by
+     *  arm() to step across an iteration boundary without ageing anything. */
+    private _pump(): void {
+        this._updateArg.now = this.nowMs;
+        this._updateArg.delta = 0;
+        this._updateArg.elapsed = this.elapsed;
+        this.handle.update(this._updateArg);
     }
 
     /**
@@ -330,6 +445,15 @@ export class ParticleEffect implements SceneParticleSystem {
         this._updateArg.delta = dtSeconds;
         this._updateArg.elapsed = this.elapsed;
         this.handle.update(this._updateArg);
+
+        // Checked AFTER the update so the library has already deactivated every
+        // particle whose age passed its start lifetime: `lifeMs` is the last
+        // burst plus the longest start lifetime, so at this point the free list
+        // is provably whole and the effect can be recycled as-is.
+        if (this.armed && this.nowMs - this.burstFiredAtMs > this.burst!.lifeMs) {
+            this.retire();
+            this.onBurstFinished?.(this);
+        }
     }
 
     private syncFollow(): void {
@@ -341,6 +465,7 @@ export class ParticleEffect implements SceneParticleSystem {
     public dispose(): void {
         if (this.disposed) return;
         this.disposed = true;
+        this.armed = false;
         // Hand the instance back the material the library built for it: the
         // library's teardown disposes whatever `instance.material` points at,
         // and that must never be the shared one every other effect draws with.
