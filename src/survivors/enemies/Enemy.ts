@@ -1233,6 +1233,8 @@ export class Enemy {
         try {
             particleSystem = new ParticleEffect(`${effect}Particles`, this.scene, config, {
                 follow: this.mesh,
+                // One recipe per StatusEffect, so the key set is the enum.
+                sharedMaterial: `${effect}Particles`,
             });
         } catch (err) {
             // A slot reserved for a system that never existed would permanently
@@ -1671,7 +1673,7 @@ export class Enemy {
                     transform: { position: deathPos.clone(), rotation: new Vector3(-Math.PI / 2, 0, 0) },
                     renderer: fxRenderer('additive'),
                 },
-                { autoDispose: true }
+                { autoDispose: true, sharedMaterial: 'deathBurst' }
             );
             scheduleDeathBurstTeardown(this.scene, ps);
         }

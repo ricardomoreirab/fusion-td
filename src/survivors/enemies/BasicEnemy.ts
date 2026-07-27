@@ -545,7 +545,7 @@ export class BasicEnemy extends Enemy {
                 map: getStatusEffectTexture(),
                 renderer: fxRenderer('additive'),
             },
-            { autoDispose: true }
+            { autoDispose: true, sharedMaterial: 'deathParticles' }
         );
 
         // Play sound effect

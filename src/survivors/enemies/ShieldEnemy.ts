@@ -727,7 +727,7 @@ export class ShieldEnemy extends Enemy {
                 map: getStatusEffectTexture(),
                 renderer: fxRenderer('additive'),
             },
-            { autoDispose: true }
+            { autoDispose: true, sharedMaterial: 'deathParticles' }
         );
 
         // Play sound effect

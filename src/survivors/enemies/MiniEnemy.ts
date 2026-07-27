@@ -257,7 +257,7 @@ export class MiniEnemy extends Enemy {
                 transform: { position: emitPos, rotation: new Vector3(-Math.PI / 2, 0, 0) },
                 renderer: fxRenderer('additive'),
             },
-            { autoDispose: true }
+            { autoDispose: true, sharedMaterial: 'miniDeathParticles' }
         );
         this.game.getAssetManager().playSound('enemyDeath');
         scheduleDeathBurstTeardown(this.scene, ps);
