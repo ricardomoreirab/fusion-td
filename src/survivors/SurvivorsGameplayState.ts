@@ -92,6 +92,7 @@ import { packEnemyFlags } from '../net/EnemyFlags';
 import type { NetRole, SpawnMsg, DeathMsg, SnapshotMsg, CoopHeroSummary, RunOverMsg, FxMsg } from '../net/Protocol';
 import { validateDamageReport } from './coop/DamageRouter';
 import { MilestoneBoss } from './enemies/MilestoneBoss';
+import { isTestModeEnabled } from '../engine/devHost';
 import { isGroundFxKind, isLaneFxKind, spawnGroundShockwave, spawnGroundTelegraph, spawnLaneTelegraph } from './enemies/EnemyGroundFx';
 
 /**
@@ -800,10 +801,10 @@ export class SurvivorsGameplayState implements GameState {
         // DEV ?test: skip champion select and auto-start so an unattended stress
         // pass is fully deterministic (no canvas-coordinate clicking needed).
         // ?test&champ=<barbarian|ranger|mage> picks the class (defaults to barbarian).
-        const testParams = typeof window !== 'undefined'
-            ? new URLSearchParams(window.location.search) : null;
-        if (testParams?.has('test')) {
-            void this.startRun(testParams.get('champ') || 'barbarian');
+        // Dev hosts only — see devHost.ts for why and for what counts as one.
+        if (typeof window !== 'undefined' && isTestModeEnabled(window.location)) {
+            const champ = new URLSearchParams(window.location.search).get('champ');
+            void this.startRun(champ || 'barbarian');
             return;
         }
 
@@ -1544,7 +1545,7 @@ export class SurvivorsGameplayState implements GameState {
 
         // DEV: ?test → no powers equipped at start; add them on demand with \ (stress)
         //      or cycle archetypes with ]. testFusions stays primed for both.
-        this.testMode = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('test');
+        this.testMode = typeof window !== 'undefined' && isTestModeEnabled(window.location);
         if (this.testMode) {
             this.testFusions = getFusionsForClass(this.currentChampionType);
             this.testFusionIndex = 0;
