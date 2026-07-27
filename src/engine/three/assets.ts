@@ -7,12 +7,17 @@
  * caller an independent skinned clone via SkeletonUtils.clone plus its own
  * AnimationMixer and one AnimGroup per clip.
  *
+ * Materials are SHARED with the container by default and cloned only on demand
+ * (ensureOwnMaterials) - see the comment on that method for why the default
+ * matters at horde scale.
+ *
  * Disposal invariants (see glb_skeleton_and_lifecycle_leaks):
- *   - instance dispose: cloned MATERIALS are disposed (clones share the
- *     source textures - those are container-owned and must NOT be freed
- *     per instance), every SkinnedMesh's skeleton is disposed (frees the
+ *   - instance dispose: materials this instance CLONED are disposed (clones
+ *     share the source textures - those are container-owned and must NOT be
+ *     freed per instance), every SkinnedMesh's skeleton is disposed (frees the
  *     per-clone bone matrix texture), the mixer is fully uncached, and the
- *     mixer's update hook leaves the SceneHost animation bus.
+ *     mixer's update hook leaves the SceneHost animation bus. An instance that
+ *     never took ownership has nothing of its own to free.
  *   - clearContainerCache(): frees source geometries, materials, and
  *     textures. Call only when no instances are alive.
  */
@@ -90,7 +95,59 @@ export interface ContainerInstance {
      * this immediately before starting such a clip.
      */
     resetAnimationClock(): void;
+    /**
+     * Replace this instance's materials with private clones.
+     *
+     * Instances SHARE the container's materials by default, because at horde
+     * scale the material IDENTITY is one of the largest costs in the frame:
+     * three's renderer re-uploads a draw's whole uniform list whenever
+     * `material.id` differs from the previous draw, so 250 clones mean 250 full
+     * uniform refreshes per frame instead of one. (It also unblocks the depth
+     * sort — the opaque list orders by `renderOrder`, then `material.id`, and
+     * only then by depth, so distinct ids mean the horde draws in spawn order.
+     * That part turns out to be worth nothing on a tile-based deferred GPU,
+     * which resolves visibility before shading; the uniform refresh is the win.)
+     *
+     * Measured at ~260 enemies by flipping the variant on EVERY frame and
+     * bucketing that frame's wall clock by variant, then repeating with the
+     * parity inverted: 8.99 -> 8.01 ms/frame, -10.8%, reproduced in two
+     * sessions. Block-level A/B cannot see this — see CLAUDE.md.
+     *
+     * Call this from any owner that MUTATES its materials (the hero tints its
+     * weapon emissive and injects a rim-light `onBeforeCompile`). Idempotent.
+     * Enemies deliberately do not: their only material mutation is the hit
+     * flash, which swaps to a shared flash variant instead (see Enemy.flashHit).
+     */
+    ensureOwnMaterials(): void;
     dispose(): void;
+}
+
+/** Flag a container's source materials as container-owned and shared by every
+ *  instance. `cached` is the project-wide "only its owner may dispose this"
+ *  marker that disposeMesh honours; `glbShared` additionally tells per-instance
+ *  visual effects that mutating this material in place would bleed across the
+ *  whole horde. */
+function markSharedMaterials(scene: Object3D): void {
+    scene.traverse(node => {
+        const mesh = node as Mesh;
+        if (!mesh.isMesh || !mesh.material) return;
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        for (const mat of mats) {
+            mat.userData.cached = true;
+            mat.userData.glbShared = true;
+        }
+    });
+}
+
+/** Clone a shared source material into one this instance owns outright. The
+ *  shared markers must not survive the clone - a private copy is exactly the
+ *  thing effects are allowed to mutate, and its owner disposes it. */
+function cloneOwned(source: Material, out: Material[]): Material {
+    const clone = source.clone(); // shares the source textures
+    delete clone.userData.cached;
+    delete clone.userData.glbShared;
+    out.push(clone);
+    return clone;
 }
 
 export class GlbContainer {
@@ -101,6 +158,7 @@ export class GlbContainer {
         // them costs an interpolant + a property-mixer write per instance per
         // frame. See pruneStaticTracks for why removal is provably inert.
         pruneStaticTracks(this.gltf.scene, this.gltf.animations);
+        markSharedMaterials(this.gltf.scene);
     }
 
     public instantiate(host: SceneHost, namePrefix = ''): ContainerInstance {
@@ -111,25 +169,21 @@ export class GlbContainer {
         // the model T-poses. The root Group itself is never a track target.
         if (namePrefix) root.name = `${namePrefix}${root.name}`;
 
-        // Per-instance material clones so tint/flash effects never bleed
-        // across instances (Babylon's cloneMaterials: true). Clones share
-        // the source textures.
+        // Materials stay shared with the container until an owner asks for its
+        // own — see ensureOwnMaterials for what that default is worth.
         const clonedMaterials: Material[] = [];
-        root.traverse(node => {
-            const mesh = node as Mesh;
-            if (!mesh.isMesh || !mesh.material) return;
-            if (Array.isArray(mesh.material)) {
-                mesh.material = mesh.material.map(m => {
-                    const c = m.clone();
-                    clonedMaterials.push(c);
-                    return c;
-                });
-            } else {
-                const c = mesh.material.clone();
-                clonedMaterials.push(c);
-                mesh.material = c;
-            }
-        });
+        let ownsMaterials = false;
+        const ensureOwnMaterials = (): void => {
+            if (ownsMaterials) return;
+            ownsMaterials = true;
+            root.traverse(node => {
+                const mesh = node as Mesh;
+                if (!mesh.isMesh || !mesh.material) return;
+                mesh.material = Array.isArray(mesh.material)
+                    ? mesh.material.map(m => cloneOwned(m, clonedMaterials))
+                    : cloneOwned(mesh.material, clonedMaterials);
+            });
+        };
 
         const mixer = new AnimationMixer(root);
         const animationGroups = this.gltf.animations.map(clip => new AnimGroup(mixer, clip));
@@ -152,6 +206,7 @@ export class GlbContainer {
             mixer,
             setAnimationLod: (next: AnimationLod) => { lod = next; },
             resetAnimationClock: () => { carried = 0; },
+            ensureOwnMaterials,
             dispose: () => {
                 if (disposed) return;
                 disposed = true;

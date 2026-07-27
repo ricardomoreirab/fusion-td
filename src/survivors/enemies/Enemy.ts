@@ -11,6 +11,10 @@ import { headingToYaw } from '../../engine/three/math';
 import { fxRenderer, fxSize, getSoftParticleTexture, ParticleEffect } from '../../engine/three/particles/ParticleEffect';
 import { LifeTimeCurve, Shape } from '@newkrok/three-particles';
 import { elementStatusConfig } from '../fx/ElementParticles';
+import {
+    collectHitFlash, restoreHitFlash,
+    type FlashSwap, type FlashTarget, type FlashTint,
+} from './hitFlash';
 import { createSphere, disposeMesh, isMeshDisposed } from '../../engine/three/primitives';
 import type { SceneHost, UpdateToken } from '../../engine/three/SceneHost';
 import type { SnapshotEnemy } from '../../net/Protocol';
@@ -53,9 +57,6 @@ const MELEE_PHASE_CODE = { idle: 0, windup: 1, strike: 2, cooldown: 3 } as const
 export interface MeleeDisplay { phase: number; progress: number }
 const _meleeDisplayOut: MeleeDisplay = { phase: 0, progress: 0 };
 
-// Per-hit emissive tint — module-level constant so flashHit doesn't allocate
-// a fresh Color on every damage event (every chain-lightning sub-hit etc.).
-const HIT_TINT = new Color(0.85, 0.10, 0.05);
 const HIT_FLASH_DURATION_S = 0.1;
 
 // Shared texture for status-effect particle systems — the same procedural
@@ -460,13 +461,12 @@ export class Enemy {
     private _scratchDir: Vector3 = new Vector3();
     private _scratchMovement: Vector3 = new Vector3();
 
-    // Hit-flash state: per-instance restore cache + countdown timer. We store the
-    // material's ORIGINAL emissive Color object by reference (not r/g/b numbers and
-    // not a clone) — restore reassigns it, so there's zero per-hit allocation AND
-    // we never mutate the shared HIT_TINT constant (the old `.set()` path mutated
-    // it in place, which corrupted the tint for the whole run). Driven by
-    // Enemy.update() — no setTimeout pile-up.
-    private _flashRestore: { mat: MeshPhongMaterial; original: Color }[] = [];
+    // Hit-flash state: per-instance restore caches + countdown timer. See
+    // hitFlash.ts for the two tint mechanisms and why owned and container-shared
+    // materials cannot use the same one. Driven by Enemy.update() — no
+    // setTimeout pile-up.
+    private _flashRestore: FlashTint[] = [];
+    private _flashSwaps: FlashSwap[] = [];
     private _flashTimeRemaining: number = 0;
 
     constructor(game: Game, position: Vector3, path: Vector3[], speed: number, health: number, damage: number, reward: number) {
@@ -1358,26 +1358,11 @@ export class Enemy {
             return;
         }
 
-        // Snapshot emissive colors for restore, then overwrite. Walk the tree once.
+        // Snapshot the restore state, then tint. Walk the tree once.
         this._flashRestore.length = 0;
-        this.mesh.traverse(node => this._collectFlashEmissive(node as Mesh));
+        this._flashSwaps.length = 0;
+        this.mesh.traverse(node => collectHitFlash(node as FlashTarget, this._flashSwaps, this._flashRestore));
         this._flashTimeRemaining = HIT_FLASH_DURATION_S;
-    }
-
-    /** Push one mesh's emissive into the flash restore cache and tint it. */
-    private _collectFlashEmissive(mesh: { material?: unknown }): void {
-        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-        for (const raw of mats) {
-            const mat = raw as MeshPhongMaterial | null | undefined;
-            if (!mat || mat.emissive === undefined) continue;
-            // Material already shows the shared HIT_TINT (another enemy sharing a
-            // cached material is mid-flash) — don't capture/re-tint it. Capturing
-            // HIT_TINT as the "original" would leave it stuck red once we restore,
-            // and the other enemy already owns the restore.
-            if (mat.emissive === HIT_TINT) continue;
-            this._flashRestore.push({ mat, original: mat.emissive });
-            mat.emissive = HIT_TINT;
-        }
     }
 
     /** Tick the hit-flash timer. Called from update() — restores original
@@ -1394,11 +1379,7 @@ export class Enemy {
      *  Called when the flash window expires, and on death/dispose so a flash
      *  that's interrupted by death doesn't leave a shared material stuck red. */
     private _restoreFlash(): void {
-        for (let i = 0; i < this._flashRestore.length; i++) {
-            const e = this._flashRestore[i];
-            try { e.mat.emissive = e.original; } catch (_) { /* mat disposed */ }
-        }
-        this._flashRestore.length = 0;
+        restoreHitFlash(this._flashSwaps, this._flashRestore);
         this._flashTimeRemaining = 0;
     }
 
