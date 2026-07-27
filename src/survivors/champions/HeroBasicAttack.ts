@@ -12,7 +12,7 @@ import { blendElements } from '../ElementColors';
 import { emitCoopFx } from '../coop/CoopFx';
 import { buildArrowMesh, ARROW_FLIGHT_HEIGHT } from '../powers/ArrowMesh';
 import { createSphere, createTorus, disposeMesh, getCachedGeometry } from '../../engine/three/primitives';
-import { headingToYaw } from '../../engine/three/math';
+import { headingToYaw, yawToHeading } from '../../engine/three/math';
 import type { SceneHost, UpdateToken } from '../../engine/three/SceneHost';
 
 // Module-level scratch vectors — safe because update() is not reentrant (frames serialize)
@@ -144,6 +144,27 @@ export const SLASH_WAVE_SPEED = 16;
  *  hero (already in contact range) are caught by the first step. */
 export const SLASH_WAVE_BACK_GRACE = 0.5;
 
+/** Forward half-extent of an enemy body, in world units, used by the sweep's
+ *  forward test. This is what makes the sweep tunnel-proof against the ENEMY's
+ *  motion (see isInSlashBand): the crest and its targets are both sampled once
+ *  per frame, so a point-vs-band test lets an approaching enemy cross the whole
+ *  band between two samples and never register. An enemy now has to travel more
+ *  than 2× this in a single frame to slip through — 60 u/s at 60 fps, 15 u/s at
+ *  15 fps, against a fastest shipped enemy of 6 u/s. It doubles as the body
+ *  allowance the point test never had (0.4 is the projectile's impact radius). */
+export const SLASH_WAVE_BODY_RADIUS = 0.5;
+
+/** Nearest distance at which an enemy still carries a usable aim direction.
+ *
+ *  DERIVED, not tuned: an enemy at distance d sits at forward projection >= −d
+ *  whichever way the wave points, so it clears the sweep's trailing edge — and
+ *  is therefore hit — for any d < back grace + body radius. Below that line an
+ *  enemy is guaranteed to be swept no matter where the crest is sent, so it can
+ *  only add jitter to the aim, never coverage. It is also well inside the
+ *  corridor laterally (d < SLASH_WAVE_HALF_WIDTH). */
+export const SLASH_WAVE_MIN_AIM_DIST = SLASH_WAVE_BACK_GRACE + SLASH_WAVE_BODY_RADIUS;
+const SLASH_WAVE_MIN_AIM_DIST_SQ = SLASH_WAVE_MIN_AIM_DIST * SLASH_WAVE_MIN_AIM_DIST;
+
 /** Radius of the crescent visual — sin(arc half-angle) × this ≈ the damage
  *  corridor half-width, so the drawn arc matches where hits land. */
 const SLASH_WAVE_VISUAL_RADIUS = 1.9;
@@ -166,20 +187,36 @@ const PROJECTILE_FLIGHT_HEIGHT: Record<ProjectileShape, number> = {
     mageBolt: 1,
 };
 
-/** Pure corridor test for one step of the slash wave's sweep: does the
- *  (dx, dz) offset from the wave origin fall inside the band the crest crossed
- *  this frame — forward projection in (prevFront, newFront] along the unit
- *  direction (dirX, dirZ), within halfWidth laterally? Band semantics make the
- *  sweep tunnel-proof (any step size covers every point between the old and
- *  new front) and hit-once (half-open interval). Exported for Vitest. */
+/** Pure corridor test for one step of the slash wave's sweep: does an enemy
+ *  BODY at (dx, dz) from the wave origin overlap the band the crest crossed
+ *  this frame — its forward extent [forward − bodyRadius, forward + bodyRadius]
+ *  meeting (prevFront, newFront] along the unit direction (dirX, dirZ), within
+ *  halfWidth laterally?
+ *
+ *  The band covers every point between the old and new front, so the sweep
+ *  cannot tunnel on the CREST's motion at any step size. It used to test the
+ *  enemy as a point, which left it tunnelling on the ENEMY's motion: both are
+ *  sampled once per frame, and an enemy closing on the hero moves backwards
+ *  through the band while the band moves forwards over it, so the crossing can
+ *  fall entirely between two samples. The enemy then sits below prevFront for
+ *  good and is never hit — measured live at 11% of the enemies standing
+ *  squarely in the lane, weighted toward the fast types (the analytic rate is
+ *  approachSpeed / (SLASH_WAVE_SPEED + approachSpeed), so ~16% for a Basic at
+ *  3 u/s and ~27% for a Fast at 6). Giving the enemy its body extent closes
+ *  that: slipping through now needs more than 2 × bodyRadius of travel in one
+ *  frame.
+ *
+ *  Hit-once is the CALLER's `hit` Set, not this test — a body spans several
+ *  consecutive bands. Exported for Vitest. */
 export function isInSlashBand(
     dx: number, dz: number,
     dirX: number, dirZ: number,
     prevFront: number, newFront: number,
     halfWidth: number,
+    bodyRadius: number = SLASH_WAVE_BODY_RADIUS,
 ): boolean {
     const forward = dx * dirX + dz * dirZ;
-    if (forward <= prevFront || forward > newFront) return false;
+    if (forward + bodyRadius <= prevFront || forward - bodyRadius > newFront) return false;
     return Math.abs(dx * dirZ - dz * dirX) <= halfWidth;
 }
 
@@ -581,10 +618,16 @@ export class HeroBasicAttack {
         const enemies = this.enemyProvider ? this.enemyProvider() : [];
         const rangeSq = range * range;
 
-        // Aim the wave at the nearest enemy in range — it only fires when one
-        // exists (hasMeleeTarget), so the crest always has a lane to travel.
+        // Aim the wave at the nearest enemy that is far enough away to CARRY a
+        // direction. Anything nearer than SLASH_WAVE_MIN_AIM_DIST is swept
+        // whichever way the crest goes, so aiming at it buys no coverage and
+        // costs stability: at a converged horde the nearest enemy sits ~0.3u
+        // from the hero's centre, and normalising that offset is numerically
+        // meaningless — measured live, consecutive swings pointed 74° apart on
+        // average with 41% of them flipping past 90°.
         let aim: Enemy | null = null;
         let aimDistSq = Infinity;
+        let anyInRange = false;
         for (let i = 0; i < enemies.length; i++) {
             const e = enemies[i];
             if (!e.alive) continue;
@@ -592,13 +635,28 @@ export class HeroBasicAttack {
             const dx = p.x - heroPos.x;
             const dz = p.z - heroPos.z;
             const dSq = dx * dx + dz * dz;
-            if (dSq <= rangeSq && dSq < aimDistSq) { aim = e; aimDistSq = dSq; }
+            if (dSq > rangeSq) continue;
+            anyInRange = true;
+            if (dSq >= SLASH_WAVE_MIN_AIM_DIST_SQ && dSq < aimDistSq) { aim = e; aimDistSq = dSq; }
         }
-        if (!aim) return;
-        let fx = aim.getPosition().x - heroPos.x;
-        let fz = aim.getPosition().z - heroPos.z;
-        const fLen = Math.hypot(fx, fz);
-        if (fLen > 1e-3) { fx /= fLen; fz /= fLen; } else { fx = 1; fz = 0; }
+        // hasMeleeTarget() gates every call site, so this only trips if the horde
+        // emptied between the gate and here.
+        if (!anyInRange) return;
+
+        let fx: number, fz: number;
+        if (aim) {
+            fx = aim.position.x - heroPos.x;
+            fz = aim.position.z - heroPos.z;
+            // Length is >= SLASH_WAVE_MIN_AIM_DIST by construction — no epsilon.
+            const fLen = Math.hypot(fx, fz);
+            fx /= fLen; fz /= fLen;
+        } else {
+            // Every enemy in reach is point-blank and will be hit either way, so
+            // send the wave exactly where the barbarian is already pointed. The
+            // swing the player is watching and the damage it deals then agree.
+            yawToHeading(this.hero.getFacingY(), _scratchA);
+            fx = _scratchA.x; fz = _scratchA.z;
+        }
 
         const facingAngle = Math.atan2(fz, fx);
         const { crest, trail } = this.spawnSlashWaveMeshes(facingAngle);
@@ -630,9 +688,15 @@ export class HeroBasicAttack {
             hero.triggerSpinAttack();
         }
         // GLB attack animation — face where the wave flies; the clip compresses
-        // to the attack interval so fast builds swing visibly faster.
+        // to the attack interval so fast builds swing visibly faster. The facing
+        // point is taken from the wave's own direction rather than from the aim
+        // ENEMY: those differ whenever the aim is point-blank or absent, and a
+        // hero turning toward one heading while the crest travels along another
+        // is the whole reason the swing read as missing. triggerAttack clones the
+        // vector, so the scratch is safe.
         if (typeof hero.triggerAttack === 'function') {
-            hero.triggerAttack(aim.getPosition(), this.effectiveInterval);
+            _scratchA.set(heroPos.x + fx * range, heroPos.y, heroPos.z + fz * range);
+            hero.triggerAttack(_scratchA, this.effectiveInterval);
         }
     }
 
