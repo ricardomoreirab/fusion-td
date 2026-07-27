@@ -1,4 +1,4 @@
-import { Box3, Color, Mesh, MeshPhongMaterial, Vector3 } from 'three';
+import { Color, Mesh, MeshPhongMaterial, Vector3 } from 'three';
 import { Game } from '../../engine/Game';
 import { Enemy } from './Enemy';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../engine/rendering/LowPolyMaterial';
@@ -108,11 +108,9 @@ export class FastEnemy extends Enemy {
         // remove it).
         root.rotation.y += Math.PI;
 
-        // Feet-on-ground offset.
-        this.mesh.updateMatrixWorld(true);
-        const bbox = new Box3().setFromObject(this.mesh);
-        const feetOffset = -bbox.min.y;
-        root.position.y += feetOffset;
+        // Feet on the ground. Measured once per container from a posed clip,
+        // not per spawn from the rest transform - see ContainerInstance.groundToFeet.
+        inst.groundToFeet();
 
         // Register groups for base-class dispose cleanup (prevents animatable leak).
         this.glbAnimationGroups = inst.animationGroups;

@@ -1,4 +1,4 @@
-import { Box3, Color, Mesh, Vector3 } from 'three';
+import { Color, Mesh, Vector3 } from 'three';
 import { Game } from '../../engine/Game';
 import { Enemy, getStatusEffectTexture, tryAcquireDeathBurst, scheduleDeathBurstTeardown } from './Enemy';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../engine/rendering/LowPolyMaterial';
@@ -93,11 +93,9 @@ export class BasicEnemy extends Enemy {
         // math stays aligned (the Phase D handedness audit may remove it).
         root.rotation.y += Math.PI;
 
-        // Shift the GLB so its feet sit at y=0 (most rigged humanoids center on torso).
-        this.mesh.updateMatrixWorld(true);
-        const bbox = new Box3().setFromObject(this.mesh);
-        const feetOffset = -bbox.min.y;
-        root.position.y += feetOffset;
+        // Feet on the ground. Measured once per container from a posed clip,
+        // not per spawn from the rest transform - see ContainerInstance.groundToFeet.
+        inst.groundToFeet();
 
         // Register groups for base-class dispose cleanup (prevents animatable leak).
         this.glbAnimationGroups = inst.animationGroups;

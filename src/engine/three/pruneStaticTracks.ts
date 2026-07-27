@@ -40,6 +40,12 @@
  *     "Every clip carries it" is what rule 2 needs and rule 1 does not: once the
  *     kept value is not the bind value, a clip that omitted the pair would show
  *     whatever the previous clip left behind.
+ *     Note what rule 2 costs: the rig's REST pose becomes a mixture of clip
+ *     constants (on the nodes it snapped) and authored rest values (on the ones
+ *     it left animated), which is a pose no clip produces. Every animated pose is
+ *     preserved - that is the guarantee - but nothing may be MEASURED off the rest
+ *     transform any more. See groundOffset, which grounds models from a posed clip
+ *     for exactly this reason.
  *
  * Everything unrecognised is kept: non-TRS properties (morph targets, material
  * paths), indexed track names, tracks whose stride does not match the property

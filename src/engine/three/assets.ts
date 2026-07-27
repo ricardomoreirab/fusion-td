@@ -36,6 +36,7 @@ import { AnimGroup } from './AnimGroup';
 import { boneNamesDrivenByEuler, detachBoneEulerMirror } from './boneEulerMirror';
 import { installFlatSkeletonUpdate } from './flatSkeletonMatrices';
 import { hideBoneSubtrees } from './hideBoneSubtrees';
+import { measureGroundOffset } from './groundOffset';
 import { pruneStaticTracks } from './pruneStaticTracks';
 import type { SceneHost, UpdateToken } from './SceneHost';
 
@@ -99,6 +100,20 @@ export interface ContainerInstance {
      */
     resetAnimationClock(): void;
     /**
+     * Lift the model so its feet rest on the host's y = 0 plane.
+     *
+     * Call it AFTER applying any scale to `root` - the offset is stored per unit
+     * of root scale, so the owner's own size is read off `root.scale` here.
+     * A Y-only pre-rotation (every enemy applies one) is fine: it cannot change
+     * how low the model reaches.
+     *
+     * This replaced a `Box3.setFromObject` that each owner ran per spawn. That
+     * measured the rig's REST pose - the only pose available before the mixer's
+     * first update - which is not a pose the entity is ever drawn in and which
+     * pruneStaticTracks rewrites. See measureGroundOffset.
+     */
+    groundToFeet(): void;
+    /**
      * Replace this instance's materials with private clones.
      *
      * Instances SHARE the container's materials by default, because at horde
@@ -158,6 +173,11 @@ export class GlbContainer {
      *  Empty on every shipped rig - see boneEulerMirror. */
     private readonly eulerDrivenBones: ReadonlySet<string>;
 
+    /** How far to lift a clone so its feet rest on the ground, per unit of root
+     *  scale. See measureGroundOffset for why this is measured from a posed clip
+     *  rather than from the rig's rest transform. */
+    public readonly groundOffset: number;
+
     constructor(public readonly gltf: GLTF) {
         // Once per loaded URL (containers are cached), before any instance can
         // exist: the exported rigs carry a constant-at-bind `.scale` track for
@@ -175,6 +195,11 @@ export class GlbContainer {
         // traversals ignore it.
         hideBoneSubtrees(this.gltf.scene);
         this.eulerDrivenBones = boneNamesDrivenByEuler(this.gltf.animations);
+        // AFTER pruning: the reference pose has to be the one the pruned clips
+        // actually produce. Once per container - owners used to derive this per
+        // spawn from the rig's REST transform, which is a pose no entity is ever
+        // rendered in and which pruneStaticTracks rewrites by design.
+        this.groundOffset = measureGroundOffset(this.gltf.scene, this.gltf.animations);
     }
 
     public instantiate(host: SceneHost, namePrefix = ''): ContainerInstance {
@@ -237,6 +262,7 @@ export class GlbContainer {
             mixer,
             setAnimationLod: (next: AnimationLod) => { lod = next; },
             resetAnimationClock: () => { carried = 0; },
+            groundToFeet: () => { root.position.y = this.groundOffset * root.scale.y; },
             ensureOwnMaterials,
             dispose: () => {
                 if (disposed) return;

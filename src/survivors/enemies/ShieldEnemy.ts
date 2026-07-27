@@ -1,4 +1,4 @@
-import { Box3, Color, Mesh, MeshPhongMaterial, Vector3 } from 'three';
+import { Color, Mesh, MeshPhongMaterial, Vector3 } from 'three';
 import { Game } from '../../engine/Game';
 import { Enemy, getStatusEffectTexture, tryAcquireDeathBurst, scheduleDeathBurstTeardown } from './Enemy';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../engine/rendering/LowPolyMaterial';
@@ -102,11 +102,9 @@ export class ShieldEnemy extends Enemy {
         // BasicEnemy GLB so the model faces the hero.
         root.rotation.y += Math.PI;
 
-        // Feet-on-ground offset.
-        this.mesh.updateMatrixWorld(true);
-        const bbox = new Box3().setFromObject(this.mesh);
-        const feetOffset = -bbox.min.y;
-        root.position.y += feetOffset;
+        // Feet on the ground. Measured once per container from a posed clip,
+        // not per spawn from the rest transform - see ContainerInstance.groundToFeet.
+        inst.groundToFeet();
 
         // Register groups on the base class so the release path can stop them
         // (glbInstance.dispose() owns their actual disposal).

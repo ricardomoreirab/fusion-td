@@ -1,4 +1,4 @@
-import { Vector3, Mesh, Color, Group, Material, MeshPhongMaterial, Object3D, PointLight, Box3 } from 'three';
+import { Vector3, Mesh, Color, Group, Material, MeshPhongMaterial, Object3D, PointLight } from 'three';
 import { Game } from '../../engine/Game';
 import { Enemy, getStatusEffectTexture } from '../enemies/Enemy';
 import { EnemyManager } from '../enemies/EnemyManager';
@@ -441,11 +441,10 @@ export class Champion extends Enemy {
         this.mesh.add(inst.root);
 
         // Shift the GLB so its feet sit on the ground (most rigged humanoids center on
-        // torso so half the model lands below y=0 without this).
-        this.mesh.updateMatrixWorld(true);
-        const bbox = new Box3().setFromObject(this.mesh);
-        const feetOffset = -bbox.min.y;
-        inst.root.position.y += feetOffset;
+        // torso so half the model lands below y=0 without this). Measured once per
+        // container from a posed clip, not per spawn from the rig's rest transform -
+        // see ContainerInstance.groundToFeet.
+        inst.groundToFeet();
 
         // Weapon anchor: GLB weapons are skinned into the body mesh, driven by a
         // prop bone ('Bip001 Prop1' on Miya/Framis) or the right hand ('Bip001 R
