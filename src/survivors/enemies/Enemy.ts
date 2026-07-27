@@ -1192,6 +1192,20 @@ export class Enemy {
     protected createStatusEffectParticles(effect: StatusEffect): void {
         if (!this.mesh) return;
 
+        // A dead enemy must never gain an aura. Powers damage first and apply
+        // their status second (takeDamage(...) then applyStatusEffect(...)), so a
+        // killing blow that also burns landed here AFTER die() had freed this map
+        // and handed the enemy to the corpse list, and from that point nothing
+        // owned the map: disposeCorpse() releases the corpse, and dispose() (which
+        // does clear it) is not on that path. The system was stranded forever,
+        // still simulating on the particle bus and still drawing as a scene-root
+        // THREE.Points at the spot the enemy died, and still holding one slot of
+        // the status-visual budget below. Measured at 123 live `burningParticles`
+        // after ~2 minutes of stress play, ~14 us each per frame, growing without
+        // bound. die() already documents that a corpse shows no status particles;
+        // this is what makes that true from every direction.
+        if (!this.alive) return;
+
         // Idempotent: keep a running effect instead of dispose+recreate on every
         // status re-apply (Frostfire etc. refresh BURNING/CHILL each cast). Recreating the
         // system per apply churns GPU buffers across many enemies = a per-frame hitch. It
@@ -1616,6 +1630,14 @@ export class Enemy {
         this.disposeAuxVisuals();
         this._releaseMeshAndAnimations();
         this._disposeHealthBarMeshes();   // also free the health bar (idempotent; safe after die())
+        // Terminal release for BOTH corpse paths (local + co-op guest), so this is
+        // the last chance any status aura still in the map has to be freed. die()
+        // and playDeathAnimThenDispose() both clear it before we get here and
+        // createStatusEffectParticles refuses to refill it once `alive` is false,
+        // so this is normally a no-op. It is what keeps a future post-death apply
+        // path from stranding a scene-root Points + a status-visual slot again.
+        this.statusEffectParticles.forEach(particleSystem => particleSystem.dispose());
+        this.statusEffectParticles.clear();
         const done = this._netCorpseOnDisposed;
         this._netCorpseOnDisposed = null;
         if (done) done();
