@@ -33,6 +33,7 @@ import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js';
 import { MeshoptDecoder } from 'meshoptimizer/meshopt_decoder.module.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { AnimGroup } from './AnimGroup';
+import { installFlatSkeletonUpdate } from './flatSkeletonMatrices';
 import { hideBoneSubtrees } from './hideBoneSubtrees';
 import { pruneStaticTracks } from './pruneStaticTracks';
 import type { SceneHost, UpdateToken } from './SceneHost';
@@ -177,6 +178,14 @@ export class GlbContainer {
         // so renaming descendants — the bones — silently unbinds every clip and
         // the model T-poses. The root Group itself is never a track target.
         if (namePrefix) root.name = `${namePrefix}${root.name}`;
+
+        // Bones are ~83% of the scene graph and the one full-graph walk they
+        // cannot be pruned from is the world-matrix pass skinning reads. Swap
+        // THREE's recursion over this clone's skeleton for the equivalent flat
+        // loop (bit-identical output, ~40% of the pass). Per INSTANCE, not per
+        // container: Object3D.copy carries data fields across a clone but not
+        // own methods.
+        installFlatSkeletonUpdate(root);
 
         // Materials stay shared with the container until an owner asks for its
         // own — see ensureOwnMaterials for what that default is worth.
