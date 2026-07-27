@@ -33,6 +33,7 @@ import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js';
 import { MeshoptDecoder } from 'meshoptimizer/meshopt_decoder.module.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { AnimGroup } from './AnimGroup';
+import { hideBoneSubtrees } from './hideBoneSubtrees';
 import { pruneStaticTracks } from './pruneStaticTracks';
 import type { SceneHost, UpdateToken } from './SceneHost';
 
@@ -159,6 +160,14 @@ export class GlbContainer {
         // frame. See pruneStaticTracks for why removal is provably inert.
         pruneStaticTracks(this.gltf.scene, this.gltf.animations);
         markSharedMaterials(this.gltf.scene);
+        // Bones are 83-95% of a rig's nodes and the renderer walks every one of
+        // them - once building the render list, again per shadow update - to
+        // find nothing drawable. Hiding the skeleton root prunes the subtree
+        // from both walks while leaving the world-matrix pass (which skinning
+        // reads) untouched. Set on the CONTAINER so every clone inherits it:
+        // Object3D.copy carries `visible` across, and SkeletonUtils.clone's own
+        // traversals ignore it.
+        hideBoneSubtrees(this.gltf.scene);
     }
 
     public instantiate(host: SceneHost, namePrefix = ''): ContainerInstance {
