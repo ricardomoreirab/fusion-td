@@ -6,11 +6,16 @@ import { PlayerStats } from '../src/survivors/PlayerStats';
 import type { Champion } from '../src/survivors/champions/Champion';
 import type { Enemy } from '../src/survivors/enemies/Enemy';
 
-/** Minimal stand-in enemy: live position + hit counter, never dies. */
+/** Minimal stand-in enemy: live position + hit counter, never dies.
+ *  Carries the `position` / `alive` FIELDS as well as the accessors — the
+ *  horde-scan loops read the fields directly (see Enemy.position), so a double
+ *  that only implements getPosition()/isAlive() is invisible to them. */
 function makeEnemy(x: number, z: number) {
     const pos = new Vector3(x, 0, z);
     const hits: number[] = [];
     const enemy = {
+        position: pos,
+        alive: true,
         getPosition: () => pos,
         isAlive: () => true,
         takeDamage: (amount: number) => { hits.push(amount); },

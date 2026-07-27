@@ -4591,9 +4591,11 @@ export class SurvivorsGameplayState implements GameState {
             enemiesNearCount: (x, z, radius) => {
                 const rSq = radius * radius;
                 let n = 0;
-                for (const e of this.activeAttackEnemies()) {
-                    if (!e.isAlive()) continue;
-                    const p = e.getPosition();
+                const live = this.activeAttackEnemies();
+                for (let i = 0; i < live.length; i++) {
+                    const e = live[i];
+                    if (!e.alive) continue;
+                    const p = e.position;
                     const dx = p.x - x, dz = p.z - z;
                     if (dx * dx + dz * dz <= rSq) n++;
                 }
@@ -4601,9 +4603,11 @@ export class SurvivorsGameplayState implements GameState {
             },
             forEachEnemyNear: (x, z, radius, cb) => {
                 const rSq = radius * radius;
-                for (const e of this.activeAttackEnemies()) {
-                    if (!e.isAlive()) continue;
-                    const p = e.getPosition();
+                const live = this.activeAttackEnemies();
+                for (let i = 0; i < live.length; i++) {
+                    const e = live[i];
+                    if (!e.alive) continue;
+                    const p = e.position;
                     const dx = p.x - x, dz = p.z - z;
                     if (dx * dx + dz * dz <= rSq) cb(e as unknown as AscEnemy);
                 }

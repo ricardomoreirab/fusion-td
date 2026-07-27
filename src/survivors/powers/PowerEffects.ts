@@ -28,6 +28,31 @@ export interface EffectStatus {
 
 const RICH_KINDS: RichStatusKind[] = ['burn', 'chill', 'curse', 'fragile'];
 
+// ── horde-scan scratch ───────────────────────────────────────────────────────
+// The primitives below walk the whole live enemy list, several times per call for
+// the chaining ones, and the maxed barbarian loadout runs them ~8 times per frame
+// on top of the per-frame ones (volley collision, zone ticks, vortex pull). That
+// is ~62,000 iterations per frame at a ~270-enemy horde, so the inner loop is
+// written for the JIT: index loops over `enemies[i]`, DIRECT `e.alive` / `e.position`
+// reads rather than the megamorphic `isAlive()` / `getPosition()` calls (~5.2 ns vs
+// ~10.5 ns per iteration, measured in-page on the real horde), and no per-iteration
+// Set lookup or allocation. Semantics are untouched: same visit order, same
+// comparison operators, so the same enemy is picked including on exact ties.
+/** chainHit's per-call working set: an "already chained to" marker indexed by slot
+ *  in the caller's enemies array (replaces a per-hop `Set.has(e)`, ~7 ns per
+ *  iteration) plus a flat frontier (parallel arrays instead of a node object per
+ *  branch — a split chain pushes up to 2^hops of them per call).
+ *  Held as a DEPTH-INDEXED stack, not a single scratch: a hit can kill, a death can
+ *  fire the shatter hook and an ascension kill hook, and nothing in those paths is
+ *  statically guaranteed never to reach another chain. Depth 0 is the only one that
+ *  ever exists in practice; the stack just makes re-entry correct instead of silently
+ *  clobbering the outer chain's frontier. */
+interface ChainScratch { mask: Uint8Array; fx: number[]; fz: number[]; fdmg: number[]; fhops: number[]; }
+const _chainScratch: ChainScratch[] = [];
+let _chainDepth = 0;
+const _boltFrom = new Vector3();
+const _boltTo = new Vector3();
+
 // ── co-op FX replication ('pe' = primitive effect) ───────────────────────────
 // Every VISIBLE primitive below broadcasts a compact 'pe' message at its entry
 // point so the teammate replays the SAME primitive (SurvivorsGameplayState.
@@ -119,9 +144,10 @@ export function aoeBurst(scene: SceneHost, enemies: Enemy[], x: number, z: numbe
             JSON.stringify({ p: 'aoeBurst', e: opts.element, r: opts.radius, l: opts.ringLifeS }));
     }
     const r2 = opts.radius * opts.radius;
-    for (const e of enemies) {
-        if (!e.isAlive()) continue;
-        const p = e.getPosition();
+    for (let i = 0; i < enemies.length; i++) {
+        const e = enemies[i];
+        if (!e.alive) continue;
+        const p = e.position;
         const dx = p.x - x, dz = p.z - z;
         if (dx * dx + dz * dz <= r2) {
             e.takeDamage(opts.damage, opts.element);
@@ -237,37 +263,76 @@ export interface ChainOpts {
  *  shared hit-set guarantees each enemy is hit at most once, bounding total work. */
 export function chainHit(scene: SceneHost, enemies: Enemy[], origin: Vector3, opts: ChainOpts): void {
     const falloff = opts.falloff ?? 0.75;
-    // Read ONCE per chain, never per hop. The shared hit-set below still bounds
+    // Read ONCE per chain, never per hop. The shared hit-marker below still bounds
     // total work, so extra hops + split cannot revisit an enemy.
     const cb = _chainBonus ? _chainBonus() : null;
     const chainRadius = opts.radius + (cb ? cb.radiusBonus : 0);
     const chainSplit = opts.split || (cb ? cb.split : false);
     const r2 = chainRadius * chainRadius;
-    const hit = new Set<Enemy>();
-    const frontier: { x: number; z: number; dmg: number; hopsLeft: number }[] =
-        [{ x: origin.x, z: origin.z, dmg: opts.damage, hopsLeft: opts.hops + (cb ? cb.extraHops : 0) }];
-    while (frontier.length > 0) {
-        const node = frontier.shift()!;
-        if (node.hopsLeft <= 0) continue;
-        let best: Enemy | null = null;
-        let bestD2 = r2;
-        for (const e of enemies) {
-            if (!e.isAlive() || hit.has(e)) continue;
-            const p = e.getPosition();
-            const dx = p.x - node.x, dz = p.z - node.z;
-            const d2 = dx * dx + dz * dz;
-            if (d2 <= bestD2) { bestD2 = d2; best = e; }
+    let s = _chainScratch[_chainDepth];
+    if (!s) s = _chainScratch[_chainDepth] = { mask: new Uint8Array(64), fx: [], fz: [], fdmg: [], fhops: [] };
+    _chainDepth++;
+    try {
+        const { fx, fz, fdmg, fhops } = s;
+        // Hit marker indexed by slot in `enemies`. A live enemy only ever leaves that
+        // array in EnemyManager's own sweep (never from takeDamage), and a mid-chain
+        // SplittingEnemy death APPENDS its minis, so an index captured here stays
+        // valid and an appended enemy is correctly unmarked for later hops — exactly
+        // what the Set did. `cleared` tracks how much of the marker is known zero, so
+        // a list that grows mid-chain only pays for the new tail.
+        let cleared = 0;
+        fx.length = 0; fz.length = 0; fdmg.length = 0; fhops.length = 0;
+        fx.push(origin.x); fz.push(origin.z);
+        fdmg.push(opts.damage); fhops.push(opts.hops + (cb ? cb.extraHops : 0));
+        for (let head = 0; head < fx.length; head++) {
+            const nodeHops = fhops[head];
+            if (nodeHops <= 0) continue;
+            const nodeX = fx[head], nodeZ = fz[head], nodeDmg = fdmg[head];
+            const n = enemies.length;
+            if (n > cleared) {
+                if (s.mask.length < n) {
+                    const grown = new Uint8Array(Math.max(n, s.mask.length * 2));
+                    grown.set(s.mask.subarray(0, cleared));
+                    s.mask = grown;
+                }
+                s.mask.fill(0, cleared, n);
+                cleared = n;
+            }
+            const mask = s.mask;
+            let best = -1;
+            let bestD2 = r2;
+            for (let i = 0; i < n; i++) {
+                if (mask[i]) continue;
+                const e = enemies[i];
+                if (!e.alive) continue;
+                const p = e.position;
+                const dx = p.x - nodeX, dz = p.z - nodeZ;
+                const d2 = dx * dx + dz * dz;
+                if (d2 <= bestD2) { bestD2 = d2; best = i; }
+            }
+            if (best < 0) continue;
+            mask[best] = 1;
+            const bestEnemy = enemies[best];
+            const bp = bestEnemy.position;
+            // spawnBolt only READS its endpoints (emitCoopFx takes x/z, BoltField
+            // copies into its buffer), so scratch vectors are safe here and save two
+            // allocations per hop. Read before the hit, as the original did.
+            _boltFrom.set(nodeX, 1, nodeZ);
+            _boltTo.set(bp.x, 1, bp.z);
+            spawnBolt(scene, _boltFrom, _boltTo, opts.element);
+            bestEnemy.takeDamage(nodeDmg, opts.element);
+            applyStatus(bestEnemy, opts.status);
+            const branches = chainSplit ? 2 : 1;
+            // Branch origins are read AFTER the hit, exactly as the object frontier
+            // did: `bp` is the enemy's live Vector3, so anything the hit moved
+            // (knockback out of a shatter reaction) shifts where the next hop starts.
+            for (let b = 0; b < branches; b++) {
+                fx.push(bp.x); fz.push(bp.z);
+                fdmg.push(nodeDmg * falloff); fhops.push(nodeHops - 1);
+            }
         }
-        if (!best) continue;
-        hit.add(best);
-        const bp = best.getPosition();
-        spawnBolt(scene, new Vector3(node.x, 1, node.z), new Vector3(bp.x, 1, bp.z), opts.element);
-        best.takeDamage(node.dmg, opts.element);
-        applyStatus(best, opts.status);
-        const branches = chainSplit ? 2 : 1;
-        for (let b = 0; b < branches; b++) {
-            frontier.push({ x: bp.x, z: bp.z, dmg: node.dmg * falloff, hopsLeft: node.hopsLeft - 1 });
-        }
+    } finally {
+        _chainDepth--;
     }
 }
 
@@ -323,9 +388,10 @@ export function gatherVortex(scene: SceneHost, enemies: Enemy[], x: number, z: n
         // below still run (they route to the host via the redirects). A cosmetic
         // REPLAY (isReplay) must not move enemies on either role.
         const canMoveEnemies = !Enemy.guestDamageRedirect && !isReplay;
-        for (const e of enemies) {
-            if (!e.isAlive()) continue;
-            const p = e.getPosition();
+        for (let i = 0; i < enemies.length; i++) {
+            const e = enemies[i];
+            if (!e.alive) continue;
+            const p = e.position;
             const dx = x - p.x, dz = z - p.z;
             if (dx * dx + dz * dz > r2) continue;
             if (canMoveEnemies) {
@@ -406,9 +472,10 @@ export function persistentZone(scene: SceneHost, enemies: Enemy[], x: number, z:
         setMeshOpacity(disc, 0.32 * (0.55 + 0.2 * Math.sin(elapsed * 6)));
         if (tickAcc >= tickInterval) {
             tickAcc -= tickInterval;
-            for (const e of enemies) {
-                if (!e.isAlive()) continue;
-                const p = e.getPosition();
+            for (let i = 0; i < enemies.length; i++) {
+                const e = enemies[i];
+                if (!e.alive) continue;
+                const p = e.position;
                 const dx = p.x - cx, dz = p.z - cz;
                 if (dx * dx + dz * dz <= r2) {
                     e.takeDamage(opts.tickDamage, opts.element);
@@ -466,10 +533,12 @@ export function omniVolley(scene: SceneHost, enemies: Enemy[], x: number, z: num
             s.mesh.position.x += s.vx * dt;
             s.mesh.position.z += s.vz * dt;
             let hitEnemy: Enemy | null = null;
-            for (const e of enemies) {
-                if (!e.isAlive()) continue;
-                const p = e.getPosition();
-                const dx = p.x - s.mesh.position.x, dz = p.z - s.mesh.position.z;
+            const sx = s.mesh.position.x, sz = s.mesh.position.z;
+            for (let i = 0; i < enemies.length; i++) {
+                const e = enemies[i];
+                if (!e.alive) continue;
+                const p = e.position;
+                const dx = p.x - sx, dz = p.z - sz;
                 if (dx * dx + dz * dz <= hr2) { hitEnemy = e; break; }
             }
             if (hitEnemy) {

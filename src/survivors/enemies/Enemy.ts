@@ -199,14 +199,32 @@ export class Enemy {
      *  so a release after teardown targets the field that issued the slot. */
     private _barField: HealthBarField | null = null;
     protected bossLabel: string | null = null;
-    protected position: Vector3;
+    /**
+     * Live world position, mutated in place by movement/knockback.
+     *
+     * PUBLIC rather than protected purely for the horde-scale scan cost. The FX
+     * and targeting layer walks the whole live list many times per frame (measured
+     * ~62,000 iterations per frame at a maxed 4-fusion loadout against ~270
+     * enemies — chain hops, volley collision, AoE radii, nearest-target picks), and
+     * with nine Enemy subclasses on the field EVERY such call site is megamorphic:
+     * `e.getPosition()` + `e.isAlive()` cost ~10.5 ns per iteration against ~5.2 ns
+     * for the equivalent direct field reads (measured in-page on the real horde,
+     * three interleaved rounds, loop form held constant — the accessor calls are
+     * the entire difference, an index loop with methods reads the same as for..of
+     * with methods). getPosition() already hands out this exact Vector3 by
+     * reference, so nothing is newly exposed; the accessors stay as the API.
+     */
+    public position: Vector3;
     protected speed: number;
     protected originalSpeed: number; // Store original speed for status effects
     protected health: number;
     protected maxHealth: number;
     protected damage: number; // Damage to player when reaching the end
     protected reward: number; // Money reward when killed
-    protected alive: boolean = true;
+    /** Live/dead flag. PUBLIC for the same reason as `position` above — it is read
+     *  once per enemy per scan, i.e. tens of thousands of times per frame.
+     *  `isAlive()` remains the API and returns exactly this. */
+    public alive: boolean = true;
     protected path: Vector3[] = [];
     protected currentPathIndex: number = 0;
     protected originalScale: number = 1.0; // Store original scale for health-based scaling

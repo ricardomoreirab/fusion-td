@@ -447,8 +447,10 @@ export class EnemyManager {
         const hero = this.heroProvider?.getPosition() ?? null;
         const fullSq = EnemyManager.ANIM_FULL_RATE_RADIUS * EnemyManager.ANIM_FULL_RATE_RADIUS;
 
-        for (const enemy of this.enemies) {
-            const p = enemy.getPosition();
+        const list = this.enemies;
+        for (let i = 0; i < list.length; i++) {
+            const enemy = list[i];
+            const p = enemy.position;
             this._cullSphere.center.set(p.x, p.y + 1, p.z);
             // Shadow casters get a padded radius: the key light is high and its
             // map only spans ±42 around the hero, so anything that could throw a
@@ -913,9 +915,11 @@ export class EnemyManager {
         const rangeSq = range * range;
         const out = this._inRangeResult;
         out.length = 0;
-        for (const enemy of this.enemies) {
-            if (!enemy.isAlive()) continue;
-            const ep = enemy.getPosition();
+        const list = this.enemies;
+        for (let i = 0; i < list.length; i++) {
+            const enemy = list[i];
+            if (!enemy.alive) continue;
+            const ep = enemy.position;
             const dx = ep.x - position.x;
             const dy = ep.y - position.y;
             const dz = ep.z - position.z;
@@ -932,10 +936,12 @@ export class EnemyManager {
         // Track squared distance to avoid a sqrt per enemy — ordering is identical.
         let closestDistanceSq = maxRange !== undefined ? maxRange * maxRange : Number.MAX_VALUE;
 
-        for (const enemy of this.enemies) {
-            if (!enemy.isAlive()) continue;
+        const list = this.enemies;
+        for (let i = 0; i < list.length; i++) {
+            const enemy = list[i];
+            if (!enemy.alive) continue;
 
-            const ep = enemy.getPosition();
+            const ep = enemy.position;
             const dx = ep.x - position.x;
             const dy = ep.y - position.y;
             const dz = ep.z - position.z;

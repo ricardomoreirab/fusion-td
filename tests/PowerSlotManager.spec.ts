@@ -69,7 +69,7 @@ describe('PowerSlotManager — tick powers', () => {
             host,
             () => new Vector3(0, 0, 0),
             // one "enemy" within range
-            () => [{ isAlive: () => true, getPosition: () => new Vector3(1, 0, 0) } as unknown as import('../src/survivors/enemies/Enemy').Enemy],
+            () => [{ alive: true, position: new Vector3(1, 0, 0), isAlive: () => true, getPosition: () => new Vector3(1, 0, 0) } as unknown as import('../src/survivors/enemies/Enemy').Enemy],
         );
         mgr.setOnCast(onCast);
         const def: PowerDefinition = {
@@ -101,7 +101,7 @@ describe('PowerSlotManager — recastFree (Echo item effect)', () => {
             host,
             () => new Vector3(0, 0, 0),
             // one "enemy" within range so autocast actually fires
-            () => [{ isAlive: () => true, getPosition: () => new Vector3(1, 0, 0) } as unknown as import('../src/survivors/enemies/Enemy').Enemy],
+            () => [{ alive: true, position: new Vector3(1, 0, 0), isAlive: () => true, getPosition: () => new Vector3(1, 0, 0) } as unknown as import('../src/survivors/enemies/Enemy').Enemy],
         );
         return { manager, def, castSpy };
     }
@@ -158,6 +158,8 @@ describe('PowerSlotManager — per-power cast range gate', () => {
     /** One stationary enemy `dist` units east of the hero at the origin. */
     function managerWithEnemyAt(dist: number) {
         const enemy = {
+            alive: true,
+            position: new Vector3(dist, 0, 0),
             isAlive: () => true,
             getPosition: () => new Vector3(dist, 0, 0),
         } as unknown as FakeEnemy;
@@ -190,9 +192,12 @@ describe('PowerSlotManager — per-power cast range gate', () => {
 
     it('holds the cooldown while out of range so it fires the instant range is met', () => {
         let dist = 15;
+        const pos = new Vector3(dist, 0, 0);
         const enemy = {
+            alive: true,
+            position: pos,
             isAlive: () => true,
-            getPosition: () => new Vector3(dist, 0, 0),
+            getPosition: () => pos.set(dist, 0, 0),
         } as unknown as FakeEnemy;
         const mgr = new PowerSlotManager(host, () => new Vector3(0, 0, 0), () => [enemy]);
         const cast = vi.fn();
@@ -245,6 +250,8 @@ describe('PowerSlotManager — per-cast context isolation', () => {
     /** Manager with one enemy well inside every power's range. */
     function managerOn(scene: SceneHost) {
         const enemy = {
+            alive: true,
+            position: new Vector3(1, 0, 0),
             isAlive: () => true,
             getPosition: () => new Vector3(1, 0, 0),
         } as unknown as FakeEnemy;

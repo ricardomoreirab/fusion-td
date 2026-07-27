@@ -85,14 +85,15 @@ export class OffscreenEnemyIndicators {
         this.camera.updateMatrixWorld();
         const sp = this._scratchProject;
 
-        for (const e of enemies) {
-            if (!e.isAlive()) continue;
+        for (let i = 0; i < enemies.length; i++) {
+            const e = enemies[i];
+            if (!e.alive) continue;
             seen.add(e);
 
             // Project world → screen via the shared scratch Vector3. View space
             // first: the camera looks down -Z, so viewZ > 0 means behind it
             // (Babylon's sp.z < 0 case).
-            sp.copy(e.getPosition()).applyMatrix4(this.camera.matrixWorldInverse);
+            sp.copy(e.position).applyMatrix4(this.camera.matrixWorldInverse);
             const inFront = sp.z < 0;
             sp.applyMatrix4(this.camera.projectionMatrix); // NDC (perspective divide)
             const sx = (sp.x * 0.5 + 0.5) * sw;
