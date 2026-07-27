@@ -2,9 +2,10 @@
 // THE single chokepoint enforcing CLAUDE.md leak rules: every material via
 // getCachedMaterial with a bounded (element) key; transient meshes fade via
 // setMeshOpacity and are disposed with the update token removed; projectiles pool.
-import { LineBasicMaterial, Mesh, Vector3 } from 'three';
+import { Mesh, Vector3 } from 'three';
 import type { SceneHost, UpdateToken } from '../../engine/three/SceneHost';
-import { createDisc, createLines, createSphere, createTorus, disposeMesh } from '../../engine/three/primitives';
+import { createDisc, createSphere, createTorus, disposeMesh } from '../../engine/three/primitives';
+import { BoltField } from './BoltField';
 import { setMeshOpacity } from '../../engine/rendering/LowPolyMaterial';
 import { headingToYaw } from '../../engine/three/math';
 import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
@@ -178,6 +179,11 @@ export function resetPowerEffects(): void {
     // Tear down any in-flight effect so it can't bleed into the next run.
     for (const fx of Array.from(_activeEffects)) endFx(fx);
     _activeEffects.clear();
+    // The bolt field holds an onBeforeRender token + a scene object; it is not an
+    // ActiveFx, so it needs its own teardown here or it survives into the next run.
+    _boltField?.dispose();
+    _boltField = null;
+    _boltFieldScene = null;
     _cameraShakeHook = null;
     _hitstopHook = null;
     _chainBonus = null;
@@ -185,9 +191,24 @@ export function resetPowerEffects(): void {
 }
 
 // ── chainHit — bouncing chain, optional split-on-hop ────────────────────────
-/** A fading line bolt between two points. The Line owns its material (created
- *  per bolt by createLines — no shared material to leak); disposed with the
- *  update token removed.
+// ── batched bolt field ──────────────────────────────────────────────────────
+// Every live bolt is a segment of ONE LineSegments rather than a scene object of
+// its own — see BoltField for the measurement and the identical-output argument.
+// Lazily built on first use so a run with no chain power never allocates it, and
+// rebuilt if the host scene ever changes under us.
+let _boltField: BoltField | null = null;
+let _boltFieldScene: SceneHost | null = null;
+function boltField(scene: SceneHost): BoltField {
+    if (_boltField && _boltFieldScene === scene) return _boltField;
+    _boltField?.dispose();
+    _boltFieldScene = scene;
+    _boltField = new BoltField(scene);
+    return _boltField;
+}
+
+/** A fading line bolt between two points, rendered as one segment of the shared
+ *  BoltField (a maxed chain fusion puts hundreds on screen at once, and a scene
+ *  object each cost ~4 µs/frame apiece).
  *  Co-op: chainHit's whole visual is composed of these bolts, and its hop targets
  *  are enemy-dependent (the teammate can't recompute them), so the 'pe' broadcast
  *  happens HERE per bolt — the receiver replays each segment verbatim, giving the
@@ -197,19 +218,7 @@ export function spawnBolt(scene: SceneHost, from: Vector3, to: Vector3, element:
     if (shouldEmitFx()) {
         emitCoopFx('pe', from.x, from.z, to.x, to.z, JSON.stringify({ p: 'bolt', e: element }));
     }
-    const lines = createLines('fx_bolt', { points: [from, to] }, scene);
-    const lineMat = lines.material as LineBasicMaterial; // owned by the Line (createLines flags ownedMaterial)
-    lineMat.color.copy(ELEMENT_COLOR[element]);
-    lineMat.transparent = true;
-    let elapsed = 0;
-    let fx: ActiveFx;
-    const token = scene.onBeforeRender.add(() => {
-        elapsed += scene.deltaSeconds;
-        lineMat.opacity = Math.max(0, 1 - elapsed / lifeS);
-        if (elapsed >= lifeS) endFx(fx);
-    });
-    fx = { scene, token, cleanup: () => disposeMesh(lines) }; // owned material freed with the line
-    _activeEffects.add(fx);
+    boltField(scene).spawn(from, to, ELEMENT_COLOR[element], lifeS);
 }
 
 export interface ChainOpts {
