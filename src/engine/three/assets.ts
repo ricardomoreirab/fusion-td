@@ -33,6 +33,7 @@ import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js';
 import { MeshoptDecoder } from 'meshoptimizer/meshopt_decoder.module.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { AnimGroup } from './AnimGroup';
+import { boneNamesDrivenByEuler, detachBoneEulerMirror } from './boneEulerMirror';
 import { installFlatSkeletonUpdate } from './flatSkeletonMatrices';
 import { hideBoneSubtrees } from './hideBoneSubtrees';
 import { pruneStaticTracks } from './pruneStaticTracks';
@@ -153,6 +154,10 @@ function cloneOwned(source: Material, out: Material[]): Material {
 }
 
 export class GlbContainer {
+    /** Bones any clip poses through `.rotation`; they keep THREE's Euler mirror.
+     *  Empty on every shipped rig - see boneEulerMirror. */
+    private readonly eulerDrivenBones: ReadonlySet<string>;
+
     constructor(public readonly gltf: GLTF) {
         // Once per loaded URL (containers are cached), before any instance can
         // exist: the exported rigs carry a constant-at-bind `.scale` track for
@@ -169,6 +174,7 @@ export class GlbContainer {
         // Object3D.copy carries `visible` across, and SkeletonUtils.clone's own
         // traversals ignore it.
         hideBoneSubtrees(this.gltf.scene);
+        this.eulerDrivenBones = boneNamesDrivenByEuler(this.gltf.animations);
     }
 
     public instantiate(host: SceneHost, namePrefix = ''): ContainerInstance {
@@ -186,6 +192,13 @@ export class GlbContainer {
         // container: Object3D.copy carries data fields across a clone but not
         // own methods.
         installFlatSkeletonUpdate(root);
+
+        // THREE mirrors every quaternion write back into an Euler nobody reads,
+        // at the cost of a matrix compose plus an asin and two atan2 per bone
+        // per frame - a third of the animation bus at horde scale. Per INSTANCE
+        // for the same reason as above: the mirror is a callback on the
+        // quaternion, which a clone re-attaches.
+        detachBoneEulerMirror(root, this.eulerDrivenBones);
 
         // Materials stay shared with the container until an owner asks for its
         // own — see ensureOwnMaterials for what that default is worth.
