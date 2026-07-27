@@ -766,7 +766,7 @@ export class Enemy {
             if (this.mesh && !isMeshDisposed(this.mesh)) {
                 this.mesh.position.copy(this.position);
                 if (dist > 0.01) {
-                    this.mesh.rotation.y = headingToYaw(-this._scratchDir.x, -this._scratchDir.z);
+                    this.faceHeading(this._scratchDir.x, this._scratchDir.z);
                 }
             }
 
@@ -2109,6 +2109,18 @@ export class Enemy {
         if (this._netCurrentAnim) this._netCurrentAnim.stop();
         slot.start(true);
         this._netCurrentAnim = slot;
+    }
+
+    /**
+     * Turn the mesh to travel along `(dx, dz)`. THE facing entry point for every
+     * survivors-mode enemy: the models carry a 180-degree root pre-rotation, so
+     * "forward" is the NEGATED heading, and a special move that computes its own
+     * yaw from the raw direction ends up lunging backwards while the same enemy
+     * walks forwards. `dx`/`dz` need not be normalised.
+     */
+    protected faceHeading(dx: number, dz: number): void {
+        if (!this.mesh || isMeshDisposed(this.mesh)) return;
+        this.mesh.rotation.y = headingToYaw(-dx, -dz);
     }
 
     /** Set the (interpolated) network position — drives both this.position (so

@@ -537,7 +537,10 @@ export class MilestoneBoss extends BossEnemy {
         if (this.mesh && !isMeshDisposed(this.mesh)) {
             this.mesh.position.copy(this.position);
             this.mesh.position.y = this.position.y + 1.2;
-            this.mesh.rotation.y = headingToYaw(this.dashDirX, this.dashDirZ);
+            // Through the same helper the walk cycle uses — a raw headingToYaw here
+            // skipped the models' 180-degree root pre-rotation, so the boss spun
+            // about-face the instant the dash began and lunged backwards.
+            this.faceHeading(this.dashDirX, this.dashDirZ);
         }
     }
 
