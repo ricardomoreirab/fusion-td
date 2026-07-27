@@ -32,7 +32,7 @@ export class MiniEnemy extends Enemy {
     private glbIdleAnim: AnimGroup | null = null;
     private glbCurrentAnim: AnimGroup | null = null;
     private glbAttackHoldTimer: number = 0;
-    private static readonly GLB_ATTACK_RANGE = 2.8;
+    /** Held past the swing so the snap's follow-through plays out. */
     private static readonly GLB_ATTACK_HOLD = 0.5;
     private static readonly GLB_SCALE = 0.6;
 
@@ -41,13 +41,17 @@ export class MiniEnemy extends Enemy {
         super(game, position, path, 5, 10, 3, 5);
         this.contactDamagePerSecond = 3;
 
-        // Tiny snap — quick, low-damage melee.
-        this.meleeRange            = 1.1;
+        // Tiny snap — quick, low-damage melee. A fenrir cub pounces like its
+        // parent, scaled down: a shorter hop off a shorter wind-up, but the same
+        // multiple of its own body length, so a pack of cubs converges in leaps
+        // rather than trailing behind the parent that spawned them.
+        this.meleeRange            = 7.0;
         this.meleeHitRange         = 1.4;
         this.meleeHitDamage        = 4;
-        this.meleeWindupDuration   = 0.2;
+        this.meleeWindupDuration   = 0.32;
         this.meleeStrikeDuration   = 0.08;
-        this.meleeCooldownDuration = 0.3;
+        this.meleeCooldownDuration = 0.5;
+        this.configureMeleeLunge(20, 5.6, 0.5);
 
         // Health bar anchor + size. The bar itself is an instance in the shared
         // HealthBarField (see Enemy.createHealthBar) — no meshes to build here.
@@ -175,22 +179,14 @@ export class MiniEnemy extends Enemy {
             }
             if (this.isFrozen || this.isStunned) {
                 this.playGlbAnim(this.glbIdleAnim, true);
-            } else if (this.seekTarget) {
-                const heroPos = this.seekTarget.getPosition();
-                const dx = heroPos.x - this.position.x;
-                const dz = heroPos.z - this.position.z;
-                const distSq = dx * dx + dz * dz;
-                const inRange = distSq <= MiniEnemy.GLB_ATTACK_RANGE * MiniEnemy.GLB_ATTACK_RANGE;
-                if (inRange) {
+            } else {
+                // Driven by the swing FSM, not proximity — the attack clip is the
+                // cub's hop, so it plays exactly while it is pouncing (same rule as
+                // the parent fenrir in SplittingEnemy).
+                if (this.isMeleeAttacking()) {
                     this.glbAttackHoldTimer = MiniEnemy.GLB_ATTACK_HOLD;
                 }
-                if (this.glbAttackHoldTimer > 0) {
-                    this.playGlbAnim(this.glbAttackAnim, true);
-                } else {
-                    this.playGlbAnim(this.glbWalkAnim, true);
-                }
-            } else {
-                this.playGlbAnim(this.glbWalkAnim, true);
+                this.playGlbAnim(this.glbAttackHoldTimer > 0 ? this.glbAttackAnim : this.glbWalkAnim, true);
             }
             return result;
         }

@@ -3,7 +3,8 @@ import { Game } from '../../engine/Game';
 import { EnemyType, StatusEffect } from '../GameTypes';
 import { PowerElement } from '../powers/PowerDefinitions';
 import { StatusStacks, STATUS_TUNING, type RichStatusKind } from '../powers/StatusModel';
-import { type TargetProvider, pickNearestAlive } from './nearestTarget';
+import { type HeroProvider, type TargetProvider, pickNearestAlive } from './nearestTarget';
+import { lungeTravel, resolveLungeReach } from './meleeLunge';
 import { rollCrit } from './critRoll';
 import { AnimGroup } from '../../engine/three/AnimGroup';
 import type { AnimationLod, ContainerInstance } from '../../engine/three/assets';
@@ -230,15 +231,7 @@ export class Enemy {
     protected originalScale: number = 1.0; // Store original scale for health-based scaling
 
     // Survivors-mode seek-target fields
-    public seekTarget: {
-        getPosition: () => Vector3;
-        takeDamage?: (amount: number, sourcePos?: Vector3) => void;
-        isAlive?: () => boolean;
-        /** Drag the hero toward a world point over durationS (boss grab). */
-        applyPull?: (towardX: number, towardZ: number, speed: number, durationS: number) => void;
-        /** Temporarily slow the hero's move speed (multiplier < 1). */
-        applySlow?: (multiplier: number, durationS: number) => void;
-    } | null = null;
+    public seekTarget: HeroProvider | null = null;
     public contactDamagePerSecond: number = 10;
     /** If >0, contact with the hero also ignites a burn DoT (this dps) for ~3s.
      *  Only FireBeetle sets it; the gameplay state reads it in applyContactDamage. */
@@ -282,6 +275,20 @@ export class Enemy {
     protected meleeStrikeDuration: number = 0.1;
     protected meleeCooldownDuration: number = 0.5;
     protected meleeRootDuringSwing: boolean = true;
+
+    // Lunge (opt-in via configureMeleeLunge; 0 speed = the swing is stationary,
+    // which is every enemy except the fenrir line). A lunging enemy spends its
+    // wind-up LEAPING at the spot the hero occupied when the swing started, so
+    // the attack animation and the pounce are one event and the leap is
+    // dodgeable by moving after the telegraph.
+    protected meleeLungeSpeed: number = 0;
+    protected meleeLungeMaxDistance: number = 0;
+    /** How far short of the committed point the leap stops, so the enemy lands
+     *  in front of the hero rather than inside them. */
+    protected meleeLungeStopShort: number = 0.5;
+    private lungeDirX: number = 0;
+    private lungeDirZ: number = 0;
+    private lungeRemaining: number = 0;
 
     // Melee-swing state machine
     private meleeState: 'idle' | 'windup' | 'strike' | 'cooldown' = 'idle';
@@ -961,6 +968,27 @@ export class Enemy {
         return this.seekTarget;
     }
 
+    /**
+     * Visit every LIVE hero: the co-op provider list, or the lone seek target in
+     * single-player. This is the target set for an enemy AoE (wizard splash,
+     * boulder impact, quake), as opposed to `resolveSeekTarget()`, which picks the
+     * single hero the enemy is chasing.
+     *
+     * A visitor rather than a returned array so an impact allocates nothing.
+     */
+    protected forEachLiveHero(visit: (hero: HeroProvider) => void): void {
+        if (this.seekTargets.length > 0) {
+            for (let i = 0; i < this.seekTargets.length; i++) {
+                const hero = this.seekTargets[i] as HeroProvider;
+                if (hero.isAlive?.() === false) continue;
+                visit(hero);
+            }
+            return;
+        }
+        const solo = this.seekTarget;
+        if (solo && solo.isAlive?.() !== false) visit(solo);
+    }
+
     /** True while a swing is winding up, striking, or recovering. Subclasses
      *  with their own attack timing (e.g., MilestoneBoss lunge) can check this. */
     public isMeleeAttacking(): boolean { return this.meleeState !== 'idle'; }
@@ -999,10 +1027,12 @@ export class Enemy {
                     this.meleeState = 'windup';
                     this.meleeTimer = this.meleeWindupDuration;
                     this.meleeStrikeHasHit = false;
+                    this.beginMeleeLunge(heroPos, Math.sqrt(distSq));
                 }
                 break;
             }
             case 'windup': {
+                this.advanceMeleeLunge(deltaTime);
                 this.onMeleeAttackPhase('windup', 1 - this.meleeTimer / this.meleeWindupDuration);
                 if (this.meleeTimer <= 0) {
                     this.meleeState = 'strike';
@@ -1038,6 +1068,56 @@ export class Enemy {
         this.meleeState = 'idle';
         this.meleeTimer = 0;
         this.meleeStrikeHasHit = false;
+        this.lungeRemaining = 0;
+    }
+
+    /**
+     * Turn this enemy's wind-up into a leap.
+     *
+     * Also clamps `meleeRange` so the swing can only START from a distance the
+     * leap can actually close: "only lunge when the champion is REACHABLE" is
+     * then structural rather than a tuning coincidence between two numbers. Call
+     * AFTER setting `meleeRange` / `meleeHitRange`.
+     */
+    protected configureMeleeLunge(speed: number, maxDistance: number, stopShort: number): void {
+        const reach = resolveLungeReach(
+            speed, maxDistance, this.meleeWindupDuration, this.meleeRange, this.meleeHitRange,
+        );
+        this.meleeLungeSpeed = speed;
+        this.meleeLungeStopShort = stopShort;
+        this.meleeLungeMaxDistance = reach.maxDistance;
+        this.meleeRange = reach.triggerRange;
+        // The leap IS this enemy's movement during the swing; letting seek
+        // movement run alongside it would add the two together.
+        this.meleeRootDuringSwing = true;
+    }
+
+    /**
+     * Commit the leap at the instant the swing starts: direction and distance are
+     * both frozen here, so a hero who moves after the telegraph is leapt PAST
+     * rather than tracked. No-op for the stationary swing every other enemy has.
+     */
+    private beginMeleeLunge(heroPos: Vector3, dist: number): void {
+        this.lungeRemaining = 0;
+        if (this.meleeLungeSpeed <= 0 || dist < 0.001) return;
+
+        const travel = lungeTravel(dist, this.meleeLungeMaxDistance, this.meleeLungeStopShort);
+        if (travel <= 0) return; // already on top of the hero — swing in place
+
+        this.lungeDirX = (heroPos.x - this.position.x) / dist;
+        this.lungeDirZ = (heroPos.z - this.position.z) / dist;
+        this.lungeRemaining = travel;
+    }
+
+    /** Advance the committed leap. The caller's `rooted` gate has already
+     *  suppressed normal seek movement for this frame, so this is the only thing
+     *  moving the enemy; `update()` copies position → mesh right afterwards. */
+    private advanceMeleeLunge(deltaTime: number): void {
+        if (this.lungeRemaining <= 0) return;
+        const step = Math.min(this.lungeRemaining, this.meleeLungeSpeed * deltaTime);
+        this.lungeRemaining -= step;
+        this.position.x += this.lungeDirX * step;
+        this.position.z += this.lungeDirZ * step;
     }
 
     /** @deprecated Burn is now ticked by the StatusStacks model in

@@ -10,6 +10,9 @@ import { headingToYaw } from '../../engine/three/math';
 import { fxRenderer, fxSize, ParticleEffect } from '../../engine/three/particles/ParticleEffect';
 import { LifeTimeCurve, Shape } from '@newkrok/three-particles';
 import { createBox, createCylinder, createDisc, createSphere, createTorus, createTransformHost, disposeMesh, isMeshDisposed } from '../../engine/three/primitives';
+import { fireEnemyBolt, ENEMY_BOLTS, type EnemyBoltSpec } from './EnemyBolt';
+import type { HeroProvider } from './nearestTarget';
+import { emitCoopFx } from '../coop/CoopFx';
 
 export class HealerEnemy extends Enemy {
     /** Static slot used by EnemyManager.spawnSurvivorsEnemy to stage a preloaded GLB
@@ -38,6 +41,24 @@ export class HealerEnemy extends Enemy {
     private static readonly GLB_ATTACK_RANGE = 4.0;
     private static readonly GLB_ATTACK_HOLD = 0.6;
     private static readonly GLB_SCALE = 1.4;
+
+    // ── Ranged attack ────────────────────────────────────────────────────────
+    // Every mage plinks at the hero from range. The numbers are protected rather
+    // than static so RedWizard is only a stat block on top of ONE implementation.
+    //
+    // A mage bolt HOMES: like a champion's own basic attack it re-aims every
+    // frame and connects, so there is nothing to sidestep. That is what makes the
+    // number small — it is sustained chip damage the hero out-heals with floor
+    // drops (a heal orb is 20% of max HP), not a burst to be avoided. At 6 damage
+    // on a 3s cadence a mage is ~2 damage/second; one orb covers four bolts.
+    protected boltSpec: EnemyBoltSpec = ENEMY_BOLTS.mage;
+    protected boltDamage: number = 6;
+    protected boltCooldown: number = 3.0;
+    protected boltRange: number = 10;
+    /** Counts UP, like healTimer. A countdown seeded from `boltCooldown` in a
+     *  field initializer would read HealerEnemy's value, not the subclass's —
+     *  subclass field initializers run after the base constructor. */
+    private boltTimer: number = 0;
 
     constructor(game: Game, position: Vector3, path: Vector3[]) {
         // Healer enemy: moderate speed, low HP, low damage, decent reward
@@ -399,12 +420,19 @@ export class HealerEnemy extends Enemy {
     }
 
     /**
-     * Per-frame support behavior. Base healer: every 1s, dispatch a heal pulse to
-     * nearby allies + spawn the telegraph ring. Subclasses (RedWizard) override this
-     * to do something else entirely (e.g. fire a projectile) without touching the
-     * shared GLB/animation/movement code in update().
+     * Per-frame mage behavior, split into the two things a mage does so a
+     * subclass can replace one without re-implementing the other. RedWizard
+     * silences the heal and keeps the ranged attack; both tiers share ONE
+     * projectile implementation and differ only in their stat block.
      */
     protected performSupportBehavior(deltaTime: number): void {
+        this.performHealPulse(deltaTime);
+        this.performRangedAttack(deltaTime);
+    }
+
+    /** Every 1s, dispatch a heal pulse to nearby allies + spawn the telegraph
+     *  ring. Overridden to a no-op by the red tier, which does not heal. */
+    protected performHealPulse(deltaTime: number): void {
         this.healTimer += deltaTime;
         if (this.healTimer >= 1.0) {
             this.healTimer -= 1.0;
@@ -420,6 +448,55 @@ export class HealerEnemy extends Enemy {
             // Expanding pulse ring visual at healer's feet
             this.spawnHealPulseRing();
         }
+    }
+
+    /**
+     * Tick the shot timer and, when it is ready AND the hero is inside
+     * `boltRange`, fire. Out of range the timer keeps accumulating, so the bolt
+     * launches the instant the hero steps into range.
+     *
+     * The cast clip is started HERE, on the same frame and by the same range
+     * test as the bolt itself — a mage that plays its cast animation always
+     * produces a projectile (CLAUDE.md: "a cast animation is a PROMISE").
+     */
+    protected performRangedAttack(deltaTime: number): void {
+        // Nearest LIVE hero — a dead co-op host (raw seekTarget) is not a target.
+        const target = this.resolveSeekTarget();
+        if (!target || this.isFrozen || this.isStunned) return;
+
+        this.boltTimer += deltaTime;
+        if (this.boltTimer < this.boltCooldown) return;
+
+        const heroPos = target.getPosition();
+        const dx = heroPos.x - this.position.x;
+        const dz = heroPos.z - this.position.z;
+        if (dx * dx + dz * dz > this.boltRange * this.boltRange) return;
+
+        this.boltTimer = 0;
+        this.glbAttackHoldTimer = HealerEnemy.GLB_ATTACK_HOLD;
+        // Broadcast the bolt so it is visible on the co-op teammate's screen.
+        emitCoopFx('enemyProj', this.position.x, this.position.z, heroPos.x, heroPos.z);
+
+        const origin = this.position.clone();
+        origin.y += 1.4; // roughly staff-orb height
+        fireEnemyBolt(this.scene, {
+            spec: this.boltSpec,
+            origin,
+            aimAt: heroPos,
+            target,
+            isOwnerAlive: () => this.alive,
+            sourcePosition: this.position,
+            onHit: (hit, at) => this.onBoltHit(hit, at),
+        });
+    }
+
+    /**
+     * Apply a bolt's damage on impact. Base = single target; RedSuperWizard
+     * overrides this to splash. `at` is the bolt's world position at impact.
+     */
+    protected onBoltHit(target: HeroProvider, at: Vector3): void {
+        void at;
+        target.takeDamage?.(this.boltDamage, this.position);
     }
 
     /**

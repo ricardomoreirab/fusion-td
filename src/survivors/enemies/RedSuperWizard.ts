@@ -1,6 +1,7 @@
 import { Vector3 } from 'three';
 import { Game } from '../../engine/Game';
 import { RedWizard } from './RedWizard';
+import type { HeroProvider } from './nearestTarget';
 
 /**
  * Wave-15+ wizard ELITE: a RedWizard whose bolt detonates in a small AOE on impact
@@ -17,25 +18,14 @@ export class RedSuperWizard extends RedWizard {
     }
 
     /** Damage every live hero within SPLASH_RADIUS of the impact point. */
-    protected onBoltHit(_target: NonNullable<typeof this.seekTarget>, at: Vector3): void {
-        // seekTargets is the co-op multi-hero list (TargetProvider — position/isAlive
-        // only); fall back to the single seekTarget in solo. takeDamage exists on the
-        // real provider objects but not the TargetProvider type, so cast at the call.
-        const heroes: Array<{
-            getPosition(): { x: number; z: number };
-            isAlive?(): boolean;
-            takeDamage?(amount: number, sourcePos?: Vector3): void;
-        }> = this.seekTargets.length > 0
-            ? this.seekTargets
-            : (this.seekTarget ? [this.seekTarget] : []);
+    protected onBoltHit(_target: HeroProvider, at: Vector3): void {
         const r2 = RedSuperWizard.SPLASH_RADIUS * RedSuperWizard.SPLASH_RADIUS;
-        for (const h of heroes) {
-            if (h.isAlive?.() === false) continue;
-            const p = h.getPosition();
+        this.forEachLiveHero(hero => {
+            const p = hero.getPosition();
             const dx = p.x - at.x, dz = p.z - at.z;
             if (dx * dx + dz * dz <= r2) {
-                h.takeDamage?.(RedSuperWizard.SPLASH_DAMAGE, this.position);
+                hero.takeDamage?.(RedSuperWizard.SPLASH_DAMAGE, this.position);
             }
-        }
+        });
     }
 }

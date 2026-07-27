@@ -19,4 +19,12 @@ export class FireBeetle extends FastEnemy {
 
         if (new.target === FireBeetle) this._initEnemyVisuals();
     }
+
+    /**
+     * No lance. FastEnemy's ranged attack belongs to the artillery CARRIAGES it
+     * normally renders as — a beetle has no gun to fire one from, and its threat
+     * is already distinct: it closes and sets you alight. Keeping the inherited
+     * volley would have made the two wave-15 skirmishers the same fight.
+     */
+    protected performRangedAttack(_deltaTime: number): void { /* no gun to fire */ }
 }

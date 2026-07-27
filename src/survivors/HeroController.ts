@@ -84,9 +84,13 @@ export class HeroController {
     private lastHitReactionTime: number = -Infinity;
     private elapsedTime: number = 0;
 
-    // Knockback impulse — decays over KNOCKBACK_DURATION_S, added to player velocity.
+    // Knockback impulse — decays linearly over knockbackDuration, added to player
+    // velocity. The duration is per-impulse (not the KNOCKBACK_DURATION_S constant)
+    // so a hit reaction's short nudge and a dragon-turtle quake's long shove can
+    // both use one decay path.
     private knockbackVelocity: Vector3 = new Vector3();
     private knockbackTimeRemaining: number = 0;
+    private knockbackDuration: number = KNOCKBACK_DURATION_S;
 
     // Boss "pull" — a sustained drag toward a world point (the boss). While active,
     // a velocity of pullSpeed toward (pullSourceX, pullSourceZ) is added on top of
@@ -282,14 +286,31 @@ export class HeroController {
             const dz = heroPos.z - sourcePos.z;
             const len = Math.hypot(dx, dz);
             if (len > 0.0001) {
-                this.knockbackVelocity.set(
-                    (dx / len) * KNOCKBACK_SPEED,
-                    0,
-                    (dz / len) * KNOCKBACK_SPEED,
-                );
-                this.knockbackTimeRemaining = KNOCKBACK_DURATION_S;
+                this.applyKnockback(dx / len, dz / len, KNOCKBACK_SPEED, KNOCKBACK_DURATION_S);
             }
         }
+    }
+
+    /**
+     * Shove the hero along a normalized heading. Used by the dragon-turtle quake,
+     * which needs a far bigger push over a far longer window than the per-hit
+     * reaction nudge — hence the explicit speed/duration instead of the
+     * KNOCKBACK_* constants.
+     *
+     * Strongest-wins rather than last-wins: a quake landing during the tail of a
+     * hit-reaction nudge must not be cut short by it. A shove big enough to be
+     * felt also shakes the camera — the two are the same event.
+     */
+    public applyKnockback(dirX: number, dirZ: number, speed: number, durationS: number): void {
+        if (this.isDead) return;
+        const live = this.knockbackTimeRemaining > 0
+            ? this.knockbackVelocity.length() * (this.knockbackTimeRemaining / this.knockbackDuration)
+            : 0;
+        if (speed < live) return;
+        this.knockbackVelocity.set(dirX * speed, 0, dirZ * speed);
+        this.knockbackTimeRemaining = durationS;
+        this.knockbackDuration = durationS;
+        if (speed > KNOCKBACK_SPEED) this.triggerScreenShake(durationS);
     }
 
     /** One-shot red particle burst at the hero's torso to signal damage taken. */
@@ -751,7 +772,7 @@ export class HeroController {
 
             // Decay knockback impulse, add it on top of player input.
             if (this.knockbackTimeRemaining > 0) {
-                const decay = Math.max(0, this.knockbackTimeRemaining / KNOCKBACK_DURATION_S);
+                const decay = Math.max(0, this.knockbackTimeRemaining / this.knockbackDuration);
                 this._scratchVel.x += this.knockbackVelocity.x * decay;
                 this._scratchVel.z += this.knockbackVelocity.z * decay;
                 this.knockbackTimeRemaining -= deltaTime;

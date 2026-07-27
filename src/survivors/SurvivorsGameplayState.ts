@@ -92,6 +92,7 @@ import { packEnemyFlags } from '../net/EnemyFlags';
 import type { NetRole, SpawnMsg, DeathMsg, SnapshotMsg, CoopHeroSummary, RunOverMsg, FxMsg } from '../net/Protocol';
 import { validateDamageReport } from './coop/DamageRouter';
 import { MilestoneBoss } from './enemies/MilestoneBoss';
+import { isGroundFxKind, isLaneFxKind, spawnGroundShockwave, spawnGroundTelegraph, spawnLaneTelegraph } from './enemies/EnemyGroundFx';
 
 /**
  * Map class-specific ultimate IDs → GLB clip + duration so the hero plays the
@@ -1047,6 +1048,9 @@ export class SurvivorsGameplayState implements GameState {
                 },
                 applySlow: (multiplier: number, durationS: number) => {
                     this.heroController?.applySlow(multiplier, durationS);
+                },
+                applyKnockback: (dirX: number, dirZ: number, speed: number, durationS: number) => {
+                    this.heroController?.applyKnockback(dirX, dirZ, speed, durationS);
                 },
             },
         ];
@@ -2603,6 +2607,28 @@ export class SurvivorsGameplayState implements GameState {
             }
             case 'enemyProj':
                 spawnCosmeticEnemyProjectile(this.scene, m.x, m.z, m.tx ?? m.x, m.tz ?? m.z);
+                break;
+            // Enemy area attacks (golem boulder, turtle quake). The guest ticks no
+            // enemy AI, so these are the only way its screen shows them; it replays
+            // the HOST's own primitive, so the two screens draw the same shape.
+            // Radius/duration ride in tx/tz, the effect kind in hint.
+            case 'enemyTelegraph':
+                if (m.hint && isGroundFxKind(m.hint)) {
+                    spawnGroundTelegraph(this.scene, m.x, m.z, m.tx ?? 1, m.tz ?? 0.6, m.hint);
+                }
+                break;
+            case 'enemyImpact':
+                if (m.hint && isGroundFxKind(m.hint)) {
+                    spawnGroundShockwave(this.scene, m.x, m.z, m.tx ?? 1, m.hint);
+                }
+                break;
+            // Directional variant (horned-lizard gore charge): the endpoints carry
+            // direction and length, and the kind carries width + wind-up, so the
+            // guest's marker is the host's marker with nothing to keep in sync.
+            case 'enemyLane':
+                if (m.hint && isLaneFxKind(m.hint) && m.tx !== undefined && m.tz !== undefined) {
+                    spawnLaneTelegraph(this.scene, m.x, m.z, m.tx, m.tz, m.hint);
+                }
                 break;
             case 'itemRing': {
                 // P7: replicate an item-effect expanding ring (shockwave/coinNova/etc).

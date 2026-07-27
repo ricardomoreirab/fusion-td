@@ -2,7 +2,7 @@ import { Frustum, Matrix4, Sphere, Vector3, type Camera, type Light, type Mesh }
 import { Game } from '../../engine/Game';
 import { Enemy, resetDeathBurstBudget, resetStatusVisualBudget } from './Enemy';
 import { disposeHealthBarField } from './HealthBarField';
-import { type TargetProvider, pickNearestAlive } from './nearestTarget';
+import { type HeroProvider, type TargetProvider, pickNearestAlive } from './nearestTarget';
 import { BasicEnemy } from './BasicEnemy';
 import { FastEnemy } from './FastEnemy';
 import { TankEnemy } from './TankEnemy';
@@ -50,13 +50,7 @@ export class EnemyManager {
     private cloneHandler: ((e: Event) => void) | null = null;
 
     // Survivors mode fields
-    private heroProvider: {
-        getPosition: () => Vector3;
-        takeDamage?: (amount: number, sourcePos?: Vector3) => void;
-        isAlive?: () => boolean;
-        applyPull?: (towardX: number, towardZ: number, speed: number, durationS: number) => void;
-        applySlow?: (multiplier: number, durationS: number) => void;
-    } | null = null;
+    private heroProvider: HeroProvider | null = null;
     /** Array version of heroProvider — set by configureSurvivorsMode (Phase 3).
      *  In single-player this is a single-element array wrapping heroProvider.
      *  In co-op it contains both heroes' providers so enemies can seek the nearest. */
@@ -189,11 +183,7 @@ export class EnemyManager {
      * array is behavior-identical to the old single-provider API.
      */
     public configureSurvivorsMode(
-        heroProviders: (TargetProvider & {
-            takeDamage?: (amount: number, sourcePos?: Vector3) => void;
-            applyPull?: (towardX: number, towardZ: number, speed: number, durationS: number) => void;
-            applySlow?: (multiplier: number, durationS: number) => void;
-        })[],
+        heroProviders: HeroProvider[],
         arenaRadius: number,
     ): void {
         this.heroProviders = heroProviders;

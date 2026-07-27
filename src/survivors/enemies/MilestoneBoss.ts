@@ -3,18 +3,31 @@ import { Game } from '../../engine/Game';
 import { BossEnemy } from './BossEnemy';
 import { DifficultyTuning } from '../DifficultyTuning';
 import { bossDifficultyAt } from '../DifficultyCurve';
-import { emitCoopFx } from '../coop/CoopFx';
+import { emitCoopFx, isCoopFxActive, spawnCosmeticSlashWave } from '../coop/CoopFx';
 import { AnimGroup } from '../../engine/three/AnimGroup';
 import type { GlbContainer } from '../../engine/three/assets';
 import { headingToYaw } from '../../engine/three/math';
 import { createDisc, createPlane, createTransformHost, disposeMesh, isMeshDisposed } from '../../engine/three/primitives';
+import { StatusEffect } from '../GameTypes';
+import {
+    hasClone, hasSidestepPredict, hasLeapDash, hasRunningPull, hasFrenziedEnrage,
+    FRENZY_SPEED_FACTOR,
+} from './bossTiers';
+import { emitGroundFx, spawnGroundShockwave } from './EnemyGroundFx';
+import {
+    ENRAGE_HEALTH_FRACTION, ENRAGE_TANK_FACTOR, ENRAGE_SPEED_FACTOR, ENRAGE_DAMAGE_FACTOR,
+    ENRAGE_COOLDOWN_FACTOR, isMovementImpairing, specialCooldownScale,
+} from './enrageProfile';
+
+// Re-exported so the HUD/gameplay-state import site and the tuning stay one name.
+export { ENRAGE_HEALTH_FRACTION };
 
 /**
  * Special-move state machine. The boss alternates between free movement
  * ('walking') and a telegraphed special: a slashing dash or a grab-and-pull.
  * Which special fires is chosen from the per-tier action rotation.
  */
-type LungeState = 'walking' | 'telegraph' | 'dashing' | 'pulling' | 'recover';
+type LungeState = 'walking' | 'telegraph' | 'leaping' | 'dashing' | 'pulling' | 'recover';
 type SpecialAction = 'dash' | 'pull';
 
 /**
@@ -70,9 +83,44 @@ function lungeCooldown(tier: number): number {
 }
 
 /** Tier 2+ leads the hero by predicting their movement. */
-function hasSidestepPredict(tier: number): boolean { return tier >= 2; }
-/** Tier 3+ spawns a twin and enrages when it dies. */
-function hasClone(tier: number): boolean { return tier >= 3; }
+// ── Leap dash (tier 1 / 4) ──────────────────────────────────────────────────
+/** Furthest the opening leap carries. The dash then continues from where it
+ *  lands, so the pair closes up to LEAP_DISTANCE + DASH_DISTANCE. */
+const LEAP_DISTANCE = 14.0;
+/** Lands this far short of the committed point so the boss arrives in front of
+ *  the hero and slashes through, rather than landing on top of them. */
+const LEAP_STOP_SHORT = 1.4;
+/** Top travel speed of a leap. The AIR TIME is derived from it (distance ÷
+ *  speed), not the other way around — sizing every leap to one fixed window made
+ *  a short hop crawl across it. */
+const LEAP_SPEED = 24.0;
+/** Floor on the air time. A hero stood on top of the boss leaves almost nothing
+ *  to leap, and a leap that lasts two frames has no arc to read. A leap shorter
+ *  than this is SLOWED to fill it rather than finishing early and waiting, so the
+ *  boss is never stood still between landing and dashing. */
+const LEAP_MIN_AIR_S = 0.30;
+
+/** The gather before the jump. Rooted, and the body visibly coils — this is the
+ *  anticipation that makes the launch read as a launch rather than as the boss
+ *  suddenly sliding. Replaces the flat rooted pause the painted lane used to
+ *  fill. */
+const LEAP_CHARGE_S = 0.38;
+/** Peak height of a FULL-distance arc. A leap that stays on the ground is just a
+ *  dash, and this is the single thing that most makes it read as a jump —
+ *  comfortably over the boss's own head. */
+const LEAP_ARC_HEIGHT = 4.0;
+/** Fraction of that height a zero-distance leap still gets. The arc scales with
+ *  the ground covered between the two: at full height a short hop would look
+ *  like the boss jumping straight up on the spot, and at no height it would stop
+ *  being a leap at all. */
+const LEAP_ARC_MIN_FRACTION = 0.55;
+/** How hard the body coils on the charge and stretches out of the launch, as a
+ *  fraction of its own height. Volume-preserving-ish: what Y loses, XZ gains. */
+const LEAP_COIL = 0.26;
+/** Radius of the ring thrown out where the boss lands. */
+const LEAP_SLAM_RADIUS = 4.5;
+/** Quadratic ease so the coil is slow to start and snaps tight at the launch. */
+const easeIn = (t: number): number => t * t;
 
 const TELEGRAPH_DURATION = 0.6;  // seconds rooted before the special fires
 const DASH_DURATION      = 0.5;  // seconds of dash motion (≈6 units at 12 u/s)
@@ -94,22 +142,6 @@ const PULL_SLAM_DAMAGE_FACTOR = 1.1; // × the boss's melee hit damage
 const PULL_SLOW_MULT        = 0.45; // hero moves at 45% speed after a slam connects
 const PULL_SLOW_DURATION    = 2.0;  // seconds of slow
 const PULL_TELEGRAPH_RADIUS = 3.0;  // visual grab-zone radius
-
-const ENRAGE_LUNGE_FACTOR = 0.5; // halves the special cooldown while enraged (2× rate)
-
-// ── Last-stand enrage ────────────────────────────────────────────────────────
-// Every milestone boss flips into a final phase once its health drops below
-// ENRAGE_HEALTH_FRACTION. This is the fight's shape: the boss is most dangerous
-// when it is nearly dead, so the kill has to be committed to rather than
-// out-attritioned. Distinct from the tier-3/4 twin-death enrage above — both can
-// fire in one fight, and each is one-shot.
-export const ENRAGE_HEALTH_FRACTION = 0.30;
-/** Tankiness is bought as damage REDUCTION, not extra max HP: adding HP at 30%
- *  would push the HUD boss bar backwards, and a boss bar that can rise reads as
- *  a bug. Taking 1/1.5× damage is the same 50% more effective HP, monotonically. */
-const ENRAGE_TANK_FACTOR   = 1.5;
-const ENRAGE_SPEED_FACTOR  = 1.5;
-const ENRAGE_DAMAGE_FACTOR = 1.5;
 
 // Elemental nova (tier 5 only): a periodic telegraphed AOE pulse around the boss,
 // independent of the dash/pull state machine. Reuses TELEGRAPH_DURATION for the wind-up.
@@ -139,6 +171,24 @@ export class MilestoneBoss extends BossEnemy {
     private dashDirZ: number = 0;
     private dashDistanceRemaining: number = 0;
     private dashHasHit: boolean = false;
+    /** Distance left in the opening leap (tier 1/4). 0 = not leaping. */
+    private leapRemaining: number = 0;
+    /** This leap's travel speed — at most LEAP_SPEED, reduced when the leap is
+     *  short enough that it would otherwise finish before the minimum air time. */
+    private leapSpeed: number = LEAP_SPEED;
+    private leapAirTime: number = LEAP_MIN_AIR_S;
+    /** This leap's peak height — scaled from LEAP_ARC_HEIGHT by how far it goes. */
+    private leapArcHeight: number = LEAP_ARC_HEIGHT;
+    /** Height above the ground plane this frame; added to the mesh at the end of
+     *  update(), after the GLB block has reset it to the ground. */
+    private leapHeight: number = 0;
+    /** True while the charge is coiling for a leap (as opposed to a plain
+     *  rooted telegraph, which the non-leap tiers still use). */
+    private leapPending: boolean = false;
+    /** GLB root scale + ground offset as built, so the coil can be applied as a
+     *  multiplier and released back to exactly these. */
+    private glbBaseScale: number = 1;
+    private glbBaseRootY: number = 0;
     private enraged: boolean = false;
     /** Last-stand enrage — a SEPARATE one-shot from the twin-death `enraged`
      *  above, so a tier-3/4 boss that already enraged from losing its twin can
@@ -267,6 +317,10 @@ export class MilestoneBoss extends BossEnemy {
         // Feet on the ground. Measured once per container from a posed clip,
         // not per spawn from the rest transform - see ContainerInstance.groundToFeet.
         inst.groundToFeet();
+        // Captured AFTER groundToFeet so the leap coil has the real resting pose
+        // to scale from and return to.
+        this.glbBaseScale = BOSS_SCALE;
+        this.glbBaseRootY = root.position.y;
 
         // Register groups for base-class dispose cleanup (prevents animatable leak).
         this.glbAnimationGroups = inst.animationGroups;
@@ -335,7 +389,20 @@ export class MilestoneBoss extends BossEnemy {
             result = super.update(deltaTime);
             this.speed = savedSpeed;
             this.advanceDash(deltaTime);
-        } else if (this.lungeState === 'telegraph' || this.lungeState === 'recover' || this.lungeState === 'pulling') {
+        } else if (this.lungeState === 'leaping') {
+            // Airborne: the boss owns its own motion for the arc, same as a dash.
+            const savedSpeed = this.speed;
+            this.speed = 0;
+            result = super.update(deltaTime);
+            this.speed = savedSpeed;
+            this.advanceLeap(deltaTime);
+        } else if (this.lungeState === 'pulling' && hasRunningPull(this.waveTier)) {
+            // Reeling the hero in WHILE closing. The parent's seek branch supplies
+            // the movement unchanged — the pull is what has to track the boss, so
+            // tickLungeStateMachine re-issues it at the new position each frame.
+            result = super.update(deltaTime);
+        } else if (this.lungeState === 'telegraph' || this.lungeState === 'recover'
+            || this.lungeState === 'pulling') {
             // Rooted: zero speed for this frame. Parent still ticks animation/status.
             const savedSpeed = this.speed;
             this.speed = 0;
@@ -370,6 +437,13 @@ export class MilestoneBoss extends BossEnemy {
             } else {
                 this.playGlbAnim(this.glbWalkAnim, true);
             }
+        }
+
+        // Airborne height goes on LAST. Both the parent's seek branch and the GLB
+        // block above rewrite mesh.y from the ground-plane position every frame,
+        // so anywhere earlier this would simply be overwritten.
+        if (this.leapHeight > 0 && this.mesh && !isMeshDisposed(this.mesh)) {
+            this.mesh.position.y = this.position.y + this.leapHeight;
         }
 
         return result;
@@ -414,10 +488,26 @@ export class MilestoneBoss extends BossEnemy {
 
             case 'telegraph':
                 this.stateTimer -= deltaTime;
+                // The coil deepens across the charge, so the wind-up is readable
+                // as "about to launch" rather than as a pause.
+                if (this.leapPending) {
+                    this.poseLeapBody(-easeIn(1 - Math.max(0, this.stateTimer) / LEAP_CHARGE_S));
+                }
                 if (this.stateTimer <= 0) {
                     if (this.pendingAction === 'pull') this.enterPull();
+                    else if (this.leapPending) this.enterLeap();
                     else this.enterDash();
                 }
+                return;
+
+            case 'leaping':
+                this.stateTimer -= deltaTime;
+                // The dash may not begin while the boss is still in the air. Air
+                // time is sized to the leap so the two normally end together, but
+                // frame quantisation can leave a sliver of travel when the timer
+                // expires — dashing then would start the slash mid-flight.
+                if (this.leapRemaining > 0) return;
+                if (this.stateTimer <= 0) this.enterDash();
                 return;
 
             case 'dashing':
@@ -429,6 +519,15 @@ export class MilestoneBoss extends BossEnemy {
 
             case 'pulling':
                 this.stateTimer -= deltaTime;
+                // A running pull has to be re-issued at the boss's CURRENT position
+                // or the hero keeps being dragged toward the spot it grabbed from.
+                // The remaining duration is passed so re-issuing never extends it
+                // (HeroController.applyPull keeps the longer of the two).
+                if (this.stateTimer > 0 && hasRunningPull(this.waveTier)) {
+                    this.resolveSeekTarget()?.applyPull?.(
+                        this.position.x, this.position.z, PULL_SPEED, this.stateTimer,
+                    );
+                }
                 if (this.stateTimer <= 0) {
                     this.applyPullSlam();
                     this.enterRecover();
@@ -472,11 +571,25 @@ export class MilestoneBoss extends BossEnemy {
         this.pendingAction = action;
         this.lungeState = 'telegraph';
         this.stateTimer = TELEGRAPH_DURATION;
+        // Cleared up front: a leap-capable boss alternating dash/pull (Apex) must
+        // not carry a pending coil into its grab.
+        this.leapRemaining = 0;
+        this.leapPending = false;
 
         if (action === 'pull') {
             this.spawnPullTelegraph();
             // Broadcast to guest: pull telegraph is a disc at boss origin (no direction).
             emitCoopFx('telegraph', this.position.x, this.position.z, this.position.x, this.position.z, 'pull');
+        } else if (hasLeapDash(this.waveTier)) {
+            // The LEAP is the telegraph. A boss that jumps at you reads its own
+            // intent — where it is going is where it is already flying — so the
+            // painted lane is not just redundant, it flattens the move into
+            // "stand still, then move". Nothing is drawn and nothing is
+            // broadcast; the guest sees the jump itself in the position stream.
+            // Charge first; enterLeap commits the distance when it actually
+            // launches, so a hero who closes during the coil is not leapt over.
+            this.leapPending = true;
+            this.stateTimer = LEAP_CHARGE_S;
         } else {
             this.spawnDashTelegraph();
             // Broadcast to guest: dash telegraph from boss origin to dash endpoint.
@@ -486,11 +599,123 @@ export class MilestoneBoss extends BossEnemy {
         }
     }
 
+    /**
+     * Launch. The direction was locked when the charge began but the DISTANCE is
+     * committed here, at the end of the coil — a hero who ran in during the
+     * wind-up is landed on rather than sailed over.
+     *
+     * From this instant the leap is fixed: a hero who moves now is leapt PAST
+     * rather than tracked. The arc replaces the painted lane as the read.
+     */
+    private enterLeap(): void {
+        this.leapPending = false;
+        this.lungeState = 'leaping';
+
+        const target = this.resolveSeekTarget();
+        const heroPos = target?.getPosition();
+        const gap = heroPos
+            ? Math.hypot(heroPos.x - this.position.x, heroPos.z - this.position.z)
+            : LEAP_DISTANCE;
+        this.leapRemaining = Math.max(0, Math.min(LEAP_DISTANCE, gap - LEAP_STOP_SHORT));
+        if (heroPos && gap > 0.001) {
+            // Re-aim at the launch instant. Only the direction — the distance is
+            // already fixed — so this sharpens the jump without making it homing.
+            this.dashDirX = (heroPos.x - this.position.x) / gap;
+            this.dashDirZ = (heroPos.z - this.position.z) / gap;
+        }
+
+        // Air time from the distance, then speed back from the air time, so the
+        // arc is always fully travelled and the dash follows the landing with no
+        // pause — whatever gap is being closed.
+        this.leapAirTime = Math.max(LEAP_MIN_AIR_S, this.leapRemaining / LEAP_SPEED);
+        this.stateTimer = this.leapAirTime;
+        this.leapSpeed = this.leapRemaining / this.leapAirTime;
+        // Arc scales with the ground actually covered, so a hop onto an adjacent
+        // hero is a hop and not a vertical pop on the spot.
+        const reach = Math.min(1, this.leapRemaining / LEAP_DISTANCE);
+        this.leapArcHeight = LEAP_ARC_HEIGHT
+            * (LEAP_ARC_MIN_FRACTION + (1 - LEAP_ARC_MIN_FRACTION) * reach);
+        this.faceHeading(this.dashDirX, this.dashDirZ);
+    }
+
+    /**
+     * Fly the committed leap: forward along the locked heading, and UP through a
+     * parabola. The height is what makes it a leap rather than a slide, so it is
+     * applied to the mesh at the end of update() — after the GLB block, which
+     * resets mesh.y to the ground plane every frame.
+     */
+    private advanceLeap(deltaTime: number): void {
+        if (this.leapRemaining <= 0) { this.leapHeight = 0; return; }
+        const step = Math.min(this.leapRemaining, this.leapSpeed * deltaTime);
+        this.leapRemaining -= step;
+        this.position.x += this.dashDirX * step;
+        this.position.z += this.dashDirZ * step;
+
+        // 4t(1−t) peaks at 1 halfway and is 0 at both ends, so the boss leaves and
+        // meets the ground exactly. Progress comes from the TIMER, not from
+        // distance, so a near-zero-distance leap still arcs.
+        const t = this.leapAirTime > 0
+            ? 1 - Math.max(0, this.stateTimer) / this.leapAirTime
+            : 1;
+        this.leapHeight = this.leapArcHeight * 4 * t * (1 - t);
+        // Stretch out of the launch, easing back to neutral by the apex.
+        this.poseLeapBody(Math.max(0, 1 - t * 2));
+
+        if (this.mesh && !isMeshDisposed(this.mesh)) this.mesh.position.copy(this.position);
+    }
+
+    /**
+     * Coil (negative) / stretch (positive) the body, 0 = neutral.
+     *
+     * Poses the GLB ROOT, not `this.mesh` — the mesh is what both enrages scale,
+     * and writing to it here would either be clobbered by them or permanently
+     * bake this pose into their multiplier. The root's ground offset scales with
+     * its height, so it is re-derived too or the model sinks when squashed.
+     */
+    private poseLeapBody(amount: number): void {
+        const root = this.glbInstance?.root;
+        if (!root) return;
+        const a = Math.max(-1, Math.min(1, amount));
+        const sy = 1 + LEAP_COIL * a;
+        const sxz = 1 - LEAP_COIL * a * 0.5;
+        root.scale.set(this.glbBaseScale * sxz, this.glbBaseScale * sy, this.glbBaseScale * sxz);
+        root.position.y = this.glbBaseRootY * sy;
+    }
+
+    /** Land: put the body back to neutral and throw a ring out from the impact.
+     *  Visual only — the payoff is the dash's slash, which starts this same frame,
+     *  so damaging the landing too would hit once for one committed move. */
+    private landLeap(): void {
+        this.leapRemaining = 0;
+        this.leapHeight = 0;
+        this.poseLeapBody(0);
+        spawnGroundShockwave(this.scene, this.position.x, this.position.z, LEAP_SLAM_RADIUS, 'slam');
+        emitGroundFx('enemyImpact', this.position.x, this.position.z, LEAP_SLAM_RADIUS, 0, 'slam');
+    }
+
     private enterDash(): void {
         this.disposeTelegraphRing();
+        if (hasLeapDash(this.waveTier)) this.landLeap();
         this.lungeState = 'dashing';
         this.stateTimer = DASH_DURATION;
         this.dashHasHit = false;
+
+        // A leap-dash lands with a slash: the same travelling crescent the
+        // barbarian's own wave draws, so the boss's signature move reads as an
+        // attack rather than as the boss walking through you. The visual is
+        // damage-free by construction — advanceDash owns the hit — and it goes
+        // out on the cosmetic channel so the guest sees it too.
+        if (hasLeapDash(this.waveTier)) {
+            const angle = Math.atan2(this.dashDirZ, this.dashDirX);
+            spawnCosmeticSlashWave(this.scene, this.position.x, this.position.z, DASH_DISTANCE, angle);
+            // Reuses the barbarian's existing 'slash' channel and its
+            // "range:facingAngle" hint — the crescent is the same primitive, so it
+            // needs no second wire kind. Gated so single-player never builds the string.
+            if (isCoopFxActive()) {
+                emitCoopFx('slash', this.position.x, this.position.z,
+                    undefined, undefined, `${DASH_DISTANCE}:${angle}`);
+            }
+        }
     }
 
     private enterPull(): void {
@@ -509,9 +734,18 @@ export class MilestoneBoss extends BossEnemy {
 
     private enterWalking(): void {
         this.disposeTelegraphRing();
+        // Everything returns here, so it is the one place guaranteed to undo a
+        // leap that was abandoned rather than landed (no live target at commit,
+        // a hero who died mid-charge). Without it the boss walks on coiled.
+        this.leapPending = false;
+        this.leapRemaining = 0;
+        this.leapHeight = 0;
+        this.poseLeapBody(0);
         this.lungeState = 'walking';
-        const baseCd = lungeCooldown(this.waveTier);
-        this.lungeTimer = this.enraged ? baseCd * ENRAGE_LUNGE_FACTOR : baseCd;
+        // The two enrages COMPOSE — a tier-4 boss that lost its twin and then
+        // dropped below the health threshold cycles specials at both discounts.
+        this.lungeTimer = lungeCooldown(this.waveTier)
+            * specialCooldownScale(this.enraged, this.lowHealthEnraged);
     }
 
     private advanceDash(deltaTime: number): void {
@@ -569,14 +803,20 @@ export class MilestoneBoss extends BossEnemy {
         this.maxHealth *= 2;
         this.health = Math.min(this.maxHealth, this.health * 2);
 
-        this.speed *= 2;
-        this.originalSpeed *= 2;
+        // Tier 3 (Gemini) and Apex go into a frenzy rather than merely speeding
+        // up: half again on top of the doubling every twin-death enrage grants.
+        const speedUp = 2 * (hasFrenziedEnrage(this.waveTier) ? FRENZY_SPEED_FACTOR : 1);
+        this.speed *= speedUp;
+        this.originalSpeed *= speedUp;
 
         // Attack speed: faster melee swings + faster special cadence.
         this.meleeWindupDuration *= 0.5;
         this.meleeCooldownDuration *= 0.5;
         if (this.lungeState === 'walking') {
-            this.lungeTimer = Math.min(this.lungeTimer, lungeCooldown(this.waveTier) * ENRAGE_LUNGE_FACTOR);
+            this.lungeTimer = Math.min(
+                this.lungeTimer,
+                lungeCooldown(this.waveTier) * specialCooldownScale(true, this.lowHealthEnraged),
+            );
         }
 
         // Visual tell: the boss visibly swells.
@@ -587,9 +827,10 @@ export class MilestoneBoss extends BossEnemy {
     }
 
     /**
-     * Last-stand enrage: below ENRAGE_HEALTH_FRACTION the boss becomes 50% more
-     * durable, faster (both on its feet and between swings) and harder-hitting.
-     * One-shot and idempotent — checked once per frame from update().
+     * Last-stand enrage: below ENRAGE_HEALTH_FRACTION the boss sheds every
+     * movement-impairing effect and becomes tankier, much faster, quicker off
+     * cooldown and harder-hitting. One-shot and idempotent — checked once per
+     * frame from update().
      *
      * NOT called on the co-op guest, whose bosses never tick AI. That is fine:
      * every mutation here is host-authoritative (the guest routes damage to the
@@ -606,12 +847,22 @@ export class MilestoneBoss extends BossEnemy {
         // exactly "takes 1/1.5 of the damage it would otherwise have taken".
         this.damageResistance = 1 - (1 - this.damageResistance) / ENRAGE_TANK_FACTOR;
 
-        // Faster: on its feet, between melee swings, and between specials.
+        // Unstoppable. Breaking free is part of the transition, not just an
+        // immunity going forward — a boss already frozen when it crosses the
+        // threshold would otherwise stand there through its own enrage.
+        this.shedMovementImpairment();
+
+        // Faster: on its feet and between melee swings.
         this.speed *= ENRAGE_SPEED_FACTOR;
         this.originalSpeed *= ENRAGE_SPEED_FACTOR;
         this.meleeWindupDuration /= ENRAGE_SPEED_FACTOR;
         this.meleeCooldownDuration /= ENRAGE_SPEED_FACTOR;
-        this.lungeTimer /= ENRAGE_SPEED_FACTOR;
+        // Specials come off cooldown faster too. Scale the pending timer by the
+        // same factor enterWalking() will now use, so the first enraged special
+        // does not wait out a cooldown that was set at the old cadence.
+        this.lungeTimer *= specialCooldownScale(this.enraged, true)
+            / specialCooldownScale(this.enraged, false);
+        this.novaCooldown *= ENRAGE_COOLDOWN_FACTOR;
 
         // Stronger: contact + melee via the shared helper, then the specials that
         // were derived from melee damage at construction.
@@ -626,6 +877,38 @@ export class MilestoneBoss extends BossEnemy {
         if (this.mesh && !isMeshDisposed(this.mesh)) {
             this.mesh.scale.multiplyScalar(1.12);
         }
+    }
+
+    /** Clear every movement-impairing effect currently on the boss, including the
+     *  stacking chill in the rich-status model (which would otherwise keep
+     *  ticking its slow and eventually convert into a freeze). */
+    private shedMovementImpairment(): void {
+        for (const effect of [...this.activeStatusEffects.keys()]) {
+            if (isMovementImpairing(effect)) this.removeStatusEffect(effect);
+        }
+        this.statuses.clear('chill');
+        this.speed = this.originalSpeed;
+    }
+
+    /**
+     * An enraged boss is immune to movement impairment. Damage-over-time and the
+     * damage amplifiers still land — the last stand is a race the player has to
+     * win on DPS, not an invulnerability phase.
+     *
+     * Gated on the host-only `lowHealthEnraged` flag rather than `isEnraged()`:
+     * on the co-op guest the base implementation redirects the effect to the host
+     * for authoritative handling, and dropping it here would silently swallow it.
+     */
+    public override applyStatusEffect(effect: StatusEffect, duration: number, strength: number): void {
+        if (this.lowHealthEnraged && isMovementImpairing(effect)) return;
+        super.applyStatusEffect(effect, duration, strength);
+    }
+
+    /** Knockback is movement impairment by another name — an enraged boss does
+     *  not get shoved off its charge. (BossEnemy already damps it to 0.3×.) */
+    public override applyKnockback(dirX: number, dirZ: number, magnitude: number): void {
+        if (this.lowHealthEnraged) return;
+        super.applyKnockback(dirX, dirZ, magnitude);
     }
 
     /** True once the boss is in its final phase. On the co-op guest the flag is
@@ -699,11 +982,6 @@ export class MilestoneBoss extends BossEnemy {
             disposeMesh(this.telegraphRing, { materials: true });
         }
         this.telegraphRing = null;
-    }
-
-    /** Override to keep the 30% knockback reduction from BossEnemy (same behavior). */
-    public applyKnockback(dirX: number, dirZ: number, magnitude: number): void {
-        super.applyKnockback(dirX, dirZ, magnitude);
     }
 
     /**

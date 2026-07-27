@@ -7,6 +7,8 @@ import { AnimGroup } from '../../engine/three/AnimGroup';
 import type { GlbContainer } from '../../engine/three/assets';
 import { headingToYaw } from '../../engine/three/math';
 import { createBox, createCylinder, createPolyhedron, createSphere, createTransformHost, disposeMesh, isMeshDisposed } from '../../engine/three/primitives';
+import { fireEnemyBolt, ENEMY_BOLTS } from './EnemyBolt';
+import { emitCoopFx } from '../coop/CoopFx';
 
 /** NORMAL-tier health-bar fill size for this class. Module-level + frozen: it is
  *  read on every bar rebuild and must never be a per-instance literal. */
@@ -50,6 +52,22 @@ export class FastEnemy extends Enemy {
     private glbIdleAnim: AnimGroup | null = null;
     private glbCurrentAnim: AnimGroup | null = null;
     private static readonly GLB_ATTACK_RANGE = 2.5;
+    /** Held past a shot so the firing pose plays out instead of snapping back. */
+    private static readonly GLB_FIRE_HOLD = 0.5;
+    protected glbFireHoldTimer: number = 0;
+
+    // ── Lance volley ─────────────────────────────────────────────────────────
+    // The carriage is artillery, so it fights at range: it looses a lance down a
+    // FIXED line. Unlike a mage bolt this one is beaten with footwork — it never
+    // re-aims, so it hits where you were, not where you are. That is the whole
+    // division: mages are damage you out-heal, artillery is damage you out-move.
+    //
+    // Counts UP so a subclass retuning `lanceCooldown` in its constructor is not
+    // pre-empted by a countdown seeded from this class's value.
+    protected lanceDamage: number = 9;
+    protected lanceCooldown: number = 2.6;
+    protected lanceRange: number = 11;
+    private lanceTimer: number = 0;
 
     constructor(game: Game, position: Vector3, path: Vector3[]) {
         // Fast enemy has 2x speed, low health, low damage, and medium reward
@@ -360,8 +378,13 @@ export class FastEnemy extends Enemy {
         // Get the result from the parent update method
         const result = super.update(deltaTime);
 
+        this.performRangedAttack(deltaTime);
+
         // GLB carriage skips the procedural ghost-trail anim — its own clips drive it.
         if (this.usingGLB) {
+            if (this.glbFireHoldTimer > 0) {
+                this.glbFireHoldTimer = Math.max(0, this.glbFireHoldTimer - deltaTime);
+            }
             if (this.isFrozen || this.isStunned) {
                 this.playGlbAnim(this.glbIdleAnim, true);
             } else if (this.seekTarget) {
@@ -369,7 +392,10 @@ export class FastEnemy extends Enemy {
                 const dx = heroPos.x - this.position.x;
                 const dz = heroPos.z - this.position.z;
                 const distSq = dx * dx + dz * dz;
-                if (distSq <= FastEnemy.GLB_ATTACK_RANGE * FastEnemy.GLB_ATTACK_RANGE) {
+                // The firing pose outranks the contact pose: a lance loosed from
+                // 11 units must show the carriage shooting, not rolling along.
+                if (this.glbFireHoldTimer > 0
+                    || distSq <= FastEnemy.GLB_ATTACK_RANGE * FastEnemy.GLB_ATTACK_RANGE) {
                     this.playGlbAnim(this.glbAttackAnim, true);
                 } else {
                     this.playGlbAnim(this.glbWalkAnim, true);
@@ -397,6 +423,49 @@ export class FastEnemy extends Enemy {
         }
 
         return result;
+    }
+
+    /**
+     * Tick the lance timer and loose one when it comes up AND the hero is inside
+     * `lanceRange`. Out of range the timer keeps accumulating, so the shot goes
+     * off the instant the hero comes into view.
+     *
+     * The firing pose is started HERE, on the same frame and by the same range
+     * test as the lance itself — a carriage that plays its shoot animation always
+     * produces a lance (CLAUDE.md: "a cast animation is a PROMISE").
+     *
+     * Overridden to a no-op by FireBeetle, which is a creature rather than a
+     * gun carriage.
+     */
+    protected performRangedAttack(deltaTime: number): void {
+        // Nearest LIVE hero — a dead co-op host (raw seekTarget) is not a target.
+        const target = this.resolveSeekTarget();
+        if (!target || this.isFrozen || this.isStunned) return;
+
+        this.lanceTimer += deltaTime;
+        if (this.lanceTimer < this.lanceCooldown) return;
+
+        const heroPos = target.getPosition();
+        const dx = heroPos.x - this.position.x;
+        const dz = heroPos.z - this.position.z;
+        if (dx * dx + dz * dz > this.lanceRange * this.lanceRange) return;
+
+        this.lanceTimer = 0;
+        this.glbFireHoldTimer = FastEnemy.GLB_FIRE_HOLD;
+        // Broadcast so the lance is visible on the co-op teammate's screen.
+        emitCoopFx('enemyProj', this.position.x, this.position.z, heroPos.x, heroPos.z);
+
+        const origin = this.position.clone();
+        origin.y += 0.9; // roughly the carriage's barrel height
+        fireEnemyBolt(this.scene, {
+            spec: ENEMY_BOLTS.lance,
+            origin,
+            aimAt: heroPos,
+            target,
+            isOwnerAlive: () => this.alive,
+            sourcePosition: this.position,
+            onHit: (hit) => hit.takeDamage?.(this.lanceDamage, this.position),
+        });
     }
 
     /** Spectral floating pose — advances the fly phase and animates hover,

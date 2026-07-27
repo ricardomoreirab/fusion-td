@@ -29,7 +29,8 @@ export class SplittingEnemy extends Enemy {
     private glbIdleAnim: AnimGroup | null = null;
     private glbCurrentAnim: AnimGroup | null = null;
     private glbAttackHoldTimer: number = 0;
-    private static readonly GLB_ATTACK_RANGE = 3.5;
+    /** Held past the swing so the bite's follow-through plays out instead of
+     *  snapping back to the run cycle the frame the strike lands. */
     private static readonly GLB_ATTACK_HOLD = 0.6;
     private static readonly GLB_SCALE = 1.1;
 
@@ -38,13 +39,25 @@ export class SplittingEnemy extends Enemy {
         super(game, position, path, 2.5, 40, 8, 20);
         this.contactDamagePerSecond = 10;
 
-        // Hydra bite — slightly longer reach (multiple heads), moderate damage.
-        this.meleeRange            = 1.6;
-        this.meleeHitRange         = 1.9;
+        // Pounce. The wind-up is the LEAP: the fenrir commits from range at the
+        // spot the hero is standing on, covers the ground during the attack clip,
+        // and bites where it lands. The long recovery is what keeps it a discrete,
+        // readable pounce instead of a continuous maul — and what makes stepping
+        // aside on the telegraph worth doing.
+        //
+        // It crosses 12 units in one leap, ~5× its own walk speed, so the pounce
+        // (not the walk) is how a fenrir closes. The wind-up is stretched to match:
+        // the leap only travels during it, and a longer telegraph is also what
+        // makes a commitment from this far out readable rather than a blink.
+        this.meleeRange            = 14.0;
+        this.meleeHitRange         = 2.2;
         this.meleeHitDamage        = 12;
-        this.meleeWindupDuration   = 0.3;
+        this.meleeWindupDuration   = 0.55;
         this.meleeStrikeDuration   = 0.1;
-        this.meleeCooldownDuration = 0.55;
+        this.meleeCooldownDuration = 1.1;
+        // configureMeleeLunge clamps meleeRange to what the leap can actually
+        // close, so the fenrir can never commit a pounce that lands short.
+        this.configureMeleeLunge(24, 12.0, 0.7);
 
         // Anchor HP bar above the hydra heads (taller than base enemy).
         this.applyHealthBarTier('normal', { heightOffset: 1.8 });
@@ -432,22 +445,16 @@ export class SplittingEnemy extends Enemy {
             }
             if (this.isFrozen || this.isStunned) {
                 this.playGlbAnim(this.glbIdleAnim, true);
-            } else if (this.seekTarget) {
-                const heroPos = this.seekTarget.getPosition();
-                const dx = heroPos.x - this.position.x;
-                const dz = heroPos.z - this.position.z;
-                const distSq = dx * dx + dz * dz;
-                const inRange = distSq <= SplittingEnemy.GLB_ATTACK_RANGE * SplittingEnemy.GLB_ATTACK_RANGE;
-                if (inRange) {
+            } else {
+                // The attack clip IS the pounce, so it is driven by the swing FSM
+                // rather than by proximity: the fenrir plays it exactly while it is
+                // leaping and biting, and runs on all four legs the rest of the time.
+                // A proximity trigger would show a mid-air bite animation on a
+                // fenrir that is merely near the hero and not committed to a leap.
+                if (this.isMeleeAttacking()) {
                     this.glbAttackHoldTimer = SplittingEnemy.GLB_ATTACK_HOLD;
                 }
-                if (this.glbAttackHoldTimer > 0) {
-                    this.playGlbAnim(this.glbAttackAnim, true);
-                } else {
-                    this.playGlbAnim(this.glbWalkAnim, true);
-                }
-            } else {
-                this.playGlbAnim(this.glbWalkAnim, true);
+                this.playGlbAnim(this.glbAttackHoldTimer > 0 ? this.glbAttackAnim : this.glbWalkAnim, true);
             }
             return result;
         }

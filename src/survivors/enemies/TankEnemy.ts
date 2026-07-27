@@ -6,11 +6,34 @@ import { PALETTE } from '../../engine/rendering/StyleConstants';
 import { AnimGroup } from '../../engine/three/AnimGroup';
 import type { GlbContainer } from '../../engine/three/assets';
 import { headingToYaw } from '../../engine/three/math';
-import { createBox, createCylinder, createPolyhedron, createSphere, createTransformHost } from '../../engine/three/primitives';
+import { createBox, createCylinder, createIcoSphere, createPolyhedron, createSphere, createTransformHost } from '../../engine/three/primitives';
+import { acquireProjectile, releaseProjectile } from '../../engine/rendering/ProjectilePool';
+import { getCachedMaterial } from '../../engine/rendering/MaterialCache';
+import { arcProjectile, emitGroundFx, spawnGroundShockwave, spawnGroundTelegraph } from './EnemyGroundFx';
 
 /** NORMAL-tier health-bar fill size for this class. Module-level + frozen: it is
  *  read on every bar rebuild and must never be a per-instance literal. */
 const BAR_DIM = Object.freeze({ width: 1.5, height: 0.08 });
+
+// ── Boulder throw (the lava golem's ranged siege attack) ────────────────────
+/** Mesh-pool AND material-cache key. One string for the whole class — it must
+ *  never be derived from an instance (see the unbounded-key leak in CLAUDE.md).
+ *  Doubles as the ground-FX kind, so host and co-op guest draw the same thing. */
+const BOULDER_KEY = 'boulder';
+const BOULDER_COLOR = new Color(0.62, 0.24, 0.10);
+/** Inside this the golem uses its slam instead: a boulder at its own feet would
+ *  be undodgeable, not hard. */
+const BOULDER_MIN_RANGE = 5.0;
+const BOULDER_MAX_RANGE = 16.0;
+const BOULDER_RADIUS    = 2.8;
+const BOULDER_DAMAGE    = 30;
+/** Long enough that the telegraph is a real warning, not a formality. */
+const BOULDER_FLIGHT_S  = 1.15;
+const BOULDER_ARC_HEIGHT = 6.0;
+
+/** Reused impact position handed to takeDamage (read for direction only, never
+ *  retained) — one per module rather than a Vector3 per boulder. */
+const _boulderImpact = new Vector3();
 
 export class TankEnemy extends Enemy {
     /** Static slot used by EnemyManager.spawnSurvivorsEnemy to stage a preloaded GLB
@@ -30,11 +53,23 @@ export class TankEnemy extends Enemy {
     private glbAttackAnim: AnimGroup | null = null;
     private glbIdleAnim: AnimGroup | null = null;
     private glbCurrentAnim: AnimGroup | null = null;
-    private glbAttackHoldTimer: number = 0;
+    protected glbAttackHoldTimer: number = 0;
     private static readonly GLB_ATTACK_RANGE = 4.0;
     private static readonly GLB_ATTACK_HOLD = 0.8;
     /** GLB mesh scale. Instance field so subclasses (DragonTurtle) can shrink/grow. */
     protected glbScale: number = 1.6;
+
+    // ── Heavy-tier special ───────────────────────────────────────────────────
+    // Counts UP so a subclass can retune `specialCooldown` in its constructor
+    // without a countdown seeded from the base value getting there first.
+    // Seeded with a random head start: a wave spawns its golems together, and
+    // without the offset they would all hurl on the same frame forever.
+    protected specialCooldown: number = 8.0;
+    protected specialTimer: number = Math.random() * 4;
+    /** Set while a boulder is airborne, so run teardown can abort it. Null at
+     *  every other time — including after the golem is KILLED mid-flight, which
+     *  deliberately still lands (the rock was already thrown). */
+    private boulderInFlight: { abort(): void } | null = null;
 
     constructor(game: Game, position: Vector3, path: Vector3[]) {
         // Tank enemy has low speed, 5x health, high damage, and high reward
@@ -392,8 +427,23 @@ export class TankEnemy extends Enemy {
     public update(deltaTime: number): boolean {
         if (!this.alive || !this.mesh) return false;
 
-        // Get the result from the parent update method
+        // A special that OWNS this enemy's movement (the turtle rooted on the spot
+        // it telegraphed, the lizard barrelling along its locked charge lane) has
+        // to stop the parent's seek branch adding hero-ward motion on top. Zero the
+        // speed for the frame rather than nulling seekTarget — nulling it drops the
+        // parent into its path-walker branch, which with an empty path returns true
+        // and is read as "reached the goal" (same trap MilestoneBoss documents).
+        const rooted = this.isSpecialRooting();
+        const savedSpeed = this.speed;
+        if (rooted) this.speed = 0;
         const result = super.update(deltaTime);
+        if (rooted) this.speed = savedSpeed;
+
+        // Heavy-tier special (boulder throw; the dragon turtle quakes and the
+        // horned lizard gores instead). Runs before the animation block so a
+        // special that fires this frame gets its cast clip on the same frame it
+        // commits, and after super.update so its own movement is not overwritten.
+        this.performSpecialAttack(deltaTime);
 
         // GLB golem skips the procedural scuttle anim — the asset's own clips drive it.
         // Facing is handled by Enemy.update's seek-rotation; the GLB root is pre-rotated
@@ -441,6 +491,144 @@ export class TankEnemy extends Enemy {
         }
 
         return result;
+    }
+
+    /**
+     * Tick the heavy-tier special and fire it when it comes up.
+     *
+     * Base (lava golem): hurl a boulder at where the hero is standing RIGHT NOW.
+     * The boulder is committed to that spot on launch and never re-aims, so it is
+     * beaten by walking rather than by out-ranging it — a slow siege threat that
+     * punishes standing still while kiting, which is exactly what a melee-only
+     * golem could not do before.
+     *
+     * Subclasses replace the whole thing: DragonTurtle quakes instead.
+     */
+    /** True while the active special owns this enemy's position, so `update()`
+     *  suppresses the normal walk-toward-the-hero for the frame. The golem's
+     *  throw never roots it (it hurls on the move); the turtle and lizard do. */
+    protected isSpecialRooting(): boolean { return false; }
+
+    protected performSpecialAttack(deltaTime: number): void {
+        const target = this.resolveSeekTarget();
+        if (!target || this.isFrozen || this.isStunned) return;
+
+        this.specialTimer += deltaTime;
+        if (this.specialTimer < this.specialCooldown) return;
+
+        // Only worth throwing at a hero who has broken away — up close the golem
+        // already has its slam, and a boulder dropped at its own feet would be
+        // undodgeable rather than difficult.
+        const heroPos = target.getPosition();
+        const dx = heroPos.x - this.position.x;
+        const dz = heroPos.z - this.position.z;
+        const distSq = dx * dx + dz * dz;
+        if (distSq < BOULDER_MIN_RANGE * BOULDER_MIN_RANGE) return;
+        if (distSq > BOULDER_MAX_RANGE * BOULDER_MAX_RANGE) return;
+
+        this.specialTimer = 0;
+        this.glbAttackHoldTimer = TankEnemy.GLB_ATTACK_HOLD;
+        this.throwBoulder(heroPos.x, heroPos.z);
+    }
+
+    /**
+     * Launch a boulder at a FIXED ground point. The landing spot is captured here
+     * and the telegraph is drawn there immediately, so the whole flight is a
+     * promise the player can read and step out of.
+     */
+    private throwBoulder(landX: number, landZ: number): void {
+        const telegraph = spawnGroundTelegraph(
+            this.scene, landX, landZ, BOULDER_RADIUS, BOULDER_FLIGHT_S, BOULDER_KEY,
+        );
+        // Co-op: the guest never ticks enemy AI, so without this the golem would
+        // mime the throw on its screen. Cosmetic — the impact is host-authoritative.
+        emitGroundFx('enemyTelegraph', landX, landZ, BOULDER_RADIUS, BOULDER_FLIGHT_S, BOULDER_KEY);
+
+        const rock = acquireProjectile(BOULDER_KEY, () => {
+            const m = createIcoSphere(BOULDER_KEY, { radius: 0.42, subdivisions: 1 }, this.scene);
+            // Bounded cache key (one material for every golem's every boulder).
+            m.material = getCachedMaterial(`${BOULDER_KEY}Mat`, mat => {
+                mat.color = BOULDER_COLOR.clone();
+                mat.emissive = new Color(0.22, 0.07, 0.02);
+            });
+            return m;
+        });
+
+        const origin = new Vector3(this.position.x, this.position.y + 1.5, this.position.z);
+        rock.position.copy(origin);
+        rock.visible = true;
+
+        const flight = arcProjectile(
+            this.scene, origin, { x: landX, z: landZ }, BOULDER_ARC_HEIGHT, BOULDER_FLIGHT_S,
+            (x, y, z) => {
+                rock.position.set(x, y + 0.3, z);
+                rock.rotation.x += 0.22;
+                rock.rotation.z += 0.14;
+            },
+            () => {
+                this.boulderInFlight = null;
+                releaseProjectile(BOULDER_KEY, rock);
+                // The telegraph's own tween ends on the same frame; cancel is
+                // idempotent and covers the case where this lands first.
+                telegraph.cancel();
+                this.detonateBoulder(landX, landZ);
+            },
+        );
+        // The flight and the telegraph both live on the scene's animation bus,
+        // so run teardown has to reach them through here. The cooldown is many
+        // times the flight time, so there is never more than one in the air.
+        this.boulderInFlight = {
+            abort: () => {
+                flight.stop();
+                telegraph.cancel();
+                releaseProjectile(BOULDER_KEY, rock);
+            },
+        };
+    }
+
+    /** Impact: shockwave ring plus damage to every live hero inside the blast.
+     *  Deliberately still fires if the golem died mid-flight — the rock was
+     *  already in the air. */
+    private detonateBoulder(landX: number, landZ: number): void {
+        spawnGroundShockwave(this.scene, landX, landZ, BOULDER_RADIUS, BOULDER_KEY);
+        emitGroundFx('enemyImpact', landX, landZ, BOULDER_RADIUS, 0, BOULDER_KEY);
+
+        const r2 = BOULDER_RADIUS * BOULDER_RADIUS;
+        // Knockback direction is away from the impact point, so the damage source
+        // is the crater rather than the thrower half an arena away.
+        const impact = _boulderImpact.set(landX, 0, landZ);
+        this.forEachLiveHero(hero => {
+            const p = hero.getPosition();
+            const dx = p.x - landX, dz = p.z - landZ;
+            if (dx * dx + dz * dz <= r2) hero.takeDamage?.(BOULDER_DAMAGE, impact);
+        });
+    }
+
+    /**
+     * Run teardown. A boulder mid-flight is on the SCENE's animation bus, not on
+     * this enemy, so without this it would land after `exit()` — spawning meshes
+     * and re-filling the material cache the teardown just cleared.
+     *
+     * Note this is `dispose()` and NOT `die()`: an airborne rock survives its
+     * thrower being killed, which is the whole point of a committed projectile.
+     */
+    public dispose(): void {
+        this.abortBoulder();
+        super.dispose();
+    }
+
+    /** The other release path: a golem KILLED mid-throw becomes a corpse, and a
+     *  corpse is freed through here rather than dispose(). By the time a corpse
+     *  expires normally the rock has long landed and this is a no-op; it matters
+     *  when the corpse is released early — run teardown or the corpse-cap sweep. */
+    public disposeCorpse(): void {
+        this.abortBoulder();
+        super.disposeCorpse();
+    }
+
+    private abortBoulder(): void {
+        this.boulderInFlight?.abort();
+        this.boulderInFlight = null;
     }
 
     /** Beetle scuttle pose — advances the stomp phase and animates the body,
