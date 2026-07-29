@@ -31,6 +31,11 @@ export interface HeroProvider extends TargetProvider {
     applySlow?(multiplier: number, durationS: number): void;
     /** Shove the hero along a normalized heading (dragon-turtle quake). */
     applyKnockback?(dirX: number, dirZ: number, speed: number, durationS: number): void;
+    /** Set the hero alight for `durationS` at `dps` (molten-fiend fireball). The
+     *  hero-side implementation refreshes rather than stacks, so repeated hits
+     *  extend the burn and raise it to the strongest source instead of
+     *  multiplying it. */
+    applyBurn?(durationS: number, dps: number): void;
 }
 
 /** Returns the nearest provider whose isAlive() is not false.

@@ -44,15 +44,27 @@ describe('enemy bolt registry', () => {
     });
 
     it('keeps the caster bolts undodgeable and everything else dodgeable', () => {
-        // The whole division: mages are damage you out-heal, artillery and the
-        // Elemental Lord's barrage are damage you out-move. If a mage bolt ever
-        // became 'straight' it would be dodgeable chip damage, i.e. no threat.
+        // The whole division: mages are damage you out-heal, artillery, the
+        // fiend's fireball and the Elemental Lord's barrage are damage you
+        // out-move. If a mage bolt ever became 'straight' it would be dodgeable
+        // chip damage, i.e. no threat.
         const straight = ALL.filter(([, s]) => s.flight === 'straight').map(([n]) => n).sort();
         expect(straight).toEqual(
-            ['lance', ...ELEMENTAL_BARRAGE_ORDER.map(e => `elemental-${e}`)].sort(),
+            ['lance', 'fireball', ...ELEMENTAL_BARRAGE_ORDER.map(e => `elemental-${e}`)].sort(),
         );
         expect(ENEMY_BOLTS.mage.flight).toBe('homing');
         expect(ENEMY_BOLTS.redWizard.flight).toBe('homing');
+    });
+
+    it('makes the fiend fireball a threat you dodge, not one you tank', () => {
+        // It is the only enemy projectile carrying a rider (a burn), so the
+        // counterplay HAS to be avoiding it: a homing fireball would be
+        // unanswerable stacking DoT from a backline the hero may not have
+        // reached. The fat body is what stops it being dodged by accident.
+        const fireball = ENEMY_BOLTS.fireball;
+        expect(fireball.flight).toBe('straight');
+        expect(fireball.hitRadius).toBeGreaterThan(ENEMY_BOLTS.redWizard.hitRadius);
+        expect(fireball.diameter).toBeGreaterThan(ENEMY_BOLTS.redWizard.diameter);
     });
 
     it('gives the Elemental Lord a bolt for every element, all dodgeable as one', () => {

@@ -20,10 +20,11 @@ import {
 // emoji; they are now authored glyphs from src/ui/icons.ts.
 const ITEM_ICON: Record<ItemId, IconName> = {
   extraLife: 'lifeRune', multishotCleave: 'cleave', knockback: 'impact', ricochet: 'ricochet',
-  attackSpeed: 'bolt', elementalCore: 'gem',
+  attackSpeed: 'bolt', verdantHeart: 'heart', elementalCore: 'gem',
 };
 const ITEM_COLOR: Record<ItemId, string> = {
-  extraLife: '#46e05a', multishotCleave: '#ffd84a', knockback: '#4ea7ff', ricochet: '#4ea7ff', attackSpeed: '#fff080', elementalCore: '#ff5a2e',
+  extraLife: '#46e05a', multishotCleave: '#ffd84a', knockback: '#4ea7ff', ricochet: '#4ea7ff',
+  attackSpeed: '#fff080', verdantHeart: '#5ce04a', elementalCore: '#ff5a2e',
 };
 /** Unowned item sockets recede into the bronze chrome instead of flashing grey. */
 const ITEM_DORMANT = 'rgba(201, 162, 63, 0.42)';
@@ -79,11 +80,11 @@ export class Hud {
   private bannerTimer = 0;
 
   private powerSlots: IconSlotController[] = [];
-  /** The five item sockets this champion can own, in boss-tier order (the
-   *  tier-3 socket is Knockback or Ricochet depending on class). */
+  /** The item sockets this champion can own, in boss-tier order (the tier-3
+   *  socket is Knockback or Ricochet depending on class). */
   private readonly itemRow: ItemId[];
   private itemSlots: Record<ItemId, IconSlotController | null> = {
-    extraLife: null, multishotCleave: null, knockback: null, ricochet: null, attackSpeed: null, elementalCore: null,
+    extraLife: null, multishotCleave: null, knockback: null, ricochet: null, attackSpeed: null, verdantHeart: null, elementalCore: null,
   };
   private prevCooldownRemaining: number[] = [-1, -1, -1, -1];
   private cachedPowerEmpty: (boolean | null)[] = [null, null, null, null];
@@ -94,13 +95,13 @@ export class Hud {
   private cachedPowerLevel: (number | null)[] = [null, null, null, null];
   private cachedPowerCdFrac: number[] = [-1, -1, -1, -1];
   private itemPulse: Record<ItemId, boolean> = {
-    extraLife: false, multishotCleave: false, knockback: false, ricochet: false, attackSpeed: false, elementalCore: false,
+    extraLife: false, multishotCleave: false, knockback: false, ricochet: false, attackSpeed: false, verdantHeart: false, elementalCore: false,
   };
   private cachedItemOwned: Record<ItemId, boolean | null> = {
-    extraLife: null, multishotCleave: null, knockback: null, ricochet: null, attackSpeed: null, elementalCore: null,
+    extraLife: null, multishotCleave: null, knockback: null, ricochet: null, attackSpeed: null, verdantHeart: null, elementalCore: null,
   };
   private cachedItemStacks: Record<ItemId, number | null> = {
-    extraLife: null, multishotCleave: null, knockback: null, ricochet: null, attackSpeed: null, elementalCore: null,
+    extraLife: null, multishotCleave: null, knockback: null, ricochet: null, attackSpeed: null, verdantHeart: null, elementalCore: null,
   };
 
   private ultButtons: { root: HTMLDivElement; label: HTMLDivElement; cdText: HTMLDivElement; id: string }[] = [];
@@ -120,6 +121,7 @@ export class Hud {
   private prevHp = -1;
   private prevLevel = -1;
   private prevWaveInProgress = false;
+  private prevLastStand = false;
   private prevWave = -1;
   private prevGold = -1;
 
@@ -424,10 +426,16 @@ export class Hud {
       // Announce both edges of the wave cycle: cleared, then the next start.
       const cleared = this.prevWaveInProgress && !waveInfo.inProgress;
       const started = !this.prevWaveInProgress && waveInfo.inProgress && waveInfo.wave !== this.prevWave;
-      if (cleared || started) {
+      // The last stand begins mid-wave (the instant the final boss dies), so it
+      // trips neither edge and needs its own one-shot.
+      const lastStand = !!waveInfo.lastStand;
+      if (lastStand && !this.prevLastStand) {
+        this.showBanner(waveBannerLabel(waveInfo) ?? 'Last Stand', 'danger');
+      } else if (cleared || started) {
         const label = waveBannerLabel(waveInfo);
         if (label) this.showBanner(label, started ? 'danger' : 'gold');
       }
+      this.prevLastStand = lastStand;
       this.prevWaveInProgress = waveInfo.inProgress;
       this.prevWave = waveInfo.wave;
     }

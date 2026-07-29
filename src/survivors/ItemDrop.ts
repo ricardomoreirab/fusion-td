@@ -11,6 +11,7 @@ const ITEM_COLORS: Record<ItemId, Color> = {
     knockback:       new Color(0.30, 0.65, 1.0),   // blue
     ricochet:        new Color(0.30, 0.65, 1.0),   // blue (tier-3 slot, ranger variant)
     attackSpeed:     new Color(1.0, 1.0, 0.55),    // yellow-white
+    verdantHeart:    new Color(0.36, 0.88, 0.29),  // living green
     elementalCore:   new Color(1.0, 0.35, 0.18),   // ember orange
 };
 

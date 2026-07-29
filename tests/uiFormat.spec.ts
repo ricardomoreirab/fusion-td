@@ -26,6 +26,15 @@ describe('waveTitle', () => {
   it('falls back before any wave info exists', () => {
     expect(waveTitle(undefined)).toBe('WAVE 1');
   });
+  it('drops the number entirely once the last stand begins', () => {
+    // The phase never advances, so a wave number would sit frozen on screen and
+    // read as a stuck counter rather than as the endgame.
+    expect(waveTitle({ wave: 30, enemiesAlive: 80, inProgress: true, lastStand: true }))
+      .toBe('LAST STAND');
+    // The flag wins over whatever the wave number happens to be.
+    expect(waveTitle({ wave: 1, enemiesAlive: 5, inProgress: true, lastStand: true }))
+      .toBe('LAST STAND');
+  });
 });
 
 describe('enemiesLeftLabel', () => {
@@ -51,6 +60,14 @@ describe('waveBannerLabel', () => {
   it('stays silent before the first wave and with no info', () => {
     expect(waveBannerLabel({ wave: 0, enemiesAlive: 0, inProgress: false })).toBeNull();
     expect(waveBannerLabel(undefined)).toBeNull();
+  });
+  it('announces the last stand over any wave state', () => {
+    // The phase opens MID-wave (the frame the final boss dies), so it is neither
+    // a wave start nor a wave clear and has to win over both.
+    expect(waveBannerLabel({ wave: 30, enemiesAlive: 40, inProgress: true, lastStand: true }))
+      .toBe('Last Stand');
+    expect(waveBannerLabel({ wave: 30, enemiesAlive: 0, inProgress: false, lastStand: true }))
+      .toBe('Last Stand');
   });
 });
 

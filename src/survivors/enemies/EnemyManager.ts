@@ -21,7 +21,10 @@ import { RedSuperWizard } from './RedSuperWizard';
 import { DragonTurtle } from './DragonTurtle';
 import { FireBeetle } from './FireBeetle';
 import { HornedLizard } from './HornedLizard';
+import { FortressTitan } from './FortressTitan';
+import { MoltenFiend } from './MoltenFiend';
 import { redSwapType, TIER3_SWAP_WAVE } from './redSwap';
+import { MAX_AUTHORED_TIER } from './bossTiers';
 import { PlayerStats } from '../PlayerStats';
 import { makeElite } from './EliteSpawner';
 import { DifficultyTuning } from '../DifficultyTuning';
@@ -260,7 +263,7 @@ export class EnemyManager {
             if (radial > limit) { const k = limit / radial; cx *= k; cz *= k; }
 
             const tier = detail.tier;
-            const assetTier = Math.min(4, Math.max(1, tier));
+            const assetTier = Math.min(MAX_AUTHORED_TIER, Math.max(1, tier));
             MilestoneBoss.pendingAsset = this.enemyAssets[`boss_tier${assetTier}`] ?? null;
             // Full-strength identical twin; isClone=true suppresses recursive cloning.
             const clone = new MilestoneBoss(this.game, new Vector3(cx, 0, cz), [], tier, 1, true);
@@ -317,10 +320,16 @@ export class EnemyManager {
      *  Skips milestone bosses (their tier HP already encodes the wave). HP and
      *  reward ride SEPARATE columns of the curve: reward counter-weights the
      *  falling enemy count so wave income — and the XP ladder it feeds — stays
-     *  on its calibrated line. See DifficultyCurve's header. */
+     *  on its calibrated line. See DifficultyCurve's header.
+     *
+     *  Reads `getDifficultyWave()`, NOT `getCurrentWave()`: during the last stand
+     *  the real wave is pinned at the terminal one while difficulty keeps climbing
+     *  on a virtual wave that advances with time (see LastStand.ts). Every other
+     *  consumer of the wave number — the roster swap, the boss tier, the HUD —
+     *  deliberately keeps reading the real one. */
     private _applyWaveScaling(enemy: Enemy): void {
         if (enemy instanceof MilestoneBoss) return;
-        const { hp, reward } = difficultyAt(this.waveManager?.getCurrentWave() ?? 1);
+        const { hp, reward } = difficultyAt(this.waveManager?.getDifficultyWave() ?? 1);
         enemy.applyHealthMultiplier(hp);
         enemy.applyRewardMultiplier(reward);
     }
@@ -331,7 +340,7 @@ export class EnemyManager {
      *  on top of elite, orb, and wave-scaling multipliers (intentional). */
     private _applyGlobalDifficulty(enemy: Enemy): void {
         if (enemy instanceof MilestoneBoss) return;
-        const { damage } = difficultyAt(this.waveManager?.getCurrentWave() ?? 1);
+        const { damage } = difficultyAt(this.waveManager?.getDifficultyWave() ?? 1);
         enemy.applyHealthMultiplier(DifficultyTuning.enemyHpMult);
         enemy.applyDamageMultiplier(DifficultyTuning.enemyDamageMult * damage);
     }
@@ -531,6 +540,9 @@ export class EnemyManager {
             { cls: FastEnemy,   key: 'fire_beetle',      build: () => new FireBeetle(this.game, farAway, []) },
             { cls: TankEnemy,   key: 'horned_lizard',    build: () => new HornedLizard(this.game, farAway, []) },
             { cls: HealerEnemy, key: 'healer_red_super', build: () => new RedSuperWizard(this.game, farAway, []) },
+            // Wave-25+ tier — distinct GLBs again, so they need their own prewarm.
+            { cls: TankEnemy,   key: 'fortress_titan',   build: () => new FortressTitan(this.game, farAway, []) },
+            { cls: HealerEnemy, key: 'molten_fiend',     build: () => new MoltenFiend(this.game, farAway, []) },
         ];
         for (const { cls, key, build } of glbVariants) {
             const asset = this.enemyAssets[key];
@@ -538,8 +550,8 @@ export class EnemyManager {
             cls.pendingAsset = asset;
             warmup.push(build());
         }
-        // Per-tier MilestoneBoss GLBs (waves 5/10/15/20/25).
-        for (let tier = 1; tier <= 5; tier++) {
+        // Per-tier MilestoneBoss GLBs (waves 5/10/15/20/25/30).
+        for (let tier = 1; tier <= MAX_AUTHORED_TIER; tier++) {
             const asset = this.enemyAssets[`boss_tier${tier}`];
             if (!asset) continue;
             MilestoneBoss.pendingAsset = asset;
@@ -663,8 +675,9 @@ export class EnemyManager {
                     ? currentWave / 5
                     : 0);
                 if (tier > 0) {
-                    // Stage tier-specific GLB (tier 5 = Elemental Lord; cap at tier5 for 6+).
-                    const assetTier = Math.min(5, Math.max(1, tier));
+                    // Stage the tier-specific GLB. Tiers past the last authored
+                    // boss re-use it — see bossTiers.MAX_AUTHORED_TIER.
+                    const assetTier = Math.min(MAX_AUTHORED_TIER, Math.max(1, tier));
                     MilestoneBoss.pendingAsset = this.enemyAssets[`boss_tier${assetTier}`] ?? null;
                     enemy = new MilestoneBoss(this.game, spawnPos, [], tier, bossStrengthMultiplier);
                 } else {
@@ -697,6 +710,10 @@ export class EnemyManager {
                                   enemy = new FireBeetle(this.game, spawnPos, []); break;
             case 'horned_lizard': TankEnemy.pendingAsset = assetFor('horned_lizard');
                                   enemy = new HornedLizard(this.game, spawnPos, []); break;
+            case 'fortress_titan': TankEnemy.pendingAsset = assetFor('fortress_titan');
+                                   enemy = new FortressTitan(this.game, spawnPos, []); break;
+            case 'molten_fiend':  HealerEnemy.pendingAsset = assetFor('molten_fiend');
+                                  enemy = new MoltenFiend(this.game, spawnPos, []); break;
             case 'shield':   ShieldEnemy.pendingAsset = assetFor('shield');
                              enemy = new ShieldEnemy(this.game, spawnPos, []); break;
             default:         enemy = new BasicEnemy(this.game, spawnPos, []); break;

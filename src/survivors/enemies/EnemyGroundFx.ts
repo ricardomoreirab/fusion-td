@@ -54,14 +54,18 @@ export function isGroundFxKind(s: string): s is GroundFxKind {
  * width and wind-up live here, so the enemy that charges and the guest that
  * replays the marker read the SAME duration and can never drift.
  */
-export type LaneFxKind = 'charge';
+export type LaneFxKind = 'charge' | 'smash';
 
 export const LANE_FX: Record<LaneFxKind, { width: number; windupS: number; color: Color }> = {
     charge: { width: 2.4, windupS: 0.7, color: new Color(0.95, 0.35, 0.12) },
+    /** The fortress titan's line smash. Wider and slower than the gore charge —
+     *  the titan does not travel down the lane, so the only counterplay is to be
+     *  out of it, and a wide lane needs a longer read to be leaveable. */
+    smash: { width: 3.4, windupS: 0.95, color: new Color(0.85, 0.72, 0.28) },
 };
 
 export function isLaneFxKind(s: string): s is LaneFxKind {
-    return s === 'charge';
+    return s === 'charge' || s === 'smash';
 }
 
 /**

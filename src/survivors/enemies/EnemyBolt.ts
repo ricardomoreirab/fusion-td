@@ -77,7 +77,7 @@ export const HERO_MAX_MOVE_SPEED = 20;
  * enforced by there being a closed record of them rather than by each call site
  * remembering to hoist a module constant.
  */
-export type EnemyBoltVariant = 'mage' | 'redWizard' | 'lance' | `elemental-${PowerElement}`;
+export type EnemyBoltVariant = 'mage' | 'redWizard' | 'lance' | 'fireball' | `elemental-${PowerElement}`;
 
 /**
  * The Elemental Lord's barrage, in firing order — one bolt per element, every
@@ -148,6 +148,28 @@ export const ENEMY_BOLTS: Record<EnemyBoltVariant, EnemyBoltSpec> = {
         maxFlightS: 2.5,
         flight: 'straight',
         shape: 'lance',
+    }),
+    /**
+     * The molten fiend's fireball: the biggest single projectile an ordinary
+     * enemy throws, and the only one that leaves something behind (it ignites).
+     *
+     * `'straight'` on purpose. Every other caster in the game homes — a mage bolt
+     * is chip damage you out-heal — and a homing projectile that also set you on
+     * fire would be unanswerable stacking DoT from a backline the hero may not
+     * even have reached yet. Straight makes the burn a punishment for standing
+     * still, which is exactly the pressure a wave-25 ranged enemy should apply to
+     * a player used to circling. The fat hit radius keeps it from being trivially
+     * dodged by a hero who is merely moving.
+     */
+    fireball: Object.freeze({
+        key: 'molten-fireball',
+        color: new Color(1.0, 0.42, 0.10),
+        diameter: 0.68,
+        speed: 19,
+        hitRadius: 0.95,
+        maxFlightS: 3,
+        flight: 'straight',
+        shape: 'orb',
     }),
     /** The Elemental Lord's five-bolt barrage — see ELEMENTAL_BARRAGE_ORDER. */
     'elemental-fire':     elementalBolt('fire'),
