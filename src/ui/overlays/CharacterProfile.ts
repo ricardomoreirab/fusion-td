@@ -5,6 +5,7 @@ import { EquipSlot, Rarity, RARITY_COLOR } from '../../survivors/items/ItemTypes
 import { SLOT_LABEL, SLOT_ICON } from './slotMeta';
 import { iconEl } from '../icons';
 import { itemArtEl } from '../itemArt';
+import { t } from '../../i18n';
 
 /** One equipment slot's display state (shared by the HUD strip + this profile). */
 export interface GearSlotVM {
@@ -80,7 +81,7 @@ export class CharacterProfile {
         // Active set bonuses (only sets with ≥2 pieces appear).
         if (vm.sets.length > 0) {
             const setsBox = el('div', { class: 'char-sets' });
-            setsBox.appendChild(el('div', { class: 'char-sets__title', text: 'Set Bonuses' }));
+            setsBox.appendChild(el('div', { class: 'char-sets__title', text: t('shop.setBonuses') }));
             for (const set of vm.sets) {
                 const block = el('div', { class: 'char-set' });
                 block.appendChild(el('div', { class: 'char-set__name', text: `${set.name} (${set.count}/${set.total})` }));

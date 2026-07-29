@@ -6,6 +6,7 @@ import { el } from '../dom';
 import { onTap } from '../interaction';
 import { iconEl, IconName } from '../icons';
 import { TREE_W, TREE_H, nodeXY } from '../../survivors/ascension/AscensionTrees';
+import { t } from '../../i18n';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -91,7 +92,7 @@ export class AscensionTreeOverlay {
         this.onSpend = onSpend;
         this.vm = vm;
 
-        const modal = makeModal({ title: 'Ascension', panelClass: 'modal-panel--ascension' });
+        const modal = makeModal({ title: t('ascension.title'), panelClass: 'modal-panel--ascension' });
 
         const closeBtn = el('div', {
             class: 'modal-close interactive',
@@ -106,7 +107,7 @@ export class AscensionTreeOverlay {
         this.headerLevel = el('div', { class: 'asc-header__level' });
         const header = el('div', { class: 'asc-header' }, [
             el('div', { class: 'asc-header__badge' }, [iconEl('rune'), this.headerPoints]),
-            el('div', { class: 'asc-header__hint', text: 'Select a node to invest' }),
+            el('div', { class: 'asc-header__hint', text: t('ascension.selectNode') }),
             this.headerLevel,
         ]);
 
@@ -356,7 +357,7 @@ export class AscensionTreeOverlay {
         // Show exactly what the NEXT point buys, before it is bought.
         if (node.descNext) {
             body.appendChild(el('div', { class: 'asc-popup__next' }, [
-                el('span', { class: 'asc-popup__tag asc-popup__tag--next', text: 'Next point' }),
+                el('span', { class: 'asc-popup__tag asc-popup__tag--next', text: t('ascension.nextPoint') }),
                 el('span', { text: node.descNext }),
             ]));
         }

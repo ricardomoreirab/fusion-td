@@ -1,4 +1,13 @@
-/** Pure formatting helpers shared by HUD components. No DOM, no Three. */
+/**
+ * Formatting helpers shared by HUD components. No DOM, no Three.
+ *
+ * Localised: the label FUNCTIONS resolve their text through `t()` while the
+ * arithmetic (clamping, zero-padding, the hour roll) stays here. That split is
+ * deliberate — the numbers are the same in every language and the tests pin them
+ * per-locale rather than per-string.
+ */
+
+import { t } from '../i18n';
 
 export interface WaveInfo {
   wave: number;
@@ -24,26 +33,26 @@ export function cooldownFraction(remaining: number, total: number): number {
  * sideways as their digit count changes.
  */
 export function waveTitle(info?: WaveInfo): string {
-  if (!info) return 'WAVE 1';
+  if (!info) return t('hud.wave', { n: 1 });
   // The last stand has no number: it is one endless wave, and showing "WAVE 30"
   // forever reads as a stuck counter rather than as the endgame.
-  if (info.lastStand) return 'LAST STAND';
-  return `WAVE ${Math.max(1, info.wave)}`;
+  if (info.lastStand) return t('hud.lastStand');
+  return t('hud.wave', { n: Math.max(1, info.wave) });
 }
 
 /** The goblins-remaining count. Between waves there is nothing to count. */
 export function enemiesLeftLabel(info?: WaveInfo): string {
-  if (!info || !info.inProgress) return '—';
+  if (!info || !info.inProgress) return t('hud.noCount');
   return `${Math.max(0, info.enemiesAlive)}`;
 }
 
 /** The transient centre-screen callout for a wave state change, or null. */
 export function waveBannerLabel(info?: WaveInfo): string | null {
   if (!info) return null;
-  if (info.lastStand) return 'Last Stand';
-  if (info.inProgress) return `Wave ${Math.max(1, info.wave)}`;
+  if (info.lastStand) return t('hud.lastStandBanner');
+  if (info.inProgress) return t('hud.waveBanner', { n: Math.max(1, info.wave) });
   if (info.wave === 0) return null;
-  return `Wave ${info.wave} Cleared`;
+  return t('hud.waveCleared', { n: info.wave });
 }
 
 /** Elapsed run clock: mm:ss, rolling into h:mm:ss past an hour. */

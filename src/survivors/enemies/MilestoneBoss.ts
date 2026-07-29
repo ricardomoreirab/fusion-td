@@ -15,6 +15,8 @@ import {
     FRENZY_SPEED_FACTOR, APEX_TIER, GUARDIAN_TIER, LORD_TIER, MAX_AUTHORED_TIER,
 } from './bossTiers';
 import { emitGroundFx, spawnGroundShockwave } from './EnemyGroundFx';
+import { t } from '../../i18n';
+import { bossDisplayName } from '../../i18n/gameStrings';
 import { ELEMENTAL_BARRAGE_ORDER, ENEMY_BOLTS, fireEnemyBolt } from './EnemyBolt';
 import type { HeroProvider } from './nearestTarget';
 import type { PowerElement } from '../powers/PowerDefinitions';
@@ -429,8 +431,11 @@ export class MilestoneBoss extends BossEnemy {
         // and pendingAsset still staged.
         if (new.target === MilestoneBoss) this._initEnemyVisuals();
 
-        // Re-label the boss HP bar for this tier (clones read as "Echo").
-        const label = isClone ? `${tierLabel(waveTier)} Echo` : tierLabel(waveTier);
+        // Re-label the boss HP bar for this tier (clones read as its echo). The
+        // plate is the one gameplay-side string the player reads constantly, so
+        // it goes through the locale; TIER_LABEL stays the English fallback.
+        const own = bossDisplayName(waveTier, tierLabel(waveTier));
+        const label = isClone ? t('boss.echo', { name: own }) : own;
         this.applyHealthBarTier('boss', { heightOffset: 3.6, label });
 
         this.updateHealthBar();

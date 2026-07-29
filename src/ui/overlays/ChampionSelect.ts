@@ -2,6 +2,7 @@ import { makeModal, ModalController } from '../primitives/Modal';
 import { makeCard } from '../primitives/Card';
 import { IconName } from '../icons';
 import { el } from '../dom';
+import { t } from '../../i18n';
 
 export interface ChampionOption {
     type: string;
@@ -34,7 +35,7 @@ export class ChampionSelectOverlay {
     public show(options: ChampionOption[], onPick: (type: string) => void): void {
         this.close();
 
-        const modal = makeModal({ title: 'Choose Your Champion' });
+        const modal = makeModal({ title: t('champion.chooseTitle') });
         // Opaque themed backdrop so the arena / champion assets loading behind
         // the picker aren't visible (other overlays keep the see-through scrim).
         modal.root.classList.add('modal-scrim--solid');

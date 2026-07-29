@@ -8,6 +8,8 @@ import { ItemDef, RARITY_COLOR } from '../../survivors/items/ItemTypes';
 import { GRIBBLE_NAME } from '../../survivors/shop/GribbleBarks';
 import { SLOT_LABEL, SLOT_ICON } from './slotMeta';
 import type { GearSlotVM, CharSetVM } from './CharacterProfile';
+import { itemDisplayName } from '../../i18n/gameStrings';
+import { t } from '../../i18n';
 
 export interface ShopCardVM {
     def: ItemDef;
@@ -196,7 +198,7 @@ export class ShopOverlay {
         const equippedCount = vm.equipped.filter(g => g.name).length;
         col.appendChild(el('div', { class: 'shop-gear-title' }, [
             iconEl('shield'),
-            el('span', { text: 'Your Gear' }),
+            el('span', { text: t('shop.yourGear') }),
             el('span', { class: 'shop-gear-count', text: `${equippedCount}/${vm.equipped.length}` }),
         ]));
 
@@ -206,7 +208,7 @@ export class ShopOverlay {
 
         if (vm.sets.length > 0) {
             const setsBox = el('div', { class: 'shop-gear-sets' });
-            setsBox.appendChild(el('div', { class: 'shop-gear-sets__title', text: 'Set Bonuses' }));
+            setsBox.appendChild(el('div', { class: 'shop-gear-sets__title', text: t('shop.setBonuses') }));
             for (const set of vm.sets) {
                 setsBox.appendChild(el('div', { class: 'shop-gear-set__name', text: `${set.name} (${set.count}/${set.total})` }));
                 for (const tier of set.tiers) {
@@ -247,7 +249,7 @@ export class ShopOverlay {
             body.appendChild(el('div', { class: 'shop-gear__effect', text: gear.effectText }));
         }
         if (!gear.name) {
-            body.appendChild(el('div', { class: 'shop-gear__stat', text: 'Nothing equipped in this slot.' }));
+            body.appendChild(el('div', { class: 'shop-gear__stat', text: t('shop.nothingEquipped') }));
         }
 
         row.append(art, body);
@@ -264,8 +266,8 @@ export class ShopOverlay {
         root.style.setProperty('--accent', RARITY_COLOR[card.def.rarity]);
         root.append(
             el('div', { class: 'shop-card__kind', text: `${card.def.rarity} · ${SLOT_LABEL[card.def.slot]}` }),
-            el('div', { class: 'shop-card__emblem' }, [itemArtEl(card.def.id, card.def.glyph, card.def.name)]),
-            el('div', { class: 'shop-card__name', text: card.def.name }),
+            el('div', { class: 'shop-card__emblem' }, [itemArtEl(card.def.id, card.def.glyph, itemDisplayName(card.def.id, card.def.name))]),
+            el('div', { class: 'shop-card__name', text: itemDisplayName(card.def.id, card.def.name) }),
         );
         if (card.itemLevel > 0) {
             root.appendChild(el('div', { class: 'shop-card__plus', text: `+${card.itemLevel}` }));
@@ -282,7 +284,7 @@ export class ShopOverlay {
 
         root.appendChild(el('div', { class: 'shop-card__flavor', text: card.def.flavor }));
         root.appendChild(card.sold
-            ? el('div', { class: 'shop-card__price', text: 'SOLD' })
+            ? el('div', { class: 'shop-card__price', text: t('shop.sold') })
             : el('div', { class: 'shop-card__price' }, [iconEl('coin'), el('span', { text: `${card.price}` })]));
 
         // Comparison vs the currently-equipped piece — an OVERLAY shown on hover
@@ -305,7 +307,7 @@ export class ShopOverlay {
             el('div', { class: 'shop-potion__name', text: p.name }),
             el('div', { class: 'shop-potion__desc', text: p.desc }),
             p.active
-                ? el('div', { class: 'shop-potion__price', text: 'ACTIVE' })
+                ? el('div', { class: 'shop-potion__price', text: t('common.active') })
                 : el('div', { class: 'shop-potion__price' }, [iconEl('coin'), el('span', { text: `${p.price}` })]),
         );
         if (!p.active) onTap(root, () => this.callbacks?.onBuyPotion(p.id));
@@ -314,7 +316,7 @@ export class ShopOverlay {
 
     private buildCompareOverlay(card: ShopCardVM): HTMLDivElement {
         const cmp = el('div', { class: 'shop-card__compare' });
-        cmp.appendChild(el('div', { class: 'shop-card__compare-title', text: 'Currently equipped' }));
+        cmp.appendChild(el('div', { class: 'shop-card__compare-title', text: t('shop.equipped') }));
         if (card.replaces) {
             cmp.appendChild(el('div', { class: 'shop-card__compare-head', text: card.replaces }));
             for (const line of card.equippedStatLines) {
@@ -325,7 +327,7 @@ export class ShopOverlay {
             }
             cmp.appendChild(el('div', { class: 'shop-card__compare-credit', text: `+${card.sellCredit}g back if replaced` }));
         } else {
-            cmp.appendChild(el('div', { class: 'shop-card__compare-stat', text: 'Empty — nothing equipped' }));
+            cmp.appendChild(el('div', { class: 'shop-card__compare-stat', text: t('shop.emptySlot') }));
         }
         return cmp;
     }

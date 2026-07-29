@@ -5,6 +5,7 @@ import { iconEl, IconName } from '../icons';
 import { elementColor, elementIcon, TIER_COLOR } from '../elementMeta';
 import { el } from '../dom';
 import type { PowerStatRow } from '../../survivors/powers/PowerDefinitions';
+import { t } from '../../i18n';
 
 export type PowerCardKind = 'power' | 'wildcard' | 'perk' | 'fusion' | 'ultimate';
 
@@ -38,7 +39,7 @@ const KIND_CONFIG: Record<PowerCardKind, { accent: string; kindLabel: string; ic
 function levelChip(card: PowerCard): HTMLElement | null {
     const { level, nextLevel, maxLevel } = card;
     if (level === undefined) return null;
-    if (level === 0) return el('div', { class: 'power-card__level power-card__level--new', text: 'NEW' });
+    if (level === 0) return el('div', { class: 'power-card__level power-card__level--new', text: t('power.newPower') });
     if (nextLevel !== undefined && nextLevel > level) {
         return el('div', { class: 'power-card__level' }, [
             el('span', { text: `Lv ${level}` }),
@@ -113,7 +114,7 @@ export class PowerChoiceOverlay {
 
         // The power cards carry a full stat table, so the default 680px panel
         // wrapped the third card onto its own row. Widen only this modal.
-        const modal = makeModal({ title: 'Choose a Power', panelClass: 'modal-panel--powers' });
+        const modal = makeModal({ title: t('power.chooseTitle'), panelClass: 'modal-panel--powers' });
 
         const choices = el('div', { class: 'modal-choices modal-choices--powers' });
         for (const card of cards) {
@@ -130,7 +131,7 @@ export class PowerChoiceOverlay {
         modal.body.appendChild(choices);
 
         const skipBtn = makeButton({
-            label: 'Skip',
+            label: t('common.skip'),
             variant: 'ghost',
             onClick: () => {
                 onCancel();
