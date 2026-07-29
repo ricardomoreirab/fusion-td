@@ -11,9 +11,12 @@ import { createDisc, createPlane, createTransformHost, disposeMesh, isMeshDispos
 import { StatusEffect } from '../GameTypes';
 import {
     hasClone, hasSidestepPredict, hasLeapDash, hasRunningPull, hasFrenziedEnrage,
-    FRENZY_SPEED_FACTOR,
+    FRENZY_SPEED_FACTOR, APEX_TIER,
 } from './bossTiers';
 import { emitGroundFx, spawnGroundShockwave } from './EnemyGroundFx';
+import { ELEMENTAL_BARRAGE_ORDER, ENEMY_BOLTS, fireEnemyBolt } from './EnemyBolt';
+import type { HeroProvider } from './nearestTarget';
+import type { PowerElement } from '../powers/PowerDefinitions';
 import { applyBodyCoil, easeInCoil, leapHeightAt, resolveLeapFlight, type LeapSpec } from './leapMotion';
 import {
     ENRAGE_HEALTH_FRACTION, ENRAGE_TANK_FACTOR, ENRAGE_SPEED_FACTOR, ENRAGE_DAMAGE_FACTOR,
@@ -36,14 +39,19 @@ type SpecialAction = 'dash' | 'pull';
  *   Tier 1 — Ravager : fastest mover, frequent slashing dashes (dash deals AoE).
  *   Tier 2 — Warden  : grabs the hero, pulls them in, and the slam slows them.
  *   Tier 3 — Gemini  : spawns a twin on the opposite side; enrages when it dies.
- *   Tier 4 — Apex    : all of the above combined.
+ *                      The twin is Gemini's ALONE — see bossTiers.hasClone.
+ *   Tier 4 — Apex    : every signature above except the twin, on one body of
+ *                      double the stats and double the size.
  */
 const TIER_ACTIONS: Record<number, SpecialAction[]> = {
     1: ['dash'],
     2: ['pull'],
     3: ['dash'],
     4: ['dash', 'pull'],
-    5: ['dash', 'pull'], // Elemental Lord — plus a periodic elemental nova (see tickElementalNova)
+    // Elemental Lord — plus two moves of its own, both outside this rotation: the
+    // close-range nova (tickElementalNova) and the all-elements ranged barrage
+    // (tickElementalBarrage).
+    5: ['dash', 'pull'],
 };
 function tierActions(tier: number): SpecialAction[] { return TIER_ACTIONS[tier] ?? ['dash', 'pull']; }
 
@@ -57,9 +65,16 @@ const TIER_LABEL: Record<number, string> = {
 };
 function tierLabel(tier: number): string { return TIER_LABEL[tier] ?? 'Apex Tyrant'; }
 
-/** Per-tier stat multipliers applied on top of BossEnemy base stats. */
-const TIER_HP_MULT:    Record<number, number> = { 1: 1.8, 2: 2.6, 3: 3.4, 4: 4.4 };
-const TIER_DPS_MULT:   Record<number, number> = { 1: 1.0, 2: 1.1, 3: 1.2, 4: 1.3 };
+/**
+ * Per-tier stat multipliers applied on top of BossEnemy base stats.
+ *
+ * Tier 4 carries DOUBLE the tier-3 curve's continuation because it no longer
+ * spawns a twin (see `hasClone`): the Apex is one body holding what used to be
+ * two, so the pair's total pressure survives the change while the fight becomes
+ * a duel. Same for tier 5 by inheritance, below.
+ */
+const TIER_HP_MULT:    Record<number, number> = { 1: 1.8, 2: 2.6, 3: 3.4, 4: 8.8 };
+const TIER_DPS_MULT:   Record<number, number> = { 1: 1.0, 2: 1.1, 3: 1.2, 4: 2.6 };
 
 /**
  * Per-tier ABSOLUTE base movement speed (world units/sec). Overrides BossEnemy's
@@ -70,12 +85,28 @@ const TIER_DPS_MULT:   Record<number, number> = { 1: 1.0, 2: 1.1, 3: 1.2, 4: 1.3
  */
 const TIER_BASE_SPEED: Record<number, number> = { 1: 6.8, 2: 5.8, 3: 6.2, 4: 7.0 };
 
-/** Tier 5+ HP: 4.4 + 0.6 × (tier − 4). DPS and base speed clamp at tier-4 values. */
+/** GLB root scale every milestone boss starts from. */
+const BOSS_SCALE_BASE = 2.2;
+/** Apex and up are one much larger body instead of a pair — the visual half of
+ *  the same trade `TIER_HP_MULT` makes, and the same factor. */
+const APEX_SCALE_MULT = 2;
+
+/**
+ * Tier 5+ HP continues from Apex's: +0.6 per tier above it. DPS and base speed
+ * clamp at tier-4 values.
+ *
+ * Every one of these reads the tier-4 entry rather than repeating its number.
+ * They used to be hardcoded copies (4.4 / 1.3 / 7.0), which is the drift that
+ * bites the moment Apex is retuned: doubling TIER_HP_MULT[4] alone would have
+ * left the Elemental Lord WEAKER than the boss five waves before it.
+ */
 function tierHpMult(tier: number): number {
-    return tier <= 4 ? TIER_HP_MULT[tier] : 4.4 + 0.6 * (tier - 4);
+    return tier <= APEX_TIER
+        ? TIER_HP_MULT[tier]
+        : TIER_HP_MULT[APEX_TIER] + 0.6 * (tier - APEX_TIER);
 }
-function tierDpsMult(tier: number): number   { return TIER_DPS_MULT[tier]   ?? 1.3; }
-function tierBaseSpeed(tier: number): number { return TIER_BASE_SPEED[tier] ?? 7.0; }
+function tierDpsMult(tier: number): number   { return TIER_DPS_MULT[tier]   ?? TIER_DPS_MULT[APEX_TIER]; }
+function tierBaseSpeed(tier: number): number { return TIER_BASE_SPEED[tier] ?? TIER_BASE_SPEED[APEX_TIER]; }
 
 /** Special-move cadence per tier (seconds between specials). Faster at higher tiers. */
 const LUNGE_COOLDOWN_BY_TIER: Record<number, number> = { 1: 2.6, 2: 3.2, 3: 3.0, 4: 2.4 };
@@ -131,6 +162,31 @@ const PULL_SLOW_MULT        = 0.45; // hero moves at 45% speed after a slam conn
 const PULL_SLOW_DURATION    = 2.0;  // seconds of slow
 const PULL_TELEGRAPH_RADIUS = 3.0;  // visual grab-zone radius
 
+// ── Elemental barrage (tier 5 only) ─────────────────────────────────────────
+// The Lord's ranged answer, and the move that earns the name: one bolt of EVERY
+// element, launched together from a ring around it and all aimed at the single
+// point the hero occupied at launch. They CONVERGE, so the volley is dodged as
+// one — step off that point and the whole thing passes through empty ground —
+// and a hero who stands still eats all five.
+//
+// Deliberately fired on the move, with no rooted telegraph: the nova already
+// owns "the boss stops and the ground lights up", and giving the barrage one too
+// would make tier 5 a boss that is standing still most of the fight. The bolts'
+// flight time IS the warning.
+const BARRAGE_INTERVAL = 5.0;
+/** × the boss's melee hit damage, PER BOLT. A stationary hero takes all five. */
+const BARRAGE_DAMAGE_FACTOR = 0.35;
+/** Muzzle ring around the boss — the bolts start apart so the fan is legible. */
+const BARRAGE_MUZZLE_RADIUS = 1.8;
+const BARRAGE_MUZZLE_HEIGHT = 2.6;
+/** Ice bolt: the one rider that is not damage. Matches the pull slam's slow. */
+const BARRAGE_SLOW_MULT = 0.6;
+const BARRAGE_SLOW_DURATION = 1.5;
+/** Physical bolt: a shove, not a stun — it can knock the hero OFF the convergence
+ *  point, so the volley's last bolts can miss because an earlier one landed. */
+const BARRAGE_KNOCKBACK_SPEED = 9;
+const BARRAGE_KNOCKBACK_S = 0.22;
+
 // Elemental nova (tier 5 only): a periodic telegraphed AOE pulse around the boss,
 // independent of the dash/pull state machine. Reuses TELEGRAPH_DURATION for the wind-up.
 const NOVA_INTERVAL = 7.0;   // seconds between novas
@@ -178,7 +234,7 @@ export class MilestoneBoss extends BossEnemy {
     private glbBaseRootY: number = 0;
     private enraged: boolean = false;
     /** Last-stand enrage — a SEPARATE one-shot from the twin-death `enraged`
-     *  above, so a tier-3/4 boss that already enraged from losing its twin can
+     *  above, so a tier-3 boss that already enraged from losing its twin can
      *  still enrage again on dropping below the HP threshold. */
     private lowHealthEnraged: boolean = false;
 
@@ -188,13 +244,22 @@ export class MilestoneBoss extends BossEnemy {
     private dashSlashDamage: number;
     private pullSlamDamage: number;
     private novaDamage: number;
+    private barrageDamage: number;
 
     // Elemental nova (tier 5): own timer/telegraph, independent of the lunge machine.
     private novaCooldown: number = NOVA_INTERVAL;
     private novaTelegraphTimer: number = 0;
     private novaRing: Mesh | null = null;
 
-    // Twin/enrage linkage (tier 3/4).
+    // Elemental barrage (tier 5): own timer, no telegraph — see BARRAGE_INTERVAL.
+    // Offset from the nova's so the two moves drift apart instead of locking into
+    // one repeating beat the player learns as a single pattern.
+    private barrageCooldown: number = BARRAGE_INTERVAL * 0.5;
+    /** Reused muzzle position — the barrage fires 5 bolts and `fireEnemyBolt`
+     *  copies the origin rather than retaining it. */
+    private readonly _barrageMuzzle = new Vector3();
+
+    // Twin/enrage linkage (tier 3 only).
     private cloneSpawned: boolean = false;
     private enrageOrigin: MilestoneBoss | null = null;
 
@@ -259,6 +324,7 @@ export class MilestoneBoss extends BossEnemy {
         this.dashSlashDamage = Math.round(this.meleeHitDamage * DASH_SLASH_DAMAGE_FACTOR);
         this.pullSlamDamage  = Math.round(this.meleeHitDamage * PULL_SLAM_DAMAGE_FACTOR);
         this.novaDamage      = Math.round(this.meleeHitDamage * NOVA_DAMAGE_FACTOR);
+        this.barrageDamage   = Math.round(this.meleeHitDamage * BARRAGE_DAMAGE_FACTOR);
 
         // Build mesh + health bar AFTER field initializers have run (see Enemy
         // constructor note). Guarded so it fires once for MilestoneBoss (the
@@ -294,8 +360,12 @@ export class MilestoneBoss extends BossEnemy {
         this.glbInstance = inst; // base field - dispose() frees cloned materials + skeletons + mixer hook
         const root = inst.root;
         this.mesh.add(root);
-        // Tier 5 (Elemental Lord) dwarfs every other boss.
-        const BOSS_SCALE = 2.2 * (this.waveTier >= 5 ? 1.4 : 1);
+        // Apex (tier 4) is twice the body of the tiers below it — it stands in for
+        // the twin it no longer spawns. Tier 5 (Elemental Lord) still dwarfs every
+        // other boss, Apex included, so its 1.4 rides on TOP of the Apex scale
+        // rather than on the base.
+        const apexScale = this.waveTier >= APEX_TIER ? APEX_SCALE_MULT : 1;
+        const BOSS_SCALE = BOSS_SCALE_BASE * apexScale * (this.waveTier >= 5 ? 1.4 : 1);
         root.scale.multiplyScalar(BOSS_SCALE);
         // Keep the Babylon-era 180-degree Y pre-rotation so facing math stays aligned
         // (Phase D handedness audit may remove it):
@@ -348,7 +418,7 @@ export class MilestoneBoss extends BossEnemy {
     public update(deltaTime: number): boolean {
         if (!this.alive || !this.mesh) return false;
 
-        // Spawn the twin exactly once (tier 3/4 origin only — never a clone, and
+        // Spawn the twin exactly once (tier 3 origin only — never a clone, and
         // only once the hero target is wired). The clone is pushed into the enemy
         // list by EnemyManager's 'bossClone' listener.
         if (!this.isClone && !this.cloneSpawned && hasClone(this.waveTier) && this.seekTarget) {
@@ -361,7 +431,10 @@ export class MilestoneBoss extends BossEnemy {
         this.maybeEnterLastStand();
         this.updateHeroVelocity(deltaTime);
         this.tickLungeStateMachine(deltaTime);
-        if (this.waveTier >= 5) this.tickElementalNova(deltaTime);
+        if (this.waveTier >= 5) {
+            this.tickElementalNova(deltaTime);
+            this.tickElementalBarrage(deltaTime);
+        }
 
         let result: boolean;
         // While dashing, the boss travels in the locked direction (not toward the hero).
@@ -769,7 +842,7 @@ export class MilestoneBoss extends BossEnemy {
     }
 
     /**
-     * Enrage triggered when this boss's twin dies (tier 3/4). Doubles health,
+     * Enrage triggered when this boss's twin dies (tier 3). Doubles health,
      * movement speed, and attack speed (faster swings + faster specials). One-shot.
      */
     public enrageFromCloneDeath(): void {
@@ -839,6 +912,7 @@ export class MilestoneBoss extends BossEnemy {
         this.lungeTimer *= specialCooldownScale(this.enraged, true)
             / specialCooldownScale(this.enraged, false);
         this.novaCooldown *= ENRAGE_COOLDOWN_FACTOR;
+        this.barrageCooldown *= ENRAGE_COOLDOWN_FACTOR;
 
         // Stronger: contact + melee via the shared helper, then the specials that
         // were derived from melee damage at construction.
@@ -846,6 +920,7 @@ export class MilestoneBoss extends BossEnemy {
         this.dashSlashDamage = Math.round(this.dashSlashDamage * ENRAGE_DAMAGE_FACTOR);
         this.pullSlamDamage  = Math.round(this.pullSlamDamage * ENRAGE_DAMAGE_FACTOR);
         this.novaDamage      = Math.round(this.novaDamage * ENRAGE_DAMAGE_FACTOR);
+        this.barrageDamage   = Math.round(this.barrageDamage * ENRAGE_DAMAGE_FACTOR);
 
         // Visual tell, paired with the HUD bar going enraged. The callout itself
         // is raised by SurvivorsGameplayState off `isEnraged()` — no event
@@ -975,6 +1050,85 @@ export class MilestoneBoss extends BossEnemy {
         if (this.lungeState !== 'walking') return;
         this.novaCooldown -= deltaTime;
         if (this.novaCooldown <= 0) this.beginNova();
+    }
+
+    /**
+     * Elemental barrage (tier 5): fire one bolt of every element at the hero.
+     *
+     * Charges only while walking, for the same reason the nova does — a volley
+     * loosed mid-dash would leave from a muzzle position the player never saw the
+     * boss occupy. Frozen/stunned pauses it.
+     */
+    private tickElementalBarrage(deltaTime: number): void {
+        if (this.isFrozen || this.isStunned) return;
+        if (this.lungeState !== 'walking') return;
+        this.barrageCooldown -= deltaTime;
+        if (this.barrageCooldown > 0) return;
+        this.barrageCooldown = BARRAGE_INTERVAL;
+        this.fireElementalBarrage();
+    }
+
+    /**
+     * Loose the volley: every element at once, from a ring around the boss, all
+     * converging on where the hero is RIGHT NOW.
+     *
+     * The aim point is snapshotted before the loop, not read per bolt — five bolts
+     * that each re-aimed at a moving hero would arrive as a spread that cannot be
+     * dodged as one, which is precisely the property the move is built on.
+     */
+    private fireElementalBarrage(): void {
+        const target = this.resolveSeekTarget();
+        if (!target) return;
+        const heroPos = target.getPosition();
+        const aimX = heroPos.x;
+        const aimZ = heroPos.z;
+
+        const n = ELEMENTAL_BARRAGE_ORDER.length;
+        for (let i = 0; i < n; i++) {
+            const element = ELEMENTAL_BARRAGE_ORDER[i];
+            const angle = (i / n) * Math.PI * 2;
+            this._barrageMuzzle.set(
+                this.position.x + Math.cos(angle) * BARRAGE_MUZZLE_RADIUS,
+                this.position.y + BARRAGE_MUZZLE_HEIGHT,
+                this.position.z + Math.sin(angle) * BARRAGE_MUZZLE_RADIUS,
+            );
+            fireEnemyBolt(this.scene, {
+                spec: ENEMY_BOLTS[`elemental-${element}`],
+                origin: this._barrageMuzzle,
+                aimAt: { x: aimX, z: aimZ },
+                target,
+                isOwnerAlive: () => this.alive,
+                sourcePosition: this.position,
+                onHit: hit => this.onBarrageHit(hit, element),
+            });
+            // Co-op: the guest ticks no enemy AI, so without this the Lord's
+            // signature move does not happen on its screen at all. The element
+            // rides in the hint so the replayed orb is the right colour.
+            emitCoopFx('enemyProj',
+                this._barrageMuzzle.x, this._barrageMuzzle.z, aimX, aimZ, element);
+        }
+    }
+
+    /**
+     * A single bolt landing. Damage is the same for every element; what differs is
+     * the rider, and only the two the hero can actually receive exist — the
+     * `HeroProvider` channels are damage / pull / slow / knockback, so there is no
+     * burn or freeze to apply. Both riders are optional-chained: against a co-op
+     * TEAMMATE the provider carries position and liveness only.
+     */
+    private onBarrageHit(hit: HeroProvider, element: PowerElement): void {
+        hit.takeDamage?.(this.barrageDamage, this.position);
+        if (element === 'ice') {
+            hit.applySlow?.(BARRAGE_SLOW_MULT, BARRAGE_SLOW_DURATION);
+        } else if (element === 'physical') {
+            const dx = hit.getPosition().x - this.position.x;
+            const dz = hit.getPosition().z - this.position.z;
+            const len = Math.hypot(dx, dz);
+            if (len > 0.001) {
+                hit.applyKnockback?.(dx / len, dz / len,
+                    BARRAGE_KNOCKBACK_SPEED, BARRAGE_KNOCKBACK_S);
+            }
+        }
     }
 
     private beginNova(): void {

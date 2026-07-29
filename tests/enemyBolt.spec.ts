@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ENEMY_BOLTS, HERO_MAX_MOVE_SPEED } from '../src/survivors/enemies/EnemyBolt';
+import { ELEMENTAL_BARRAGE_ORDER, ENEMY_BOLTS, HERO_MAX_MOVE_SPEED } from '../src/survivors/enemies/EnemyBolt';
 
 const ALL = Object.entries(ENEMY_BOLTS);
 
@@ -43,14 +43,32 @@ describe('enemy bolt registry', () => {
         }
     });
 
-    it('keeps exactly one dodgeable variant — the artillery lance', () => {
-        // The whole division: mages are damage you out-heal, artillery is damage
-        // you out-move. If a mage bolt ever became 'straight' it would be
-        // dodgeable chip damage, i.e. no threat at all.
-        const straight = ALL.filter(([, s]) => s.flight === 'straight').map(([n]) => n);
-        expect(straight).toEqual(['lance']);
+    it('keeps the caster bolts undodgeable and everything else dodgeable', () => {
+        // The whole division: mages are damage you out-heal, artillery and the
+        // Elemental Lord's barrage are damage you out-move. If a mage bolt ever
+        // became 'straight' it would be dodgeable chip damage, i.e. no threat.
+        const straight = ALL.filter(([, s]) => s.flight === 'straight').map(([n]) => n).sort();
+        expect(straight).toEqual(
+            ['lance', ...ELEMENTAL_BARRAGE_ORDER.map(e => `elemental-${e}`)].sort(),
+        );
         expect(ENEMY_BOLTS.mage.flight).toBe('homing');
         expect(ENEMY_BOLTS.redWizard.flight).toBe('homing');
+    });
+
+    it('gives the Elemental Lord a bolt for every element, all dodgeable as one', () => {
+        // The barrage is aimed at a single point and dodged as a single volley.
+        // That only holds while every bolt flies 'straight' at the SAME speed —
+        // one homing bolt makes the move unavoidable, and one faster bolt splits
+        // the volley into two arrivals the player has to dodge separately.
+        expect(ELEMENTAL_BARRAGE_ORDER.length).toBeGreaterThan(0);
+        const specs = ELEMENTAL_BARRAGE_ORDER.map(e => ENEMY_BOLTS[`elemental-${e}`]);
+        for (const spec of specs) expect(spec).toBeDefined();
+        expect(new Set(specs.map(s => s.flight))).toEqual(new Set(['straight']));
+        expect(new Set(specs.map(s => s.speed)).size).toBe(1);
+        // Distinct colours are the point of "all the elements" — a barrage drawn
+        // in one colour reads as five copies of one spell.
+        const colours = specs.map(s => s.color.getHexString());
+        expect(new Set(colours).size).toBe(specs.length);
     });
 
     it('gives the lance a shaft to point down its travel', () => {

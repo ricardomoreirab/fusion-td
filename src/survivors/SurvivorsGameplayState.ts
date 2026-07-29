@@ -274,11 +274,18 @@ const TORCH_RANGE     = 9;
 /** Seconds shaved off every ability on cooldown for each monster killed. */
 const KILL_COOLDOWN_REDUCTION = 0.5;
 
+/** Seconds refunded on the Space-bar mobility ability per basic-attack hit — the
+ *  barbarian's dash and the mage's teleport come back up as fast as the hero keeps
+ *  connecting. Per ENEMY hit, so a barbarian slash that lands on a pack refunds once
+ *  per body. The ranger's jump is deliberately not on this. */
+const HIT_DASH_COOLDOWN_REDUCTION = 0.5;
+const DASH_REFUND_CLASSES: readonly ChampionType[] = ['barbarian', 'mage'];
+
 /** Base move speed per champion (mirrors startRun's `variants[].speed`). The host
  *  integrates the guest's InputMsg at the guest champion's base speed to simulate
  *  its hero authoritatively (M4-8). Per-run move-speed multipliers aren't known to
  *  the host yet — the small divergence is corrected by guest-side reconciliation. */
-const CHAMP_BASE_SPEED: Record<string, number> = { barbarian: 6, ranger: 9, mage: 7 };
+const CHAMP_BASE_SPEED: Record<string, number> = { barbarian: 9, ranger: 6, mage: 7 };
 
 /** Guest reconciliation tuning (M4-8). The guest predicts its own hero locally and
  *  only corrects toward the host-authoritative position when the gap is real —
@@ -769,13 +776,14 @@ export class SurvivorsGameplayState implements GameState {
             {
                 type: 'barbarian',
                 name: 'Barbarian',
-                summary: 'HP: 140  Speed: 6  Attack: 18 melee\nElement orbs enchant your axe. Brutal frontliner.',
+                summary: 'HP: 140  Speed: 9  Attack: 18 melee\nElement orbs enchant your axe. Brutal frontliner.',
+                startingPower: 'Flaming Edge',
                 color: '#A0413A',
             },
             {
                 type: 'ranger',
                 name: 'Ranger',
-                summary: 'HP: 90  Speed: 9  Attack: 8 ranged\nElement orbs unlock arrow variants. Fast and nimble.',
+                summary: 'HP: 90  Speed: 6  Attack: 8 ranged\nElement orbs unlock arrow variants. Fragile, fires fastest.',
                 startingPower: 'Frost Arrow',
                 color: '#60C080',
             },
@@ -783,7 +791,7 @@ export class SurvivorsGameplayState implements GameState {
                 type: 'mage',
                 name: 'Mage',
                 summary: 'HP: 80  Speed: 7  Attack: 10 ranged\nElement orbs unlock spells. Fragile but devastating.',
-                startingPower: 'Frost Shards',
+                startingPower: 'Arcane Nova',
                 color: '#6080C0',
             },
         ];
@@ -855,9 +863,9 @@ export class SurvivorsGameplayState implements GameState {
 
         // Stat variants by champion type
         const variants: Record<string, { hp: number; speed: number; startPower?: string }> = {
-            barbarian: { hp: 140, speed: 6  },
-            ranger:    { hp: 90,  speed: 9,  startPower: 'ranger_ice' },
-            mage:      { hp: 80,  speed: 7,  startPower: 'mage_ice' },
+            barbarian: { hp: 140, speed: 9,  startPower: 'barbarian_fire' },
+            ranger:    { hp: 90,  speed: 6,  startPower: 'ranger_ice' },
+            mage:      { hp: 80,  speed: 7,  startPower: 'mage_arcane' },
         };
         const variant = variants[championType] ?? variants['barbarian'];
 
@@ -1502,9 +1510,13 @@ export class SurvivorsGameplayState implements GameState {
         this.heroController.setOnHurt((amount) => this.itemEffects?.onHeroHurt(amount));
         // Both runtimes CHAIN inside the one lambda — the slot is single-owner, so
         // assigning a second setOnHit would silently unsubscribe item effects.
+        // Champion type is fixed for the run, so the class gate is resolved once
+        // here rather than per enemy per hit.
+        const refundsDash = DASH_REFUND_CLASSES.includes(this.currentChampionType);
         this.heroController.getBasicAttack()?.setOnHit((enemy, dmg) => {
             this.itemEffects?.onBasicHit(enemy, dmg);
             this.ascRuntime?.onBasicHit(enemy as unknown as AscEnemy, dmg);
+            if (refundsDash) this.abilityManager?.reduceCooldown('dash', HIT_DASH_COOLDOWN_REDUCTION);
         });
 
         // Q / E / Space → first / second / third ultimate. Mirrors a tap on the HUD
@@ -2651,7 +2663,8 @@ export class SurvivorsGameplayState implements GameState {
                 break;
             }
             case 'enemyProj':
-                spawnCosmeticEnemyProjectile(this.scene, m.x, m.z, m.tx ?? m.x, m.tz ?? m.z);
+                // hint = element, sent only by the Elemental Lord's barrage.
+                spawnCosmeticEnemyProjectile(this.scene, m.x, m.z, m.tx ?? m.x, m.tz ?? m.z, m.hint);
                 break;
             // Enemy area attacks (golem boulder, turtle quake). The guest ticks no
             // enemy AI, so these are the only way its screen shows them; it replays

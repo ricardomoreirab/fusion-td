@@ -67,7 +67,7 @@ function makeRow(): Row {
  * boss was off-screen, which is exactly when you most want to know how the fight
  * is going.
  *
- * Rows are keyed by enemy id and REUSED across frames: a tier-3/4 boss spawns a
+ * Rows are keyed by enemy id and REUSED across frames: a tier-3 boss spawns a
  * twin, so the stack has to grow and shrink without rebuilding DOM at 60 Hz.
  * Every write is diffed against the last value for the same reason.
  *

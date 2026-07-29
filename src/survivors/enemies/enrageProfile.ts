@@ -12,7 +12,7 @@ import { StatusEffect } from '../GameTypes';
 // Every milestone boss flips into a final phase once its health drops below
 // ENRAGE_HEALTH_FRACTION. This is the fight's shape: the boss is most dangerous
 // when it is nearly dead, so the kill has to be committed to rather than
-// out-attritioned. Distinct from the tier-3/4 twin-death enrage — both can fire
+// out-attritioned. Distinct from the tier-3 twin-death enrage — both can fire
 // in one fight, and each is one-shot.
 export const ENRAGE_HEALTH_FRACTION = 0.30;
 
@@ -30,7 +30,7 @@ export const ENRAGE_DAMAGE_FACTOR = 1.5;
 /** Recurring special cadence (dash / grab / nova) while in the last stand. */
 export const ENRAGE_COOLDOWN_FACTOR = 0.55;
 
-/** Recurring special cadence while enraged by a twin's death (tier 3/4). */
+/** Recurring special cadence while enraged by a twin's death (tier 3). */
 export const TWIN_ENRAGE_COOLDOWN_FACTOR = 0.5;
 
 /**

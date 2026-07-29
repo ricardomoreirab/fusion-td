@@ -222,7 +222,7 @@ export class EnemyManager {
         };
         document.addEventListener('enemySplit', this.splitHandler);
 
-        // Listen for boss clone events (from a tier-3/4 MilestoneBoss). Spawns a
+        // Listen for boss clone events (from a tier-3 MilestoneBoss). Spawns a
         // weaker twin on the OPPOSITE side of the NEAREST hero from the origin boss
         // so the two pincer the player. The clone is linked back to its origin; when
         // it dies (see update()), the origin enrages.
@@ -230,7 +230,7 @@ export class EnemyManager {
             document.removeEventListener('bossClone', this.cloneHandler);
         }
         this.cloneHandler = (e: Event) => {
-          // Isolate the tier-3/4 twin spawn: it synchronously instantiates a boss
+          // Isolate the tier-3 twin spawn: it synchronously instantiates a boss
           // GLB mid-update, and any throw here would otherwise abort the whole
           // update frame. Catch + log so a clone failure can't blank the screen.
           try {

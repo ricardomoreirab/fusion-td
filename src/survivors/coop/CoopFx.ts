@@ -101,11 +101,17 @@ export function spawnCosmeticEnemyProjectile(
     host: SceneHost,
     fromX: number, fromZ: number,
     toX: number, toZ: number,
+    element?: string,
 ): void {
+    // The Elemental Lord's barrage sends one bolt per element and rides the
+    // element in the fx hint; every other enemy bolt sends none and keeps the
+    // original arcane orb. Unknown values fall back rather than mis-key the
+    // material cache — `element` arrives off the wire.
+    const key = element && element in FX_COLOR ? element : 'arcane';
     const mesh = createSphere('coopFxEnemyProj', { diameter: 0.4, segments: 4 }, host);
     mesh.position.set(fromX, 1.4, fromZ); // match fireBolt y-offset (staff-orb height)
-    mesh.material = getCachedMaterial('coopFxProjMat_arcane', m => {
-        m.emissive.copy(FX_COLOR.arcane);
+    mesh.material = getCachedMaterial(`coopFxProjMat_${key}`, m => {
+        m.emissive.copy(FX_COLOR[key]);
         m.color.setRGB(0, 0, 0);
     });
 

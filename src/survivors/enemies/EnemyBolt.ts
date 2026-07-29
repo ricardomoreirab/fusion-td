@@ -23,6 +23,8 @@ import { createCylinder, createSphere, isMeshDisposed } from '../../engine/three
 import { headingToYaw } from '../../engine/three/math';
 import type { SceneHost, UpdateToken } from '../../engine/three/SceneHost';
 import type { HeroProvider } from './nearestTarget';
+import { ELEMENT_COLOR } from '../ElementColors';
+import type { PowerElement } from '../powers/PowerDefinitions';
 
 /** One bolt VARIANT. Module-level + frozen at every call site: `key` is a
  *  material-cache and mesh-pool key and must be bounded. */
@@ -75,7 +77,41 @@ export const HERO_MAX_MOVE_SPEED = 20;
  * enforced by there being a closed record of them rather than by each call site
  * remembering to hoist a module constant.
  */
-export type EnemyBoltVariant = 'mage' | 'redWizard' | 'lance';
+export type EnemyBoltVariant = 'mage' | 'redWizard' | 'lance' | `elemental-${PowerElement}`;
+
+/**
+ * The Elemental Lord's barrage, in firing order — one bolt per element, every
+ * element the game has.
+ *
+ * Spelled out rather than derived from `Object.keys(ELEMENT_HEX)` because this is
+ * both the muzzle ORDER (the bolts leave on a ring in this sequence) and a
+ * bounded key set; a key set that depends on another module's iteration order is
+ * exactly the thing the pool/material-cache contract asks not to happen.
+ */
+export const ELEMENTAL_BARRAGE_ORDER: readonly PowerElement[] =
+    Object.freeze(['fire', 'ice', 'arcane', 'physical', 'storm'] as const);
+
+/**
+ * One elemental bolt. Colour comes from `ELEMENT_COLOR` — the canonical palette —
+ * so a Lord's fire bolt is the same orange as a fire power's damage numbers.
+ *
+ * `'straight'` on purpose: the whole volley is aimed at ONE point, where the hero
+ * stood at launch, so the counterplay is to not be standing there when it lands.
+ * Homing would make five simultaneous unavoidable hits, which no amount of
+ * healing answers.
+ */
+function elementalBolt(element: PowerElement): EnemyBoltSpec {
+    return Object.freeze({
+        key: `elemental-${element}`,
+        color: ELEMENT_COLOR[element].clone(),
+        diameter: 0.5,
+        speed: 17,
+        hitRadius: 0.7,
+        maxFlightS: 3,
+        flight: 'straight',
+        shape: 'orb',
+    });
+}
 
 export const ENEMY_BOLTS: Record<EnemyBoltVariant, EnemyBoltSpec> = {
     /** The blue mage's chip bolt: small, guaranteed, out-heal-able. */
@@ -113,6 +149,12 @@ export const ENEMY_BOLTS: Record<EnemyBoltVariant, EnemyBoltSpec> = {
         flight: 'straight',
         shape: 'lance',
     }),
+    /** The Elemental Lord's five-bolt barrage — see ELEMENTAL_BARRAGE_ORDER. */
+    'elemental-fire':     elementalBolt('fire'),
+    'elemental-ice':      elementalBolt('ice'),
+    'elemental-arcane':   elementalBolt('arcane'),
+    'elemental-physical': elementalBolt('physical'),
+    'elemental-storm':    elementalBolt('storm'),
 };
 
 export interface EnemyBoltOptions {

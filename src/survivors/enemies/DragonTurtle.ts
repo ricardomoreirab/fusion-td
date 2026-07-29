@@ -21,12 +21,13 @@ const QUAKE_DAMAGE = 22;
 const QUAKE_KNOCKBACK_SPEED = 20;
 const QUAKE_KNOCKBACK_S = 0.42;
 
-// ── Shell slam ──────────────────────────────────────────────────────────────
-// A 1.5 u/s wall can be ignored, so every SLAM_INTERVAL it coils and hurls
-// itself at the hero, landing shell-first. This is BOTH the turtle's approach
-// and its heaviest attack: the landing quake covers twice the ground its
-// standing stomp does, so the answer is to be somewhere else when it lands
-// rather than to walk out afterwards.
+// ── Shell slam (ELITES ONLY) ────────────────────────────────────────────────
+// Every SLAM_INTERVAL an elite turtle coils and hurls itself at the hero,
+// landing shell-first. It is BOTH that turtle's approach and its heaviest
+// attack: the landing quake covers twice the ground the standing stomp does, so
+// the answer is to be somewhere else when it lands rather than to walk out
+// afterwards. An ordinary turtle never leaves the ground — it is a 1.5 u/s wall
+// that stomps whatever comes to it, and the leap is what marks the elite.
 const SLAM_INTERVAL = 10.0;
 /** Gather before the jump — a heavier, slower coil than the boss's 0.38s. */
 const SLAM_CHARGE_S = 0.5;
@@ -67,7 +68,7 @@ export class DragonTurtle extends TankEnemy {
     private quakeWindup: number = 0;
     private quakeTelegraph: { cancel(): void } | null = null;
 
-    /** Counts up to SLAM_INTERVAL between slams. */
+    /** Counts up to SLAM_INTERVAL between slams. Only ticks on an elite. */
     private slamTimer: number = 0;
     /** 'ready' → 'charge' (coiling, rooted) → 'air' (committed, arcing). */
     private slamPhase: 'ready' | 'charge' | 'air' = 'ready';
@@ -173,6 +174,11 @@ export class DragonTurtle extends TankEnemy {
                 this.advanceSlam(deltaTime);
                 return;
         }
+
+        // Only elites slam. `isElite` is stamped by EliteSpawner AFTER construction,
+        // so it is read here rather than latched at build time — and the check sits
+        // below the charge/air switch so a slam already committed always lands.
+        if (!this.isElite) return;
 
         this.slamTimer += deltaTime;
         if (this.slamTimer < SLAM_INTERVAL) return;
