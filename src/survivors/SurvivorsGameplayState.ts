@@ -93,6 +93,7 @@ import type { NetRole, SpawnMsg, DeathMsg, SnapshotMsg, CoopHeroSummary, RunOver
 import { validateDamageReport } from './coop/DamageRouter';
 import { MilestoneBoss } from './enemies/MilestoneBoss';
 import { MAX_AUTHORED_TIER } from './enemies/bossTiers';
+import { haptic } from '../shared/mobileSession';
 import { t, tc } from '../i18n';
 import { powerDisplayName, runItemDisplayName, ultDisplayName } from '../i18n/gameStrings';
 import { isTestModeEnabled } from '../engine/devHost';
@@ -972,6 +973,7 @@ export class SurvivorsGameplayState implements GameState {
         );
 
         this.heroController.setOnDeath(() => {
+            haptic('death');
             this.onLocalHeroDeath();
         });
 
@@ -1565,7 +1567,13 @@ export class SurvivorsGameplayState implements GameState {
         // setOnHurt fires when the host's hero is hit (thorns/chrono). On the GUEST
         // the local hero's takeDamage is host-driven so setOnHurt won't fire there —
         // the snapshot HP-drop path fires onHeroHurt for the guest instead.
-        this.heroController.setOnHurt((amount) => this.itemEffects?.onHeroHurt(amount));
+        this.heroController.setOnHurt((amount) => {
+            this.itemEffects?.onHeroHurt(amount);
+            // Touch devices only, and no-op where vibration is unavailable or the
+            // player has turned it off. Chained rather than assigned — this is a
+            // single-owner slot (CLAUDE.md).
+            haptic('hurt');
+        });
         // Both runtimes CHAIN inside the one lambda — the slot is single-owner, so
         // assigning a second setOnHit would silently unsubscribe item effects.
         // Champion type is fixed for the run, so the class gate is resolved once
@@ -4199,6 +4207,7 @@ export class SurvivorsGameplayState implements GameState {
             this.heroController?.heal(this.heroController.getMaxHealth() * 0.05 * ups);
             this.showLevelUpFeedback(this.levelSystem.getLevel());
             this.game.getAssetManager().playSound('levelUp');
+            haptic('levelUp');
         }
     }
 

@@ -133,3 +133,50 @@
   --z-fx: 30;
   --z-overlay: 40;
 }
+
+/* ── Short viewports: the phone-landscape case ────────────────────────────
+   Every size token above clamps on `vw`, which is exactly backwards for the
+   device this game is most often played on. A phone in landscape is WIDE and
+   SHORT — 844×390, 932×430 — so the width-driven clamps all sit at their
+   MAXIMUM while the axis that is actually scarce gets no say at all. Measured on
+   an 844×390 viewport before this block: the top bar alone was 66px and the two
+   bottom clusters ~90px, i.e. ~40% of the screen height was chrome.
+
+   Scaling the tokens on HEIGHT is what gives the arena back, and doing it here
+   rather than per-component means the whole interface — HUD, modals, shop —
+   shrinks together and stays proportionate. The floors are the genre's real
+   constraint, not taste: touch targets stay at 44px (the Apple/Google minimum)
+   even as the plates around them tighten, because a mobile survivors game is
+   played with a thumb over the ability buttons.
+
+   Two breakpoints, not one: 500px covers every phone in landscape, 380px the
+   small-and-old ones where the bottom clusters would otherwise meet the top bar. */
+@media (max-height: 500px) {
+  :root {
+    --fs-100: 9px;
+    --fs-200: 10px;
+    --fs-300: 11px;
+    --fs-400: 13px;
+    --fs-500: 15px;
+    --fs-600: 19px;
+
+    --s-3: 8px;
+    --s-4: 12px;
+    --s-6: 16px;
+    --s-8: 20px;
+
+    /* Slots shrink; ults do NOT go below the 44px touch minimum. */
+    --hud-slot: 34px;
+    --hud-ult: 46px;
+    --hud-pad: 8px;
+    --hud-meter-w: clamp(120px, 18vw, 170px);
+  }
+}
+@media (max-height: 380px) {
+  :root {
+    --hud-slot: 30px;
+    --hud-ult: 44px;
+    --hud-pad: 6px;
+    --hud-meter-w: clamp(104px, 16vw, 140px);
+  }
+}

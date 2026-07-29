@@ -1,6 +1,7 @@
 import './ui/styles/index.css';
 import { Game } from './engine/Game';
 import { subscribeLocale, t } from './i18n';
+import { installMobileSession } from './shared/mobileSession';
 
 /**
  * The rotate-device prompt is static markup in index.html (it has to show before
@@ -23,6 +24,10 @@ window.addEventListener('DOMContentLoaded', () => {
     // assets finish, and resize handler is safe before engine init.
     localiseStaticChrome();
     subscribeLocale(localiseStaticChrome);
+
+    // Touch devices only: go fullscreen + hold the screen awake on the first
+    // real tap. No-ops on desktop, and every call inside is best-effort.
+    installMobileSession();
 
     const game = new Game('renderCanvas');
     game.start().catch(err => console.error('Game failed to start:', err));
