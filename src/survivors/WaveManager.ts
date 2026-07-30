@@ -4,6 +4,9 @@ import { Enemy } from './enemies/Enemy';
 import { WaveStatus } from './WaveStatus';
 import { computeWaveElites } from './WaveElites';
 import { difficultyAt } from './DifficultyCurve';
+import {
+    FINAL_WAVE, MAX_ALIVE, batchHasBoss, difficultyWaveAt, lastStandBatch,
+} from './LastStand';
 
 // Define a wave of enemies
 interface Wave {
@@ -184,6 +187,19 @@ export class WaveManager {
     private healthAtWaveStart: number = 0;
     private consecutivePerfectWaves: number = 0;
 
+    // ── Last stand (post-final-boss terminal phase) ──────────────────────────
+    // Entered by beginLastStand() when the final boss dies, and never left: the
+    // wave counter stops at FINAL_WAVE, no wave ever completes, no shop opens,
+    // and the assault refills itself forever. See src/survivors/LastStand.ts.
+    private lastStand: boolean = false;
+    /** Wall-clock seconds accumulated in the phase — the escalation's only input.
+     *  Advanced from update()'s deltaTime rather than read from performance.now()
+     *  so pausing the game pauses the escalation with it. */
+    private lastStandElapsed: number = 0;
+    /** Which assault batch is being queued next (drives the boss cadence). */
+    private lastStandBatch: number = 0;
+    private onLastStandBatchCallback: ((index: number, hasBoss: boolean) => void) | null = null;
+
     constructor(enemyManager: EnemyManager, playerStats: PlayerStats) {
         this.enemyManager = enemyManager;
         this.playerStats = playerStats;
@@ -211,6 +227,70 @@ export class WaveManager {
      */
     public setOnWaveCleared(callback: () => void): void {
         this.onWaveClearedCallback = callback;
+    }
+
+    /**
+     * Enter the terminal last-stand phase (the final boss just died).
+     *
+     * Idempotent: the final boss can die twice in one run in principle (a tier
+     * that spawns a twin), and a second entry would restart the escalation clock
+     * and hand the player back the difficulty of the phase's opening.
+     *
+     * Does NOT clear the field or wait for the current wave to finish. Whatever
+     * escort is still alive simply merges into the assault, so the phase opens on
+     * the frame the boss dies with no lull.
+     */
+    public beginLastStand(): void {
+        if (this.lastStand) return;
+        this.lastStand = true;
+        this.lastStandElapsed = 0;
+        this.lastStandBatch = 0;
+        // Pin the wave to the terminal one. Normally it is already there, but the
+        // phase can also be entered off a final boss spawned OUT of sequence (the
+        // `?test` dev roster puts every boss tier on the field at wave 1) — and
+        // the real wave is what `redSwapType` and the boss tier read, so leaving
+        // it at 1 would run the last stand with wave-1 enemies.
+        this.currentWave = Math.max(this.currentWave, FINAL_WAVE);
+        this.absoluteWave = Math.max(this.absoluteWave, FINAL_WAVE);
+        // The phase owns spawning from here, so make sure a wave is "in progress"
+        // for every consumer that gates on it (the HUD's enemy counter, the
+        // spawn loop below). completeWave() can no longer fire.
+        this.waveInProgress = true;
+        this.autoWaveTimer = 0;
+        console.log('%c LAST STAND — the final boss has fallen. No more waves. %c',
+            'background: #7a1020; color: #fff; font-size: 16px; font-weight: bold; padding: 4px 8px;',
+            'background: none; color: inherit;');
+    }
+
+    /** True once the final boss has died and the endless phase has begun. */
+    public isLastStand(): boolean {
+        return this.lastStand;
+    }
+
+    /** Seconds survived since the last stand began (0 before it does). */
+    public getLastStandElapsed(): number {
+        return this.lastStandElapsed;
+    }
+
+    /**
+     * The wave number every DIFFICULTY read should use — the real wave normally,
+     * and a virtual wave that advances with time during the last stand.
+     *
+     * Deliberately separate from `getCurrentWave()`, which stays at FINAL_WAVE:
+     * the displayed wave, the roster tier (`redSwapType`) and the milestone-boss
+     * tier all key off the real wave and must NOT advance, or the last stand
+     * would start fielding enemy variants and boss tiers that do not exist.
+     */
+    public getDifficultyWave(): number {
+        return this.lastStand
+            ? difficultyWaveAt(this.lastStandElapsed)
+            : this.currentWave;
+    }
+
+    /** Fires each time a fresh assault batch is queued, so the gameplay layer can
+     *  raise a callout. `hasBoss` is the batch's own rule, not re-derived. */
+    public setOnLastStandBatch(cb: (index: number, hasBoss: boolean) => void): void {
+        this.onLastStandBatchCallback = cb;
     }
 
     /**
@@ -531,24 +611,39 @@ export class WaveManager {
         
         // Reset auto-wave timer when a wave is in progress
         this.autoWaveTimer = 0;
-        
-        // If there are no enemies left to spawn and no enemies on the map, complete the wave
-        if (this.enemiesLeftToSpawn.length === 0 && this.enemyManager.getEnemyCount() === 0) {
-            this.completeWave();
-            return;
+
+        // ── Last stand: the phase that cannot be finished ────────────────────
+        // The escalation clock runs on deltaTime, so it freezes with the rest of
+        // the game while paused. The queue refills the instant it empties rather
+        // than waiting for the field to clear, which is what makes the assault a
+        // continuous stream instead of a series of waves.
+        if (this.lastStand) {
+            this.lastStandElapsed += deltaTime;
+            if (this.enemiesLeftToSpawn.length === 0) this.queueLastStandBatch();
+            // Population ceiling — see LastStand.MAX_ALIVE. Holding the queue
+            // rather than dropping from it means escalation past saturation lands
+            // on enemy strength instead of on the frame budget.
+            if (this.enemyManager.getEnemyCount() >= MAX_ALIVE) return;
+        } else {
+            // If there are no enemies left to spawn and no enemies on the map, complete the wave
+            if (this.enemiesLeftToSpawn.length === 0 && this.enemyManager.getEnemyCount() === 0) {
+                this.completeWave();
+                return;
+            }
+
+            // If there are no enemies left to spawn, just return and wait for existing enemies to be defeated
+            if (this.enemiesLeftToSpawn.length === 0) {
+                return;
+            }
         }
-        
-        // If there are no enemies left to spawn, just return and wait for existing enemies to be defeated
-        if (this.enemiesLeftToSpawn.length === 0) {
-            return;
-        }
-        
+
         // Update spawn timer
         this.timeSinceLastSpawn += deltaTime;
-        
+
         // Check if it's time to spawn the next enemy (delay scaled by survivors rate
-        // and the wave's pace scalar — later waves spawn faster)
-        const effectiveSpawnRate = this.spawnRateMultiplier * difficultyAt(this.currentWave).pace;
+        // and the wave's pace scalar — later waves spawn faster). During the last
+        // stand the pace comes from the virtual wave, so cadence keeps tightening.
+        const effectiveSpawnRate = this.spawnRateMultiplier * difficultyAt(this.getDifficultyWave()).pace;
         const effectiveDelay = this.enemiesLeftToSpawn[0].delay / effectiveSpawnRate;
         if (this.timeSinceLastSpawn >= effectiveDelay) {
             // Spawn the enemy via the injectable spawn function
@@ -707,6 +802,12 @@ export class WaveManager {
      * @returns True if a new wave was started
      */
     public startNextWave(): boolean {
+        // There is no wave after the last stand. The phase never completes a wave
+        // so nothing should reach here, but a stray call (a dev key, a co-op
+        // resume) would otherwise advance past the terminal wave and resume the
+        // ordinary ladder — silently ending the endgame.
+        if (this.lastStand) return false;
+
         // Reset auto-wave timer
         this.autoWaveTimer = 0;
         this.firstWaveStarted = true;
@@ -830,6 +931,53 @@ export class WaveManager {
         return true;
     }
     
+    /**
+     * Queue the next assault batch.
+     *
+     * Reuses the ordinary wave pipeline's own count scaling — `pace` from the
+     * curve, times the survivors count multiplier — so "progressively more
+     * monsters" comes from the same scalar that drives cadence and gold rather
+     * than from a second growth term (which is how the economy invariant in
+     * CLAUDE.md gets broken). Base types go in unresolved so `redSwapType`
+     * upgrades them to their wave-25 forms from the real wave number.
+     *
+     * Elites are queued per batch exactly as a wave does, so the assault keeps
+     * producing the element-flavoured elites the power drops come from — without
+     * them the phase would starve the player of new powers.
+     */
+    private queueLastStandBatch(): void {
+        const index = this.lastStandBatch++;
+        const batch = lastStandBatch(index);
+        const countMult = this.enemyCountMultiplier * difficultyAt(this.getDifficultyWave()).pace;
+
+        for (const group of batch) {
+            const scaled = Math.max(1, Math.round(group.count * countMult));
+            if (group.type === 'boss') {
+                // Same collapse the wave path uses: one body carrying the count
+                // as strength, never N bosses.
+                this.enemiesLeftToSpawn.push({
+                    type: group.type, delay: group.delay, bossStrengthMultiplier: scaled,
+                });
+            } else {
+                for (let i = 0; i < scaled; i++) {
+                    this.enemiesLeftToSpawn.push({ type: group.type, delay: group.delay });
+                }
+            }
+        }
+
+        // One elite per distinct non-boss type, each a different element — the
+        // same helper the wave path uses, over this batch's composition.
+        for (const spec of computeWaveElites({ enemies: batch })) {
+            for (let i = 0; i < spec.count; i++) {
+                this.enemiesLeftToSpawn.push({
+                    type: spec.type, delay: 5.0, eliteElement: spec.element,
+                });
+            }
+        }
+
+        this.onLastStandBatchCallback?.(index, batchHasBoss(index));
+    }
+
     /**
      * Complete the current wave.
      * Handles:
@@ -1023,6 +1171,12 @@ export class WaveManager {
         this.consecutivePerfectWaves = 0;
         this.onSegmentComplete = null;
         this.onWaveClearedCallback = null;
+        // The last stand is terminal WITHIN a run, not across runs — a new run
+        // that started already in the endless phase would have no ladder at all.
+        this.lastStand = false;
+        this.lastStandElapsed = 0;
+        this.lastStandBatch = 0;
+        this.onLastStandBatchCallback = null;
 
         console.log('WaveManager disposed and reset');
     }

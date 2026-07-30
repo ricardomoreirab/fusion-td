@@ -4,6 +4,11 @@ export interface WaveInfo {
   wave: number;
   enemiesAlive: number;
   inProgress: boolean;
+  /** The terminal post-final-boss phase (see survivors/LastStand.ts). There is no
+   *  wave number to show once it starts — the assault never ends and never
+   *  advances. Optional because the co-op guest reads its wave state off the
+   *  host's snapshot, which does not carry the flag. */
+  lastStand?: boolean;
 }
 
 /** Clamp remaining/total to a 0..1 cooldown fraction. */
@@ -20,6 +25,9 @@ export function cooldownFraction(remaining: number, total: number): number {
  */
 export function waveTitle(info?: WaveInfo): string {
   if (!info) return 'WAVE 1';
+  // The last stand has no number: it is one endless wave, and showing "WAVE 30"
+  // forever reads as a stuck counter rather than as the endgame.
+  if (info.lastStand) return 'LAST STAND';
   return `WAVE ${Math.max(1, info.wave)}`;
 }
 
@@ -32,6 +40,7 @@ export function enemiesLeftLabel(info?: WaveInfo): string {
 /** The transient centre-screen callout for a wave state change, or null. */
 export function waveBannerLabel(info?: WaveInfo): string | null {
   if (!info) return null;
+  if (info.lastStand) return 'Last Stand';
   if (info.inProgress) return `Wave ${Math.max(1, info.wave)}`;
   if (info.wave === 0) return null;
   return `Wave ${info.wave} Cleared`;

@@ -13,6 +13,7 @@
     "icons:generate": "node tools/item-icons/generate.mjs",
     "icons:items": "node tools/item-icons/serve.mjs",
     "assets:optimize": "node tools/assets/optimize.mjs",
+    "assets:retarget": "node tools/assets/retarget.mjs",
     "assets:verify": "node tools/assets/verify.mjs",
     "test": "vitest run",
     "test:watch": "vitest"

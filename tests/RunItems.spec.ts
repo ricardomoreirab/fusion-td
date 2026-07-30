@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { RunItems, type ItemId } from '../src/survivors/RunItems';
+import { RunItems, LIFESTEAL_PCT_PER_STACK, type ItemId } from '../src/survivors/RunItems';
 import { PlayerStats } from '../src/survivors/PlayerStats';
+import { MAX_AUTHORED_TIER } from '../src/survivors/enemies/bossTiers';
 
 /**
  * RunItems is the cleanest unit-testable thing in the codebase — it only
@@ -19,12 +20,22 @@ function makeRunItems() {
 }
 
 describe('RunItems.itemForTier', () => {
-    it('maps tiers 1-5 to the spec items', () => {
+    it('maps every boss tier to the spec item', () => {
         expect(RunItems.itemForTier(1)).toBe('extraLife');
         expect(RunItems.itemForTier(2)).toBe('multishotCleave');
         expect(RunItems.itemForTier(3)).toBe('knockback');
         expect(RunItems.itemForTier(4)).toBe('attackSpeed');
-        expect(RunItems.itemForTier(5)).toBe('elementalCore');
+        expect(RunItems.itemForTier(5)).toBe('verdantHeart');
+        expect(RunItems.itemForTier(6)).toBe('elementalCore');
+    });
+
+    it('gives every milestone boss a drop', () => {
+        // A boss with no reward is the failure mode of moving one between waves
+        // and forgetting its item — which is exactly what happened when the
+        // Elemental Lord moved from wave 25 to wave 30.
+        for (let tier = 1; tier <= MAX_AUTHORED_TIER; tier++) {
+            expect(RunItems.itemForTier(tier), `tier ${tier} drops nothing`).not.toBeNull();
+        }
     });
 
     it('swaps the ranger tier-3 drop to ricochet, leaving other classes on knockback', () => {
@@ -33,23 +44,23 @@ describe('RunItems.itemForTier', () => {
         expect(RunItems.itemForTier(3, 'mage')).toBe('knockback');
         // Other tiers are untouched by the ranger override.
         expect(RunItems.itemForTier(1, 'ranger')).toBe('extraLife');
-        expect(RunItems.itemForTier(5, 'ranger')).toBe('elementalCore');
+        expect(RunItems.itemForTier(6, 'ranger')).toBe('elementalCore');
     });
 
-    it('returns null for tiers outside 1-5', () => {
+    it('returns null for tiers outside the authored ladder', () => {
         expect(RunItems.itemForTier(0)).toBeNull();
-        expect(RunItems.itemForTier(6)).toBeNull();
+        expect(RunItems.itemForTier(MAX_AUTHORED_TIER + 1)).toBeNull();
         expect(RunItems.itemForTier(-1)).toBeNull();
         expect(RunItems.itemForTier(99)).toBeNull();
     });
 });
 
 describe('RunItems.itemRowForClass', () => {
-    it('returns the five sockets in tier order with the class tier-3 variant', () => {
+    it('returns one socket per boss tier, with the class tier-3 variant', () => {
         expect(RunItems.itemRowForClass('barbarian')).toEqual(
-            ['extraLife', 'multishotCleave', 'knockback', 'attackSpeed', 'elementalCore']);
+            ['extraLife', 'multishotCleave', 'knockback', 'attackSpeed', 'verdantHeart', 'elementalCore']);
         expect(RunItems.itemRowForClass('ranger')).toEqual(
-            ['extraLife', 'multishotCleave', 'ricochet', 'attackSpeed', 'elementalCore']);
+            ['extraLife', 'multishotCleave', 'ricochet', 'attackSpeed', 'verdantHeart', 'elementalCore']);
     });
 });
 
@@ -93,6 +104,28 @@ describe('RunItems.grant — knockback', () => {
         expect(stats.knockbackOnHit).toBe(1);
         items.grant('knockback');
         expect(stats.knockbackOnHit).toBe(2);
+    });
+});
+
+describe('RunItems.grant — verdantHeart', () => {
+    it('adds lifesteal per stack', () => {
+        const { stats, items } = makeRunItems();
+        expect(stats.lifestealPct).toBe(0);
+        items.grant('verdantHeart');
+        expect(stats.lifestealPct).toBeCloseTo(LIFESTEAL_PCT_PER_STACK, 6);
+        items.grant('verdantHeart');
+        expect(stats.lifestealPct).toBeCloseTo(LIFESTEAL_PCT_PER_STACK * 2, 6);
+    });
+
+    it('ADDS to lifesteal rather than assigning it', () => {
+        // lifestealPct is shared with equipment and ascension, both of which
+        // delta-swap it assuming RunItems only ever +=s. An assignment here
+        // would wipe their contribution and desync both fold trackers for the
+        // rest of the run — the same contract knockback documents.
+        const { stats, items } = makeRunItems();
+        stats.lifestealPct = 0.25; // stand in for an equipped/ascended contribution
+        items.grant('verdantHeart');
+        expect(stats.lifestealPct).toBeCloseTo(0.25 + LIFESTEAL_PCT_PER_STACK, 6);
     });
 });
 

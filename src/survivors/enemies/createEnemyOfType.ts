@@ -18,6 +18,8 @@ import { RedSuperWizard } from './RedSuperWizard';
 import { DragonTurtle } from './DragonTurtle';
 import { FireBeetle } from './FireBeetle';
 import { HornedLizard } from './HornedLizard';
+import { FortressTitan } from './FortressTitan';
+import { MoltenFiend } from './MoltenFiend';
 
 /**
  * Construct a concrete Enemy of the given type at a position, for GUEST
@@ -112,6 +114,15 @@ export function createEnemyOfType(
         case 'healer_red_super':
             HealerEnemy.pendingAsset = asset;
             return new RedSuperWizard(game, pos, []);
+
+        // Wave-25+ tier (mirrors EnemyManager.spawnSurvivorsEnemy).
+        case 'fortress_titan':
+            TankEnemy.pendingAsset = asset;
+            return new FortressTitan(game, pos, []);
+
+        case 'molten_fiend':
+            HealerEnemy.pendingAsset = asset;
+            return new MoltenFiend(game, pos, []);
 
         default:
             console.warn(`[createEnemyOfType] unknown type: "${type}" — guest spawn ignored`);

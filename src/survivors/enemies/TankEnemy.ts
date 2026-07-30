@@ -1,4 +1,4 @@
-import { Box3, Color, Mesh, Vector3 } from 'three';
+import { Color, Mesh, Vector3 } from 'three';
 import { Game } from '../../engine/Game';
 import { Enemy } from './Enemy';
 import { createLowPolyMaterial, createEmissiveMaterial, makeFlatShaded } from '../../engine/rendering/LowPolyMaterial';
@@ -140,11 +140,14 @@ export class TankEnemy extends Enemy {
         // expects the model to be authored facing -z.
         root.rotation.y += Math.PI;
 
-        // Feet-on-ground offset.
-        this.mesh.updateMatrixWorld(true);
-        const bbox = new Box3().setFromObject(this.mesh);
-        const feetOffset = -bbox.min.y;
-        root.position.y += feetOffset;
+        // Feet on the ground. Measured once per container from a posed clip,
+        // not per spawn from the rest transform - see ContainerInstance.groundToFeet.
+        // This was the last call site still doing its own per-spawn Box3: on a
+        // skinned mesh that walks every vertex through its bone matrices (~0.33 ms
+        // for a minion) and it measures the REST pose, which pruneStaticTracks
+        // deliberately rewrites into a pose the rig is never actually in — so the
+        // golem, the turtle and the lizard all stood off their own shadows.
+        inst.groundToFeet();
         // Captured AFTER the grounding so a subclass coiling the body (the dragon
         // turtle's slam) has the real resting pose to scale from and return to.
         this.glbBaseScale = this.glbScale;

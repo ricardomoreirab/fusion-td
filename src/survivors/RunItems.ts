@@ -2,15 +2,21 @@ import { PlayerStats } from './PlayerStats';
 import { HeroController } from './HeroController';
 
 /** Identifiers for the milestone-boss items. */
-export type ItemId = 'extraLife' | 'multishotCleave' | 'knockback' | 'ricochet' | 'attackSpeed' | 'elementalCore';
+export type ItemId = 'extraLife' | 'multishotCleave' | 'knockback' | 'ricochet' | 'attackSpeed'
+    | 'verdantHeart' | 'elementalCore';
 
-/** Which item drops at which boss tier (waveNumber / 5). Missing tiers drop nothing. */
+/** Which item drops at which boss tier (waveNumber / 5). Missing tiers drop nothing.
+ *
+ *  Each entry is named for the boss that drops it, and moving a boss moves its
+ *  item with it: the Elemental Core is the Lord's, so when the Lord moved to wave
+ *  30 the Core went too. */
 const ITEM_BY_TIER: Record<number, ItemId> = {
     1: 'extraLife',        // wave 5
     2: 'multishotCleave',  // wave 10
     3: 'knockback',        // wave 15
     4: 'attackSpeed',      // wave 20
-    5: 'elementalCore',    // wave 25 — the Elemental Lord
+    5: 'verdantHeart',     // wave 25 — the Guardian of Nature
+    6: 'elementalCore',    // wave 30 — the Elemental Lord
 };
 
 /** Per-class tier overrides. The ranger's wave-15 drop is Ricochet (arrows
@@ -27,7 +33,18 @@ export const RICOCHET_EXTRA_HITS_PER_STACK = 2;
 /** Exported: applyLevelBonuses() re-folds this per stack on every recompute
  *  (its `basicAttackSpeedMultiplier = …` assignment would otherwise erase it). */
 export const ATTACK_SPEED_FACTOR = 2.0; // multiplier applied once per stack
-/** Elemental Core (wave-25 boss drop): multiplies ALL power damage per stack. */
+/**
+ * Verdant Heart (wave-25 boss drop): the Guardian's own life, taken. Basic-attack
+ * damage heals this fraction of itself back.
+ *
+ * Deliberately a SUSTAIN item rather than another damage multiplier: by wave 25
+ * the hero's problem is no longer killing things, it is the wave-25 roster's
+ * burst (a 130-damage line smash, a fireball that keeps burning), and a run that
+ * only ever gains damage has no answer to that. Lifesteal scales with the damage
+ * already accumulated, so it stays relevant without adding a number to tune.
+ */
+export const LIFESTEAL_PCT_PER_STACK = 0.08;
+/** Elemental Core (wave-30 boss drop): multiplies ALL power damage per stack. */
 export const ELEMENTAL_CORE_POWER_MULT = 10;
 
 export class RunItems {
@@ -37,6 +54,7 @@ export class RunItems {
         knockback: 0,
         ricochet: 0,
         attackSpeed: 0,
+        verdantHeart: 0,
         elementalCore: 0,
     };
 
@@ -124,6 +142,15 @@ export class RunItems {
                 // compound naturally.
                 this.stats.basicAttackSpeedMultiplier *= ATTACK_SPEED_FACTOR;
                 this.heroController.updateBasicAttackSpeed(this.stats.basicAttackSpeedMultiplier);
+                return;
+
+            case 'verdantHeart':
+                // ADDITIVE, exactly like knockback above and for the same reason:
+                // foldEquipmentStats() and foldAscensionStats() both delta-swap
+                // this shared field assuming RunItems only ever +=s it. An
+                // assignment here would wipe their contribution and permanently
+                // desync both fold trackers.
+                this.stats.lifestealPct += LIFESTEAL_PCT_PER_STACK;
                 return;
 
             case 'elementalCore':

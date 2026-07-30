@@ -92,6 +92,7 @@ import { packEnemyFlags } from '../net/EnemyFlags';
 import type { NetRole, SpawnMsg, DeathMsg, SnapshotMsg, CoopHeroSummary, RunOverMsg, FxMsg } from '../net/Protocol';
 import { validateDamageReport } from './coop/DamageRouter';
 import { MilestoneBoss } from './enemies/MilestoneBoss';
+import { MAX_AUTHORED_TIER } from './enemies/bossTiers';
 import { isTestModeEnabled } from '../engine/devHost';
 import { isGroundFxKind, isLaneFxKind, spawnGroundShockwave, spawnGroundTelegraph, spawnLaneTelegraph } from './enemies/EnemyGroundFx';
 
@@ -154,13 +155,21 @@ const ENEMY_GLB_PATHS: Partial<Record<string, { dir: string; file: string }>> = 
     // The wave-15 wizard elite (RedSuperWizard) reuses the red-super-wizard GLB; this
     // key lets the guest resolve the model from netType 'healer_red_super'.
     healer_red_super: { dir: 'assets/red-super-wizard/source/',            file: 'red_super_wizard.glb' },
-    // Per-tier milestone-boss GLBs (waves 5/10/15/20). EnemyManager picks the right
-    // one from MilestoneBoss.waveTier when staging on MilestoneBoss.pendingAsset.
+    // Wave-25+ tier (see redSwap.ts TIER4_SWAP_WAVE). The fiend's GLB is BUILT —
+    // the source rig ships with no animation at all and its clips are retargeted
+    // from the Thamuz skeleton by `npm run assets:retarget`, which writes this
+    // file next to the raw one. See tools/assets/retarget.mjs.
+    fortress_titan:   { dir: 'assets/grock-fortress-titan-in-game/source/', file: 'grock_fortress_titan_in_game.glb' },
+    molten_fiend:     { dir: 'assets/molten-fiend/source/',                 file: 'molten_fiend.glb' },
+    // Per-tier milestone-boss GLBs (waves 5/10/15/20/25/30). EnemyManager picks the
+    // right one from MilestoneBoss.waveTier when staging on MilestoneBoss.pendingAsset;
+    // tiers past the last entry re-use it (bossTiers.MAX_AUTHORED_TIER).
     boss_tier1:  { dir: 'assets/thamuz-lord-lava-in-game/source/',         file: 'thamuz_lord_lava_in_game.glb' },
     boss_tier2:  { dir: 'assets/thamuz-lord-of-wraith-in-game/source/',    file: 'thamuz_lord_of_wraith_in_game.glb' },
     boss_tier3:  { dir: 'assets/helcurt-shadowbringer-in-game/source/',    file: 'helcurt_shadowbringer_in_game.glb' },
     boss_tier4:  { dir: 'assets/bane-lord-of-scalding-seas-in-game/source/', file: 'bane_lord_of_scalding_seas_in_game.glb' },
-    boss_tier5:  { dir: 'assets/elemental-lord/source/',                    file: 'elemental_lord.glb' },
+    boss_tier5:  { dir: 'assets/belerick-guard-of-nature-in-game/source/', file: 'belerick_guard_of_nature_in_game.glb' },
+    boss_tier6:  { dir: 'assets/elemental-lord/source/',                    file: 'elemental_lord.glb' },
 };
 function loadChampionAsset(championType: string): Promise<GlbContainer> | null {
     return loadAsset(CHAMPION_GLB_PATHS, championType);
@@ -199,13 +208,17 @@ const DEV_ROSTER: ReadonlyArray<{ type: string; elite?: string; bossTier?: numbe
     { type: 'fire_beetle' },
     { type: 'horned_lizard' },
     { type: 'healer_red', elite: 'arcane' },
-    // Milestone bosses (normally waves 5/10/15/20/25). Tiers 3+ each spawn a
-    // twin of their own, so the field ends up with more than this list's length.
+    // Wave 25+ tier — the titan and the fiend replace the heavy and the caster.
+    { type: 'fortress_titan' },
+    { type: 'molten_fiend' },
+    // Milestone bosses (normally waves 5/10/15/20/25/30). Tier 3 spawns a twin of
+    // its own, so the field ends up with one more than this list's length.
     { type: 'boss', bossTier: 1 },
     { type: 'boss', bossTier: 2 },
     { type: 'boss', bossTier: 3 },
     { type: 'boss', bossTier: 4 },
     { type: 'boss', bossTier: 5 },
+    { type: 'boss', bossTier: 6 },
 ];
 /** Ring radius for the dev roster — see spawnOneOfEach for why this distance. */
 const DEV_ROSTER_RADIUS = 13;
@@ -246,6 +259,7 @@ const ITEM_DISPLAY_NAMES: Record<ItemId, string> = {
     knockback: 'Knockback',
     ricochet: 'Ricochet',
     attackSpeed: 'Attack Speed',
+    verdantHeart: 'Verdant Heart',
     elementalCore: 'Elemental Core',
 };
 const ITEM_FLOAT_COLOR: Record<ItemId, string> = {
@@ -254,6 +268,7 @@ const ITEM_FLOAT_COLOR: Record<ItemId, string> = {
     knockback: '#4ea7ff',
     ricochet: '#4ea7ff',
     attackSpeed: '#fff080',
+    verdantHeart: '#5ce04a',
     elementalCore: '#ff5a2e',
 };
 
@@ -582,10 +597,13 @@ export class SurvivorsGameplayState implements GameState {
         intensity: 0,
         range: 0,
     };
-    private _scratchWaveInfo: { wave: number; enemiesAlive: number; inProgress: boolean } = {
+    private _scratchWaveInfo: {
+        wave: number; enemiesAlive: number; inProgress: boolean; lastStand: boolean;
+    } = {
         wave: 0,
         enemiesAlive: 0,
         inProgress: false,
+        lastStand: false,
     };
     private _scratchRunStats: { timeS: number; kills: number } = { timeS: 0, kills: 0 };
     /** Reused boss-plate feed, in two parts so it is allocation-free after the
@@ -1101,6 +1119,9 @@ export class SurvivorsGameplayState implements GameState {
                 applyKnockback: (dirX: number, dirZ: number, speed: number, durationS: number) => {
                     this.heroController?.applyKnockback(dirX, dirZ, speed, durationS);
                 },
+                applyBurn: (durationS: number, dps: number) => {
+                    this.heroController?.applyBurn(durationS, dps);
+                },
             },
         ];
         // Infinite map: arenaRadius=Infinity disables EnemyManager's interior
@@ -1278,8 +1299,22 @@ export class SurvivorsGameplayState implements GameState {
         // Construct RunItems now that controller + playerStats + championType all exist.
         this.runItems = new RunItems(this.playerStats, this.currentChampionType, this.heroController);
 
-        // Boss-death → item-drop pipeline.
-        this.enemyManager.setOnMilestoneBossDeath((pos, tier) => this.spawnItemDrop(pos, tier));
+        // Boss-death → item-drop pipeline, and the end of the ladder.
+        //
+        // Single-owner hook (CLAUDE.md: never reassign one), so the last stand is
+        // CHAINED into the same lambda rather than taking a second slot. Killing
+        // the final boss does not clear wave 30: it opens the terminal phase, and
+        // the item still drops on the way in.
+        this.enemyManager.setOnMilestoneBossDeath((pos, tier) => {
+            this.spawnItemDrop(pos, tier);
+            // Guarded on the HOST role at CALL time, not at wiring time — the
+            // co-op session resolves after startRun (see maybeSpawnFloorPickup).
+            // The guest ticks no waves, so its phase is driven by the host's
+            // spawn/snapshot stream and must not start a second escalation clock.
+            if (tier >= MAX_AUTHORED_TIER && this.coopSession?.role !== 'guest') {
+                this.waveManager?.beginLastStand();
+            }
+        });
 
         // Regular kills → VS-style floor-pickup loot roll (heal orb / magnet ring).
         this.enemyManager.setOnDeathLoot(pos => this.maybeSpawnFloorPickup(pos));
@@ -3638,7 +3673,7 @@ export class SurvivorsGameplayState implements GameState {
 
         // HUD update — reuse the scratch waveInfo struct.
         if (this.hud && this.powerSlots && this.playerStats) {
-            let waveInfo: { wave: number; enemiesAlive: number; inProgress: boolean } | undefined;
+            let waveInfo: { wave: number; enemiesAlive: number; inProgress: boolean; lastStand?: boolean } | undefined;
             if (coopRole === 'guest') {
                 // Guest: read wave state from the latest host snapshot (_guestWave);
                 // the local waveManager is idle and would show 0 permanently.
@@ -3648,6 +3683,7 @@ export class SurvivorsGameplayState implements GameState {
                 waveInfo.wave = this.waveManager.getCurrentWave();
                 waveInfo.enemiesAlive = this.waveManager.getRemainingEnemiesInWave() ?? 0;
                 waveInfo.inProgress = this.waveManager.isWaveInProgress();
+                waveInfo.lastStand = this.waveManager.isLastStand();
             }
             this._scratchRunStats.timeS = this.runClockS;
             this._scratchRunStats.kills = this.playerStats.getTotalKills();

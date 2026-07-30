@@ -11,7 +11,8 @@ import { createDisc, createPlane, createTransformHost, disposeMesh, isMeshDispos
 import { StatusEffect } from '../GameTypes';
 import {
     hasClone, hasSidestepPredict, hasLeapDash, hasRunningPull, hasFrenziedEnrage,
-    FRENZY_SPEED_FACTOR, APEX_TIER,
+    hasElementalNova, hasElementalBarrage, hasVerdantNova,
+    FRENZY_SPEED_FACTOR, APEX_TIER, GUARDIAN_TIER, LORD_TIER, MAX_AUTHORED_TIER,
 } from './bossTiers';
 import { emitGroundFx, spawnGroundShockwave } from './EnemyGroundFx';
 import { ELEMENTAL_BARRAGE_ORDER, ENEMY_BOLTS, fireEnemyBolt } from './EnemyBolt';
@@ -35,23 +36,26 @@ type LungeState = 'walking' | 'telegraph' | 'leaping' | 'dashing' | 'pulling' | 
 type SpecialAction = 'dash' | 'pull';
 
 /**
- * Per-tier identity (these spawn at waves 5/10/15/20):
- *   Tier 1 — Ravager : fastest mover, frequent slashing dashes (dash deals AoE).
- *   Tier 2 — Warden  : grabs the hero, pulls them in, and the slam slows them.
- *   Tier 3 — Gemini  : spawns a twin on the opposite side; enrages when it dies.
- *                      The twin is Gemini's ALONE — see bossTiers.hasClone.
- *   Tier 4 — Apex    : every signature above except the twin, on one body of
- *                      double the stats and double the size.
+ * Per-tier identity (these spawn every 5th wave, tier = wave / 5):
+ *   Tier 1 — Ravager  : fast mover, frequent slashing dashes (dash deals AoE).
+ *   Tier 2 — Warden   : grabs the hero, pulls them in, and the slam slows them.
+ *   Tier 3 — Gemini   : spawns a twin on the opposite side; enrages when it dies.
+ *                       The twin is Gemini's ALONE — see bossTiers.hasClone.
+ *   Tier 4 — Apex     : every signature above except the twin, on one body of
+ *                       double the stats and double the size.
+ *   Tier 5 — Guardian : the fastest thing in the game, swinging in a flurry
+ *                       rather than haymakers, punctuated by a verdant AoE pulse.
+ *   Tier 6 — Lord     : adds the elemental nova and the all-element barrage.
  */
 const TIER_ACTIONS: Record<number, SpecialAction[]> = {
     1: ['dash'],
     2: ['pull'],
     3: ['dash'],
     4: ['dash', 'pull'],
-    // Elemental Lord — plus two moves of its own, both outside this rotation: the
-    // close-range nova (tickElementalNova) and the all-elements ranged barrage
-    // (tickElementalBarrage).
+    // The Guardian and the Lord each carry a nova OUTSIDE this rotation (see
+    // tickNova), and the Lord a ranged barrage on top (tickElementalBarrage).
     5: ['dash', 'pull'],
+    6: ['dash', 'pull'],
 };
 function tierActions(tier: number): SpecialAction[] { return TIER_ACTIONS[tier] ?? ['dash', 'pull']; }
 
@@ -61,9 +65,12 @@ const TIER_LABEL: Record<number, string> = {
     2: 'Warden',
     3: 'Gemini',
     4: 'Apex Tyrant',
-    5: 'Elemental Lord',
+    5: 'Guardian of Nature',
+    6: 'Elemental Lord',
 };
-function tierLabel(tier: number): string { return TIER_LABEL[tier] ?? 'Apex Tyrant'; }
+function tierLabel(tier: number): string {
+    return TIER_LABEL[Math.min(tier, MAX_AUTHORED_TIER)] ?? TIER_LABEL[MAX_AUTHORED_TIER];
+}
 
 /**
  * Per-tier stat multipliers applied on top of BossEnemy base stats.
@@ -79,39 +86,69 @@ const TIER_DPS_MULT:   Record<number, number> = { 1: 1.0, 2: 1.1, 3: 1.2, 4: 2.6
 /**
  * Per-tier ABSOLUTE base movement speed (world units/sec). Overrides BossEnemy's
  * path-walker speed of 0.7 — that was tuned for TD-mode path crawling. Hero base
- * speed is 7 u/s. Tier 1 (the Ravager) is the fastest mover so it can close and
- * dash-slash through a kiting hero; the others rely on their grab / twin to catch
- * the player and so sit a touch slower.
+ * speed is 7 u/s, roughly doubling by the level cap.
+ *
+ * Tier 1 (the Ravager) is the fastest of the EARLY bosses so it can close and
+ * dash-slash through a kiting hero; tiers 2-3 rely on their grab / twin to catch
+ * the player and so sit a touch slower. Tier 5 (the Guardian) is the fastest in
+ * the game outright — being unable to walk away from it is its whole identity,
+ * and by wave 25 the hero's own speed has grown enough that the earlier numbers
+ * would read as slow.
  */
-const TIER_BASE_SPEED: Record<number, number> = { 1: 6.8, 2: 5.8, 3: 6.2, 4: 7.0 };
+const TIER_BASE_SPEED: Record<number, number> = { 1: 6.8, 2: 5.8, 3: 6.2, 4: 7.0, 5: 9.4, 6: 7.2 };
+
+/**
+ * Melee cadence multiplier. The Guardian trades haymakers for a FLURRY: swings
+ * land ~2× as often for ~half the damage each, so its melee DPS is unchanged and
+ * what differs is the rhythm — small fast bites you cannot step out from between,
+ * instead of one big hit you can. Specials are per-CAST rather than per-swing, so
+ * they are derived from the pre-trade damage and are unaffected (see the
+ * constructor).
+ */
+const TIER_ATTACK_SPEED: Record<number, number> = { [GUARDIAN_TIER]: 2.0 };
+function tierAttackSpeed(tier: number): number { return TIER_ATTACK_SPEED[tier] ?? 1; }
 
 /** GLB root scale every milestone boss starts from. */
 const BOSS_SCALE_BASE = 2.2;
 /** Apex and up are one much larger body instead of a pair — the visual half of
  *  the same trade `TIER_HP_MULT` makes, and the same factor. */
 const APEX_SCALE_MULT = 2;
+/**
+ * Per-tier scale correction on top of the tier curve, because a boss's presence
+ * is set by its MODEL and the models are not the same size. Authored per rig
+ * rather than folded into the tier maths: the Lord's is a genuinely huge
+ * silhouette that needs no help, while the Guardian's rig is built to human
+ * proportions and would read as a large minion at the same multiplier.
+ */
+const TIER_MODEL_SCALE: Record<number, number> = { [GUARDIAN_TIER]: 1.5, [LORD_TIER]: 1.4 };
+function tierModelScale(tier: number): number {
+    return TIER_MODEL_SCALE[Math.min(tier, MAX_AUTHORED_TIER)] ?? 1;
+}
 
 /**
- * Tier 5+ HP continues from Apex's: +0.6 per tier above it. DPS and base speed
- * clamp at tier-4 values.
+ * Tiers past Apex continue its HP curve: +0.6 per tier above it. DPS and base
+ * speed fall back to the last authored entry.
  *
- * Every one of these reads the tier-4 entry rather than repeating its number.
- * They used to be hardcoded copies (4.4 / 1.3 / 7.0), which is the drift that
- * bites the moment Apex is retuned: doubling TIER_HP_MULT[4] alone would have
- * left the Elemental Lord WEAKER than the boss five waves before it.
+ * Every one of these reads a table entry rather than repeating its number. They
+ * used to be hardcoded copies (4.4 / 1.3 / 7.0), which is the drift that bites
+ * the moment Apex is retuned: doubling TIER_HP_MULT[4] alone would have left the
+ * boss five waves later WEAKER than it.
  */
 function tierHpMult(tier: number): number {
     return tier <= APEX_TIER
         ? TIER_HP_MULT[tier]
         : TIER_HP_MULT[APEX_TIER] + 0.6 * (tier - APEX_TIER);
 }
-function tierDpsMult(tier: number): number   { return TIER_DPS_MULT[tier]   ?? TIER_DPS_MULT[APEX_TIER]; }
-function tierBaseSpeed(tier: number): number { return TIER_BASE_SPEED[tier] ?? TIER_BASE_SPEED[APEX_TIER]; }
+function tierDpsMult(tier: number): number   { return TIER_DPS_MULT[tier] ?? TIER_DPS_MULT[APEX_TIER]; }
+function tierBaseSpeed(tier: number): number {
+    return TIER_BASE_SPEED[Math.min(tier, MAX_AUTHORED_TIER)] ?? TIER_BASE_SPEED[APEX_TIER];
+}
 
-/** Special-move cadence per tier (seconds between specials). Faster at higher tiers. */
-const LUNGE_COOLDOWN_BY_TIER: Record<number, number> = { 1: 2.6, 2: 3.2, 3: 3.0, 4: 2.4 };
+/** Special-move cadence per tier (seconds between specials). Faster at higher
+ *  tiers; the Guardian is faster again, in keeping with everything else about it. */
+const LUNGE_COOLDOWN_BY_TIER: Record<number, number> = { 1: 2.6, 2: 3.2, 3: 3.0, 4: 2.4, 5: 1.9 };
 function lungeCooldown(tier: number): number {
-    return LUNGE_COOLDOWN_BY_TIER[tier] ?? 2.4;
+    return LUNGE_COOLDOWN_BY_TIER[Math.min(tier, MAX_AUTHORED_TIER)] ?? 2.4;
 }
 
 /** Tier 2+ leads the hero by predicting their movement. */
@@ -187,11 +224,50 @@ const BARRAGE_SLOW_DURATION = 1.5;
 const BARRAGE_KNOCKBACK_SPEED = 9;
 const BARRAGE_KNOCKBACK_S = 0.22;
 
-// Elemental nova (tier 5 only): a periodic telegraphed AOE pulse around the boss,
-// independent of the dash/pull state machine. Reuses TELEGRAPH_DURATION for the wind-up.
-const NOVA_INTERVAL = 7.0;   // seconds between novas
-const NOVA_RADIUS   = 7.0;   // AOE radius (hero must be inside on detonation)
-const NOVA_DAMAGE_FACTOR = 1.3; // × the boss's melee hit damage
+/**
+ * A periodic telegraphed AoE pulse around the boss, independent of the dash/pull
+ * state machine and reusing TELEGRAPH_DURATION as its wind-up.
+ *
+ * ONE implementation, two bosses. The Guardian's verdant pulse and the Lord's
+ * elemental one are the same move — root, light up a disc, detonate — so they are
+ * the same code differing only in this profile. They are mutually exclusive by
+ * construction (see bossTiers.hasVerdantNova): a boss has at most one nova, and
+ * which one it is, is the tier's identity.
+ *
+ * `key` is a material-cache key, so the set must stay BOUNDED — it is a closed
+ * union for exactly that reason (CLAUDE.md, transient-FX materials).
+ */
+type NovaKind = 'elemental' | 'verdant';
+interface NovaProfile {
+    key: NovaKind;
+    /** Seconds between pulses. */
+    intervalS: number;
+    /** AoE radius — the hero must be inside it on detonation. */
+    radius: number;
+    /** × the boss's melee hit damage. */
+    damageFactor: number;
+    /** Telegraph disc emissive. */
+    color: Color;
+}
+const NOVA_PROFILES: Record<NovaKind, NovaProfile> = {
+    elemental: {
+        key: 'elemental', intervalS: 7.0, radius: 7.0, damageFactor: 1.3,
+        color: new Color(1.0, 0.35, 0.08),
+    },
+    /** Tighter and more frequent than the Lord's: the Guardian is already on top
+     *  of you, so its pulse is a punish for standing in melee rather than a
+     *  zone you are asked to leave. */
+    verdant: {
+        key: 'verdant', intervalS: 5.5, radius: 5.5, damageFactor: 1.15,
+        color: new Color(0.35, 1.0, 0.30),
+    },
+};
+/** The nova this tier carries, if any. */
+function novaProfile(tier: number): NovaProfile | null {
+    if (hasVerdantNova(tier)) return NOVA_PROFILES.verdant;
+    if (hasElementalNova(tier)) return NOVA_PROFILES.elemental;
+    return null;
+}
 
 export class MilestoneBoss extends BossEnemy {
     /** Static slot used by EnemyManager.spawnSurvivorsEnemy to stage a preloaded GLB
@@ -246,12 +322,15 @@ export class MilestoneBoss extends BossEnemy {
     private novaDamage: number;
     private barrageDamage: number;
 
-    // Elemental nova (tier 5): own timer/telegraph, independent of the lunge machine.
-    private novaCooldown: number = NOVA_INTERVAL;
+    /** This tier's AoE pulse, or null for the tiers that have none. Assigned in
+     *  the constructor from the tier, so every nova site is one null check. */
+    private readonly nova: NovaProfile | null;
+    // Nova: own timer/telegraph, independent of the lunge machine.
+    private novaCooldown: number;
     private novaTelegraphTimer: number = 0;
     private novaRing: Mesh | null = null;
 
-    // Elemental barrage (tier 5): own timer, no telegraph — see BARRAGE_INTERVAL.
+    // Elemental barrage (tier 6+): own timer, no telegraph — see BARRAGE_INTERVAL.
     // Offset from the nova's so the two moves drift apart instead of locking into
     // one repeating beat the player learns as a single pattern.
     private barrageCooldown: number = BARRAGE_INTERVAL * 0.5;
@@ -297,6 +376,8 @@ export class MilestoneBoss extends BossEnemy {
         this.waveTier = waveTier;
         this.isClone = isClone;
         this.lungeTimer = lungeCooldown(waveTier);
+        this.nova = novaProfile(waveTier);
+        this.novaCooldown = this.nova?.intervalS ?? 0;
 
         // Apply tier-scaled stat multipliers on top of the base BossEnemy stats.
         // strengthMultiplier comes from WaveManager when a wave config asked for
@@ -320,11 +401,26 @@ export class MilestoneBoss extends BossEnemy {
         // hits harder. Applied before the dash/pull derivation below.
         this.meleeHitDamage = Math.round(this.meleeHitDamage * DifficultyTuning.bossDamageMult);
 
-        // Special-move damage scales with the boss's melee hit damage.
-        this.dashSlashDamage = Math.round(this.meleeHitDamage * DASH_SLASH_DAMAGE_FACTOR);
-        this.pullSlamDamage  = Math.round(this.meleeHitDamage * PULL_SLAM_DAMAGE_FACTOR);
-        this.novaDamage      = Math.round(this.meleeHitDamage * NOVA_DAMAGE_FACTOR);
-        this.barrageDamage   = Math.round(this.meleeHitDamage * BARRAGE_DAMAGE_FACTOR);
+        // Special-move damage scales with the boss's melee hit damage — read
+        // BEFORE the attack-speed trade below, because a special is one committed
+        // CAST rather than one swing in a cadence. Folding the trade into them
+        // would halve the Guardian's nova for a change that is about its swings.
+        const swingDamage = this.meleeHitDamage;
+        this.dashSlashDamage = Math.round(swingDamage * DASH_SLASH_DAMAGE_FACTOR);
+        this.pullSlamDamage  = Math.round(swingDamage * PULL_SLAM_DAMAGE_FACTOR);
+        this.novaDamage      = Math.round(swingDamage * (this.nova?.damageFactor ?? 0));
+        this.barrageDamage   = Math.round(swingDamage * BARRAGE_DAMAGE_FACTOR);
+
+        // Attack-speed trade (see TIER_ATTACK_SPEED): faster swings for
+        // proportionally smaller ones, so melee DPS is held and only the rhythm
+        // changes. A no-op at 1× for every tier but the Guardian.
+        const attackSpeed = tierAttackSpeed(waveTier);
+        if (attackSpeed !== 1) {
+            this.meleeHitDamage        = Math.max(1, Math.round(this.meleeHitDamage / attackSpeed));
+            this.meleeWindupDuration   /= attackSpeed;
+            this.meleeCooldownDuration /= attackSpeed;
+            this.meleeStrikeDuration   /= attackSpeed;
+        }
 
         // Build mesh + health bar AFTER field initializers have run (see Enemy
         // constructor note). Guarded so it fires once for MilestoneBoss (the
@@ -361,11 +457,11 @@ export class MilestoneBoss extends BossEnemy {
         const root = inst.root;
         this.mesh.add(root);
         // Apex (tier 4) is twice the body of the tiers below it — it stands in for
-        // the twin it no longer spawns. Tier 5 (Elemental Lord) still dwarfs every
-        // other boss, Apex included, so its 1.4 rides on TOP of the Apex scale
-        // rather than on the base.
+        // the twin it no longer spawns. Past it, each boss's own rig correction
+        // rides on TOP of the Apex scale rather than on the base, so a later boss
+        // can never end up smaller than Apex.
         const apexScale = this.waveTier >= APEX_TIER ? APEX_SCALE_MULT : 1;
-        const BOSS_SCALE = BOSS_SCALE_BASE * apexScale * (this.waveTier >= 5 ? 1.4 : 1);
+        const BOSS_SCALE = BOSS_SCALE_BASE * apexScale * tierModelScale(this.waveTier);
         root.scale.multiplyScalar(BOSS_SCALE);
         // Keep the Babylon-era 180-degree Y pre-rotation so facing math stays aligned
         // (Phase D handedness audit may remove it):
@@ -431,10 +527,8 @@ export class MilestoneBoss extends BossEnemy {
         this.maybeEnterLastStand();
         this.updateHeroVelocity(deltaTime);
         this.tickLungeStateMachine(deltaTime);
-        if (this.waveTier >= 5) {
-            this.tickElementalNova(deltaTime);
-            this.tickElementalBarrage(deltaTime);
-        }
+        if (this.nova) this.tickNova(deltaTime);
+        if (hasElementalBarrage(this.waveTier)) this.tickElementalBarrage(deltaTime);
 
         let result: boolean;
         // While dashing, the boss travels in the locked direction (not toward the hero).
@@ -1036,11 +1130,14 @@ export class MilestoneBoss extends BossEnemy {
     }
 
     /**
-     * Elemental nova (tier 5): a periodic telegraphed AOE pulse. Runs alongside the
-     * lunge machine but only CHARGES while walking (so its wind-up never overlaps a
-     * dash/pull telegraph). Frozen/stunned pauses it. Detonates after TELEGRAPH_DURATION.
+     * The tier's AoE pulse. Runs alongside the lunge machine but only CHARGES
+     * while walking (so its wind-up never overlaps a dash/pull telegraph).
+     * Frozen/stunned pauses it. Detonates after TELEGRAPH_DURATION.
+     *
+     * Only called when `this.nova` is set, so the profile is read unconditionally
+     * below rather than re-null-checked at each use.
      */
-    private tickElementalNova(deltaTime: number): void {
+    private tickNova(deltaTime: number): void {
         if (this.isFrozen || this.isStunned) return;
         if (this.novaTelegraphTimer > 0) {
             this.novaTelegraphTimer -= deltaTime;
@@ -1053,7 +1150,7 @@ export class MilestoneBoss extends BossEnemy {
     }
 
     /**
-     * Elemental barrage (tier 5): fire one bolt of every element at the hero.
+     * Elemental barrage (tier 6+): fire one bolt of every element at the hero.
      *
      * Charges only while walking, for the same reason the nova does — a volley
      * loosed mid-dash would leave from a muzzle position the player never saw the
@@ -1140,8 +1237,9 @@ export class MilestoneBoss extends BossEnemy {
 
     private detonateNova(): void {
         this.disposeNovaRing();
-        this.novaCooldown = NOVA_INTERVAL;
-        // AOE: damage every live hero within NOVA_RADIUS. takeDamage exists on the real
+        const radius = this.nova?.radius ?? 0;
+        this.novaCooldown = this.nova?.intervalS ?? 0;
+        // AOE: damage every live hero within the radius. takeDamage exists on the real
         // provider objects but not the TargetProvider type, so cast at the call.
         const heroes: Array<{
             getPosition(): { x: number; z: number };
@@ -1150,7 +1248,7 @@ export class MilestoneBoss extends BossEnemy {
         }> = this.seekTargets.length > 0
             ? this.seekTargets
             : (this.seekTarget ? [this.seekTarget] : []);
-        const r2 = NOVA_RADIUS * NOVA_RADIUS;
+        const r2 = radius * radius;
         for (const h of heroes) {
             if (h.isAlive?.() === false) continue;
             const p = h.getPosition();
@@ -1160,17 +1258,22 @@ export class MilestoneBoss extends BossEnemy {
         }
     }
 
-    /** Orange ground disc telegraphing the nova radius. Same leak-safe pattern as the
-     *  pull telegraph: fresh owned material, freed with disposeMesh(materials: true). */
+    /** Ground disc telegraphing the nova radius, in the profile's colour. Same
+     *  leak-safe pattern as the pull telegraph: a fresh OWNED material (one per
+     *  nova, freed with disposeMesh(materials: true)) rather than a cached one,
+     *  because the disc is sized per profile and there are only ever one or two
+     *  alive at a time. */
     private spawnNovaTelegraph(): void {
         this.disposeNovaRing();
-        const ring = createDisc('mbossNovaTele', { radius: NOVA_RADIUS, tessellation: 32 }, this.scene);
+        if (!this.nova) return;
+        const ring = createDisc(`mbossNovaTele_${this.nova.key}`,
+            { radius: this.nova.radius, tessellation: 32 }, this.scene);
         // Three discs face +Z, so -PI/2 (not Babylon's +PI/2) lays it flat facing up.
         ring.rotation.x = -Math.PI / 2;
         ring.position.set(this.position.x, 0.05, this.position.z);
         const mat = new MeshPhongMaterial();
         mat.name = 'mbossNovaTeleMat';
-        mat.emissive = new Color(1.0, 0.35, 0.08);
+        mat.emissive = this.nova.color.clone();
         mat.color    = new Color(0, 0, 0);
         mat.specular = new Color(0, 0, 0);
         mat.opacity = 0.4;
