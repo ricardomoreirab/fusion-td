@@ -151,6 +151,15 @@ English, Spanish and Portuguese. `t('menu.play')` for UI chrome, `tc(category, i
 - The rotate-device prompt is static markup in `index.html` (it must show before any bundle work), so it is the one string the locale cannot reach by construction — `localiseStaticChrome()` in `index.ts` fills it in and re-fills it on change.
 - **Not yet translated** (renders in English, by design): long prose — item flavour text, ascension node names/descriptions, power descriptions, and the ultimate tooltip stat tables. The catalogue and the test make adding them mechanical.
 
+### Mobile
+The game is landscape-only (a rotate gate in `index.html`) and already had the genre's core control: `SurvivorsJoystick` is a FLOATING stick — the first touch anywhere on the canvas becomes the ring origin — plus auto-aim, `pointer: coarse` 44px targets and safe-area insets on the HUD root.
+
+- **The size tokens clamp on `vw`, which is backwards for the device this game is most played on.** A phone in landscape is WIDE and SHORT (844×390, 932×430), so every width-driven clamp sits at its MAXIMUM while the scarce axis gets no say: measured at 844×390, the top bar was 66px and the bottom clusters ~90px — **~40% of the screen height was chrome**. `tokens.css` therefore has `@media (max-height: 500px)` / `380px` blocks scaling the tokens down, which is why the whole interface tightens together instead of per-component. After: **35.4%** chrome at 844×390 and 34.8% at 667×375, with ability buttons still 50px / 48px. **Touch targets have a FLOOR (`--hud-ult` never below 44px) while the plates around them shrink** — a survivors game is played with a thumb parked on the ability buttons.
+- **`src/shared/mobileSession.ts`** — fullscreen + orientation lock + wake lock, on the FIRST GESTURE (they are gated on transient user activation, so boot-time calls throw) and `pointerup` rather than `pointerdown` (a tap that turns out to start a joystick drag should not also change the display mode). The wake lock is re-acquired on `visibilitychange` because the browser drops it whenever the page hides and never restores it — without that the screen sleeps on the first notification the player swipes away. Every call is best-effort: iOS has no element fullscreen and no orientation lock, and none of it may take the game down.
+- **`isTouchDevice()` is `coarse && !hover`, not just `coarse`.** A touchscreen laptop reports a coarse pointer while a mouse is attached, and treating it as a phone would force fullscreen and lock orientation on a desktop.
+- **Haptics are a CLOSED vocabulary of three** (`hurt` / `levelUp` / `death`), not a duration parameter. Haptics stop being feedback and become noise the moment every event buzzes — notably there is none on hits LANDED, which at survivors-mode kill rates is a continuous buzz. Android-only (`navigator.vibrate` has never shipped on iOS Safari), so it is decoration by construction.
+- The joystick's hardcoded bottom-right "reserved" rect is **redundant**, not load-bearing: the HUD's `pointer-events` layering already means a touch on an ability button never reaches the canvas (verified with `elementFromPoint` — the topmost node at each ult's centre is a HUD child, not the canvas).
+
 ### Shared cross-state UI (in `src/shared/ui/`)
 - `HudStyle.ts` — pill + frame factories, press/flash/pulse helpers.
 - `responsive.ts` — `getLayoutMode()` returns `'mobile' | 'desktop'` based on viewport.
@@ -215,7 +224,7 @@ recompiles affected materials on demand (a one-frame cost; prewarm if it matters
 
 ## Tests
 
-Vitest is wired for **pure-logic** modules (no WebGL; SceneHost is headless and suites drive it with `tick(dt)`). Tests live under `tests/*.spec.ts` — currently 104 spec files (1222 tests) covering player stats/items, power slots/fusions/status model, the engine/three layer (primitives, particles, tween, math), and the co-op/net stack (protocol round-trips, snapshot binary + delta codecs, connection FSM, reconciliation, damage routing, transports).
+Vitest is wired for **pure-logic** modules (no WebGL; SceneHost is headless and suites drive it with `tick(dt)`). Tests live under `tests/*.spec.ts` — currently 105 spec files (1234 tests) covering player stats/items, power slots/fusions/status model, the engine/three layer (primitives, particles, tween, math), and the co-op/net stack (protocol round-trips, snapshot binary + delta codecs, connection FSM, reconciliation, damage routing, transports).
 
 ## Balance (current)
 
