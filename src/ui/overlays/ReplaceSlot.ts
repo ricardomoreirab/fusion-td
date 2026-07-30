@@ -4,6 +4,8 @@ import { makeButton } from '../primitives/Button';
 import { el } from '../dom';
 import { elementColor, elementIcon } from '../elementMeta';
 import { PowerSlot } from '../../survivors/powers/PowerSlotManager';
+import { t } from '../../i18n';
+import { powerDisplayName } from '../../i18n/gameStrings';
 
 export class ReplaceSlotOverlay {
     private modal: ModalController | null = null;
@@ -18,9 +20,9 @@ export class ReplaceSlotOverlay {
     ): void {
         this.close();
 
-        const modal = makeModal({ title: `Replace a Power Slot` });
+        const modal = makeModal({ title: t('power.replaceTitle') });
         modal.body.appendChild(
-            el('div', { class: 'modal-subtitle', text: `Adding: ${newPowerName}` }),
+            el('div', { class: 'modal-subtitle', text: `${t('power.replaceBody')} ${newPowerName}` }),
         );
 
         const choices = el('div', { class: 'modal-choices' });
@@ -28,8 +30,8 @@ export class ReplaceSlotOverlay {
             if (!slot) return;
 
             const card = makeCard({
-                name:     slot.def.name,
-                subtitle: `Level ${slot.state.level}`,
+                name:     powerDisplayName(slot.def.id, slot.def.name),
+                subtitle: t('power.levelUp', { n: slot.state.level }),
                 icon:     elementIcon(slot.def.element),
                 accent:   elementColor(slot.def.element),
                 onClick: () => {

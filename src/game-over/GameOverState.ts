@@ -11,6 +11,7 @@ import { GameSettings } from '../shared/GameSettings';
 import { submitScore } from '../survivors/Leaderboard';
 import { LeaderboardOverlay } from '../ui/overlays/Leaderboard';
 import type { CoopHeroSummary } from '../net/Protocol';
+import { t } from '../i18n';
 
 export interface SurvivorsRunSummary {
     waveReached: number;
@@ -76,7 +77,7 @@ export class GameOverState implements GameState {
             const s = this.survivorsSummary;
 
             const coop = !!(s.heroes && s.heroes.length > 1);
-            screen.appendChild(el('div', { class: 'screen__title', text: 'DEFEATED' }));
+            screen.appendChild(el('div', { class: 'screen__title', text: t('gameOver.defeatTitle') }));
             screen.appendChild(el('div', { class: 'screen__subtitle', text: coop ? 'Your run has ended' : 'Your run has ended' }));
 
             const mins = Math.floor(s.timeSurvivedSec / 60);
@@ -92,18 +93,18 @@ export class GameOverState implements GameState {
             } else {
                 // ── Single-player: the original single panel ──────────────────
                 const panel = makeFrame({ variant: 'ornate', class: 'summary-panel' });
-                panel.appendChild(el('div', { class: 'summary-header', text: 'RUN SUMMARY' }));
+                panel.appendChild(el('div', { class: 'summary-header', text: t('gameOver.runSummary') }));
                 const addRow = (label: string, value: string | number) => {
                     const row = el('div', { class: 'summary-row' });
                     row.appendChild(el('span', { text: label }));
                     row.appendChild(el('span', { text: String(value) }));
                     panel.appendChild(row);
                 };
-                addRow('Wave Reached', s.waveReached);
-                addRow('Level Reached', s.levelReached);
-                addRow('Time Survived', timeStr);
-                addRow('Enemies Slain', s.kills);
-                addRow('XP Earned', s.goldCollected);
+                addRow(t('gameOver.waveReached'), s.waveReached);
+                addRow(t('gameOver.levelReached'), s.levelReached);
+                addRow(t('gameOver.timeSurvived'), timeStr);
+                addRow(t('gameOver.enemiesSlain'), s.kills);
+                addRow(t('gameOver.xpEarned'), s.goldCollected);
                 panel.appendChild(this.buildLoadout(s.finalLoadout));
                 screen.appendChild(panel);
             }
@@ -111,7 +112,7 @@ export class GameOverState implements GameState {
             // ── Fallback path: TD-era (dead code path) ────────────────────────
             screen.appendChild(el('div', {
                 class: 'screen__title',
-                text: this.playerWon ? 'VICTORY' : 'DEFEAT',
+                text: this.playerWon ? t('gameOver.victoryTitle') : t('gameOver.defeatTitle'),
             }));
             screen.appendChild(el('div', {
                 class: 'screen__subtitle',
@@ -122,12 +123,12 @@ export class GameOverState implements GameState {
         // Buttons row
         const btnRow = el('div', { class: 'screen__buttons' });
         btnRow.appendChild(makeButton({
-            label: 'Play Again',
+            label: t('gameOver.playAgain'),
             variant: 'forged',
             onClick: () => changeState('survivors'),
         }));
         btnRow.appendChild(makeButton({
-            label: 'Main Menu',
+            label: t('gameOver.mainMenu'),
             variant: 'ghost',
             onClick: () => changeState('menu'),
         }));
@@ -146,7 +147,7 @@ export class GameOverState implements GameState {
     private buildLoadout(loadout: { name: string; level: number; icon: string; tier?: string }[]): HTMLElement {
         const row = el('div', { class: 'summary-loadout' });
         if (loadout.length === 0) {
-            row.appendChild(el('div', { class: 'char-detail__hint', text: 'No powers claimed' }));
+            row.appendChild(el('div', { class: 'char-detail__hint', text: t('power.noneClaimed') }));
             return row;
         }
         for (const p of loadout) {
@@ -175,9 +176,9 @@ export class GameOverState implements GameState {
             row.appendChild(el('span', { text: String(value) }));
             panel.appendChild(row);
         };
-        addRow('Level', h.level);
-        addRow('Enemies Slain', h.kills);
-        addRow('XP Earned', h.xp);
+        addRow(t('gameOver.level'), h.level);
+        addRow(t('gameOver.enemiesSlain'), h.kills);
+        addRow(t('gameOver.xpEarned'), h.xp);
         panel.appendChild(this.buildLoadout(h.loadout));
         return panel;
     }
@@ -192,7 +193,7 @@ export class GameOverState implements GameState {
 
         const nameInput = el('input', {
             class: 'lb-name-input',
-            attrs: { type: 'text', maxlength: '16', placeholder: 'Enter your name' },
+            attrs: { type: 'text', maxlength: '16', placeholder: t('gameOver.enterName') },
         }) as HTMLInputElement;
         nameInput.value = GameSettings.getLeaderboardName();
         // GameUI preventDefaults #ui-root mousedown (to keep canvas keyboard focus);
@@ -201,7 +202,7 @@ export class GameOverState implements GameState {
 
         let busy = false;
         const submitBtn = makeButton({
-            label: 'Submit Score',
+            label: t('gameOver.submitScore'),
             variant: 'forged',
             onClick: () => {
                 if (busy) return;
@@ -213,7 +214,7 @@ export class GameOverState implements GameState {
                 }
                 busy = true;
                 GameSettings.setLeaderboardName(name);
-                setButtonLabel(submitBtn, 'Submitting…');
+                setButtonLabel(submitBtn, t('gameOver.submitting'));
                 submitBtn.classList.add('btn--disabled');
                 void submitScore(summary, name).then((result) => {
                     if (!this.gameUI) return; // screen exited mid-submit — nodes detached
@@ -228,7 +229,7 @@ export class GameOverState implements GameState {
                     } else {
                         busy = false;
                         submitBtn.classList.remove('btn--disabled');
-                        setButtonLabel(submitBtn, 'Failed — Tap to Retry');
+                        setButtonLabel(submitBtn, t('gameOver.submitFailed'));
                     }
                 });
             },

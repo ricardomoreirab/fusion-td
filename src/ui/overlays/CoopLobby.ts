@@ -6,6 +6,7 @@ import { onTap } from '../interaction';
 import type { RoomService } from '../../net/RoomService';
 import type { NetTransport } from '../../net/NetTransport';
 import type { PendingCoopConfig } from '../../survivors/coop/PendingCoop';
+import { t } from '../../i18n';
 
 export interface CoopLobbyCallbacks {
     /** A live session is ready — stash it (PendingCoop) and change state.
@@ -95,23 +96,23 @@ export class CoopLobbyOverlay {
         if (errorText) body.appendChild(el('div', { class: 'coop-error', text: errorText }));
         const choices = el('div', { class: 'modal-choices' });
         choices.appendChild(makeCard({
-            name: 'Host Game',
-            subtitle: 'Create a room and share\nthe code with a friend',
+            name: t('coop.host'),
+            subtitle: t('coop.hostBlurb'),
             icon: 'keep',
             accent: '#c9a23f',
             kind: 'host',
             onClick: () => this.startHosting(),
         }));
         choices.appendChild(makeCard({
-            name: 'Join Game',
-            subtitle: 'Enter the 6-letter code\nyour friend shared',
+            name: t('coop.join'),
+            subtitle: t('coop.joinBlurb'),
             icon: 'pact',
             accent: '#88a070',
             kind: 'join',
             onClick: () => this.renderJoin(),
         }));
         body.appendChild(choices);
-        body.appendChild(makeButton({ label: 'Close', variant: 'ghost', onClick: () => this.requestClose() }));
+        body.appendChild(makeButton({ label: t('common.close'), variant: 'ghost', onClick: () => this.requestClose() }));
     }
 
     private async startHosting(): Promise<void> {
@@ -119,9 +120,9 @@ export class CoopLobbyOverlay {
         if (!body) return;
         const myGen = this.gen;
 
-        const status = el('div', { class: 'modal-subtitle coop-wait', text: 'Forging a room…' });
+        const status = el('div', { class: 'modal-subtitle coop-wait', text: t('coop.forging') });
         body.appendChild(status);
-        body.appendChild(makeButton({ label: 'Back', variant: 'ghost', onClick: () => this.renderChoose() }));
+        body.appendChild(makeButton({ label: t('common.back'), variant: 'ghost', onClick: () => this.renderChoose() }));
 
         try {
             const { code } = await this.roomService.createRoom();
@@ -144,11 +145,11 @@ export class CoopLobbyOverlay {
         if (!body) return;
         const myGen = this.gen;
 
-        body.appendChild(el('div', { class: 'modal-subtitle', text: 'Share this code with your teammate' }));
+        body.appendChild(el('div', { class: 'modal-subtitle', text: t('coop.shareCode') }));
 
         const codeEl = el('div', { class: 'coop-code', text: code });
         const copyBtn = makeButton({
-            label: 'Copy',
+            label: t('coop.copy'),
             variant: 'ghost',
             class: 'coop-copy-btn',
             onClick: () => {
@@ -160,7 +161,7 @@ export class CoopLobbyOverlay {
         });
         body.appendChild(el('div', { class: 'coop-code-row' }, [codeEl, copyBtn]));
 
-        body.appendChild(el('div', { class: 'modal-subtitle coop-wait', text: 'Waiting for teammate…' }));
+        body.appendChild(el('div', { class: 'modal-subtitle coop-wait', text: t('coop.waiting') }));
 
         // The relay notifies the first peer with {t:'peer-joined'} when the
         // second attaches. The transport backlogs frames until a handler is set,
@@ -178,12 +179,12 @@ export class CoopLobbyOverlay {
 
         // Escape hatch: start alone; the guest can still join mid-run (the
         // requestState catch-up resync brings them up to speed).
-        const soloLink = el('div', { class: 'coop-link', text: 'Start without waiting' });
+        const soloLink = el('div', { class: 'coop-link', text: t('coop.startAnyway') });
         onTap(soloLink, () => this.advance());
         body.appendChild(soloLink);
 
         body.appendChild(makeButton({
-            label: 'Cancel',
+            label: t('coop.cancel'),
             variant: 'ghost',
             onClick: () => {
                 this.dropOwnedTransport(); // free the room slot
@@ -196,12 +197,12 @@ export class CoopLobbyOverlay {
         const body = this.resetView('Join Game');
         if (!body) return;
 
-        body.appendChild(el('div', { class: 'modal-subtitle', text: 'Enter your friend’s room code' }));
+        body.appendChild(el('div', { class: 'modal-subtitle', text: t('coop.enterCode') }));
 
         const input = el('input', {
             class: 'lb-name-input coop-code-input',
             attrs: {
-                type: 'text', maxlength: '6', placeholder: 'ABC123',
+                type: 'text', maxlength: '6', placeholder: t('coop.codePlaceholder'),
                 autocomplete: 'off', autocapitalize: 'characters', spellcheck: 'false',
             },
         });
@@ -214,10 +215,10 @@ export class CoopLobbyOverlay {
             input.value = input.value.toUpperCase().replace(/[^A-Z2-9]/g, '').slice(0, 6);
         });
         const errEl = el('div', { class: 'coop-error', text: errorText ?? '' });
-        const joinBtn = makeButton({ label: 'Join', variant: 'forged', onClick: () => { void this.tryJoin(input, errEl, joinBtn); } });
+        const joinBtn = makeButton({ label: t('coop.joinAction'), variant: 'forged', onClick: () => { void this.tryJoin(input, errEl, joinBtn); } });
         const row = el('div', { class: 'coop-join-row' }, [input, joinBtn]);
         body.append(row, errEl);
-        body.appendChild(makeButton({ label: 'Back', variant: 'ghost', onClick: () => this.renderChoose() }));
+        body.appendChild(makeButton({ label: t('common.back'), variant: 'ghost', onClick: () => this.renderChoose() }));
 
         this.submitJoin = () => { void this.tryJoin(input, errEl, joinBtn); };
         input.focus();

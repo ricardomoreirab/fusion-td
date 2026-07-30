@@ -93,6 +93,8 @@ import type { NetRole, SpawnMsg, DeathMsg, SnapshotMsg, CoopHeroSummary, RunOver
 import { validateDamageReport } from './coop/DamageRouter';
 import { MilestoneBoss } from './enemies/MilestoneBoss';
 import { MAX_AUTHORED_TIER } from './enemies/bossTiers';
+import { t, tc } from '../i18n';
+import { powerDisplayName, runItemDisplayName, ultDisplayName } from '../i18n/gameStrings';
 import { isTestModeEnabled } from '../engine/devHost';
 import { isGroundFxKind, isLaneFxKind, spawnGroundShockwave, spawnGroundTelegraph, spawnLaneTelegraph } from './enemies/EnemyGroundFx';
 
@@ -252,7 +254,13 @@ function loadAsset(
     });
 }
 
-/** Float-text labels and colors for item pickups (mirror the HUD slot colors). */
+/**
+ * Float-text labels and colors for item pickups (mirror the HUD slot colors).
+ *
+ * The names here are the ENGLISH literals and double as the localisation
+ * fallback — `itemPickupLabel` resolves them through the locale at draw time, so
+ * a new item shows its English name rather than a raw key.
+ */
 const ITEM_DISPLAY_NAMES: Record<ItemId, string> = {
     extraLife: 'Extra Life',
     multishotCleave: 'Multishot',
@@ -271,6 +279,11 @@ const ITEM_FLOAT_COLOR: Record<ItemId, string> = {
     verdantHeart: '#5ce04a',
     elementalCore: '#ff5a2e',
 };
+
+/** Localised pickup label for a milestone-boss item. */
+function itemPickupLabel(id: ItemId): string {
+    return runItemDisplayName(id, ITEM_DISPLAY_NAMES[id]);
+}
 
 // Hero-torch parameters shared between Champion's in-mesh PointLight and the
 // procedural-grass shader so the in-world point light and the shader-baked
@@ -790,26 +803,36 @@ export class SurvivorsGameplayState implements GameState {
     private showChampionSelect(): void {
         // Show champion select; actual run starts when player picks
         this.championSelect = new ChampionSelectOverlay(this.gameUI!.layer('overlay'));
+        // The stat LINE is composed from numbers that live here and labels that
+        // live in the locale, so no balance figure is ever duplicated into a
+        // translation (and retuning a champion cannot leave three locales lying).
+        // Only the role blurb is authored per language.
+        const statLine = (hp: number, speed: number, attack: number, ranged: boolean): string =>
+            `${t('champion.hp')}: ${hp}  ${t('champion.speed')}: ${speed}  `
+            + `${t('champion.attack')}: ${attack} ${ranged ? t('champion.ranged') : t('champion.melee')}`;
         const championOptions: ChampionOption[] = [
             {
                 type: 'barbarian',
-                name: 'Barbarian',
-                summary: 'HP: 140  Speed: 9  Attack: 18 melee\nElement orbs enchant your axe. Brutal frontliner.',
-                startingPower: 'Flaming Edge',
+                name: tc('championName', 'barbarian', 'Barbarian'),
+                summary: statLine(140, 9, 18, false) + '\n'
+                    + tc('championBlurb', 'barbarian', 'Element orbs enchant your axe. Brutal frontliner.'),
+                startingPower: powerDisplayName('barbarian_fire', 'Flaming Edge'),
                 color: '#A0413A',
             },
             {
                 type: 'ranger',
-                name: 'Ranger',
-                summary: 'HP: 90  Speed: 6  Attack: 8 ranged\nElement orbs unlock arrow variants. Fragile, fires fastest.',
-                startingPower: 'Frost Arrow',
+                name: tc('championName', 'ranger', 'Ranger'),
+                summary: statLine(90, 6, 8, true) + '\n'
+                    + tc('championBlurb', 'ranger', 'Element orbs unlock arrow variants. Fragile, fires fastest.'),
+                startingPower: powerDisplayName('ranger_ice', 'Frost Arrow'),
                 color: '#60C080',
             },
             {
                 type: 'mage',
-                name: 'Mage',
-                summary: 'HP: 80  Speed: 7  Attack: 10 ranged\nElement orbs unlock spells. Fragile but devastating.',
-                startingPower: 'Arcane Nova',
+                name: tc('championName', 'mage', 'Mage'),
+                summary: statLine(80, 7, 10, true) + '\n'
+                    + tc('championBlurb', 'mage', 'Element orbs unlock spells. Fragile but devastating.'),
+                startingPower: powerDisplayName('mage_arcane', 'Arcane Nova'),
                 color: '#6080C0',
             },
         ];
@@ -1780,7 +1803,7 @@ export class SurvivorsGameplayState implements GameState {
 
         // Pickup float text at the hero's position (spec: "+ <Item Name>").
         if (this.damageNumbers && this.hero) {
-            this.damageNumbers.showText(this.hero.getPosition(), `+ ${ITEM_DISPLAY_NAMES[id]}`, ITEM_FLOAT_COLOR[id]);
+            this.damageNumbers.showText(this.hero.getPosition(), `+ ${itemPickupLabel(id)}`, ITEM_FLOAT_COLOR[id]);
         }
 
         // 300ms slow-mo pickup punch — single-player only. In co-op timeScale is
@@ -3829,8 +3852,8 @@ export class SurvivorsGameplayState implements GameState {
             const offer = getUltimateOfferForFusions(this.currentChampionType, a.def, b.def);
             const cards = offer.map((ult): PowerCard => ({
                 kind: 'ultimate',
-                title: ult.name,
-                subtitle: `Forged from ${a.def.name} + ${b.def.name}`,
+                title: ultDisplayName(ult.id, ult.name),
+                subtitle: t('power.forgedFrom', { a: powerDisplayName(a.def.id, a.def.name), b: powerDisplayName(b.def.id, b.def.name) }),
                 element: ult.element,
                 ...this.powerCardDetail(ult, 0),
                 onPick: () => {
@@ -3852,8 +3875,8 @@ export class SurvivorsGameplayState implements GameState {
                     if (!fdef) continue;
                     cards.push({
                         kind: 'fusion',
-                        title: fdef.name,
-                        subtitle: `Consumes ${aSlot.def.name} + ${bSlot.def.name}`,
+                        title: powerDisplayName(fdef.id, fdef.name),
+                        subtitle: t('power.consumes', { a: powerDisplayName(aSlot.def.id, aSlot.def.name), b: powerDisplayName(bSlot.def.id, bSlot.def.name) }),
                         element: fdef.element,
                         ...this.powerCardDetail(fdef, 0),
                         onPick: () => {
@@ -3897,7 +3920,7 @@ export class SurvivorsGameplayState implements GameState {
             const lvl = owned.state.level;
             return {
                 kind: 'power',
-                title: def.name,
+                title: powerDisplayName(def.id, def.name),
                 element: def.element,
                 subtitle: this.upgradeSubtitle(def, lvl),
                 ...this.powerCardDetail(def, lvl),
@@ -3911,9 +3934,9 @@ export class SurvivorsGameplayState implements GameState {
         const slotsFull = this.powerSlots.emptySlotIndex() < 0;
         return {
             kind: 'power',
-            title: orbDef.name,
+            title: powerDisplayName(orbDef.id, orbDef.name),
             element: orbDef.element,
-            subtitle: slotsFull ? `${this.newPowerSubtitle(orbDef)} (replace slot)` : this.newPowerSubtitle(orbDef),
+            subtitle: slotsFull ? `${this.newPowerSubtitle(orbDef)} ${t('power.replaceSuffix')}` : this.newPowerSubtitle(orbDef),
             ...this.powerCardDetail(orbDef, 0),
             onPick: () => {
                 if (slotsFull) this.openReplacePrompt(orbDef.id);
@@ -3951,7 +3974,7 @@ export class SurvivorsGameplayState implements GameState {
             const target = ownedSlots[Math.floor(Math.random() * ownedSlots.length)];
             return {
                 kind: 'wildcard',
-                title: target.def.name,
+                title: powerDisplayName(target.def.id, target.def.name),
                 element: target.def.element,
                 subtitle: this.upgradeSubtitle(target.def, target.state.level),
                 ...this.powerCardDetail(target.def, target.state.level),
@@ -3964,7 +3987,7 @@ export class SurvivorsGameplayState implements GameState {
         const altDef = POWER_DEFS[classPowerIds[Math.floor(Math.random() * classPowerIds.length)]];
         return {
             kind: 'wildcard',
-            title: altDef.name,
+            title: powerDisplayName(altDef.id, altDef.name),
             element: altDef.element,
             subtitle: this.newPowerSubtitle(altDef),
             ...this.powerCardDetail(altDef, 0),

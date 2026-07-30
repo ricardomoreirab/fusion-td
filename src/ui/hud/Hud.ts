@@ -15,6 +15,7 @@ import {
   cooldownFraction, waveTitle, enemiesLeftLabel, waveBannerLabel,
   clockLabel, levelLabel, WaveInfo,
 } from '../format';
+import { t } from '../../i18n';
 
 // Icon/colour maps for the HUD. Every one of these used to be a platform
 // emoji; they are now authored glyphs from src/ui/icons.ts.
@@ -158,7 +159,7 @@ export class Hud {
     // replacing three chips scattered across a 1600px-wide top bar.
     this.medallionNum = el('div', { class: 'medallion__n', text: '1' });
     this.medallion = el('div', { class: 'medallion' }, [
-      el('div', { class: 'medallion__tag', text: 'LV' }),
+      el('div', { class: 'medallion__tag', text: t('hud.level') }),
       this.medallionNum,
     ]);
     this.hpMeter = makeMeter('hp', 'heart');
@@ -170,7 +171,7 @@ export class Hud {
     this.ascBtn = el('div', {
       class: 'asc-btn',
       attrs: { role: 'button', 'aria-label': 'Ascension' },
-    }, [iconEl('rune'), el('span', { class: 'asc-btn__label', text: 'ASC' }), this.ascBadge]);
+    }, [iconEl('rune'), el('span', { class: 'asc-btn__label', text: t('hud.ascension') }), this.ascBadge]);
     this.ascBtn.style.display = 'none';
     onTap(this.ascBtn, () => this.onOpenAscension?.());
 
@@ -185,8 +186,8 @@ export class Hud {
     const zoneTL = el('div', { class: 'hud__zone hud__zone--tl' }, [vitals]);
 
     // ── Top-centre: what I'm fighting ─────────────────────────────────
-    this.waveEl = el('div', { class: 'obj__wave', text: 'WAVE 1' });
-    this.leftEl = el('span', { class: 'obj__num', text: '—' });
+    this.waveEl = el('div', { class: 'obj__wave', text: waveTitle() });
+    this.leftEl = el('span', { class: 'obj__num', text: enemiesLeftLabel() });
     this.clockEl = el('span', { class: 'obj__num obj__num--clock', text: '00:00' });
     this.killsEl = el('span', { class: 'obj__num', text: '0' });
     const objective = el('div', { class: 'hud__objective plate' }, [
@@ -226,7 +227,7 @@ export class Hud {
     });
     syncSoundIcon();
 
-    const pauseBtn = el('div', { class: 'hud__pause plate interactive', attrs: { role: 'button', 'aria-label': 'Pause' } });
+    const pauseBtn = el('div', { class: 'hud__pause plate interactive', attrs: { role: 'button', 'aria-label': t('hud.pause') } });
     this.pauseIcon = el('div', { class: 'hud__pause-icon' }, [iconEl('pause')]);
     pauseBtn.appendChild(this.pauseIcon);
     onTap(pauseBtn, () => this.togglePause());
@@ -288,7 +289,7 @@ export class Hud {
     this.hornBtn = el('div', { class: 'hud__horn plate interactive', attrs: { role: 'button' } });
     this.hornBtn.append(
       iconEl('swords'),
-      el('div', { class: 'hud__horn-label', text: 'Next wave' }),
+      el('div', { class: 'hud__horn-label', text: t('hud.nextWave') }),
     );
     this.hornBtn.style.display = 'none';
     onTap(this.hornBtn, () => this.onHorn());

@@ -139,6 +139,18 @@ Still under `src/survivors/`:
 > The legacy Babylon-GUI `src/survivors/ui/{HeroHud,ChampionSelectOverlay,PowerChoiceOverlay,ReplaceSlotOverlay}.ts` were **deleted** (superseded by the DOM versions above). Don't resurrect them — edit `src/ui/**`.
 > `src/ui/primitives/Pill.ts` was **deleted** in the 2026-07-25 premium UI pass — the HP/XP pills became `Meter.ts` and the wave/stats/gold pills became the objective plate and purse.
 
+### Localisation (in `src/i18n/`)
+English, Spanish and Portuguese. `t('menu.play')` for UI chrome, `tc(category, id, englishFallback)` — normally through the `src/i18n/gameStrings.ts` helpers — for gameplay content.
+
+**The two string kinds are typed differently ON PURPOSE, and that is the whole design.** `UiStrings` (menu / HUD / overlays) is a CLOSED set that changes only when someone edits the interface, so `es`/`pt` must satisfy it exactly and a missing key is a COMPILE error. `ContentStrings` (power / item / boss / enemy / node names) is an OPEN set keyed by the id the data table already carries, and it grows whenever content is added — typing it would mean a new power breaks the build in three locales at once, so it is a partial record and `tc()` falls back locale → English → the caller's literal. A power added without translations renders its English name, never a raw key. `tests/i18n.spec.ts` asserts the locales are COMPLETE against the SHIPPED data tables (`POWER_DEFS`, `ITEM_CATALOG`, `RunItems`, the boss tiers) in both directions, so both a missing translation and an orphaned one left behind by a rename are test failures.
+- **`en.ts` is the source of truth**: `UiKey` is derived from its shape, so adding a key anywhere else does nothing.
+- **Strings are read at BUILD time, not bound.** That is only safe because the language can only be changed from the menu, and the menu rebuilds itself on the change. Do NOT add a language control inside a run without making the HUD rebuild too. `PauseScreen` is the one persistent surface with text (constructed once at boot, outlives every state), so it subscribes and rebuilds — its labels were frozen in the boot language until it did.
+- **Balance numbers are never duplicated into a locale.** The champion stat line is composed from numbers in code plus labels from the locale (`HP: 140  Speed: 9 …`), so retuning a champion cannot leave three translations lying. Only the role blurb is authored per language.
+- **The data tables keep their English literal** and never import the locale: `PowerDefinitions` / `ItemCatalog` / `AscensionTrees` are pure data read by gameplay code, some of it hot. Translation happens where the string is drawn.
+- Two catalogue conventions the tests enforce: fixed-width HUD labels stay ≤ 4 chars (Spanish and Portuguese run ~20% longer, so it is `NV`, not `NIVEL`), and every `{placeholder}` English declares must survive translation.
+- The rotate-device prompt is static markup in `index.html` (it must show before any bundle work), so it is the one string the locale cannot reach by construction — `localiseStaticChrome()` in `index.ts` fills it in and re-fills it on change.
+- **Not yet translated** (renders in English, by design): long prose — item flavour text, ascension node names/descriptions, power descriptions, and the ultimate tooltip stat tables. The catalogue and the test make adding them mechanical.
+
 ### Shared cross-state UI (in `src/shared/ui/`)
 - `HudStyle.ts` — pill + frame factories, press/flash/pulse helpers.
 - `responsive.ts` — `getLayoutMode()` returns `'mobile' | 'desktop'` based on viewport.
@@ -203,7 +215,7 @@ recompiles affected materials on demand (a one-frame cost; prewarm if it matters
 
 ## Tests
 
-Vitest is wired for **pure-logic** modules (no WebGL; SceneHost is headless and suites drive it with `tick(dt)`). Tests live under `tests/*.spec.ts` — currently 103 spec files (1197 tests) covering player stats/items, power slots/fusions/status model, the engine/three layer (primitives, particles, tween, math), and the co-op/net stack (protocol round-trips, snapshot binary + delta codecs, connection FSM, reconciliation, damage routing, transports).
+Vitest is wired for **pure-logic** modules (no WebGL; SceneHost is headless and suites drive it with `tick(dt)`). Tests live under `tests/*.spec.ts` — currently 104 spec files (1222 tests) covering player stats/items, power slots/fusions/status model, the engine/three layer (primitives, particles, tween, math), and the co-op/net stack (protocol round-trips, snapshot binary + delta codecs, connection FSM, reconciliation, damage routing, transports).
 
 ## Balance (current)
 

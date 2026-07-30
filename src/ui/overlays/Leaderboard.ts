@@ -2,6 +2,7 @@ import { makeModal, ModalController } from '../primitives/Modal';
 import { makeButton } from '../primitives/Button';
 import { el } from '../dom';
 import { fetchTop } from '../../survivors/Leaderboard';
+import { t } from '../../i18n';
 
 /**
  * Modal leaderboard: fetches the top-N runs and renders them as a ranked list
@@ -24,14 +25,14 @@ export class LeaderboardOverlay {
         this.close();
         this.closed = false;
 
-        const modal = makeModal({ title: 'Leaderboard', panelClass: 'modal-panel--leaderboard' });
+        const modal = makeModal({ title: t('leaderboard.title'), panelClass: 'modal-panel--leaderboard' });
         this.modal = modal;
 
         const header = this.buildRow('lb-header', '#', 'Name', 'Wave', 'Time');
         header.style.display = 'none';
-        const status = el('div', { class: 'modal-subtitle', text: 'Loading…' });
+        const status = el('div', { class: 'modal-subtitle', text: t('leaderboard.loading') });
         const list = el('div', { class: 'lb-list' });
-        const closeBtn = makeButton({ label: 'Close', variant: 'ghost', onClick: () => { this.close(); onClose(); } });
+        const closeBtn = makeButton({ label: t('common.close'), variant: 'ghost', onClick: () => { this.close(); onClose(); } });
         modal.body.append(header, status, list, closeBtn);
         this.parent.appendChild(modal.root);
 

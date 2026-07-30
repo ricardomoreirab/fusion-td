@@ -2,6 +2,7 @@ import { rgba } from '../engine/three/math';
 import { Game } from '../engine/Game';
 import { GameState } from '../engine/GameState';
 import { GameSettings, GraphicsQuality } from '../shared/GameSettings';
+import { LOCALE_IDS, catalogue, getLocale, getLocaleLabel, setLocale, subscribeLocale, t } from '../i18n';
 import { GameUI } from '../ui/GameUI';
 import { el } from '../ui/dom';
 import { onTap } from '../ui/interaction';
@@ -17,6 +18,9 @@ export class MenuState implements GameState {
     private gameUI: GameUI | null = null;
     private lbOpen = false;
     private coopLobby: CoopLobbyOverlay | null = null;
+    /** Unsubscribe for the locale watcher — the menu is the only surface with a
+     *  language control, so it is also the only one that has to rebuild. */
+    private unsubLocale: (() => void) | null = null;
 
     constructor(game: Game) {
         this.game = game;
@@ -33,6 +37,19 @@ export class MenuState implements GameState {
 
         // Play background music
         this.game.getAssetManager().playSound('bgMusic');
+
+        // Strings are read at build time, not bound (see src/i18n), so a language
+        // change is served by rebuilding this screen. Cheap and total: no node can
+        // be left in the previous language. The 3D background is untouched.
+        this.unsubLocale = subscribeLocale(() => {
+            if (!this.gameUI) return;
+            this.coopLobby?.dispose();
+            this.coopLobby = null;
+            this.lbOpen = false;
+            this.gameUI.dispose();
+            this.gameUI = null;
+            this.createUI();
+        });
     }
 
     public exit(): void {
@@ -43,6 +60,8 @@ export class MenuState implements GameState {
         // closed to free the room slot — removing its DOM alone wouldn't do that.
         // On the advance path the lobby already handed the transport off (and
         // nulled it), so this close can never kill a session being started.
+        this.unsubLocale?.();
+        this.unsubLocale = null;
         this.coopLobby?.dispose();
         this.coopLobby = null;
         this.gameUI?.dispose();
@@ -73,7 +92,7 @@ export class MenuState implements GameState {
         // the flip to the audio engine; the button only writes the setting.
         const soundBtn = el('div', {
             class: 'sound-btn',
-            attrs: { role: 'button', 'aria-label': 'Toggle sound' },
+            attrs: { role: 'button', 'aria-label': t('menu.toggleSound') },
         });
         const syncSoundIcon = (): void => {
             const on = GameSettings.getSoundOn();
@@ -88,14 +107,14 @@ export class MenuState implements GameState {
         screen.appendChild(soundBtn);
 
         // Title
-        screen.appendChild(el('div', { class: 'screen__title', text: 'KTG' }));
+        screen.appendChild(el('div', { class: 'screen__title', text: t('menu.title') }));
 
         // Subtitle
-        screen.appendChild(el('div', { class: 'screen__subtitle', text: 'KILL THE GOBLINS' }));
+        screen.appendChild(el('div', { class: 'screen__subtitle', text: t('menu.subtitle') }));
 
         // Start button
         const startBtn = makeButton({
-            label: 'Begin the Hunt',
+            label: t('menu.play'),
             variant: 'forged',
             onClick: () => this.game.getStateManager().changeState('survivors'),
         });
@@ -105,7 +124,7 @@ export class MenuState implements GameState {
         // is stashed in PendingCoop and the survivors state picks it up in
         // startRun (taking precedence over the dev ?host/?join URL flow).
         screen.appendChild(makeButton({
-            label: 'Co-op',
+            label: t('menu.coop'),
             variant: 'forged',
             onClick: () => {
                 if (this.coopLobby) return; // guard against stacking on rapid taps
@@ -122,11 +141,11 @@ export class MenuState implements GameState {
         }));
 
         // ── Graphics preset selector ─────────────────────────────────────
-        const gfxLabel = el('div', { class: 'screen__label', text: 'Graphics' });
+        const gfxLabel = el('div', { class: 'screen__label', text: t('menu.graphics') });
         screen.appendChild(gfxLabel);
 
         const levels: GraphicsQuality[] = ['low', 'medium', 'high'];
-        const labels = ['LOW', 'MEDIUM', 'HIGH'];
+        const labels = [t('menu.qualityLow'), t('menu.qualityMedium'), t('menu.qualityHigh')];
         const gfxBtns: HTMLDivElement[] = [];
 
         const refresh = () => {
@@ -156,9 +175,28 @@ export class MenuState implements GameState {
         // Apply initial active state
         refresh();
 
+        // ── Language selector ────────────────────────────────────────────
+        // Every entry is labelled with its own ENDONYM, which is the one label a
+        // player who cannot read the current UI can still recognise. Changing the
+        // language rebuilds the menu (see subscribeLocale in enter()) rather than
+        // trying to re-target every node — nothing else is on screen, and a run
+        // can never be in progress here.
+        screen.appendChild(el('div', { class: 'screen__label', text: t('menu.language') }));
+        const langRow = el('div', { class: 'screen__row' });
+        for (const id of LOCALE_IDS) {
+            const btn = el('div', {
+                class: getLocale() === id ? 'gfx-btn gfx-btn--active' : 'gfx-btn',
+                text: getLocaleLabel(id),
+                attrs: { lang: catalogue(id).tag },
+            });
+            onTap(btn, () => setLocale(id));
+            langRow.appendChild(btn);
+        }
+        screen.appendChild(langRow);
+
         // Leaderboard button — opens the shared modal over the menu.
         screen.appendChild(makeButton({
-            label: 'Leaderboard',
+            label: t('menu.leaderboard'),
             icon: 'trophy',
             variant: 'ghost',
             onClick: () => {
